@@ -2,7 +2,7 @@
 
 A foundation for an evidence-driven cryptocurrency analysis assistant. The intended purpose is to organize reliable market evidence and future analysis for human review.
 
-**This is not an automated trading bot. It contains no trading strategies, chart-pattern trading signals, setup qualification, trade planning engine, backtesting, alerts, trade execution, AI/LLM features, or user interface. It does not make trading decisions or place/execute trades.** Numerical market facts are derived from source data and deterministic code; missing candles remain missing rather than being guessed or synthesized. The Step 3 market-structure engine is descriptive only: it reports measured structural facts (swings, trend, ranges, levels, volatility, volume) for human review and for later deterministic steps, and never emits a trade, signal, or recommendation.
+**This is not an automated trading bot. It contains no trading strategies, chart-pattern trading signals, setup qualification, trade planning engine, backtesting, alerts, trade execution, AI/LLM features, or user interface. It does not make trading decisions or place/execute trades.** Numerical market facts are derived from source data and deterministic code; missing candles remain missing rather than being guessed or synthesized. The Step 3 market-structure engine is descriptive only: it reports measured structural facts (swings, trend, ranges, levels, volatility, volume) for human review and for later deterministic steps, and never emits a trade, signal, or recommendation. Step 4 adds deterministic pattern/liquidity events as evidence only, with explicit knowable timestamps.
 
 ## Current architecture
 
@@ -35,7 +35,19 @@ src/trading_assistant/
 │   ├── snapshot.py           Typed snapshot and JSON projection
 │   ├── service.py            Read-only snapshot service over Step 2 storage
 │   └── numeric.py            Reproducible decimal arithmetic helpers
-├── pattern_liquidity/        Reserved; no detector implemented
+├── pattern_liquidity/        Deterministic evidence engine (Step 4)
+│   ├── events.py             Immutable events, structural references and stable IDs
+│   ├── parameters.py         Validated per-request detector rules
+│   ├── references.py         Adapters for existing Step 3 evidence
+│   ├── breakouts.py          Closed-candle breakout confirmation
+│   ├── failures.py           Later whole-band breakout re-entry
+│   ├── sweeps.py             Potential liquidity sweep evidence
+│   ├── retests.py            Observed, held and failed retests
+│   ├── equal_levels.py       Same-kind reuse of Step 3 zone clustering
+│   ├── classical_patterns.py Four confirmed-swing geometries and state changes
+│   ├── analysis.py           Gap-bounded chronological replay
+│   ├── snapshot.py           Typed evidence catalog and JSON projection
+│   └── service.py            Read-only snapshots and historical enumeration
 ├── setup_qualification/      Reserved; no qualification logic implemented
 ├── trade_planning/           Reserved; no planning logic implemented
 ├── journaling/               Reserved; no journal functionality implemented
@@ -312,3 +324,290 @@ python -m pytest tests/test_market_structure.py tests/test_market_structure_serv
 ```
 
 `tests/test_market_structure.py` exercises the pure calculations with deterministic synthetic fixtures (`tests/market_structure_fixtures.py`), including swing confirmation timing, equal-extreme tie policies, gap-blocked windows, trend classification, range acceptance/rejection, zone clustering, Wilder ATR, and volume windows. `tests/test_market_structure_service.py` exercises the read-only service against temporary SQLite databases: snapshot contents, higher-timeframe contexts, gap/tail propagation, insertion-order independence, source-record immutability, and the anti-lookahead guarantees below.
+
+## Step 4 — deterministic pattern & liquidity evidence
+
+**These detections are market evidence, NOT trade recommendations.** A chart
+shape is a feature, not a standalone signal. No execution, setup qualification,
+entries, stops, targets, R:R, profitability, win/loss labels, AI/LLM logic,
+alerts, backtesting or UI is included. Step 5 has not been started.
+
+### API and evidence catalog
+
+```python
+from datetime import UTC, datetime
+from trading_assistant.database import create_database_engine
+from trading_assistant.pattern_liquidity import (
+    PatternLiquidityParameters,
+    PatternLiquidityService,
+)
+
+engine = create_database_engine()
+service = PatternLiquidityService(engine)
+snapshot = service.snapshot(
+    exchange="binance", symbol="BTC/USDT", timeframe="1h",
+    as_of=datetime(2025, 1, 1, tzinfo=UTC),
+    parameters=PatternLiquidityParameters(breakout_confirmation_candles=2),
+)
+json_ready = snapshot.to_json_dict()  # Decimal strings and UTC ISO timestamps
+occurrences = service.enumerate_events(
+    exchange="binance", symbol="BTC/USDT", timeframe="1h",
+    as_of=datetime(2025, 1, 1, tzinfo=UTC),
+    known_since=datetime(2024, 12, 1, tzinfo=UTC),
+)
+engine.dispose()
+```
+
+Exchange, symbol, timeframe and aware `as_of` are required; there is no implicit
+wall clock or hardcoded instrument. Aware times normalize to UTC using Step 2.
+The pure `analyze_patterns(candles, exchange=..., symbol=..., timeframe=...,
+as_of=...)` API uses the same replay without database I/O. Both APIs accept
+`structure_parameters=MarketStructureParameters(...)`; Step 3 defaults apply
+otherwise. The service reads **all stored history through the last closed
+candle**, not just a short recent lookback. `known_since` filters occurrences
+inclusively *after* replay so structural warmup is preserved.
+
+Immutable typed dataclasses record:
+
+- `breakouts`, `failed_breakouts`, `sweeps`, `retests`, `equal_levels`,
+  `chart_patterns` — chronological tuples, with ties sorted by stable event ID;
+- `structure` — reused Step 3 single-timeframe analysis of the final contiguous
+  segment, including its parameters, swings, trend, zones, range, ATR and volume;
+- `completeness` — Step 2 gap report and Step 3 completeness summary for the
+  entire retrieved window, including trailing missing candles;
+- `parameters`, `as_of`, instrument, `status` and machine-readable `reasons`.
+
+`snapshot.events()` merges all families into chronological occurrences. Pattern
+state transitions and retest outcomes are separate records, **not revisions**
+to earlier evidence. Group chart records by `pattern_id`, and retests/failures by
+`breakout.id`. Same-time records are ordered by ID, not by an assumed intrabar
+sequence. There is no claim about the order of a candle's high and low.
+
+### Timing, reference freezing and anti-lookahead
+
+A candle with open timestamp `t` and fixed interval `I` is usable only at
+`t + I <= as_of`. The replay evaluates each candle against Step 3 structure
+known at its **open**, using only the preceding closed prefix. Multi-candle
+breakout candidates freeze that reference for their entire confirmation window.
+Every detector is bounded by this replay's explicit UTC time. Component helper
+functions are internal replay operations, not alternative unbounded public APIs.
+
+Swing highs are upward references, swing lows downward references. Zones can be
+crossed in either direction. Active ranges supply separate upper/lower boundary
+references, with their original Step 3 range evidence attached. Reference bands
+are Step 3's actual source-price bands, not newly calculated padded zones.
+Each reference records its source swings and, where applicable, zone/range.
+Zones and swings representing the same price remain **distinct structural
+references**, not independent votes or a confidence score.
+
+Both the read API and pure API exclude future candles before calculating the
+snapshot context. A database containing valid Step 2 data only through time T
+and one containing that same data plus future candles produce identical Step 4
+snapshots at T, including diagnostics and IDs. Pattern formation, swing
+confirmation and event confirmation are deliberately separate times. This is
+an event-time guarantee; it does not model late data arrival or subsequent
+backfills into *past* gaps. Changing past inputs can change derived results.
+
+### Exact event definitions
+
+All percentages are percent values (`0.1` means 0.1%, not 10%). Price tolerances
+use Step 3's `tolerance_band`; percentages use its eight-decimal derived rounding
+and ratios use its deterministic Decimal division.
+
+**Breakout:** the previous closed close must be at or inside the relevant outer
+boundary. For bullish events, each of N consecutive closed candles must close
+**strictly above** `band_high + tolerance`; bearish closes must be **strictly
+below** `band_low - tolerance`. Equality at the threshold is not confirmation.
+A close already slightly outside the raw boundary does not seed a fresh crossing.
+A wick alone never confirms a breakout. `candle` is the first beyond-threshold
+candle, `confirmation_candles` contains all N, and `known_at` is the final close
+time. `breakout_close` and penetration use that final confirming close;
+`candle.close` preserves the original crossing close. Penetration is distance
+beyond the relevant outer boundary; percentage divides by that boundary price.
+ATR-relative penetration is distance / Step 3 ATR at confirmation, or `None`
+when unavailable/zero. Step 3 volatility/volume objects retain availability
+reasons. `previous_candle` makes the crossing precondition independently visible.
+Repeated closes outside a reference are not repeated breakouts; a fresh return
+inside and subsequent crossing can produce another occurrence.
+
+**Failed breakout:** within the configured number of candles **after the
+breakout became knowable**, the first later closed close must re-enter through
+the **whole** frozen band: bullish failure is below `band_low - reentry tolerance`,
+bearish failure above `band_high + reentry tolerance`. Threshold equality does
+not fail. This conservative rule is stronger than merely closing back inside a
+wide zone. Evidence includes the immutable original breakout, all post-confirmation
+candles through failure, re-entry distance, elapsed candles and elapsed seconds
+(measured from breakout confirmation). Expiration means unknown, not success.
+Future failure never appears in the original breakout record.
+
+**Potential liquidity sweep:** the prior close must be at/inside the reference.
+For `above`, the high must penetrate strictly beyond `band_high + penetration
+tolerance`, and the same candle must close at/below `band_high - reclaim tolerance`.
+For `below`, the low must penetrate strictly below `band_low - penetration
+tolerance` and close at/above `band_low + reclaim tolerance`. Reclaim equality
+is accepted. Confirmation is only at this candle's close. Evidence includes
+extreme, reclaim close, penetration distance/percentage/ATR ratio, previous
+candle, reference and Step 3 volume/ATR context. For a given reference/direction
+on a given candle, the sweep reclaim and breakout close conditions are mutually
+exclusive. These are **liquidity references**, not proof that actual stop orders
+or institutional liquidity existed there. Equal-level clusters are cataloged
+separately; sweeps use existing Step 3 swings/zones/ranges, not a duplicate
+cluster-reference hierarchy.
+
+**Retest:** only candles whose open is at/after breakout confirmation are eligible.
+The first closed candle whose `[low, high]` intersects the frozen band expanded
+by retest tolerance emits `observed`. On that candle or a subsequent closed candle
+within the window, `held` requires a close strictly outside the breakout-side
+boundary by hold tolerance; `failed` requires the same whole-band re-entry rule
+as failed breakouts. Both observations and outcomes retain the entire
+post-breakout candle sequence used. Until an outcome exists, only `observed` is
+reported. A candle can establish observed+held or observed+failed at its close;
+this is not intrabar forecasting. Only the first retest sequence and its first
+terminal outcome are recorded per breakout. A failure before any band visit
+terminates retest tracking without inventing a retest. A held retest does not
+prevent a later failed-breakout event. Windows are inclusive candle counts;
+because evaluation is contiguous, they also enforce elapsed-time limits of
+`window * timeframe interval`.
+
+**Equal highs/lows:** reuse Step 3 `detect_zones` separately for confirmed highs
+and lows. Its chronological greedy rule joins the nearest eligible first-member
+anchor within percentage tolerance (earliest-created anchor breaks ties). This
+is anchored, not transitive chaining or pairwise equality: two members on opposite
+sides of an anchor can be up to twice the tolerance apart. At least
+`equal_min_members` of the most recent `equal_lookback_swings` *per kind* are
+required. Band, mean center, exact swings, member count and parameters are
+recorded. Each distinct membership set has its own immutable occurrence ID;
+`first_known_at` and `known_at` are that set's first discovery time (equal for
+this immutable version). `first_member_confirmed_at` and
+`latest_member_confirmed_at` separately expose member timing. Usually discovery
+coincides with the newest member's confirmation, but rolling-lookback eviction
+can regroup older swings: that new group is recorded **now**, never backdated
+to its older members. Expansion does not rewrite the earlier smaller set.
+
+**Classical patterns:** only consecutive, strictly time-ordered, alternating
+**confirmed Step 3 swings** are used. No synthetic ZigZag, partial/unconfirmed
+swings, preceding-trend inference or subjective visual scoring is added.
+
+- Double top: high–low–high; double bottom: low–high–low. The two outside
+  extremes must differ by no more than geometry tolerance as a percentage of
+  the first extreme. The middle swing price is the horizontal neckline.
+- Head and shoulders: high–low–high–low–high; inverse: low–high–low–high–low.
+  Outside shoulders satisfy the same equality test. The central head must
+  exceed **both** shoulders in the appropriate direction by at least head
+  prominence (percentage of mean shoulder price). The two neckline swings
+  must differ by no more than geometry tolerance (percentage of their mean).
+  The neckline is their mean. Sloping-neckline variants are intentionally absent.
+- For either family, the smallest signed distance from any outer-side extreme
+  to any neckline-side swing, as a percentage of the neckline, must be at least
+  minimum depth. First-to-last component span must not exceed the configured
+  candle limit. Geometric comparisons accept exact tolerance/depth boundaries.
+- `formation_timestamp` is the last component swing's open time; `formed_at`
+  and the `formed` event's `known_at` are the latest component confirmation time.
+  Merely having geometry does **not** confirm the pattern. Partial `forming`
+  candidates are intentionally not emitted.
+- On a candle **opening at/after `formed_at`**, a top requires a close strictly
+  below neckline minus neckline tolerance; a bottom requires a close strictly
+  above neckline plus tolerance. `confirmed` records that close time separately
+  as `confirmation_timestamp`. Earlier neckline crossings, including one during
+  the final swing's confirmation window, are not retroactively confirmations.
+- Before confirmation, a top close strictly above its highest component extreme
+  plus invalidation tolerance (bottom: below its lowest minus tolerance) emits
+  `invalidated`. The first confirmation or invalidation is terminal. Confirmation
+  does not mean success; post-confirmation outcomes are outside this initial
+  pattern lifecycle. Geometry and source/confirming candles are retained.
+
+### All Step 4 defaults
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `breakout_tolerance_pct` | `0.1` | Strict outside-close threshold |
+| `breakout_confirmation_candles` | `1` | Consecutive qualifying closed candles |
+| `failure_window_candles` | `10` | Maximum closed candles after breakout confirmation |
+| `failure_reentry_pct` | `0.1` | Whole-band failure margin, also used for retest failure |
+| `sweep_penetration_pct` | `0.1` | Strict extreme penetration margin |
+| `sweep_reclaim_pct` | `0` | Required close reclaim margin; equality accepted |
+| `retest_window_candles` | `10` | Maximum closed candles after breakout confirmation |
+| `retest_tolerance_pct` | `0.2` | Band expansion for first retest observation |
+| `retest_hold_pct` | `0.1` | Strict breakout-side closing margin for held |
+| `equal_tolerance_pct` | `0.2` | Step 3 clustering tolerance, separately per swing kind |
+| `equal_min_members` | `2` | Minimum confirmed members |
+| `equal_lookback_swings` | `40` | Per-kind clustering lookback |
+| `pattern_tolerance_pct` | `0.5` | Peak/shoulder equality and H&S neckline flatness |
+| `pattern_min_depth_pct` | `1` | Minimum shape depth relative to neckline |
+| `head_min_prominence_pct` | `1` | Minimum head distance beyond both shoulders |
+| `neckline_tolerance_pct` | `0.1` | Strict closed-candle confirmation margin |
+| `pattern_invalidation_pct` | `0.1` | Strict opposite-side invalidation margin |
+| `pattern_max_span_candles` | `120` | Maximum first-to-last component span |
+
+All percentage values must be finite and in `[0, 100)`; equal tolerance, pattern
+depth and head prominence must be positive. Counts must be positive integers,
+not booleans/floats; equal minimum membership must be between two and its
+lookback. These request-scoped validated parameters are recorded with every
+occurrence. Defaults require confirmed swings, closed-candle evidence and
+nonzero breakout/shape margins; they are **not optimized for profitability**.
+
+### Identity, history safety and incomplete data
+
+IDs are versioned SHA-256 hashes of canonical JSON structural keys: instrument,
+reference kind and source swings/bands as appropriate, event type/direction and
+crossing timestamp. Related failures/retests derive IDs from the original
+breakout ID and state. Pattern occurrences use component swings and pattern type;
+state IDs derive from `pattern_id`. Source timestamps, prices and swing confirmation
+parameters are part of the evidence keys. No random UUIDs or process hash values
+are used. Presentation-time fields such as zone `as_of`/role are deliberately not
+identity keys. Different Step 4 parameter runs may share an underlying event ID;
+store the parameter configuration alongside any externally saved catalog rather
+than merging different configurations as though they were one run.
+
+History is derived/in-memory only. There is **no migration or event table**, no
+write to OHLCV, and no alteration of Step 3 source calculations. Enumeration
+records market events and transitions, not trades or winning/losing outcomes.
+
+Step 2 validation calculates gaps; Step 3 helpers calculate completeness. Missing
+candles are never filled. At every internal gap, pending confirmations, live
+breakouts/retests/patterns and the structural segment are reset. Pre-gap recorded
+facts remain in history. Post-gap detectors must rebuild their evidence from
+fresh contiguous candles. Thus **no candidate can bridge a gap**, even if a price
+jumps over a historical boundary. Unresolved pre-gap outcomes remain unknown;
+missing evidence is not a failure or success. A trailing gap marks the snapshot
+incomplete without fabricating more events. Invalid source OHLCV is rejected,
+not silently repaired or dropped. Step 4 requires strictly positive OHLC prices
+for percentage geometry; zero-price candles (permitted in Step 2 storage) produce
+a clear unsupported-input error without modifying the source.
+
+`status` is `insufficient` for empty/short/no-reference contiguous history,
+`incomplete` for a nonempty history with missing candles, otherwise `evaluated`.
+Reasons include `no_stored_candles`, `insufficient_contiguous_candles`,
+`no_confirmed_structural_references`, and `gaps_reset_detector_state` (which also
+indicates unknown coverage at a trailing gap). Empty families do not assert
+that an event was impossible: they mean no qualifying occurrence was observed
+in the available history under the recorded rules. ATR/volume retain their own
+Step 3 insufficient/unknown states. Coverage begins at the earliest stored
+candle; missing history before that point is not knowable.
+
+### Limitations and verification
+
+- Replay favors auditability over throughput: it repeatedly invokes existing
+  Step 3 calculations and retains evidence, so long histories can be expensive
+  in CPU and memory. There is no cache, incremental checkpoint or persistent
+  event store yet. Query narrower *stored datasets* when evaluating large histories;
+  `known_since` does not reduce warmup cost.
+- Only one timeframe is evaluated per call. No higher-timeframe feature was
+  duplicated; obtain Step 3 higher-timeframe context from its existing service
+  if needed. `structure_parameters.higher_timeframes` does not cause resampling
+  or higher-timeframe evaluation in this single-timeframe engine.
+- Only horizontal, alternating-swing chart geometries are supported. There are
+  no time-symmetry rules, sloping necklines, volume confirmation gates, partial
+  patterns, candlestick pattern library, or claims about actual order placement.
+- Breakout/sweep references can be correlated. The catalog does not aggregate
+  them into confidence, qualification, or profitability scores.
+- Gaps intentionally discard potentially useful older references rather than
+  silently connecting uncertain evidence. Inserted/backfilled *past* candles
+  can legitimately change a replay; future candles cannot.
+
+Offline tests: `tests/test_pattern_liquidity.py` and
+`tests/test_pattern_liquidity_service.py` cover directional events, strict
+boundaries, multi-close confirmation, retest states/windows, all four geometries,
+negative near-matches, formation/confirmation/invalidation timing, deterministic
+IDs/order, every-prefix anti-lookahead, temporary-database future insertion,
+gap resets, event enumeration, unchanged OHLCV and unchanged Step 3 behavior.
