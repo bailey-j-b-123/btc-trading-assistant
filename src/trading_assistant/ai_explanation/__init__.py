@@ -1,0 +1,1 @@
+"""Reserved package for future AI-assisted explanations; no AI/LLM feature is implemented."""

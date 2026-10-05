@@ -218,3 +218,23 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local credentials and environment overrides (.env.example is intentionally tracked)
+.env.*
+!.env.example
+
+# Persistent local datasets and backup contents; retain only their directory markers
+/data/raw/**
+!/data/raw/.gitkeep
+/data/processed/**
+!/data/processed/.gitkeep
+/backups/**
+!/backups/.gitkeep
+
+# SQLite databases and journal/WAL sidecars (including configurable local paths)
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
