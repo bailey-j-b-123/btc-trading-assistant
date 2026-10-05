@@ -1,0 +1,67 @@
+/**
+ * Application entry: hash router, navigation state, view mounting.
+ * No framework, no build step: deterministic static modules.
+ */
+
+import { renderDashboard } from "./views/dashboard.js";
+import { renderJournal } from "./views/journal.js";
+import { renderSettings } from "./views/settings.js";
+import { renderStatistics } from "./views/statistics.js";
+
+const ROUTES = {
+  dashboard: (view) => renderDashboard(view),
+  journal: (view, parts) => {
+    const journalId = parts[1] ? decodeURIComponent(parts[1]) : null;
+    return renderJournal(view, { journalId });
+  },
+  statistics: (view) => renderStatistics(view),
+  settings: (view) => renderSettings(view),
+};
+
+function currentRoute() {
+  const hash = location.hash || "#/dashboard";
+  const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
+  const name = parts[0] && ROUTES[parts[0]] ? parts[0] : "dashboard";
+  return { name, parts };
+}
+
+function updateNav(name) {
+  for (const item of document.querySelectorAll(".nav-item")) {
+    if (item.dataset.route === name) item.setAttribute("aria-current", "page");
+    else item.removeAttribute("aria-current");
+  }
+  const titles = {
+    dashboard: "Dashboard",
+    journal: "Journal",
+    statistics: "Statistics",
+    settings: "Settings",
+  };
+  document.title = `Trading Assistant — ${titles[name] || "Dashboard"}`;
+}
+
+function render() {
+  const { name, parts } = currentRoute();
+  const view = document.getElementById("view");
+  if (!view) return;
+  updateNav(name);
+  ROUTES[name](view, parts).catch((error) => {
+    view.textContent = "";
+    const block = document.createElement("div");
+    block.className = "state-block";
+    const big = document.createElement("div");
+    big.className = "big";
+    big.textContent = "View failed to load";
+    const detail = document.createElement("div");
+    detail.textContent = error instanceof Error ? error.message : String(error);
+    block.append(big, detail);
+    view.append(block);
+  });
+  view.focus({ preventScroll: true });
+  window.scrollTo({ top: 0 });
+}
+
+window.addEventListener("hashchange", render);
+window.addEventListener("DOMContentLoaded", () => {
+  if (!location.hash) location.hash = "#/dashboard";
+  render();
+});

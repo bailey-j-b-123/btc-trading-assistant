@@ -1,0 +1,17 @@
+{
+  "name": "BTC Trading Assistant",
+  "short_name": "Trading Assistant",
+  "description": "Evidence-driven analysis dashboard. Analysis only: no order execution.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0e13",
+  "theme_color": "#0b0e13",
+  "icons": [
+    {
+      "src": "/static/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

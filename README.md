@@ -2,7 +2,7 @@
 
 A foundation for an evidence-driven cryptocurrency analysis assistant. The intended purpose is to organize reliable market evidence and future analysis for human review.
 
-**This is not an automated trading bot. It contains deterministic candidate setup definitions, a deterministic, read-only trade *planning* layer, and a grounded, fact-locked explanation layer (Step 9) that can only re-state existing deterministic evidence — but no order placement, backtesting, alerts, trade execution, autonomous AI decision-making, or user interface. It does not make trading decisions or place/execute trades. QUALIFIED means rules satisfied, not a profitable trade or recommendation; PLANNABLE means a complete deterministic proposal was derived from a rule-qualified setup, not that a trade is profitable, advisable, or should be executed.** Numerical market facts are derived from source data and deterministic code; missing candles remain missing rather than being guessed or synthesized. The Step 3 market-structure engine is descriptive only: it reports measured structural facts (swings, trend, ranges, levels, volatility, volume) for human review and for later deterministic steps, and never emits a trade, signal, or recommendation. Step 4 adds deterministic pattern/liquidity events as evidence only, with explicit knowable timestamps. Step 5 combines those existing facts into auditable NO_SETUP, WATCH and QUALIFIED states. Step 6 converts only a *currently QUALIFIED* Step 5 candidate into a transparent, fully traceable proposed plan (entry, invalidation, stop, targets, unit-neutral R metrics) or an explicit refusal. Step 7 is the immutable decision & outcome journal: it appends what the system proposed (the exact Step 5 snapshot and Step 6 plan projections), what Bailey explicitly decided (PENDING/ACCEPTED/REJECTED/SKIPPED), and deterministic, anti-lookahead market observations of the proposed levels (entry/stop/target touches, first-touch ordering, ambiguity, gaps, MFE/MAE) that survive restarts and never rewrite history.
+**This is not an automated trading bot. It contains deterministic candidate setup definitions, a deterministic, read-only trade *planning* layer, a grounded, fact-locked explanation layer (Step 9) that can only re-state existing deterministic evidence, and a read-only presentation dashboard (Step 10) that displays Steps 1–9 output and records Bailey's explicit journal decisions — but no order placement, backtesting, alerts, trade execution, or autonomous AI decision-making. The UI never executes trades: ACCEPT records a journal row, nothing more. It does not make trading decisions or place/execute trades. QUALIFIED means rules satisfied, not a profitable trade or recommendation; PLANNABLE means a complete deterministic proposal was derived from a rule-qualified setup, not that a trade is profitable, advisable, or should be executed.** Numerical market facts are derived from source data and deterministic code; missing candles remain missing rather than being guessed or synthesized. The Step 3 market-structure engine is descriptive only: it reports measured structural facts (swings, trend, ranges, levels, volatility, volume) for human review and for later deterministic steps, and never emits a trade, signal, or recommendation. Step 4 adds deterministic pattern/liquidity events as evidence only, with explicit knowable timestamps. Step 5 combines those existing facts into auditable NO_SETUP, WATCH and QUALIFIED states. Step 6 converts only a *currently QUALIFIED* Step 5 candidate into a transparent, fully traceable proposed plan (entry, invalidation, stop, targets, unit-neutral R metrics) or an explicit refusal. Step 7 is the immutable decision & outcome journal: it appends what the system proposed (the exact Step 5 snapshot and Step 6 plan projections), what Bailey explicitly decided (PENDING/ACCEPTED/REJECTED/SKIPPED), and deterministic, anti-lookahead market observations of the proposed levels (entry/stop/target touches, first-touch ordering, ambiguity, gaps, MFE/MAE) that survive restarts and never rewrite history.
 
 **Software calculates → rules qualify → statistics validate → AI explains → Bailey decides → everything gets recorded.** Step 7 records that history durably and append-only. Step 8 adds deterministic, read-only statistics over those immutable records; it validates recorded evidence but does not establish future performance or profitability. Step 9 owns **“AI explains”**: it converts the facts already established by Steps 3–8 into clear, auditable explanations through a deterministic explanation context, a fact manifest, and a deterministic local renderer, with an optional provider-independent interface for a future LLM/API whose structured output is validated against the manifest before use. Step 9 explains existing deterministic evidence; it never creates market facts, prices, statistics, setups or trade plans, and it never decides or executes anything.
 
@@ -75,16 +75,31 @@ src/trading_assistant/
 │   ├── analysis.py             Pure cutoff-bounded metrics and grouping
 │   ├── models.py               Immutable, reproducible report contracts
 │   └── service.py              Read-only composition over Step 7 rows
-└── ai_explanation/           Grounded explanation layer (Step 9)
-    ├── parameters.py          Versions, fingerprint helpers, grounding rules
-    ├── errors.py              Context-build errors and grounding violations
-    ├── models.py              Immutable context/manifest/provider contracts
-    ├── context.py             Copy-only canonical context builder (Steps 3-8)
-    ├── manifest.py            Deterministic fact manifest and numeric allow-set
-    ├── renderer.py            Renderer interface + deterministic local renderer
-    ├── provider.py            Provider interface + manifest grounding validation
-    └── service.py             Stateless, database-free explanation service
+├── ai_explanation/           Grounded explanation layer (Step 9)
+│   ├── parameters.py          Versions, fingerprint helpers, grounding rules
+│   ├── errors.py              Context-build errors and grounding violations
+│   ├── models.py              Immutable context/manifest/provider contracts
+│   ├── context.py             Copy-only canonical context builder (Steps 3-8)
+│   ├── manifest.py            Deterministic fact manifest and numeric allow-set
+│   ├── renderer.py            Renderer interface + deterministic local renderer
+│   ├── provider.py            Provider interface + manifest grounding validation
+│   └── service.py             Stateless, database-free explanation service
+└── web/                      Read-only presentation layer (Step 10)
+    ├── app.py                 FastAPI factory, JSON errors, security headers
+    ├── app_factory.py         Import-light factory for uvicorn
+    ├── state.py               AppState: engine, services, injectable clock
+    ├── freshness.py           Deterministic CURRENT/STALE/HISTORICAL/UNKNOWN rules
+    ├── dashboard_service.py   Dashboard payload assembly over Steps 2–9
+    ├── journal_query.py       SELECT-only filtered journal listing adapter
+    ├── schemas.py             Validated decision/observation request contracts
+    ├── routers/               meta / market / dashboard / journal / statistics / settings
+    └── static/                Zero-build dashboard UI (ES modules + CSS)
+        ├── index.html         App shell (semantic markup, external scripts only)
+        ├── styles.css         Dark-terminal design system, responsive breakpoints
+        ├── js/                format / freshness / decision / chart / views / api
+        └── vendor/            Vendored lightweight-charts build + license
 
+scripts/seed_synthetic_demo.py  Labelled synthetic demo data for local preview
 migrations/                   Explicit Alembic schema migrations
 data/raw/                      Protected raw-response archive
 data/processed/                Protected location for future derived datasets
@@ -104,6 +119,8 @@ cp .env.example .env
 ```
 
 `.env` is optional and ignored by Git. Never put credentials in `.env.example` or commit them. Public OHLCV requests use CCXT without API credentials or trading permissions.
+
+The Step 10 dashboard (`python -m trading_assistant.web`) is served by the same install: `fastapi` and `uvicorn` are core dependencies, and `httpx` (dev extra) powers its offline API tests. The dashboard UI has no build step and no runtime Node dependency; see the Step 10 section for local usage.
 
 The instrument remains configurable with `TRADING_ASSISTANT_SYMBOL`, `TRADING_ASSISTANT_BASE_ASSET`, and `TRADING_ASSISTANT_QUOTE_ASSET` (defaults: `BTC/USDT`, `BTC`, `USDT`). The default local database URL remains `sqlite:///data/trading_assistant.sqlite3`. The default exchange is `kraken`, configurable with `TRADING_ASSISTANT_EXCHANGE`. Initial configured timeframes are `5m`, `15m`, `1h`, `4h`, and `1d`; `TRADING_ASSISTANT_SUPPORTED_TIMEFRAMES` and `TRADING_ASSISTANT_DEFAULT_TIMEFRAME` can be changed. Fixed-duration seconds/minutes/hours/days/weeks are supported by the timeframe parser, so the configured set can be extended without treating the initial list as exhaustive. The raw archive root is configurable with `TRADING_ASSISTANT_RAW_DATA_DIR` and defaults to `data/raw/`.
 
@@ -1303,4 +1320,201 @@ python -m pytest tests/test_ai_explanation.py
 python -m pytest                        # complete Steps 1–9 test suite
 ruff format --check src/trading_assistant/ai_explanation tests/test_ai_explanation.py
 ruff check src/trading_assistant/ai_explanation tests/test_ai_explanation.py
+```
+
+## Step 10 — professional responsive trading dashboard (presentation layer)
+
+Step 10 owns the **user interface** in the project principle: it makes the existing
+deterministic pipeline (Steps 1–9) usable visually. It is a *presentation* layer
+only. **The UI is never a second trading engine.** It does not compute setup
+qualification, market structure, patterns, plan levels, statistics, or outcomes; it
+does not fabricate prices or AI facts; and it never places, modifies, or cancels an
+order. Steps 1–9 remain authoritative, and the dashboard reuses their exact outputs.
+
+**Software calculates → rules qualify → statistics validate → AI explains → Bailey
+decides → everything gets recorded.** Step 10 presents that pipeline and exposes the
+one state-changing action that has existed since Step 7: appending an explicit
+`ACCEPTED` / `REJECTED` / `SKIPPED` decision to the immutable journal. **The UI does
+not execute trades.** "Accept" means "record Bailey's decision in the journal," never
+"place an order."
+
+### Architecture chosen and why
+
+The smallest maintainable stack that integrates with the existing Python application:
+
+* **Backend:** FastAPI serving a typed JSON API plus the static UI from a single
+  process. FastAPI was chosen because it is the minimal, widely-understood Python web
+  layer that gives request validation (Pydantic), clean dependency injection of the
+  existing `AppState` (engine + Steps 2–9 services + injectable clock), and structured
+  JSON error handling with no extra framework. It adds no new database tables and no
+  new migrations.
+* **Frontend:** a zero-build vanilla ES-module single-page app (`web/static/js`) with a
+  hand-written dark design system (`styles.css`). No bundler, no node dependency at
+  runtime, no framework lock-in — the files the server ships are the files reviewed.
+* **Charting:** TradingView `lightweight-charts` v4.2.0, **vendored** into
+  `web/static/vendor/` with its license, so the app needs no CDN and no network to
+  render. The chart consumes only backend-served candles/overlays — the browser never
+  fetches market data independently.
+* **Data source:** the chart, dashboard, journal and statistics all read the same
+  SQLite tables the engine uses, through the existing Step 2–9 services. There is a
+  single source of truth.
+
+```text
+Browser (ES-module SPA)
+   │  fetch /api/*  (JSON only; no inline script; CSP default-src 'self')
+   ▼
+FastAPI routers ──► AppState (engine + Steps 2–9 services + clock)
+   │                     │
+   │                     ├─ CandleRepository        (Step 2 closed candles)
+   │                     ├─ QualificationService    (Step 5 state)
+   │                     ├─ plan_trade              (Step 6 plan/refusal)
+   │                     ├─ JournalService          (Step 7 decisions/observations)
+   │                     ├─ JournalStatisticsService(Step 8 report)
+   │                     └─ ExplanationService      (Step 9 grounded narrative)
+   ▼
+Static UI assets (index.html, styles.css, js/, vendor/lightweight-charts)
+```
+
+### Running the dashboard locally
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+
+alembic upgrade head                     # create/migrate the SQLite schema
+python scripts/seed_synthetic_demo.py    # OPTIONAL labelled synthetic preview data
+python -m trading_assistant.web          # http://127.0.0.1:8040
+# options: --host 0.0.0.0 --port 8040
+```
+
+Without seed data the dashboard is honest about emptiness: it shows **NO TRADE**, an
+`UNKNOWN` freshness badge, and "No stored candles / No journal entries" empty states
+rather than fabricated demo candles. To work with real data, download candles first
+(Step 2 `MarketDataService.update_history`).
+
+### Desktop and mobile behaviour
+
+Four primary areas are reached from a **sidebar on desktop** and a **bottom tab bar on
+mobile** (thumb-reachable, one-handed): **Dashboard, Journal, Statistics, Settings.**
+The active section is highlighted with `aria-current="page"`.
+
+* **Desktop** lays out cards in a single column under a sticky top bar that always shows
+  symbol, latest stored price and the freshness badge. The candlestick chart is ~420px
+  with overlay toggle chips (zones, range, equal levels, plan levels, swings).
+* **Mobile (≤860px)** is designed intentionally, not shrunk: the top bar compacts, cards
+  stack, the chart drops to ~320px, decision buttons become full-width ≥44px touch
+  targets, tables become cards, and the nav becomes a fixed bottom bar with
+  `safe-area-inset` padding. Status is never conveyed by colour alone — every badge pairs
+  a dot with text (`QUALIFIED`, `WATCH`, `NO TRADE`, `CURRENT`, `STALE`, …).
+
+The web manifest and meta tags make the app **installable to a home screen** (PWA-ready
+presentation), but Step 10 deliberately ships **no service worker and no push
+infrastructure** — that deployment concern is deferred.
+
+### Backend / frontend boundary
+
+The API returns authoritative structured data with explicit `UNKNOWN`/`null` states and
+never substitutes zeros. The frontend may *format* values for display (thousands
+separators, UTC rendering) but preserves the raw authoritative spelling and never
+re-derives a number.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/meta` | Identity, exchange, supported timeframes, rule versions, `execution_disabled: true` |
+| `GET /api/dashboard` | One authoritative payload: market, freshness, qualification, plan, overlays, journal, explanation |
+| `GET /api/market/candles` | Stored closed candles for the chart (never re-fetched from an exchange) |
+| `GET /api/market/structure` | Step 3 overlays (zones, range, swings, trend) for one timeframe |
+| `GET /api/journal/records` | Filtered, paged immutable journal listing |
+| `GET /api/journal/records/{id}` | One immutable historical record + decision/outcome history |
+| `POST /api/dashboard/decisions` | Journal the exact proposal at `as_of` and append one decision |
+| `POST /api/journal/records/{id}/decisions` | Append/correct a decision on an existing record |
+| `POST /api/journal/records/{id}/observations` | Deterministic Step 7 outcome observation at a cutoff |
+| `GET /api/statistics` (+ `/rolling`) | Step 8 report JSON (counts, rates, distributions) |
+| `GET /api/settings` | Configured defaults + explicitly unavailable controls |
+
+The only mutating routes are the three journal/decision endpoints above; there is no
+order, position, balance, leverage, transfer, or credential endpoint anywhere.
+
+### Data freshness states
+
+Every current-market screen reports a deterministic freshness computed on the backend
+from `as_of`, the timeframe's candle-close boundary, and the latest stored candle:
+
+* **CURRENT** — `as_of` is the newest boundary and the latest expected closed candle is
+  stored. This is the *only* state that may read as up-to-date; the word "LIVE" is never
+  used.
+* **STALE** — the requested boundary is current but stored candles stop before it;
+  `staleness_intervals` counts the gap.
+* **HISTORICAL** — the screen evaluates a past instant (including the default view when
+  data stops well before the wall clock). Never labelled live.
+* **UNKNOWN** — no stored candles (or an unusable series) for that instrument/timeframe.
+
+The dashboard's default `as_of` snaps to the newest boundary that has data, so a stale
+series renders as a clearly-labelled **HISTORICAL** view instead of forcing the engine to
+replay thousands of empty future frames.
+
+### Decision semantics
+
+Decisions use the existing Step 7 model unchanged:
+
+* There is **no default** — a proposal is never assumed accepted; `decision` is required.
+* Controls are **enabled only when a complete `PLANNABLE` proposal exists**; otherwise
+  they are disabled with the exact deterministic reason (no plan, `NO_PLAN`, `INVALID`,
+  or no qualified setup).
+* A confirmation dialog shows exactly which setup/plan snapshot (`as_of`, symbol,
+  timeframe, entry/stop/targets, setup id) the decision applies to before anything is
+  recorded.
+* Submitting an **identical** decision again is suppressed (`duplicate: true`, nothing
+  appended); a **different** decision appends a new row that supersedes the prior one,
+  preserving the full append-only correction trail.
+* Double-submission is guarded client-side (button locks) and server-side (duplicate
+  suppression).
+
+### Journal and statistics pages
+
+* **Journal** is searchable/filterable (symbol, family, direction, setup/plan state,
+  decision, outcome, date range) and paged. Opening a record shows the **immutable
+  historical snapshot** — the exact stored Step 5/Step 6 projections — plus decision
+  history (with supersession notes) and outcome-observation versions. Historical rows
+  never re-render against today's market.
+* **Statistics** renders Step 8 visually with the sample size and
+  `SUFFICIENT_DATA`/`INSUFFICIENT_DATA` banner impossible to miss. Every rate shows its
+  exact numerator/denominator; ambiguous, incomplete, and entry-not-reached counts are
+  surfaced; MFE/MAE and hypothetical R distributions are labelled **observational /
+  hypothetical**, never realized profit, and there is no fake equity curve.
+
+### Security boundaries and limitations
+
+* **No secrets** are committed or exposed; no exchange credentials, balances, leverage,
+  or order-execution surface exists in the bundle or the API.
+* **Content-Security-Policy** is `default-src 'self'` with no inline script/style/eval;
+  all scripts and styles are external files.
+* **Untrusted text** (journal notes, decision reasons, explanation prose) is rendered via
+  `textContent` only — never `innerHTML` — and is preserved verbatim, so it cannot inject
+  markup. There is no `eval`, no `document.write`, and no `Function(...)` in the shipped JS.
+* State-changing endpoints validate input with Pydantic enums and reject missing/invalid
+  decisions with `422`.
+* Errors are JSON-only (no HTML error pages leaking internals).
+
+**Required before any internet-facing deployment (not part of Step 10):** real
+authentication and an identity layer in front of the app, plus transport security. Step 10
+deliberately does **not** build a fake authentication system for appearance's sake; it
+flags `authentication_required_before_public_deployment: true` in `/api/meta` instead. The
+app is intended as a **private** application.
+
+### Step 10 limits
+
+The dashboard adds no trading logic, no new setup rules, no indicators, no statistics, no
+execution, no sizing, no optimization, and no parameter tuning. It re-uses deterministic
+outputs; where data is missing it shows an empty/UNKNOWN state rather than inventing
+values. Presentation preferences (preferred symbol/timeframe, overlay toggles, explanation
+detail) are stored **in the browser only** and never alter engine rules. Real-money
+execution, exchange authentication, balances, positions, leverage, and auto-trading remain
+out of scope for all steps.
+
+```bash
+python -m pytest                        # complete Steps 1–10 Python suite (481 tests)
+node --test tests/frontend/*.test.mjs   # frontend logic tests (22 tests)
+ruff format --check src/trading_assistant/web tests/test_web_*.py tests/web_fixtures.py tests/test_web_frontend_contract.py
+ruff check src/trading_assistant/web tests/test_web_*.py tests/web_fixtures.py tests/test_web_frontend_contract.py
 ```
