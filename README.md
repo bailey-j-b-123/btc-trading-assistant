@@ -4,7 +4,7 @@ A foundation for an evidence-driven cryptocurrency analysis assistant. The inten
 
 **This is not an automated trading bot. It contains deterministic candidate setup definitions and a deterministic, read-only trade *planning* layer, but no order placement, backtesting, alerts, trade execution, AI/LLM features, or user interface. It does not make trading decisions or place/execute trades. QUALIFIED means rules satisfied, not a profitable trade or recommendation; PLANNABLE means a complete deterministic proposal was derived from a rule-qualified setup, not that a trade is profitable, advisable, or should be executed.** Numerical market facts are derived from source data and deterministic code; missing candles remain missing rather than being guessed or synthesized. The Step 3 market-structure engine is descriptive only: it reports measured structural facts (swings, trend, ranges, levels, volatility, volume) for human review and for later deterministic steps, and never emits a trade, signal, or recommendation. Step 4 adds deterministic pattern/liquidity events as evidence only, with explicit knowable timestamps. Step 5 combines those existing facts into auditable NO_SETUP, WATCH and QUALIFIED states. Step 6 converts only a *currently QUALIFIED* Step 5 candidate into a transparent, fully traceable proposed plan (entry, invalidation, stop, targets, unit-neutral R metrics) or an explicit refusal. Step 7 is the immutable decision & outcome journal: it appends what the system proposed (the exact Step 5 snapshot and Step 6 plan projections), what Bailey explicitly decided (PENDING/ACCEPTED/REJECTED/SKIPPED), and deterministic, anti-lookahead market observations of the proposed levels (entry/stop/target touches, first-touch ordering, ambiguity, gaps, MFE/MAE) that survive restarts and never rewrite history.
 
-**Software calculates → rules qualify → statistics validate → AI explains → Bailey decides → everything gets recorded.** Step 7 records that history durably and append-only. Statistics and AI remain future work; candidate performance is not established, and the journal does not establish it either — it is a record of proposals, decisions and market observations, not a profitability claim.
+**Software calculates → rules qualify → statistics validate → AI explains → Bailey decides → everything gets recorded.** Step 7 records that history durably and append-only. Step 8 adds deterministic, read-only statistics over those immutable records; it validates recorded evidence but does not establish future performance or profitability. AI explanations remain future work.
 
 ## Current architecture
 
@@ -69,7 +69,12 @@ src/trading_assistant/
 │   ├── models.py             Four append-only SQLAlchemy tables and constraints
 │   ├── repository.py         Idempotent appends and version-chain reads
 │   └── service.py            Journaling surface over Step 5/6 output and Step 2 candles
-├── statistics/               Reserved; no statistical analysis implemented
+├── statistics/               Deterministic read-only journal analysis (Step 8)
+│   ├── config.py              Versioned sample/rounding/quantile rules
+│   ├── dataset.py             Immutable journal dataset and SELECT-only reader
+│   ├── analysis.py             Pure cutoff-bounded metrics and grouping
+│   ├── models.py               Immutable, reproducible report contracts
+│   └── service.py              Read-only composition over Step 7 rows
 └── ai_explanation/           Reserved; no AI/LLM feature implemented
 
 migrations/                   Explicit Alembic schema migrations
@@ -909,7 +914,7 @@ git diff --check
 
 ## Step 6 — deterministic trade planning (proposed plans from qualified setups, evidence only)
 
-Step 6 is the first planning layer in the pipeline and the last before statistics: it converts a *currently QUALIFIED* Step 5 candidate into a transparent, deterministic, read-only proposed trade plan — or into an explicit refusal. The whole project follows the same separation of concerns: *Software calculates → rules qualify → statistics validate → AI explains → Bailey decides → everything gets recorded.* Step 6 owns only the deterministic derivation of entry, invalidation, stop, targets and unit-neutral R metrics from already-recorded evidence; Step 7 now records these plans and the decisions made about them without changing them, and every later layer (statistics, AI narration, UI, decision support, execution) remains unimplemented and out of scope.
+Step 6 is the first planning layer in the pipeline and the last before statistics: it converts a *currently QUALIFIED* Step 5 candidate into a transparent, deterministic, read-only proposed trade plan — or into an explicit refusal. The whole project follows the same separation of concerns: *Software calculates → rules qualify → statistics validate → AI explains → Bailey decides → everything gets recorded.* Step 6 owns only the deterministic derivation of entry, invalidation, stop, targets and unit-neutral R metrics from already-recorded evidence; Step 7 records these plans and the decisions made about them without changing them. Step 8 now analyzes only the immutable Step 7 journal; AI narration, UI, decision support and execution remain unimplemented and out of scope.
 
 **PLANNABLE is not a recommendation.** A plan is a proposal whose every number traces to a frozen upstream fact; it asserts nothing about profitability, likelihood, or suitability, and it places nothing. There is no order construction, order submission, broker/exchange client, credential, secret, wallet/API-key handling, position or balance state, leverage, margin, funding, fee/slippage modelling, partial-fill or bracket-order support, trailing stop, P&L or account calculation anywhere in this layer.
 
@@ -985,7 +990,7 @@ ruff format --check src/trading_assistant/trade_planning tests/test_trade_planni
 ruff check src/trading_assistant/trade_planning tests/test_trade_planning.py
 ```
 
-**Limitations.** Parameters are uncalibrated deterministic defaults (the same disclaimer as Steps 3–5): they were chosen so every knob is explainable and auditable, not because they make plans desirable or likely to work; calibration belongs to a future statistics/backtest layer, which does not exist yet. The planner assumes Step 5's 1h pipeline evidence and cannot plan from other timeframes (a future multi-timeframe layering would feed later steps, not this one). Plans are level proposals for human review only: no execution price modelling (fills, liquidity, slippage), no bracket/order construction, no position management or trailing-stop behaviour, no partial fills or cancels/replaces, no news/liquidity-awareness beyond what Steps 3–5 already recorded, and no re-plan history (each plan is independent; recording decisions against plans is the Step 7 journal's job, and the journal never alters a plan).
+**Limitations.** Parameters are uncalibrated deterministic defaults (the same disclaimer as Steps 3–5): they were chosen so every knob is explainable and auditable, not because they make plans desirable or likely to work. Step 8 supplies descriptive historical statistics only; calibration, backtesting and optimization remain out of scope. The planner assumes Step 5's 1h pipeline evidence and cannot plan from other timeframes (a future multi-timeframe layering would feed later steps, not this one). Plans are level proposals for human review only: no execution price modelling (fills, liquidity, slippage), no bracket/order construction, no position management or trailing-stop behaviour, no partial fills or cancels/replaces, no news/liquidity-awareness beyond what Steps 3–5 already recorded, and no re-plan history (each plan is independent; recording decisions against plans is the Step 7 journal's job, and the journal never alters a plan).
 
 ## Step 7 — immutable decision & outcome journal (append-only record of proposals, decisions and observations)
 
@@ -1125,3 +1130,86 @@ alembic check                         # metadata and migrations agree, no new op
 ```
 
 **Limitations.** The journal records historical system proposals, human decisions and deterministic market observations; it does not prove profitability, and it does not represent exchange execution unless a future execution system supplies genuine fill data. Touch rules are candle-level OHLC approximations, not tick or order-book reconstructions: same-candle orderings are reported as ambiguous instead of guessed, pre-entry touches are recorded but never counted, and gaps stop the evaluation rather than being bridged. There is deliberately no execution modelling (no fills, sizing, slippage, commissions, fees, funding, balances, positions, leverage, liquidation, or realised monetary P&L), no aggregate statistics or performance claims, no optimisation, no AI narration, no alerts and no UI; `PENDING`, `ACCEPTED`, `REJECTED` and `SKIPPED` are human metadata and none of them is interpreted by the observation engine. Journaling does not make a proposal better: it only makes the history of what the system proposed, what was decided, and what the market subsequently did auditable, reproducible and append-only.
+
+## Step 8 — deterministic statistics and performance analysis (read-only journal evidence)
+
+Step 8 owns **“statistics validate”** in the project principle. It recomputes descriptive statistics from an explicit immutable Step 7 journal dataset. It does not replay Step 5 qualification, re-plan with Step 6, read current market candles, write aggregates, or modify journal rows. `StatisticsAnalyzer` is pure in-memory analysis; `JournalStatisticsService` reads only the four Step 7 journal tables with `SELECT` statements and does not run migrations or persist reports. Reports are returned as frozen values and can be serialized with canonical `to_json()`.
+
+This is analysis of recorded proposals and market observations, **not executed trades**. Statistics describe historical observations; they do not prove that a strategy works, guarantee future results, or establish future profitability.
+
+### API and exact report identity
+
+```python
+from datetime import UTC, datetime
+
+from trading_assistant.database import create_database_engine
+from trading_assistant.statistics import JournalStatisticsService, StatisticsConfig
+
+service = JournalStatisticsService(
+    create_database_engine("sqlite:///data/trading_assistant.sqlite3"),
+    config=StatisticsConfig(),  # journal-statistics-v1; default sample floor = 30
+)
+report = service.analyze(
+    as_of=datetime(2026, 10, 1, tzinfo=UTC),
+    window_start=datetime(2026, 7, 1, tzinfo=UTC),  # optional cohort lower bound
+    group_by=("setup_family", "direction", "decision_state", "symbol", "timeframe"),
+)
+print(report.report_id, report.data_quality.total_journal_records_considered)
+for group in report.groups:
+    print(group.key, group.entry_reach_rate.status, group.entry_reach_rate.percentage)
+```
+
+The lower bound and `as_of` are inclusive and timezone-aware. `window_start` filters the **setup record cohort** by `JournalRecord.setup_as_of`; `as_of` caps all source event times. `StatisticsAnalyzer.analyze(dataset, ...)` accepts a caller-supplied `JournalDataset(records, decisions, outcomes)` when a specific immutable input snapshot is required. The report includes the exact considered journal, decision and outcome identities, a source fingerprint, normalized filters, requested/effective grouping, configuration fingerprint, cutoff/window, and `report_id`. The ID is a SHA-256 identity of these inputs and report rules; same rows + same filters + same versions/configuration + same cutoffs produce the same ID and canonical JSON. No mutable aggregate truth is stored.
+
+`total_journal_records_considered` means raw Step 7 `JournalRecord` rows that pass the report's source-time cutoff, optional cohort window and exact filters. Rows outside those bounds are not in the historical report and do not inflate its denominator. Each metric independently reports `records_considered`, `eligible_records`, `excluded_records`, exclusion reasons, `sample_size`, numerator/denominator where applicable, and its denominator definition. The top-level data-quality block exposes the considered record count, setup/plan/outcome coverage, ambiguous/incomplete counts, entry-not-reached count and exclusions. `dimension_counts` always reports raw counts by setup family, direction, symbol, exchange, timeframe, setup state, decision state, plan state, record kind and outcome status; null/not-applicable buckets remain visible.
+
+### Counts and denominator rules
+
+- **Setup qualification:** setup counts use individual `record_kind=SETUP` journal rows; each row is one recorded Step 5 setup observation. Repeated journal rows for the same `setup_id` remain repeated observations (the report separately exposes distinct setup IDs). `setup_qualification_rate` is `QUALIFIED SETUP rows / all SETUP rows` in that group; `WATCH` and `NO_SETUP` setup rows remain in the denominator. Aggregate `SNAPSHOT` rows are counted as journal/setup-state records but are not expanded into setup-family observations, avoiding double counting when the same snapshot and individual setups were both journaled. They are reported as an explicit exclusion from the setup-rate metric.
+- **Decisions:** for each journal record, the latest decision with recorded `decided_at <= as_of` is selected. `PENDING`, `ACCEPTED`, `REJECTED` and `SKIPPED` are counted separately. `NO_DECISION` means no explicit decision row is eligible by the cutoff; it is not inferred to be pending or accepted. Accepted/rejected/skipped comparisons use the decision attached to the journal record and never relabel those opportunities as trades.
+- **Plans:** plan-state counts retain `PLANNABLE`, `NO_PLAN`, and `INVALID`; `NO_PLAN_ATTACHED` and `PLAN_NOT_YET_VISIBLE` distinguish a record with no plan from a plan whose recorded planning time is after the cutoff. Only Step 7 observations attached to `PLANNABLE` proposals enter outcome-performance metrics; each journaled PLANNABLE record is one proposal observation and is not deduplicated by setup id. Missing plan/outcome rows remain explicit exclusions.
+- **Outcome-state counts/rates:** each selected observation is counted under its exact Step 7 state: `ENTRY_NOT_REACHED`, `INVALIDATED_BEFORE_ENTRY`, `STOPPED`, `STOPPED_AFTER_TARGETS`, `TARGETS_REACHED`, `OPEN_AT_CUTOFF`, `AMBIGUOUS`, or `INCOMPLETE_DATA`. State percentages use all PLANNABLE records with an outcome observation visible by the cutoff as denominator. This is a status distribution, not a win/loss rate; ambiguous and incomplete statuses remain their own categories. `entry_not_reached_count` counts only the two known no-entry states (`ENTRY_NOT_REACHED` and `INVALIDATED_BEFORE_ENTRY`); an incomplete record with no observed entry is unknown, not a no-entry result. `observations_with_any_gap_count` separately reports the Step 7 gap flag, including terminal outcomes that were established before a later gap.
+- **Entry touch rate:** numerator is the Step 7 recorded `entry_reached=True`; denominator is observations with a known entry-touch state. A directly recorded entry touch remains an entry touch even if a later same-candle ambiguity or data gap makes the plan outcome unknown. `ENTRY_NOT_REACHED` and `INVALIDATED_BEFORE_ENTRY` are known non-touches. Ambiguous/incomplete observations without an observed entry touch are excluded, not counted as misses. This metric says nothing about an order or fill.
+- **Stop/target touch rates:** stop rate is the proposed stop-level touch count after an **ordered entry**, divided by clean observations with an ordered entry. Target `Tn` is its own statistic: ordered post-entry reaches of that target divided by clean, non-ambiguous, non-`INCOMPLETE_DATA` observations that proposed `Tn` and had an ordered entry. A pre-entry touch is not a reached target. T2 is never merged into T1; arbitrary target counts are supported. Each target reports its own proposed-record count, numerator, denominator, exclusions and rate. Ambiguous/incomplete outcomes are excluded from stop/target hit-rate denominators rather than treated as misses.
+- **Rejected/skipped comparisons:** `REJECTED`, `SKIPPED`, `ACCEPTED`, `PENDING` and `NO_DECISION` rows can each be grouped and compared when they have valid PLANNABLE Step 7 observations. Their sample is still a set of hypothetical plan observations, not executed trades.
+
+### Hypothetical proposed-plan R definition
+
+`hypothetical_proposed_plan_outcome_r` is explicitly a **proposed-level, observational/hypothetical R distribution**, not realized R, return, account P&L or expectancy:
+
+- For a clean `STOPPED` outcome with an ordered entry, calculate `(directional move from the stored proposed entry to the stored proposed stop) / stored risk_per_unit`. It is ordinarily about −1R, but the calculation uses the recorded prices rather than inserting a fill assumption.
+- For a clean `TARGETS_REACHED` outcome, calculate directional R for the ordered target levels Step 7 records as reached and use the largest reached target R. Entry, target levels and risk all come from the immutable observation.
+- `STOPPED_AFTER_TARGETS` has no single proposed-plan outcome R because Step 6/7 defines no partial-exit quantity or exit policy; it is explicitly excluded rather than assigned a convenient result. `ENTRY_NOT_REACHED`, `INVALIDATED_BEFORE_ENTRY`, `OPEN_AT_CUTOFF`, `AMBIGUOUS`, `INCOMPLETE_DATA`, missing observations and non-terminal outcomes are also excluded with reasons.
+
+The resulting values support raw distributions and, when sample size permits, average, median, minimum, maximum and sign counts. Even this hypothetical metric assumes only the stated proposed-level arithmetic; it assumes no execution price, fill, partial fill, fees, slippage or order handling and makes no profitability claim.
+
+### MFE/MAE definitions
+
+The four distribution metrics use the stored Step 7 `mfe_price_move`, `mae_price_move`, `mfe_r` and `mae_r` fields exactly; Step 8 does not re-read OHLCV or recalculate the trajectory. Step 7 defines these as proposed-entry-relative favourable/adverse extremes over its evaluated window, from plan `as_of` through the terminal candle or observation cutoff, clamped at zero. That window can include candles **before** the proposed entry was touched, so these are not realized-trade excursions. Price-move and R forms are summarized separately. `AMBIGUOUS` and `INCOMPLETE_DATA` statuses are excluded from these distribution summaries; a terminal outcome established before a later gap remains usable, and the gap flag is still exposed in data quality.
+
+### Sample-size, Decimal and quantile rules
+
+`StatisticsConfig` is the central frozen, fingerprinted configuration. Version `journal-statistics-v1` defaults to `minimum_sample_size=30`, eight decimal places, `ROUND_HALF_EVEN`, and Q25/Q50/Q75. The threshold is a fixed reporting floor, not a confidence interval, significance test, probability guarantee or automatic tuning rule. It is configurable only by an explicit config whose fingerprint/version changes the report identity.
+
+Every rate uses its own stated denominator; its raw numerator, denominator and exclusions are preserved at every sample size. If that denominator is below the configured minimum, status is `INSUFFICIENT_DATA` and percentage is `None`. Distribution summaries likewise preserve sample count, sign counts and exact value-frequency distribution below threshold, but average/median/min/max/quantiles are `None`/empty and status is `INSUFFICIENT_DATA`. At the exact minimum the descriptive values become available (`SUFFICIENT_DATA`). No confidence is fabricated and counts are never hidden to make a small sample look conclusive.
+
+All derived arithmetic uses `Decimal` with the configured fixed precision and rounding. The median is the middle sorted value for odd `n`; for even `n` it is the arithmetic mean of the two middle values. Configured quantiles use the **nearest-rank** rule, rank `ceil(p × n)` (one-based), with no interpolation. This means Q50 and the even-sample median can differ by design. Quantiles and all rounded summary values use the central eight-decimal half-even rule by default; raw decimal frequency counts remain exact.
+
+### Version separation, periods and historical cutoffs
+
+By default the analyzer groups result metrics separately by recorded journal rules version; Step 5 qualification rules/config fingerprint; Step 6 planning rules/config fingerprint; applicable decision rules version; and Step 7 outcome-observation rules/config fingerprint. These are appended to `effective_group_by` even if omitted from the requested dimensions. If incompatible non-null versions are present, `mixed_versions=True`, the per-version groups remain available, and `overall` is `None` rather than silently pooling them. A caller may pass `allow_mixed_versions=True` to explicitly request a mixed aggregate; the report then marks `MIXED_VERSIONS_EXPLICITLY_ALLOWED` and includes every `VersionProfile` so the mixture is visible. Statistics-rule/config version is part of every report fingerprint.
+
+For a cutoff `T`, source journal records with `setup_as_of > T`, decisions with `decided_at > T`, and outcome versions with `observed_through > T` are excluded. Of eligible outcome versions for a record, the greatest `observed_through` is used; if multiple rows have the same horizon, the earliest immutable sequence is selected so a later same-horizon replay does not silently replace that value. Report identities use only the exact selected rows, so adding records or versions with later event timestamps does not change a report at historical `T`. Grouping by `period_day`, `period_week` or `period_month` uses the record's UTC `setup_as_of`. `rolling_reports(cutoffs=..., lookback=...)` recomputes explicit, fixed-width inclusive cohort windows without lookahead.
+
+**Cutoff limitation:** Step 7 persists event timestamps and append-only sequence, but it does not store a separate database `recorded_at` timestamp for each decision/outcome version. Step 8 can enforce the event-time cutoffs above and prevents later-window observations from leaking into earlier cutoffs; it cannot prove when a row carrying a backdated `decided_at`/`observed_through` value was physically appended. Historical cutoff statements therefore mean *recorded event-time evidence at or before T*, not a claim about database ingestion/availability time. The exact immutable input IDs and source fingerprint make the dataset used by each report auditable.
+
+### Step 8 limits
+
+Step 8 does not place orders, infer fills, create trades/positions, read balances/leverage, calculate monetary realized P&L, model fees/slippage, explain results with AI, alert, rank strategies, optimize parameters, tune thresholds, fit models, or prove profitability. It does not rewrite Step 7 rows or OHLCV data and adds no database migration or persisted aggregate. `INSUFFICIENT_DATA` means the configured descriptive sample floor was not reached; even `SUFFICIENT_DATA` is not evidence of future profitability. Statistics describe only the historical observations actually recorded in the immutable journal.
+
+```bash
+python -m pytest tests/test_statistics.py
+python -m pytest                         # complete Steps 1–8 test suite
+ruff format --check src/trading_assistant/statistics tests/test_statistics.py
+ruff check --isolated --select E4,E7,E9,F src/trading_assistant/statistics tests/test_statistics.py
+```
