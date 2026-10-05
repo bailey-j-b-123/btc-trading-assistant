@@ -27,7 +27,8 @@ from market_structure_fixtures import (
 from sqlalchemy import inspect, text
 
 from trading_assistant.config import Settings
-from trading_assistant.database import create_database_engine
+from trading_assistant.database import Base, create_database_engine
+from trading_assistant.journaling import models as _journal_models  # noqa: F401
 from trading_assistant.market_data.repository import CandleRepository
 from trading_assistant.market_structure import (
     INCOMPLETE_DATA,
@@ -372,8 +373,11 @@ def test_structure_calculation_never_modifies_source_ohlcv_records(tmp_path):
         service.timeframe_analysis(as_of=closed_at(20))
 
         assert stored_rows(engine) == before
-        # No derived tables are created and no migration is required.
-        assert set(inspect(engine).get_table_names()) == tables_before == {"alembic_version", "ohlcv_candles"}
+        # No derived tables are created and no migration is required: the
+        # migrated schema (Step 2 candle archive plus the additive Step 7
+        # journal tables) is exactly unchanged by structure calculation.
+        assert set(inspect(engine).get_table_names()) == tables_before
+        assert tables_before == set(Base.metadata.tables) | {"alembic_version"}
     finally:
         engine.dispose()
 

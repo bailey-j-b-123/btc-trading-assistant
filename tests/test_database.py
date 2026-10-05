@@ -6,6 +6,7 @@ from alembic.config import Config
 from sqlalchemy import inspect, text
 
 from trading_assistant.database import Base, create_database_engine
+from trading_assistant.journaling import models as _journal_models  # noqa: F401
 from trading_assistant.market_data import models as _market_data_models  # noqa: F401
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -65,9 +66,23 @@ def test_explicit_alembic_upgrade_preserves_existing_rows_and_tracks_revision(tm
     migrated_engine.dispose()
 
     assert stored_value == "keep"
-    assert revision == "0002_ohlcv_candles"
-    assert table_names == {"alembic_version", "ohlcv_candles", "sentinel"}
-    assert set(Base.metadata.tables) == {"ohlcv_candles"}
+    assert revision == "0003_journal"
+    assert table_names == {
+        "alembic_version",
+        "ohlcv_candles",
+        "sentinel",
+        "journal_records",
+        "journal_decisions",
+        "journal_outcomes",
+        "journal_outcome_events",
+    }
+    assert set(Base.metadata.tables) == {
+        "ohlcv_candles",
+        "journal_records",
+        "journal_decisions",
+        "journal_outcomes",
+        "journal_outcome_events",
+    }
 
 
 def test_candle_migration_refuses_to_drop_historical_rows(tmp_path):
