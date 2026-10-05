@@ -2,7 +2,9 @@
 
 A foundation for an evidence-driven cryptocurrency analysis assistant. The intended purpose is to organize reliable market evidence and future analysis for human review.
 
-**This is not an automated trading bot. It contains no trading strategies, chart-pattern trading signals, setup qualification, trade planning engine, backtesting, alerts, trade execution, AI/LLM features, or user interface. It does not make trading decisions or place/execute trades.** Numerical market facts are derived from source data and deterministic code; missing candles remain missing rather than being guessed or synthesized. The Step 3 market-structure engine is descriptive only: it reports measured structural facts (swings, trend, ranges, levels, volatility, volume) for human review and for later deterministic steps, and never emits a trade, signal, or recommendation. Step 4 adds deterministic pattern/liquidity events as evidence only, with explicit knowable timestamps.
+**This is not an automated trading bot. It contains deterministic candidate setup definitions, but no trade planning engine, backtesting, alerts, trade execution, AI/LLM features, or user interface. It does not make trading decisions or place/execute trades. QUALIFIED means rules satisfied, not a profitable trade or recommendation.** Numerical market facts are derived from source data and deterministic code; missing candles remain missing rather than being guessed or synthesized. The Step 3 market-structure engine is descriptive only: it reports measured structural facts (swings, trend, ranges, levels, volatility, volume) for human review and for later deterministic steps, and never emits a trade, signal, or recommendation. Step 4 adds deterministic pattern/liquidity events as evidence only, with explicit knowable timestamps. Step 5 combines those existing facts into auditable NO_SETUP, WATCH and QUALIFIED states.
+
+**Software calculates → rules qualify → statistics validate → AI explains → Bailey decides.** Statistics and AI remain future work; candidate performance is not established.
 
 ## Current architecture
 
@@ -48,7 +50,13 @@ src/trading_assistant/
 │   ├── analysis.py           Gap-bounded chronological replay
 │   ├── snapshot.py           Typed evidence catalog and JSON projection
 │   └── service.py            Read-only snapshots and historical enumeration
-├── setup_qualification/      Reserved; no qualification logic implemented
+├── setup_qualification/      Deterministic setup qualification (Step 5)
+│   ├── models.py             Frozen frames, evidence, rule results and snapshots
+│   ├── parameters.py         Validated thresholds and versioned fingerprints
+│   ├── families.py           Three explicit seed/family/direction definitions
+│   ├── rules.py              Required gates and optional supporting evidence
+│   ├── engine.py             As-of lifecycle replay, invalidation and expiry
+│   └── service.py            Read-only composition of existing Step 2–4 APIs
 ├── trade_planning/           Reserved; no planning logic implemented
 ├── journaling/               Reserved; no journal functionality implemented
 ├── statistics/               Reserved; no statistical analysis implemented
@@ -611,3 +619,278 @@ boundaries, multi-close confirmation, retest states/windows, all four geometries
 negative near-matches, formation/confirmation/invalidation timing, deterministic
 IDs/order, every-prefix anti-lookahead, temporary-database future insertion,
 gap resets, event enumeration, unchanged OHLCV and unchanged Step 3 behavior.
+
+## Step 5 — deterministic setup qualification
+
+**QUALIFIED means “rules satisfied,” NOT “profitable trade.”** These are three
+candidate definitions to measure later, not recommendations. There are no
+confidence scores, orders, execution, authentication, sizing, entry optimization,
+stops, targets, P&L, profitability backtests, AI explanations, alerts or UI.
+Steps 1–4 and their source facts are unchanged. No derived data is persisted,
+no schema is added, and no Step 6 functionality is implemented.
+
+### Inputs, API and replay contract
+
+The pure API consumes `QualificationFrame` objects, each containing an existing
+Step 4 `PatternLiquiditySnapshot` and optionally a tuple of existing Step 3
+`HigherTimeframeContext` objects. It uses the Step 3 contiguous-segment structure
+already inside the Step 4 snapshot. It does **not** calculate swings, ranges,
+ATR, volume, patterns, sweeps or retests again. Price comparisons below are
+qualification rules over existing closes and frozen references, not new detectors.
+
+```python
+from trading_assistant.setup_qualification import (
+    QualificationFrame,
+    QualificationParameters,
+    QualificationService,
+    enumerate_qualifications,
+    qualify,
+)
+
+parameters = QualificationParameters(
+    continuation_max_bars=10,
+    reversal_max_bars=10,
+    range_max_bars=10,
+    min_relative_volume="1",
+    max_atr_percent="10",
+    higher_timeframes=("4h",),
+    require_higher_timeframe_alignment=True,
+)
+
+# source_frames contains one real historical Step 4 snapshot per base close,
+# plus same-as-of Step 3 contexts for the requested higher timeframes.
+# Each frame is QualificationFrame(step4_snapshot, higher_timeframe_contexts).
+latest = qualify(source_frames, as_of=closed_at, parameters=parameters)
+history = enumerate_qualifications(
+    source_frames, as_of=closed_at, parameters=parameters,
+    known_since=report_start,  # inclusive, applied AFTER full lifecycle replay
+)
+
+# Optional convenience adapter over an existing migrated Step 2 database engine.
+# This reads locally stored candles only, never an exchange or network.
+service = QualificationService(engine)
+snapshot = service.snapshot(
+    exchange="kraken", symbol="ETH/USD", timeframe="1h",
+    as_of=closed_at, parameters=parameters,
+)
+json_safe = snapshot.to_json_dict()
+```
+
+`closed_at` and frame `as_of` values must be timezone-aware UTC instants on
+**base-timeframe candle-close boundaries**. Intrabar evaluation is intentionally
+unsupported. The service enumerates every expected close from the first stored
+candle through `as_of`, including missing-candle slots. It delegates historical
+analysis to the existing Step 3–4 implementations, rather than implementing a
+second set of detectors. `enumerate_snapshots` takes the same arguments plus
+inclusive `known_since`. Both service methods also accept `pattern_parameters`
+and `structure_parameters` for the existing upstream engines.
+
+Pure replay requires strictly chronological, unique frames for one
+exchange/symbol/base timeframe, ending exactly at `as_of`. It never extrapolates
+from stale/latest context. Start at or before every seed confirmation you want
+to examine: **old events in the first frame's catalog do not create retrospective
+candidates**. Use full history for complete enumeration. Skipped frames terminate
+existing candidates; they do not fabricate intermediate transitions. New events
+confirmed at the current close can still start new candidates.
+
+### Exact family definitions
+
+A seed is a confirmed Step 4 event whose `known_at` equals the current frame's
+`as_of`. It creates one deterministic candidate per family/seed event. A seed
+alone can only create WATCH: `later_evaluation` requires a strictly later close.
+There is no arbitrary minimum-factor score; **every required rule must pass**.
+
+| Family | WATCH seed and direction | Family-specific REQUIRED confirmation |
+| --- | --- | --- |
+| `breakout_retest_continuation` | `Breakout`; same direction as breakout | `held_retest`: a later Step 4 `Retest(state="held")` referencing exactly the seed breakout ID. An observed-only retest is pending. |
+| `failed_breakout_sweep_reversal` | `FailedBreakout` at a non-range reference, opposite its breakout; or non-range `Sweep`, bearish for `above`, bullish for `below` | `reversal_breakout`: a later confirmed Step 4 breakout in the reversal direction at a **different reference ID**. No breakout or only an earlier/same-time/same-reference one leaves this pending. |
+| `range_rejection_reversal` | Failed breakout or sweep at a frozen `range_high`/`range_low` reference; same reversal direction mapping | `active_range`: the current Step 3 active range must have exactly the frozen seed range's low and high. `range_followthrough`: a later close must remain inside those frozen bounds (inclusive) and move strictly farther inward than the seed close: higher for bullish, lower for bearish. |
+
+A range-reference failure/sweep routes **only** to the range reversal family,
+not also to generic liquidity reversal. Breakouts, including range breakouts,
+route to continuation. Range rejection here deliberately means an already
+confirmed sweep/re-entry followed by an inward close; ordinary touches without
+these Step 4 events do not seed setups. Equal highs/lows alone do not seed or
+qualify anything. Families can coexist and have opposing directions; the engine
+does not select a trade or resolve portfolio exposure.
+
+### Shared REQUIRED rules and OPTIONAL evidence
+
+Rules expose `rule_id`, `required`, `outcome` (`passed`, `failed`, `pending`),
+`veto`, an exact deterministic reason and typed evidence. Required unknowns
+produce `pending`, not a fabricated pass or an opposing market fact.
+
+| Rule | Exact required condition |
+| --- | --- |
+| `seed_event` | Confirmed event and frozen source reference as described above. |
+| `later_evaluation` | Current close time strictly greater than seed `known_at`; pending at the seed close. |
+| `structure` | Step 3 trend must be sufficient. Continuation requires exact directional alignment. Reversals accept either aligned or **sufficient neutral** trend; known opposite trend fails. Insufficient-swings neutral remains UNKNOWN/pending. |
+| `location` | Current Step 3 `volatility.latest_close` must be **>= frozen reference band high** for bullish or **<= band low** for bearish. Missing close is pending. A close inside a nonzero-width reference band fails this gate without itself terminally invalidating the candidate. |
+| `volume` | Current Step 3 volume must be available with non-null `relative_volume >= min_relative_volume`. Uses the existing latest-volume / prior-period-average measure. Unknown ratio (including unavailable baseline) is pending. |
+| `volatility` | Current Step 3 volatility must be available with `0 < atr_percent_of_price <= max_atr_percent`. Unknown ATR is pending; zero/excessive ATR fails. |
+| `no_failed_breakout`, `no_failed_retest` (continuation only) | Catalog must not contain a confirmed failure/failed retest of the seed breakout. A failure is also terminal, and its exact source event ID is included as opposing evidence. |
+| `lifecycle` | No terminal invalidation or expiry below. |
+
+These combine event, structure, location, participation and volatility **evidence
+categories**; this does not claim statistical independence between indicators.
+All volume/ATR/structure gates use the current as-of context, not an arbitrary
+future maximum or an event's later outcome.
+
+Higher timeframes are explicitly configured, independently stored Step 3
+contexts; no resampling occurs in Step 5. They must be longer than the base
+frame, have same-as-of analyses using the same structure parameters, and have
+complete, available, nonsynthesized context to be usable. Missing, incomplete,
+insufficient or unavailable context stays UNKNOWN. A supplied future/misaligned
+context is rejected, not silently used.
+
+- Default `higher_timeframes=()` produces an optional UNKNOWN
+  `higher_timeframe:not_requested` rule; no alignment is inferred.
+- For each configured timeframe, `higher_timeframe:<tf>` requires exact
+  directional alignment when `require_higher_timeframe_alignment=True`.
+  **All** configured timeframes must then align; neutral fails, UNKNOWN is pending.
+- When alignment is optional, absent/UNKNOWN/neutral higher-timeframe context
+  does not prevent qualification, but a **known opposite trend always vetoes**
+  qualification. Optional thus does not mean “ignore known opposition.”
+- Classical patterns are optional only: the latest occurrence per pattern
+  geometry must be `confirmed` and known at/after the seed. Double bottom and
+  inverse head-and-shoulders support bullish; double top and head-and-shoulders
+  support bearish. Opposite patterns are reported as opposing but do not veto;
+  no applicable confirmed pattern is UNKNOWN. Pattern evidence cannot replace
+  any required gate, create a candidate, or qualify one by itself.
+
+### State transitions, invalidation and expiry
+
+- No seed: **NO_SETUP**, empty `setups`, reason
+  `no_seed_confirmed_in_replayed_frames`. Quiet markets are valid results.
+- Seed close: **WATCH** (unless already terminally invalidated by source facts).
+- Later close, every required rule passed and no veto: **QUALIFIED**.
+- Missing/failed required context or a higher-timeframe veto: **WATCH**.
+  WATCH may persist; QUALIFIED may downgrade to WATCH and requalify later.
+- A terminal rule: **NO_SETUP** with `terminal_reason` and `ended_at`.
+  That setup ID never revives. A new seed gets a new identity.
+- Snapshot aggregate state is QUALIFIED if any candidate is qualified, otherwise
+  WATCH if any is watching, otherwise NO_SETUP. This aggregation is not a trade
+  preference. Terminal candidates remain in the catalog for audit.
+
+Terminal rules are evaluated in this exact precedence order (the first matching
+reason wins), for **all three families and both WATCH/QUALIFIED states**:
+
+1. `missing_replay_frames`: an expected evaluation frame was skipped after the
+   seed. Termination is recorded at the first supplied frame after the gap,
+   not retroactively at an invented observation time.
+2. `missing_current_candle`: current Step 3 contiguous-segment end is not the
+   expected latest closed candle. No price path is inferred.
+3. `source_candle_gap`: a reported Step 2–4 gap ends at/after the seed confirmation
+   (the next candle's open is the seed's close). Old gaps entirely before a new
+   seed do not permanently forbid new segment candidates.
+4. `maximum_bars_elapsed`: `(as_of - seed.known_at) > family_max_bars * interval`.
+   Seed age is zero; exactly `max_bars` is still eligible. Both unconfirmed and
+   already qualified candidates expire; retests do not reset age.
+5. Continuation only: `failed_breakout`, then `failed_retest`, referencing the
+   exact seed breakout ID.
+6. `opposite_close_through_reference`: bullish current close **< band low**, or
+   bearish current close **> band high**. Equality does not invalidate.
+7. Range family additionally: `close_outside_frozen_range` if the current close
+   is below the frozen range low or above its high (either side).
+
+Missing/currently different active range evidence is pending/failed qualification,
+not proof the frozen range was broken. Price invalidation and expiry remain
+explicit. Changes in trend, low volume or high ATR also gate qualification, not
+terminally destroy the seed by themselves.
+
+Terminal result `as_of` advances with the enclosing snapshot, while its rules
+and evidence remain frozen at `ended_at`. This makes the actual invalidating
+observation distinguishable from later enumeration times. A snapshot may be
+`status="incomplete"` because of older source gaps yet contain a qualified
+post-gap candidate; candidate lifecycle checks only its own continuation.
+
+### Evidence, identity and anti-lookahead guarantees
+
+`QualificationEvidence` preserves source event/reference ID (or a deterministic
+content reference for Step 3 context), timeframe, observed and confirmed/available
+time, category, supportive/opposing/neutral/unknown status and reason. Event
+observation time is its source candle's open; confirmation uses `known_at`.
+Step 3 context is recorded as available at its snapshot `as_of`, with its latest
+candle open as observation time. No missing timestamp is invented. The seed
+reason also records its frozen level reference ID. Optional evidence can oppose
+a candidate even when all required gates pass; inspect the rule's `required`
+and `veto` flags rather than counting passes.
+
+Frozen dataclasses and tuples make snapshots, results, rules and evidence
+read-only. `SetupResult` exposes `evidence`, `passed_rules`, `failed_rules` and
+`pending_rules` convenience properties; JSON includes the full rules/evidence
+records. JSON projections are detached mutable copies, not source data handles.
+
+- A frame's nested event/reference confirmations and candles must be available
+  by that frame's as-of time. Current/later structure must never be relabeled as
+  historical structure. Source catalogs must remain append-only with unchanged
+  facts for existing event IDs. Invalid inputs raise errors.
+- Frames beyond requested `as_of` are excluded before source validation,
+  configuration fingerprinting, seeding and rule evaluation. The service's
+  repository reads are bounded by each historical instant.
+- No unconfirmed swing, future pattern transition, later retest, or higher-frame
+  unclosed candle can qualify an earlier result. Actual-candle prefix tests and
+  SQLite future-insertion tests verify equal entire historical snapshots.
+- Setup IDs are versioned SHA-256 hashes over instrument, configuration
+  fingerprint, family and seed event ID. No wall clock, UUID or random score is
+  involved. Configuration fingerprints include Step 5 parameters **and Step 3
+  and Step 4 parameters**, under `rules_version="setup-qualification-v1"`.
+  Decimal Step 5 threshold spellings are canonicalized. Source configurations
+  cannot change mid-replay. Changing rules/config intentionally changes the ID
+  namespace so future measurements cannot silently mix versions.
+
+### Step 5 configuration reference
+
+All values live in frozen `QualificationParameters`, not environment secrets.
+Percent means percentage points, not a fractional ratio.
+
+| Parameter | Default | Validation / meaning |
+| --- | --- | --- |
+| `continuation_max_bars` | `10` | Integer >= 1; seed lifetime for continuation. |
+| `reversal_max_bars` | `10` | Integer >= 1; seed lifetime for non-range reversal. |
+| `range_max_bars` | `10` | Integer >= 1; seed lifetime for range reversal. |
+| `min_relative_volume` | `1` | Finite decimal > 0; inclusive minimum. |
+| `max_atr_percent` | `10` | Finite decimal > 0; inclusive ATR percentage maximum. |
+| `higher_timeframes` | `()` | Unique immutable tuple of fixed-duration timeframes, canonically duration-sorted, each longer than base. Missing data is allowed and reported. |
+| `require_higher_timeframe_alignment` | `False` | Boolean; `True` requires at least one configured higher timeframe. |
+
+Do not interpret these uncalibrated defaults as validated strategy parameters.
+The small `FAMILIES` registry keeps seed routing, direction and expiry definitions
+separate from shared gates and replay. A future family must supply documented
+seed/confirmation/lifecycle rules and tests; no dynamic strategy discovery or
+additional families are silently enabled.
+
+### Limitations and verification
+
+- This is a correctness-first replay, not a high-throughput scanner. The service
+  recomputes historical **upstream** snapshots through their public APIs at each
+  close; it can be expensive for long histories. Pure replay accepts already
+  computed source frames. No derived cache or persistence is introduced.
+- Reproducibility assumes unchanged historical input facts and parameters.
+  Backfilling/correcting old missing candles changes inputs and may change a
+  rerun; adding only candles after historical `as_of` cannot. Snapshots already
+  returned are immutable, not retroactively edited.
+- Scope is OHLCV-derived evidence. A liquidity sweep is potential liquidity
+  evidence, not proof of orders or intent. Exact range-bound matching is
+  conservative; source rolling-window changes can demote a candidate to WATCH.
+  Different frozen references can produce overlapping candidates; there is no
+  profitability claim, deduplication into trades, or portfolio decision.
+- Historical enumeration returns every evaluated close, not only transitions.
+  Filtering after warm-up preserves IDs, lifecycle and expiry. No journal,
+  statistics or trade-planning layer is implemented.
+
+Offline tests cover empty/quiet markets, both continuation directions, each
+required gate, all family confirmations and expiries, terminal invalidation,
+WATCH persistence/downgrade, HTF optional/required/opposing/unknown contexts,
+pattern-only rejection, gaps, stable IDs/JSON/snapshots, source immutability,
+configuration effects, chronological enumeration and future-data invariance.
+Run the complete suite with `python -m pytest -q`. The Step 5 files can be checked
+with Ruff (`python -m pip install ruff`) using:
+
+```bash
+ruff check src/trading_assistant/setup_qualification tests/test_setup_qualification*.py
+ruff format --check src/trading_assistant/setup_qualification tests/test_setup_qualification*.py
+ruff check --isolated --select E4,E7,E9,F src tests
+python -m compileall -q src tests
+git diff --check
+```
