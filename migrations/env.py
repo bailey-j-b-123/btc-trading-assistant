@@ -5,6 +5,7 @@ from sqlalchemy.engine import Connection
 
 from trading_assistant.config import get_settings
 from trading_assistant.database import Base, create_database_engine
+from trading_assistant.journaling import models as _journal_models  # noqa: F401
 from trading_assistant.market_data import models as _market_data_models  # noqa: F401
 
 config = context.config

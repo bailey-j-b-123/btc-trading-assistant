@@ -2,9 +2,9 @@
 
 A foundation for an evidence-driven cryptocurrency analysis assistant. The intended purpose is to organize reliable market evidence and future analysis for human review.
 
-**This is not an automated trading bot. It contains deterministic candidate setup definitions and a deterministic, read-only trade *planning* layer, but no order placement, backtesting, alerts, trade execution, AI/LLM features, or user interface. It does not make trading decisions or place/execute trades. QUALIFIED means rules satisfied, not a profitable trade or recommendation; PLANNABLE means a complete deterministic proposal was derived from a rule-qualified setup, not that a trade is profitable, advisable, or should be executed.** Numerical market facts are derived from source data and deterministic code; missing candles remain missing rather than being guessed or synthesized. The Step 3 market-structure engine is descriptive only: it reports measured structural facts (swings, trend, ranges, levels, volatility, volume) for human review and for later deterministic steps, and never emits a trade, signal, or recommendation. Step 4 adds deterministic pattern/liquidity events as evidence only, with explicit knowable timestamps. Step 5 combines those existing facts into auditable NO_SETUP, WATCH and QUALIFIED states. Step 6 converts only a *currently QUALIFIED* Step 5 candidate into a transparent, fully traceable proposed plan (entry, invalidation, stop, targets, unit-neutral R metrics) or an explicit refusal.
+**This is not an automated trading bot. It contains deterministic candidate setup definitions and a deterministic, read-only trade *planning* layer, but no order placement, backtesting, alerts, trade execution, AI/LLM features, or user interface. It does not make trading decisions or place/execute trades. QUALIFIED means rules satisfied, not a profitable trade or recommendation; PLANNABLE means a complete deterministic proposal was derived from a rule-qualified setup, not that a trade is profitable, advisable, or should be executed.** Numerical market facts are derived from source data and deterministic code; missing candles remain missing rather than being guessed or synthesized. The Step 3 market-structure engine is descriptive only: it reports measured structural facts (swings, trend, ranges, levels, volatility, volume) for human review and for later deterministic steps, and never emits a trade, signal, or recommendation. Step 4 adds deterministic pattern/liquidity events as evidence only, with explicit knowable timestamps. Step 5 combines those existing facts into auditable NO_SETUP, WATCH and QUALIFIED states. Step 6 converts only a *currently QUALIFIED* Step 5 candidate into a transparent, fully traceable proposed plan (entry, invalidation, stop, targets, unit-neutral R metrics) or an explicit refusal. Step 7 is the immutable decision & outcome journal: it appends what the system proposed (the exact Step 5 snapshot and Step 6 plan projections), what Bailey explicitly decided (PENDING/ACCEPTED/REJECTED/SKIPPED), and deterministic, anti-lookahead market observations of the proposed levels (entry/stop/target touches, first-touch ordering, ambiguity, gaps, MFE/MAE) that survive restarts and never rewrite history.
 
-**Software calculates → rules qualify → statistics validate → AI explains → Bailey decides.** Statistics and AI remain future work; candidate performance is not established.
+**Software calculates → rules qualify → statistics validate → AI explains → Bailey decides → everything gets recorded.** Step 7 records that history durably and append-only. Statistics and AI remain future work; candidate performance is not established, and the journal does not establish it either — it is a record of proposals, decisions and market observations, not a profitability claim.
 
 ## Current architecture
 
@@ -62,7 +62,13 @@ src/trading_assistant/
 │   ├── parameters.py         Validated planning rules and versioned fingerprints
 │   ├── levels.py             Family-specific level derivation from frozen evidence
 │   └── planner.py            Rule pipeline, R math, plan identity, refusals
-├── journaling/               Reserved; no journal functionality implemented
+├── journaling/               Immutable decision & outcome journal (Step 7)
+│   ├── types.py              Frozen records, decisions, plan projection, observations
+│   ├── parameters.py         Versions, canonical JSON/fingerprints, note bounds
+│   ├── observation.py        Pure deterministic candle-touch observation engine
+│   ├── models.py             Four append-only SQLAlchemy tables and constraints
+│   ├── repository.py         Idempotent appends and version-chain reads
+│   └── service.py            Journaling surface over Step 5/6 output and Step 2 candles
 ├── statistics/               Reserved; no statistical analysis implemented
 └── ai_explanation/           Reserved; no AI/LLM feature implemented
 
@@ -324,6 +330,8 @@ alembic upgrade head
 The Step 1 foundation revision is unchanged. The Step 2 OHLCV migration adds only the candle table. It does not delete or recreate a database or alter other tables. Its downgrade refuses to drop the candle table if historical candles exist; use a reviewed forward migration for schema corrections. Back up local data before schema changes. There is no reset function, and application startup does not run migrations implicitly.
 
 **Step 3 adds no schema change at all.** Market structure is derived in memory on every request, so no new tables, columns, or migration revisions were introduced. The engine only reads the `ohlcv_candles` table created by Step 2 (verified by a test asserting the table set is unchanged after structure calculations).
+
+**Step 7 adds revision `0003_journal`**, which is strictly additive: four append-only journal tables plus their indexes and SQLite `UPDATE`/`DELETE` guard triggers, with no change to `ohlcv_candles` or any existing row. Its downgrade refuses to run while journal rows exist and otherwise drops only the (empty) journal tables; the candle archive is never dropped or rewritten. `0003` is the current head, so `alembic upgrade head` takes an existing Step 6 database to the journal schema without touching stored market data.
 
 ## Tests
 
@@ -901,7 +909,7 @@ git diff --check
 
 ## Step 6 — deterministic trade planning (proposed plans from qualified setups, evidence only)
 
-Step 6 is the first planning layer in the pipeline and the last before statistics: it converts a *currently QUALIFIED* Step 5 candidate into a transparent, deterministic, read-only proposed trade plan — or into an explicit refusal. The whole project follows the same separation of concerns: *Software calculates → rules qualify → statistics validate → AI explains → Bailey decides → everything gets recorded.* Step 6 owns only the deterministic derivation of entry, invalidation, stop, targets and unit-neutral R metrics from already-recorded evidence; every later layer (statistics, AI narration, UI, journaling, decision support, execution) remains unimplemented and out of scope.
+Step 6 is the first planning layer in the pipeline and the last before statistics: it converts a *currently QUALIFIED* Step 5 candidate into a transparent, deterministic, read-only proposed trade plan — or into an explicit refusal. The whole project follows the same separation of concerns: *Software calculates → rules qualify → statistics validate → AI explains → Bailey decides → everything gets recorded.* Step 6 owns only the deterministic derivation of entry, invalidation, stop, targets and unit-neutral R metrics from already-recorded evidence; Step 7 now records these plans and the decisions made about them without changing them, and every later layer (statistics, AI narration, UI, decision support, execution) remains unimplemented and out of scope.
 
 **PLANNABLE is not a recommendation.** A plan is a proposal whose every number traces to a frozen upstream fact; it asserts nothing about profitability, likelihood, or suitability, and it places nothing. There is no order construction, order submission, broker/exchange client, credential, secret, wallet/API-key handling, position or balance state, leverage, margin, funding, fee/slippage modelling, partial-fill or bracket-order support, trailing stop, P&L or account calculation anywhere in this layer.
 
@@ -977,4 +985,143 @@ ruff format --check src/trading_assistant/trade_planning tests/test_trade_planni
 ruff check src/trading_assistant/trade_planning tests/test_trade_planning.py
 ```
 
-**Limitations.** Parameters are uncalibrated deterministic defaults (the same disclaimer as Steps 3–5): they were chosen so every knob is explainable and auditable, not because they make plans desirable or likely to work; calibration belongs to Step 7's backtest harness, which does not exist yet. The planner assumes Step 5's 1h pipeline evidence and cannot plan from other timeframes (Step 7's multi-timeframe layering will feed later steps, not this one). Plans are level proposals for human review only: no execution price modelling (fills, liquidity, slippage), no bracket/order construction, no position management or trailing-stop behaviour, no partial fills or cancels/replaces, no news/liquidity-awareness beyond what Steps 3–5 already recorded, and no re-plan history (each plan is independent; recording decisions against plans belongs to Step 8's journal).
+**Limitations.** Parameters are uncalibrated deterministic defaults (the same disclaimer as Steps 3–5): they were chosen so every knob is explainable and auditable, not because they make plans desirable or likely to work; calibration belongs to a future statistics/backtest layer, which does not exist yet. The planner assumes Step 5's 1h pipeline evidence and cannot plan from other timeframes (a future multi-timeframe layering would feed later steps, not this one). Plans are level proposals for human review only: no execution price modelling (fills, liquidity, slippage), no bracket/order construction, no position management or trailing-stop behaviour, no partial fills or cancels/replaces, no news/liquidity-awareness beyond what Steps 3–5 already recorded, and no re-plan history (each plan is independent; recording decisions against plans is the Step 7 journal's job, and the journal never alters a plan).
+
+## Step 7 — immutable decision & outcome journal (append-only record of proposals, decisions and observations)
+
+Step 7 closes the loop of the project's core principle — *Software calculates → rules qualify → statistics validate → AI explains → Bailey decides → everything gets recorded* — by recording the last item durably. It appends **immutable journal records** for the exact Step 5 snapshot and Step 6 plan a decision was made against, the explicit **human decision** (`PENDING` / `ACCEPTED` / `REJECTED` / `SKIPPED`), and deterministic, anti-lookahead **outcome observations** of the proposed levels (entry/stop/target touches, first-touch ordering, ambiguity, gaps, MFE/MAE). Nothing that is already written is ever rewritten: corrections are new append-only versions that point at what they supersede.
+
+**The journal is a record, not a strategy, a backtester, an execution engine, or a statistics layer.** It places no orders, models no fills, slippage, fees or funding, holds no positions, balances, leverage or margin, and computes no realised monetary P&L and no aggregate performance metric (no win rate, expectancy, profit factor, Sharpe, ranking, optimisation, or profitability claim anywhere in this layer). An outcome observation is a statement about **market prices relative to a proposed plan**; it is never an executed trade. Every decision must be recorded explicitly: a journal record that was never decided reports *no decision at all*, and `PLANNABLE` never implies `ACCEPTED`.
+
+### What is journaled (and what is not)
+
+- `journal_snapshot(snapshot=...)` records the **whole Step 5 snapshot** (`NO_SETUP`, `WATCH`, `QUALIFIED`, or any future state) as an audit/replay observation, with no setup and no plan attached. Refusals and quiet observations are recorded too: a journal that only kept actionable candidates could not answer "what did the system see, and what did I decide about it?".
+- `journal_setup(snapshot=..., setup_id=..., plan=None)` records **one setup** from that snapshot plus the *exact* snapshot it came from. The setup must actually exist inside the passed snapshot (`ValueError` otherwise); the journal never invents or re-qualifies a setup.
+- `journal_plan(snapshot=..., plan=...)` records **one Step 6 result together with its setup and snapshot**, so a plan can never float free of the moment it was produced. `PLANNABLE` plans carry the full projection used for observations; `NO_PLAN`/`INVALID` refusals are recorded with their state, reasons, rule records and fingerprints, and are deliberately **not** observable (refusing is data, but there is no proposal to observe).
+- Recorded traceability: journal record id, record kind, exchange/symbol/timeframe(s), setup id, setup family, setup direction, setup state, `setup_created_at`, `setup_as_of`, seed event id, structural reference id, Step 5 config fingerprint, Step 5 rules version, plan id, plan state, `planning_as_of`, Step 6 config fingerprint, Step 6 rules version, the canonical JSON projection of the exact snapshot and plan, and the **content identity** of the snapshot (`setup_snapshot_id`, a SHA-256 fingerprint — not a mutable foreign-key-only reference).
+- Not journaled: candles (Step 2 owns them), derived datasets, orders, fills, exchange responses, account state, statistics, narration, or UI state. The journal only ever **reads** the append-only `ohlcv_candles` archive and never writes to it.
+
+### Decisions (exact states and semantics)
+
+| State | Meaning recorded verbatim |
+| --- | --- |
+| `PENDING` | Bailey has seen the record and has not decided yet (recorded explicitly, not implied). |
+| `ACCEPTED` | Bailey decided to act on this proposal. Recorded only when that string/enum is supplied. |
+| `REJECTED` | Bailey decided not to act on the proposal. |
+| `SKIPPED` | Bailey did not take the proposal (e.g. missed/ignored), without a rejection judgement. |
+
+`record_decision(*, journal_id, decision, decided_at=None, reason=None)`:
+- `decision` is **required** — omitting it is a `TypeError`, so nothing can silently default to `ACCEPTED`; an unknown value is a `ValueError` listing the four states.
+- `decided_at` defaults to the current UTC time when omitted; a supplied value must be timezone-aware.
+- `reason` is an optional bounded user note (`MAX_NOTE_LENGTH = 2000`; stripped; blanks become `None`; NUL/C0 control characters are refused; leading/trailing whitespace is not part of the record's meaning). Notes are metadata only and can never change an observation.
+- Each decision row denormalises the record's traceability (record kind, setup id, plan id, family, direction, **the setup state at decision time**, instrument, timeframes, both `as_of` values, both config fingerprints, both rules versions, the snapshot identity) so a decision remains fully auditable even in isolation — a `SKIPPED` decision on a `WATCH` candidate can never be mistaken for a trade.
+- Journaling a plan does **not** create a decision. `latest_decision(...)` returns `None` until one is recorded; there is no default `ACCEPTED`, not even for `PLANNABLE`.
+
+### Immutable decision history and corrections
+
+Decisions are append-only. `record_decision` computes a content-derived `decision_id` and appends a new row with `sequence = previous + 1` and `supersedes_decision_id = previous.decision_id`:
+
+- Re-recording the *identical* decision (same state, timestamp and note) is a verified no-op: the same id and exactly one row.
+- Any difference — state, timestamp, or note — appends a **new** version that supersedes the previous one. The original row keeps its state, timestamp and reason exactly as first written (enforced at the database level, see below) and stays retrievable via `decision_history(...)` and `get_decision(decision_id=...)`, so a change of mind leaves a complete correction trail instead of destroying evidence.
+- `latest_decision(...)` is the effective decision; `decision_history(...)` is the whole trail, oldest first.
+
+### Outcome observations: exact candle touch semantics
+
+`observe_outcome(journal_id=..., observed_through=..., parameters=None)` (or the pure function `observe_outcome(journal_id=..., levels=..., candles=..., observed_through=..., parameters=...)`) evaluates how stored candles behaved relative to a **proposed plan**. Terminology is deliberate and enforced by tests that walk every stored key: these are *proposed-plan outcomes* / *hypothetical plan observations*, **never executed trades**, fills, or P&L.
+
+The window is `[plan.as_of, observed_through]`, aligned to the plan's timeframe, and **only** candles with an open time inside it are read. Observations are computed from the plan JSON stored on the journal record (`ProposedPlanLevels.from_plan` / `from_payload`), so re-observing later cannot silently use a newer plan.
+
+Definitions (long; short is the mirror image):
+
+- **Entry touched** — the candle *traded* the proposed entry: `low <= entry <= high`. A candle that is entirely beyond the level (for example, entirely above a long entry) is not an entry.
+- **Stop touched** — `low <= stop` for a long, `high >= stop` for a short.
+- **Target touched** — `high >= target` for a long, `low <= target` for a short.
+- **Ordering** — touches are ordered by candle index, then by kind (entry, stop, targets in target order); touches in one candle with the *same* kind form one co-touched group (`co_touched=True`), because OHLC data cannot order them within the candle. `first_touch_order` is the group sequence.
+- **Pre-entry touches** — a stop or target touched *before* the entry is recorded with `ordering="pre_entry"` and is never counted as reached. If the stop is touched before the entry and the entry is never touched, the proposal is `INVALIDATED_BEFORE_ENTRY`. A target touched pre-entry can still be reached after the entry and then counts.
+- **Ambiguity** — if the entry candle also touches the stop or a target (`entry_and_exit_same_candle`), or a post-entry candle touches both the stop and at least one target (`stop_and_target_same_candle`), the status is `AMBIGUOUS`: the affected touches are `ordering="ambiguous"`, `targets_reached` stays empty in the entry+exit case, and the trajectory stops at the ambiguity. The favourable result is never selected, and probability is never estimated.
+- **Gaps / missing candles** — a missing candle stops the evaluation at that point. The gaps are recorded as merged `missing_ranges` with exact counts (`missing_candle_count`), `incomplete=True`, and the evaluated window ends at the last candle actually evaluated (`evaluated_through`). If no terminal status was established before the gap the status is `INCOMPLETE_DATA` — **UNKNOWN is never converted into a win, a loss, or an "entry not reached"** (a gap never claims `ENTRY_NOT_REACHED`). A terminal event reached before a gap still stands, with `incomplete=True` recorded alongside. Missing candles are never bridged, interpolated, or inferred through.
+- **Distinct states** — `ENTRY_NOT_REACHED`, `INVALIDATED_BEFORE_ENTRY`, `STOPPED`, `STOPPED_AFTER_TARGETS`, `TARGETS_REACHED`, `OPEN_AT_CUTOFF`, `AMBIGUOUS`, `INCOMPLETE_DATA`. `ENTRY_NOT_REACHED` is only reported for a fully observed window in which the entry was never touched; `OPEN_AT_CUTOFF` means the trajectory was still open at the cutoff; `AMBIGUOUS` means the OHLC data cannot order two touches; `INCOMPLETE_DATA` means the candles needed to decide are missing — none of the three is a win or a loss. Evaluation stops at the first terminal outcome (`STOPPED`, `STOPPED_AFTER_TARGETS`, `TARGETS_REACHED`, `AMBIGUOUS`, `INCOMPLETE_DATA`), which is why `evaluated_through` is recorded separately from `observed_through`: a stop candle after the final target lies outside the evaluated window and is never counted against the plan.
+
+Every touch is also stored as an individual event row (`entry`/`stop`/`target` + target index, the level value, the candle timestamp and index, its ordering, and the co-touched flag), along with the evaluated high/low and their timestamps and the post-entry low/high, so later steps can query or re-derive facts without parsing prose or reconstructing candles.
+
+### MFE / MAE (exact)
+
+`mfe_price_move` and `mae_price_move` are the **maximum favourable / adverse absolute price movement relative to the proposed entry**, over the evaluated window only (never past `observed_through`, never past a gap, clamped at ≥ 0):
+
+- long: `mfe = max(evaluated_high - entry, 0)`, `mae = max(entry - evaluated_low, 0)`;
+- short: `mfe = max(entry - evaluated_low, 0)`, `mae = max(evaluated_high - entry, 0)`;
+- `mfe_r = quantize_derived(mfe_price_move / risk_per_unit)` and `mae_r = quantize_derived(mae_price_move / risk_per_unit)` at 8 decimal places, using the plan's own recorded `risk_per_unit` (unit-neutral R).
+
+Both raw price movements and R multiples are stored, so a later step can derive metrics losslessly; both are `None` when nothing was observable, and neither is a profit, loss, or performance claim.
+
+### Identity, versioning and the anti-lookahead guarantee
+
+- **Identity is content, not a counter.** Journal record ids, decision ids and observation ids are stable SHA-256 fingerprints over canonical JSON (`sort_keys=True`, no whitespace) of the exact inputs (`journal-v1`, `journal-decision-v1`, `journal-outcome-v1`). Same snapshot + same plan + same cutoff + same candles + same config ⇒ the same ids and the same numbers. Repeated journaling of the same source never creates a duplicate: the insert is an idempotent `ON CONFLICT DO NOTHING` plus a field-by-field verification, and a *different* value under the same identity is refused with `JournalConflict` rather than overwriting history.
+- **Observations are versioned, not rewritten.** Each stored observation for a record carries `sequence` and `supersedes_outcome_id`; re-observing the identical window is a verified no-op, and observing further (or after a backfilled candle appears) appends a new version that supersedes the previous one. The earlier version remains byte-for-byte recoverable through `get_outcome(outcome_id=...)` and `outcome_history(...)` — a T2 observation never mutates T1.
+- **Anti-lookahead is structural.** Only candles at or before `observed_through` are read, and a candle outside `[as_of, observed_through]` is *refused* (`ValueError`) rather than filtered, so a later candle cannot influence a historical observation even by accident. Tests prove that inserting future candles after the fact does not change a stored observation, that a backfilled missing candle creates a new version instead of silently changing history, and that a chronological replay reproduces the same observation.
+- **Immutability is enforced twice**: frozen dataclasses in Python (`FrozenInstanceError` on mutation) and SQLite `BEFORE UPDATE`/`BEFORE DELETE` triggers that abort any direct `UPDATE`/`DELETE` on all four journal tables (`append-only`).
+
+### Persistence, schema and migrations
+
+Journal history is durable across restarts (proven by reopening a migrated database with a new engine/service and reading the same ids, payloads and decisions). Migration `0003_journal` is **additive**: four new tables plus indexes and triggers, no change to `ohlcv_candles`, no data deletion, no reset.
+
+| Table | Holds |
+| --- | --- |
+| `journal_records` | One immutable journal record: kind, instrument, snapshot/setup/plan projections and traceability, `setup_snapshot_id`. |
+| `journal_decisions` | Append-only decision versions: state, `decided_at`, note, `sequence`, `supersedes_decision_id`, denormalised traceability. |
+| `journal_outcomes` | Append-only observation versions: status, touch flags, target/ordering/gap fields, evaluated extremes, MFE/MAE, canonical payload, `sequence`, `supersedes_outcome_id`. |
+| `journal_outcome_events` | One row per recorded touch: kind, target index, level, candle timestamp/index, ordering, co-touched flag. |
+
+Constraints and indexes back the guarantees: `CHECK` constraints for the decision vocabulary, sequence ≥ 1, plan-completeness and record-kind consistency, outcome status vocabulary, ambiguity/incomplete/entry-ordering consistency, and event kind/target-index consistency; unique `(journal_id, sequence)` per version chain; foreign keys to `journal_records` and to the previous version; indexes for record lookup by instrument/setup/as-of/snapshot identity, decisions by record/time/state/setup/plan, outcomes by status/cutoff/plan/setup, and events by ordering. The migration's `downgrade` **refuses to run while journal rows exist** (`RuntimeError: Refusing to downgrade: ...`) and only drops the empty journal tables otherwise; historical candles are never dropped. Downgrading an empty journal returns the database to `0002_ohlcv_candles` unchanged.
+
+### API and example
+
+The whole public surface is `trading_assistant.journaling` (`JournalService`, `JournalRepository`, `observe_outcome`, `ProposedPlanLevels`, `JournalRecord`, `DecisionRecord`, `DecisionState`, `OutcomeObservation`, `OutcomeVersion`, `OutcomeEvent`, `OutcomeStatus`, `OutcomeEventKind`, `OutcomeEventOrdering`, `OutcomeParameters`, `snapshot_identity`, `record_identity_material`, `fingerprint`, `canonical_json`, `normalize_note`, the version constants, and the errors `JournalError`/`JournalConflict`/`JournalNotFound`):
+
+```python
+from trading_assistant.database import create_database_engine
+from trading_assistant.journaling import DecisionState, JournalService
+
+service = JournalService(create_database_engine("sqlite:///data/trading_assistant.sqlite3"))
+
+record = service.journal_plan(snapshot=snapshot, plan=plan)          # exact Step 5 + Step 6 moment
+service.record_decision(                                             # explicit human decision
+    journal_id=record.journal_id,
+    decision=DecisionState.ACCEPTED,                                 # no default: required
+    reason="manually reviewed",
+)
+observation = service.observe_outcome(                               # deterministic, cutoff-bounded
+    journal_id=record.journal_id, observed_through=at(8)
+)
+print(observation.status, observation.entry_reached, observation.targets_reached,
+      observation.mfe_r, observation.mae_r)
+
+for version in service.outcome_history(journal_id=record.journal_id):
+    print(version.sequence, version.supersedes_outcome_id, version.observation.status)
+
+service.observe_outcome(journal_id=record.journal_id, observed_through=at(20))  # T2 appended
+service.get_outcome(outcome_id=observation.id)                                  # T1 still exact
+
+# Rejected/skipped proposals are observable on exactly the same terms, so a
+# later comparison can include the opportunities that were not taken.
+skipped = service.journal_plan(snapshot=other_snapshot, plan=other_plan)
+service.record_decision(journal_id=skipped.journal_id, decision=DecisionState.SKIPPED)
+service.observe_outcome(journal_id=skipped.journal_id, observed_through=at(20))
+```
+
+`JournalRepository` is the SQLite persistence layer beneath the service (records by setup or snapshot identity, decisions and outcome versions per record). The service is a thin adapter: it computes identities and projections, reads stored candles, and never replays qualification or re-plans anything.
+
+### Guarantees, determinism and verification
+
+The journal is deterministic and offline: no network, no exchange, no credentials, no clock beyond an explicit `decided_at` default and no randomness in any observation. It never mutates Step 2–6 objects (full JSON projections are compared before/after) and never writes to the raw or candle archives. All behavior is implemented over synthetic BTC/USDT *and* symbol-generic (`ETH/USD`, `SOL/USDC`) data with no hardcoded symbol, timeframe or asset logic, and the package adds no dependency beyond the existing SQLAlchemy/Alembic stack. Tests cover qualification/plan journaling, all four decision states, the no-default rule, immutable correction trails, snapshot+fingerprint preservation, duplicate/idempotent journaling, accepted *and* rejected/skipped outcomes, entry/stop/targets reached or not, multiple targets, first-touch ordering, same-candle stop+target and entry+exit ambiguity, gaps, `UNKNOWN` staying `UNKNOWN`, incomplete windows, long/short MFE/MAE, historical cutoffs, future-data invariance, T2-not-overwriting-T1, persistence across sessions, database constraints and triggers, the additive migration (including refuse-to-downgrade-with-rows), immutability of Step 5/6 objects, and symbol-generic behavior:
+
+```bash
+python -m pytest tests/test_journaling.py tests/test_journaling_service.py
+python -m pytest                      # full repo suite: all Step 7 tests included
+ruff format --check src/trading_assistant/journaling tests/test_journaling.py tests/test_journaling_service.py
+ruff check src/trading_assistant/journaling tests/test_journaling.py tests/test_journaling_service.py
+alembic upgrade head                  # additive: 0002_ohlcv_candles -> 0003_journal
+alembic check                         # metadata and migrations agree, no new operations
+```
+
+**Limitations.** The journal records historical system proposals, human decisions and deterministic market observations; it does not prove profitability, and it does not represent exchange execution unless a future execution system supplies genuine fill data. Touch rules are candle-level OHLC approximations, not tick or order-book reconstructions: same-candle orderings are reported as ambiguous instead of guessed, pre-entry touches are recorded but never counted, and gaps stop the evaluation rather than being bridged. There is deliberately no execution modelling (no fills, sizing, slippage, commissions, fees, funding, balances, positions, leverage, liquidation, or realised monetary P&L), no aggregate statistics or performance claims, no optimisation, no AI narration, no alerts and no UI; `PENDING`, `ACCEPTED`, `REJECTED` and `SKIPPED` are human metadata and none of them is interpreted by the observation engine. Journaling does not make a proposal better: it only makes the history of what the system proposed, what was decided, and what the market subsequently did auditable, reproducible and append-only.
