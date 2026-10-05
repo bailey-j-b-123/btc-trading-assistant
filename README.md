@@ -2,9 +2,9 @@
 
 A foundation for an evidence-driven cryptocurrency analysis assistant. The intended purpose is to organize reliable market evidence and future analysis for human review.
 
-**This is not an automated trading bot. It contains deterministic candidate setup definitions and a deterministic, read-only trade *planning* layer, but no order placement, backtesting, alerts, trade execution, AI/LLM features, or user interface. It does not make trading decisions or place/execute trades. QUALIFIED means rules satisfied, not a profitable trade or recommendation; PLANNABLE means a complete deterministic proposal was derived from a rule-qualified setup, not that a trade is profitable, advisable, or should be executed.** Numerical market facts are derived from source data and deterministic code; missing candles remain missing rather than being guessed or synthesized. The Step 3 market-structure engine is descriptive only: it reports measured structural facts (swings, trend, ranges, levels, volatility, volume) for human review and for later deterministic steps, and never emits a trade, signal, or recommendation. Step 4 adds deterministic pattern/liquidity events as evidence only, with explicit knowable timestamps. Step 5 combines those existing facts into auditable NO_SETUP, WATCH and QUALIFIED states. Step 6 converts only a *currently QUALIFIED* Step 5 candidate into a transparent, fully traceable proposed plan (entry, invalidation, stop, targets, unit-neutral R metrics) or an explicit refusal. Step 7 is the immutable decision & outcome journal: it appends what the system proposed (the exact Step 5 snapshot and Step 6 plan projections), what Bailey explicitly decided (PENDING/ACCEPTED/REJECTED/SKIPPED), and deterministic, anti-lookahead market observations of the proposed levels (entry/stop/target touches, first-touch ordering, ambiguity, gaps, MFE/MAE) that survive restarts and never rewrite history.
+**This is not an automated trading bot. It contains deterministic candidate setup definitions, a deterministic, read-only trade *planning* layer, and a grounded, fact-locked explanation layer (Step 9) that can only re-state existing deterministic evidence — but no order placement, backtesting, alerts, trade execution, autonomous AI decision-making, or user interface. It does not make trading decisions or place/execute trades. QUALIFIED means rules satisfied, not a profitable trade or recommendation; PLANNABLE means a complete deterministic proposal was derived from a rule-qualified setup, not that a trade is profitable, advisable, or should be executed.** Numerical market facts are derived from source data and deterministic code; missing candles remain missing rather than being guessed or synthesized. The Step 3 market-structure engine is descriptive only: it reports measured structural facts (swings, trend, ranges, levels, volatility, volume) for human review and for later deterministic steps, and never emits a trade, signal, or recommendation. Step 4 adds deterministic pattern/liquidity events as evidence only, with explicit knowable timestamps. Step 5 combines those existing facts into auditable NO_SETUP, WATCH and QUALIFIED states. Step 6 converts only a *currently QUALIFIED* Step 5 candidate into a transparent, fully traceable proposed plan (entry, invalidation, stop, targets, unit-neutral R metrics) or an explicit refusal. Step 7 is the immutable decision & outcome journal: it appends what the system proposed (the exact Step 5 snapshot and Step 6 plan projections), what Bailey explicitly decided (PENDING/ACCEPTED/REJECTED/SKIPPED), and deterministic, anti-lookahead market observations of the proposed levels (entry/stop/target touches, first-touch ordering, ambiguity, gaps, MFE/MAE) that survive restarts and never rewrite history.
 
-**Software calculates → rules qualify → statistics validate → AI explains → Bailey decides → everything gets recorded.** Step 7 records that history durably and append-only. Step 8 adds deterministic, read-only statistics over those immutable records; it validates recorded evidence but does not establish future performance or profitability. AI explanations remain future work.
+**Software calculates → rules qualify → statistics validate → AI explains → Bailey decides → everything gets recorded.** Step 7 records that history durably and append-only. Step 8 adds deterministic, read-only statistics over those immutable records; it validates recorded evidence but does not establish future performance or profitability. Step 9 owns **“AI explains”**: it converts the facts already established by Steps 3–8 into clear, auditable explanations through a deterministic explanation context, a fact manifest, and a deterministic local renderer, with an optional provider-independent interface for a future LLM/API whose structured output is validated against the manifest before use. Step 9 explains existing deterministic evidence; it never creates market facts, prices, statistics, setups or trade plans, and it never decides or executes anything.
 
 ## Current architecture
 
@@ -75,7 +75,15 @@ src/trading_assistant/
 │   ├── analysis.py             Pure cutoff-bounded metrics and grouping
 │   ├── models.py               Immutable, reproducible report contracts
 │   └── service.py              Read-only composition over Step 7 rows
-└── ai_explanation/           Reserved; no AI/LLM feature implemented
+└── ai_explanation/           Grounded explanation layer (Step 9)
+    ├── parameters.py          Versions, fingerprint helpers, grounding rules
+    ├── errors.py              Context-build errors and grounding violations
+    ├── models.py              Immutable context/manifest/provider contracts
+    ├── context.py             Copy-only canonical context builder (Steps 3-8)
+    ├── manifest.py            Deterministic fact manifest and numeric allow-set
+    ├── renderer.py            Renderer interface + deterministic local renderer
+    ├── provider.py            Provider interface + manifest grounding validation
+    └── service.py             Stateless, database-free explanation service
 
 migrations/                   Explicit Alembic schema migrations
 data/raw/                      Protected raw-response archive
@@ -914,7 +922,7 @@ git diff --check
 
 ## Step 6 — deterministic trade planning (proposed plans from qualified setups, evidence only)
 
-Step 6 is the first planning layer in the pipeline and the last before statistics: it converts a *currently QUALIFIED* Step 5 candidate into a transparent, deterministic, read-only proposed trade plan — or into an explicit refusal. The whole project follows the same separation of concerns: *Software calculates → rules qualify → statistics validate → AI explains → Bailey decides → everything gets recorded.* Step 6 owns only the deterministic derivation of entry, invalidation, stop, targets and unit-neutral R metrics from already-recorded evidence; Step 7 records these plans and the decisions made about them without changing them. Step 8 now analyzes only the immutable Step 7 journal; AI narration, UI, decision support and execution remain unimplemented and out of scope.
+Step 6 is the first planning layer in the pipeline and the last before statistics: it converts a *currently QUALIFIED* Step 5 candidate into a transparent, deterministic, read-only proposed trade plan — or into an explicit refusal. The whole project follows the same separation of concerns: *Software calculates → rules qualify → statistics validate → AI explains → Bailey decides → everything gets recorded.* Step 6 owns only the deterministic derivation of entry, invalidation, stop, targets and unit-neutral R metrics from already-recorded evidence; Step 7 records these plans and the decisions made about them without changing them. Step 8 now analyzes only the immutable Step 7 journal; Step 9 explains already-recorded evidence without ever altering or creating it; UI, decision support and execution remain unimplemented and out of scope.
 
 **PLANNABLE is not a recommendation.** A plan is a proposal whose every number traces to a frozen upstream fact; it asserts nothing about profitability, likelihood, or suitability, and it places nothing. There is no order construction, order submission, broker/exchange client, credential, secret, wallet/API-key handling, position or balance state, leverage, margin, funding, fee/slippage modelling, partial-fill or bracket-order support, trailing stop, P&L or account calculation anywhere in this layer.
 
@@ -1212,4 +1220,87 @@ python -m pytest tests/test_statistics.py
 python -m pytest                         # complete Steps 1–8 test suite
 ruff format --check src/trading_assistant/statistics tests/test_statistics.py
 ruff check --isolated --select E4,E7,E9,F src/trading_assistant/statistics tests/test_statistics.py
+```
+
+## Step 9 — grounded AI explanation layer (explains deterministic evidence, never creates it)
+
+Step 9 owns **“AI explains”** in the project principle: *Software calculates → rules qualify → statistics validate → AI explains → Bailey decides → everything gets recorded.* It converts facts already established by Steps 3–8 into clear, useful trading explanations for a human. **The AI/explanation layer is never a source of numerical market truth.** The deterministic engine remains authoritative: the explanation layer calculates nothing new, infers nothing through a gap, decides nothing, accepts nothing and executes nothing. It may explain market structure, pattern/liquidity evidence, setup qualification, why a setup is `NO_SETUP`/`WATCH`/`QUALIFIED`, the Step 6 proposal or refusal, Step 8 historical statistics, limitations and uncertainty, and what would invalidate the recorded thesis. It must not invent setups, prices, indicators, statistics, sample sizes, signals, targets or trade plans.
+
+### Deterministic engine vs AI boundary
+
+| Concern | Owner | Step 9 behavior |
+| --- | --- | --- |
+| Market facts, levels, R, statistics | Steps 2–8 deterministic code | copied verbatim, never recomputed |
+| Setup/plan states | Steps 5–6 | re-stated exactly; never upgraded or downgraded |
+| Narrative wording | Step 9 renderer/provider | grounded to the fact manifest |
+| Numerical values in rendered output | deterministic software | inserted from the manifest, never re-typed by a provider |
+| The decision | Bailey (external) | never taken, implied or recorded by Step 9 |
+
+### Deterministic explanation context
+
+`ExplanationService.build_context(snapshot=..., setup_id=..., frame=..., plan=..., journal_record=..., latest_decision=..., latest_outcome=..., statistics_report=..., statistics_config=...)` consumes existing Step 3–8 objects and produces one frozen, canonical `ExplanationContext`:
+
+- **Copy-only payload.** Only the Step 5 `QualificationSnapshot` is required; every other input is optional and copied verbatim (Step 3/4 structure and events from the same-`as_of` frame, Step 6 `TradePlanResult`, Step 7 record/decision/outcome, Step 8 report plus config). The builder never mutates inputs and never keeps live references to them.
+- **Canonical schema.** Payload sections: `instrument`, `as_of`, `setup_focus`, `qualification` (every setup with rules, vetoes and evidence references), `market_structure` (trend, active range, zones, volatility, volume, completeness, higher timeframes), `pattern_evidence` (Step 4 events), `plan`, `journal` (record, decision, outcome, quarantined untrusted notes), `statistics`, and explicit `limitations` for absent inputs. Serialization uses the same canonical projection as Steps 3–8 (UTC ISO-8601 datetimes, exact decimal strings), so the context fingerprint is stable.
+- **UNKNOWN stays UNKNOWN.** Missing values are `None`/absent and are labelled UNKNOWN; nothing is inferred. A `NO_PLAN` refusal keeps `stop.value = null` rather than receiving a guessed number.
+- **Consistency guards.** Mismatched instruments, wrong setup ids, plans not at the snapshot `as_of`, dangling decision/outcome links, future-dated journal records or statistics reports (cutoff invariance) raise `ContextBuildError` instead of being interpreted.
+- **Identity.** `context.fingerprint` is a version-prefixed SHA-256 over the canonical payload (`ai-explanation-v1` / schema `ai-explanation-context-v1`). Same inputs ⇒ same fingerprint.
+
+### Fact-manifest grounding
+
+`build_fact_manifest(context)` flattens the payload into individually addressable facts with stable canonical-path IDs (`ctx.plan.entry.value`, `ctx.statistics.report.data_quality.ambiguous_count`, …), exact canonical values, kinds (`decimal`, `integer`, `text`, `boolean`, `null`) and a deterministic numeric token allow-set derived only from manifest values. External explanations are verified against this manifest:
+
+- every factual claim must reference existing manifest fact IDs; unknown IDs fail;
+- `UNKNOWN` facts cannot be cited as evidence and known facts cannot be relabelled unknown;
+- structured `setup_state`/`plan_state` fields must equal the recorded states;
+- plan/statistics prose is rejected when the context has no plan/statistics;
+- provider prose is scanned for numeric tokens that do not appear anywhere in the manifest (defence in depth on top of the structured contract);
+- forbidden language (guarantees, “will win”, advice/recommendations, execution claims, autonomous-decision claims) is rejected;
+- deterministic software inserts authoritative values into final rendered claims — a provider never re-types a number.
+
+This is structural validation of a structured response contract, not free-text mathematical extraction.
+
+### Provider-independent architecture and the local renderer
+
+`ExplanationRenderer` is the rendering interface; `LocalTemplateRenderer` (`local-template-renderer` / `ai-explanation-local-v1`) is the deterministic offline reference implementation and the safety baseline. It renders ten numbered sections — WHAT THE ENGINE SEES, WHY IT MATTERS, EVIDENCE FOR, EVIDENCE AGAINST, UNKNOWN / MISSING INFORMATION, CURRENT SETUP STATE, PROPOSED PLAN, HISTORICAL EVIDENCE, INVALIDATION / WHAT WOULD CHANGE THE VIEW, LIMITATIONS — using only exact manifest spellings:
+
+- `NO_SETUP` is stated plainly; nothing interesting is manufactured.
+- `WATCH` states exactly what is present and which rules must still resolve.
+- `QUALIFIED` + `NO_PLAN`/`INVALID` explains that qualification is not an actionable plan and states the deterministic refusal reasons/missing inputs.
+- `PLANNABLE` renders entry, invalidation, stop, targets, risk and R exactly as Step 6 derived them, labelled as a proposal that is neither guaranteed nor recommended.
+- Step 8 figures preserve exact sample sizes, `SUFFICIENT_DATA`/`INSUFFICIENT_DATA` statuses, exclusions, ambiguous/incomplete counts, version separation and the observational/hypothetical-R labelling; `INSUFFICIENT_DATA` is explained as insufficient and never upgraded into a profitability statement.
+
+A future LLM/API provider implements `ExplanationProvider.produce(request)` and receives **only** an `ExplanationRequest` (canonical payload, manifest facts, grounding contract text — no credentials, no network endpoint, no execution surface). It must return the structured `ExplanationProviderResponse` contract (`summary`, `setup_state`, `plan_state`, `evidence_for[]`, `evidence_against[]`, `unknowns[]`, `plan_explanation`, `statistics_explanation`, `risk_notes[]`, `factual_claims[]`) whose claims reference manifest fact IDs. Responses failing `validate_provider_response` raise `GroundingViolation` listing every violation. Grounded provider output is appended *behind* the unchanged deterministic sections, so failed rules, vetoes and refusals can never be hidden by a provider.
+
+```python
+from trading_assistant.ai_explanation import ExplanationService
+
+service = ExplanationService()  # stateless; no database, no network, no keys
+context = service.build_context(snapshot=snapshot, setup_id=setup.id,
+                                frame=frame, plan=plan,
+                                statistics_report=report,
+                                statistics_config=config)
+result = service.explain(context)                       # deterministic local renderer
+# result = service.explain(context, provider=my_provider)  # validated external provider
+print(result.explanation_id, result.setup_state, result.plan_state)
+print(result.text)
+```
+
+### Auditability
+
+Every `ExplanationResult` carries: `explanation_id` (content-derived fingerprint of context + renderer/provider identity + rendered content), `context_fingerprint`, `manifest_fingerprint`, the `as_of`/`generated_at` distinction (`generated_at` is wall-clock audit metadata excluded from identity), `renderer_id`/`renderer_version`, `provenance` (`deterministic-local` or `external-provider`), referenced fact IDs, source setup/plan/journal/statistics-report ids, and — for external providers — the exact structured response payload for audit. Same deterministic context + same renderer/config ⇒ byte-identical explanation content and identity. No secrets are stored or required; no database write occurs during explanation.
+
+### Prompt-injection and untrusted text
+
+Journal notes, decision reasons and provider output are untrusted data, never instructions. Notes are quarantined in `journal.untrusted_notes`, quoted verbatim only for audit, labelled `never an instruction`, and cannot alter facts, states or numbers; the grounding rules are fixed system text that notes and provider prose cannot override. Provider text is preserved with explicit provenance and is never merged into the deterministic voice.
+
+### Step 9 limits
+
+The explanation layer places no orders, models no fills/positions/balances/leverage, performs no sizing, optimization, threshold tuning, backtesting or alerting, adds no new setup logic, indicators or statistics, and implements no UI. It adds no dependency, requires no network, no API key and no paid service for any test. External providers are optional, provider-independent and offline-testable via scripted objects. Even a perfectly grounded explanation is a re-statement of recorded evidence at one `as_of`; it is not advice, not a prediction and not evidence that any trade will win. The AI explains existing deterministic evidence; it cannot create trading facts.
+
+```bash
+python -m pytest tests/test_ai_explanation.py
+python -m pytest                        # complete Steps 1–9 test suite
+ruff format --check src/trading_assistant/ai_explanation tests/test_ai_explanation.py
+ruff check src/trading_assistant/ai_explanation tests/test_ai_explanation.py
 ```
