@@ -1,7 +1,8 @@
 /**
- * Candlestick chart wrapper around the vendored TradingView lightweight-charts
- * library. All series data comes from backend payloads; this module only maps
- * authoritative values to visual primitives and never invents candles.
+ * Candlestick chart wrapper for the vendored Lightweight Charts v4 bundle.
+ * Input is the backend's stored-candle payload; this module never creates
+ * market rows or levels. Chart instances, observers, and price-line handles
+ * are explicitly disposed when the dashboard is refreshed or unmounted.
  */
 
 const UP = "#2fbf7f";
@@ -21,78 +22,162 @@ export const OVERLAY_COLORS = {
   reference: "#8ea0bd",
 };
 
-export function toChartCandles(candles) {
-  // Backend row: [timestamp_ms, open, high, low, close, volume] (strings).
-  return (candles || []).map((row) => ({
-    time: Math.floor(row[0] / 1000),
-    open: Number(row[1]),
-    high: Number(row[2]),
-    low: Number(row[3]),
-    close: Number(row[4]),
-  }));
+function rowsFromPayload(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (payload && Array.isArray(payload.candles)) return payload.candles;
+  return [];
+}
+
+function finiteNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "string" && value.trim() === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function validRow(row) {
+  if (!Array.isArray(row) || row.length < 5) return null;
+  const timestamp = finiteNumber(row[0]);
+  const open = finiteNumber(row[1]);
+  const high = finiteNumber(row[2]);
+  const low = finiteNumber(row[3]);
+  const close = finiteNumber(row[4]);
+  if ([timestamp, open, high, low, close].some((value) => value === null)) return null;
+  if (timestamp <= 0 || high < low || open < low || open > high || close < low || close > high) return null;
+  return { timestamp, open, high, low, close, volume: finiteNumber(row[5]) };
+}
+
+/**
+ * The real API returns { candles: [[timestamp_ms, open, high, low, close,
+ * volume], ...] }. The dashboard also passes that same row array directly.
+ * Invalid/missing rows are omitted; values are not interpolated or rounded.
+ */
+export function toChartCandles(payload) {
+  const mapped = [];
+  for (const row of rowsFromPayload(payload)) {
+    const candle = validRow(row);
+    if (!candle) continue;
+    mapped.push({
+      time: Math.floor(candle.timestamp / 1000),
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+    });
+  }
+  return mapped;
 }
 
 export function createPriceChart(container, { height } = {}) {
-  if (!window.LightweightCharts) return null;
-  const chart = window.LightweightCharts.createChart(container, {
-    layout: {
-      background: { type: "solid", color: "transparent" },
-      textColor: TEXT,
-      fontFamily: getComputedStyle(document.documentElement).getPropertyValue("--mono") || "monospace",
-      fontSize: 11,
-    },
-    grid: {
-      vertLines: { color: GRID },
-      horzLines: { color: GRID },
-    },
-    crosshair: {
-      mode: 0,
-      vertLine: { color: "#3a4560" },
-      horzLine: { color: "#3a4560" },
-    },
-    rightPriceScale: { borderColor: "#222b3b" },
-    timeScale: { borderColor: "#222b3b", timeVisible: true, secondsVisible: false },
-    handleScroll: true,
-    handleScale: true,
-    height: height || container.clientHeight || 380,
-    autoSize: true,
-  });
-  const series = chart.addCandlestickSeries({
-    upColor: UP,
-    downColor: DOWN,
-    wickUpColor: UP,
-    wickDownColor: DOWN,
-    borderVisible: false,
-  });
-  const volume = chart.addHistogramSeries({
-    priceFormat: { type: "volume" },
-    priceScaleId: "volume",
-  });
-  chart.priceScale("volume").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
-  // The vendored library has no priceLines() enumeration, so this handle keeps
-  // the exact price-line handles it created and clears only those.
-  return { chart, series, volume, priceLineHandles: [] };
+  const library = typeof window === "undefined" ? null : window.LightweightCharts;
+  if (!library || !container) return null;
+
+  const measuredWidth = Number(container.clientWidth) || 0;
+  const measuredHeight = Number(container.clientHeight) || Number(height) || 0;
+  if (measuredWidth <= 0 || measuredHeight <= 0) return null;
+
+  const computedFont = typeof getComputedStyle === "function"
+    ? getComputedStyle(document.documentElement).getPropertyValue("--mono").trim()
+    : "";
+  let chart = null;
+  let series;
+  let volume;
+  try {
+    chart = library.createChart(container, {
+      width: measuredWidth,
+      height: measuredHeight,
+      autoSize: false,
+      layout: {
+        background: { type: "solid", color: "transparent" },
+        textColor: TEXT,
+        fontFamily: computedFont || "monospace",
+        fontSize: 11,
+      },
+      grid: {
+        vertLines: { color: GRID },
+        horzLines: { color: GRID },
+      },
+      crosshair: {
+        mode: 0,
+        vertLine: { color: "#3a4560" },
+        horzLine: { color: "#3a4560" },
+      },
+      rightPriceScale: { borderColor: "#222b3b" },
+      timeScale: { borderColor: "#222b3b", timeVisible: true, secondsVisible: false },
+      handleScroll: true,
+      handleScale: true,
+    });
+    series = chart.addCandlestickSeries({
+      upColor: UP,
+      downColor: DOWN,
+      wickUpColor: UP,
+      wickDownColor: DOWN,
+      borderVisible: false,
+    });
+    volume = chart.addHistogramSeries({
+      priceFormat: { type: "volume" },
+      priceScaleId: "volume",
+    });
+    chart.priceScale("volume").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+  } catch (error) {
+    chart?.remove?.();
+    throw error;
+  }
+
+  const handle = {
+    chart,
+    series,
+    volume,
+    container,
+    priceLineHandles: [],
+    resizeObserver: null,
+    resizeListener: null,
+    destroyed: false,
+  };
+  const resize = () => {
+    if (handle.destroyed) return;
+    const width = Number(container.clientWidth) || 0;
+    const nextHeight = Number(container.clientHeight) || 0;
+    if (width > 0 && nextHeight > 0) chart.resize(width, nextHeight);
+  };
+
+  if (typeof ResizeObserver === "function") {
+    handle.resizeObserver = new ResizeObserver(resize);
+    handle.resizeObserver.observe(container);
+  } else if (typeof window !== "undefined" && window.addEventListener) {
+    handle.resizeListener = resize;
+    window.addEventListener("resize", resize);
+  }
+  resize();
+  return handle;
 }
 
-export function setCandles(handle, candles) {
-  if (!handle) return;
-  handle.series.setData(toChartCandles(candles));
-  handle.volume.setData(
-    (candles || []).map((row) => ({
-      time: Math.floor(row[0] / 1000),
-      value: Number(row[5]),
-      color: Number(row[4]) >= Number(row[1]) ? "rgba(47,191,127,0.28)" : "rgba(224,86,91,0.28)",
-    })),
-  );
+export function setCandles(handle, payload) {
+  if (!handle || handle.destroyed) return;
+  const rows = rowsFromPayload(payload);
+  const candles = toChartCandles(rows);
+  handle.series.setData(candles);
+
+  const volumeRows = [];
+  for (const row of rows) {
+    const candle = validRow(row);
+    if (!candle || candle.volume === null) continue;
+    volumeRows.push({
+      time: Math.floor(candle.timestamp / 1000),
+      value: candle.volume,
+      color: candle.close >= candle.open ? "rgba(47,191,127,0.28)" : "rgba(224,86,91,0.28)",
+    });
+  }
+  if (handle.volume && typeof handle.volume.setData === "function") handle.volume.setData(volumeRows);
 }
 
 function priceLine(price, { color, title, style = 2, width = 1 }) {
   return {
-    price: Number(price),
+    price,
     color,
     title,
     lineWidth: width,
-    lineStyle: style, // 0 solid, 1 dotted, 2 dashed, 3 large-dash, 4 sparse
+    lineStyle: style, // Lightweight Charts v4: 0 solid, 1 dotted, 2 dashed, 3 large-dash, 4 sparse.
     axisLabelVisible: true,
     crosshairMarkerVisible: false,
   };
@@ -100,114 +185,113 @@ function priceLine(price, { color, title, style = 2, width = 1 }) {
 
 export function clearOverlays(handle) {
   if (!handle || !Array.isArray(handle.priceLineHandles)) return;
-  // Detach the record first so a failed removal can never leave stale tracking
-  // behind, then remove exactly the lines created through addPriceLine below.
-  for (const line of handle.priceLineHandles.splice(0)) handle.series.removePriceLine(line);
+  const lines = handle.priceLineHandles.splice(0);
+  if (!handle.series || typeof handle.series.removePriceLine !== "function") return;
+  for (const line of lines) {
+    try {
+      handle.series.removePriceLine(line);
+    } catch {
+      // Continue cleaning the remaining tracked handles if the library removed
+      // one while the chart was being torn down.
+    }
+  }
 }
 
-/**
- * Create one price line and remember its handle. The vendored Lightweight
- * Charts series API returns an opaque handle from createPriceLine(options) and
- * offers no way to enumerate existing lines, so every overlay line goes through
- * here and clearOverlays() can remove only what this dashboard created.
- */
-function addPriceLine(handle, options) {
-  if (!Array.isArray(handle.priceLineHandles)) handle.priceLineHandles = [];
-  const line = handle.series.createPriceLine(options);
-  handle.priceLineHandles.push(line);
-  return line;
-}
-
-/** Apply deterministic overlays; every level must exist in the payload. */
-export function applyOverlays(handle, { overlays = {}, plan = null, prefs = {} }) {
-  if (!handle) return;
+export function destroyPriceChart(handle) {
+  if (!handle || handle.destroyed) return;
   clearOverlays(handle);
-  const show = prefs.overlays || {};
+  handle.destroyed = true;
+  handle.resizeObserver?.disconnect();
+  if (handle.resizeListener && typeof window !== "undefined") {
+    window.removeEventListener?.("resize", handle.resizeListener);
+  }
+  handle.chart?.remove?.();
+}
 
-  if (show.zones !== false) {
-    for (const zone of overlays.zones || []) {
-      const role =
-        zone.role === "support" ? "support" : zone.role === "resistance" ? "resistance" : "zone";
-      for (const [bound, label] of [
-        [zone.band_low, `${role} low`],
-        [zone.band_high, `${role} high`],
-      ]) {
-        if (bound === null || bound === undefined) continue;
-        addPriceLine(handle,
-          priceLine(bound, { color: OVERLAY_COLORS.zones, title: label, style: 1 }),
-        );
-      }
+/** Apply exact deterministic overlays. All created lines are tracked. */
+export function applyOverlays(handle, payload = {}) {
+  if (!handle || handle.destroyed || !handle.series || typeof handle.series.createPriceLine !== "function") return;
+  if (!Array.isArray(handle.priceLineHandles)) handle.priceLineHandles = [];
+  clearOverlays(handle);
+  const safePayload = payload && typeof payload === "object" ? payload : {};
+  const overlays = safePayload.overlays && typeof safePayload.overlays === "object"
+    ? safePayload.overlays
+    : {};
+  const prefs = safePayload.prefs && typeof safePayload.prefs === "object"
+    ? safePayload.prefs.overlays || {}
+    : {};
+  const plan = safePayload.plan && safePayload.plan.state === "PLANNABLE"
+    ? safePayload.plan
+    : null;
+  const seen = new Set();
+
+  const add = (value, options) => {
+    const price = finiteNumber(value);
+    if (price === null) return;
+    const key = `${options.title}|${price}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const line = handle.series.createPriceLine(priceLine(price, options));
+    handle.priceLineHandles.push(line);
+  };
+
+  if (prefs.zones !== false) {
+    for (const zone of Array.isArray(overlays.zones) ? overlays.zones : []) {
+      const role = zone.role === "support" ? "support" : zone.role === "resistance" ? "resistance" : "zone";
+      add(zone.band_low, { color: OVERLAY_COLORS.zones, title: `${role} low`, style: 1 });
+      add(zone.band_high, { color: OVERLAY_COLORS.zones, title: `${role} high`, style: 1 });
     }
   }
 
-  if (show.range !== false && overlays.range) {
-    for (const [bound, label] of [
-      [overlays.range.range_low, "range low"],
-      [overlays.range.range_high, "range high"],
-    ]) {
-      if (bound === null || bound === undefined) continue;
-      addPriceLine(handle,
-        priceLine(bound, { color: OVERLAY_COLORS.range, title: label, style: 3, width: 1 }),
-      );
+  if (prefs.range !== false && overlays.range && typeof overlays.range === "object") {
+    add(overlays.range.range_low, { color: OVERLAY_COLORS.range, title: "range low", style: 3 });
+    add(overlays.range.range_high, { color: OVERLAY_COLORS.range, title: "range high", style: 3 });
+  }
+
+  if (prefs.equalLevels !== false) {
+    for (const cluster of Array.isArray(overlays.equal_levels) ? overlays.equal_levels : []) {
+      add(cluster.level, {
+        color: OVERLAY_COLORS.equalLevels,
+        title: cluster.type === "equal_high" ? "equal highs" : "equal lows",
+        style: 1,
+      });
     }
   }
 
-  if (show.equalLevels !== false) {
-    for (const cluster of overlays.equal_levels || []) {
-      if (cluster.level === null || cluster.level === undefined) continue;
-      addPriceLine(handle,
-        priceLine(cluster.level, {
-          color: OVERLAY_COLORS.equalLevels,
-          title: cluster.type === "equal_high" ? "equal highs" : "equal lows",
-          style: 1,
-        }),
-      );
+  const reference = overlays.setup_reference;
+  if (reference && typeof reference === "object") {
+    add(reference.band_low, { color: OVERLAY_COLORS.reference, title: "setup reference low", style: 2 });
+    add(reference.band_high, { color: OVERLAY_COLORS.reference, title: "setup reference high", style: 2 });
+  }
+
+  if (prefs.swings === true) {
+    for (const swing of Array.isArray(overlays.swings) ? overlays.swings : []) {
+      const value = swing.price !== undefined ? swing.price : swing.level;
+      add(value, {
+        color: OVERLAY_COLORS.swings,
+        title: swing.kind === "high" ? "swing high" : "swing low",
+        style: 1,
+      });
     }
   }
 
-  if (show.swings === true) {
-    for (const swing of overlays.swings || []) {
-      const price = swing.price !== undefined ? swing.price : swing.level;
-      if (price === null || price === undefined) continue;
-      addPriceLine(handle,
-        priceLine(price, {
-          color: OVERLAY_COLORS.swings,
-          title: swing.kind === "high" ? "swing H" : "swing L",
-          style: 1,
-        }),
-      );
-    }
-  }
-
-  if (show.planLevels !== false && plan) {
+  if (prefs.planLevels !== false && plan) {
     const entry = plan.entry ? plan.entry.value : null;
     const stop = plan.stop ? plan.stop.value : null;
     const invalidation = plan.invalidation ? plan.invalidation.value : null;
-    if (entry !== null && entry !== undefined) {
-      addPriceLine(handle,
-        priceLine(entry, { color: OVERLAY_COLORS.entry, title: "entry", style: 0, width: 1 }),
-      );
+    add(entry, { color: OVERLAY_COLORS.entry, title: "entry", style: 0 });
+    add(stop, { color: OVERLAY_COLORS.stop, title: "protective stop", style: 0 });
+    const invalidationPrice = finiteNumber(invalidation);
+    const stopPrice = finiteNumber(stop);
+    if (invalidationPrice !== null && invalidationPrice !== stopPrice) {
+      add(invalidationPrice, { color: OVERLAY_COLORS.invalidation, title: "invalidation", style: 2 });
     }
-    if (stop !== null && stop !== undefined) {
-      addPriceLine(handle,
-        priceLine(stop, { color: OVERLAY_COLORS.stop, title: "protective stop", style: 0 }),
-      );
-    }
-    if (
-      invalidation !== null &&
-      invalidation !== undefined &&
-      String(invalidation) !== String(stop)
-    ) {
-      addPriceLine(handle,
-        priceLine(invalidation, { color: OVERLAY_COLORS.invalidation, title: "invalidation", style: 2 }),
-      );
-    }
-    (plan.targets || []).forEach((target, index) => {
-      const level = target.level ? target.level.value : null;
-      if (level === null || level === undefined) return;
-      addPriceLine(handle,
-        priceLine(level, { color: OVERLAY_COLORS.targets, title: `target ${index + 1}`, style: 0 }),
-      );
+    (Array.isArray(plan.targets) ? plan.targets : []).forEach((target, index) => {
+      add(target.level ? target.level.value : null, {
+        color: OVERLAY_COLORS.targets,
+        title: `target ${index + 1}`,
+        style: 0,
+      });
     });
   }
 }

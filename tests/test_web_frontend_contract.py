@@ -27,15 +27,14 @@ def test_viewport_and_mobile_meta_present():
     assert "apple-mobile-web-app-capable" in html
 
 
-def test_mobile_navigation_switches_to_bottom_bar():
+def test_one_page_dashboard_reflows_for_narrow_screens():
+    html = read(STATIC_DIR / "index.html")
     css = read(STATIC_DIR / "styles.css")
-    assert "@media (max-width: 860px)" in css
-    mobile_block = css.split("@media (max-width: 860px)")[1]
-    # Bottom tab bar, one-handed reach, safe-area padding.
-    assert "bottom: 0" in mobile_block
-    assert "safe-area-inset-bottom" in mobile_block
-    # Desktop sidebar is replaced, not shrunk.
-    assert 'grid-template-areas: "topbar" "view" "footnote" "sidenav"' in mobile_block
+    assert '<nav class="sidenav"' not in html
+    assert "@media (max-width: 760px)" in css
+    assert "@media (max-width: 520px)" in css
+    assert ".primary-layout { grid-template-columns: minmax(0, 1fr); }" in css
+    assert ".terminal-chart-wrap { height: 350px; }" in css
 
 
 def test_touch_targets_are_comfortable():
@@ -45,12 +44,13 @@ def test_touch_targets_are_comfortable():
     assert int(match.group(1)) >= 44
 
 
-def test_status_is_never_conveyed_by_colour_alone():
-    """Badges always pair a coloured dot with text; setup state shows words."""
+def test_terminal_verdict_and_system_status_use_explicit_text():
+    """The current verdict and compact health state are words, not colour alone."""
 
     js = read(STATIC_DIR / "js/views/dashboard.js")
-    assert "NO TRADE" in js and "WATCH" in js and "QUALIFIED" in js
-    assert "PLANNABLE" in js and "NO_PLAN" in js and "INVALID" in js
+    assert "NO TRADE" in js and "WATCH" in js and "PLANNABLE" in js
+    assert "SYSTEM OK" in js and "SYSTEM WARNING" in js
+    assert 'role: "status"' in js
 
 
 def test_no_inline_scripts_and_csp_allowlist_match():

@@ -5,7 +5,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { applyOverlays, clearOverlays, toChartCandles } from "../../src/trading_assistant/web/static/js/chart.js";
+import {
+  applyOverlays,
+  clearOverlays,
+  createPriceChart,
+  destroyPriceChart,
+  setCandles,
+  toChartCandles,
+} from "../../src/trading_assistant/web/static/js/chart.js";
 
 const CHART_MODULE_PATH = fileURLToPath(
   new URL("../../src/trading_assistant/web/static/js/chart.js", import.meta.url),
@@ -71,6 +78,7 @@ const PAYLOAD = {
     swings: [],
   },
   plan: {
+    state: "PLANNABLE",
     entry: { value: "124" },
     stop: { value: "117" },
     invalidation: { value: "117" }, // identical to stop -> not duplicated
@@ -180,4 +188,106 @@ test("disabled overlay groups stay hidden", () => {
     prefs: { overlays: { zones: false } },
   });
   assert.equal(handle.lines.size, 0);
+});
+
+test("confirmed swing overlays remain optional and use only returned levels", () => {
+  const handle = mockHandle();
+  applyOverlays(handle, {
+    overlays: { swings: [{ kind: "high", price: "105" }] },
+    plan: null,
+    prefs: { overlays: { swings: true } },
+  });
+  assert.deepEqual(drawn(handle), ["swing high@105"]);
+});
+
+test("the chart accepts the real market-candles API envelope", () => {
+  const payload = {
+    exchange: "kraken",
+    symbol: "BTC/USDT",
+    timeframe: "1h",
+    candles: ROWS,
+    returned_count: ROWS.length,
+  };
+  assert.deepEqual(toChartCandles(payload), toChartCandles(ROWS));
+});
+
+test("malformed or missing candle payloads stay empty", () => {
+  assert.deepEqual(toChartCandles(undefined), []);
+  assert.deepEqual(toChartCandles({ candles: null }), []);
+  assert.deepEqual(toChartCandles({ candles: [[1704067200000, "bad", null, "", "NaN", "1"]] }), []);
+});
+
+test("chart data refreshes replace overlay handles and chart disposal releases resources", () => {
+  const saved = new Map();
+  for (const key of ["window", "document", "ResizeObserver", "getComputedStyle"]) {
+    saved.set(key, { present: Object.hasOwn(globalThis, key), value: globalThis[key] });
+  }
+
+  const charts = [];
+  const observers = [];
+  class MockResizeObserver {
+    constructor(callback) { this.callback = callback; this.disconnected = false; observers.push(this); }
+    observe() {}
+    disconnect() { this.disconnected = true; }
+  }
+  globalThis.document = { documentElement: {} };
+  globalThis.getComputedStyle = () => ({ getPropertyValue: () => "monospace" });
+  globalThis.ResizeObserver = MockResizeObserver;
+  globalThis.window = {
+    LightweightCharts: {
+      createChart: (_container, _options) => {
+        const record = { removed: false, candles: [], volume: [], lines: new Set(), resizeCount: 0 };
+        const series = {
+          setData: (data) => { record.candles = data; },
+          createPriceLine: (options) => {
+            const line = { options };
+            record.lines.add(line);
+            return line;
+          },
+          removePriceLine: (line) => record.lines.delete(line),
+        };
+        const volume = { setData: (data) => { record.volume = data; } };
+        const chart = {
+          addCandlestickSeries: () => series,
+          addHistogramSeries: () => volume,
+          priceScale: () => ({ applyOptions: () => {} }),
+          resize: () => { record.resizeCount += 1; },
+          remove: () => { record.removed = true; },
+        };
+        charts.push(record);
+        return chart;
+      },
+    },
+  };
+
+  try {
+    const handle = createPriceChart({ clientWidth: 920, clientHeight: 480 });
+    assert.ok(handle);
+    setCandles(handle, {
+      candles: [
+        [1704067200000, "100", "102", "99", "101", "10"],
+        [1704070800000, "101", "105", "100.5", "104", "12"],
+      ],
+    });
+    applyOverlays(handle, PAYLOAD);
+    const firstDraw = drawn({ lines: charts[0].lines });
+    for (let refresh = 0; refresh < 5; refresh += 1) {
+      applyOverlays(handle, PAYLOAD);
+      assert.deepEqual(drawn({ lines: charts[0].lines }), firstDraw);
+      assert.equal(charts[0].lines.size, EXPECTED_LINES);
+    }
+    assert.equal(charts[0].candles.length, 2);
+    assert.equal(charts[0].candles[1].close, 104);
+
+    destroyPriceChart(handle);
+    destroyPriceChart(handle);
+    assert.equal(charts[0].removed, true);
+    assert.equal(charts[0].lines.size, 0);
+    assert.equal(observers[0].disconnected, true);
+  } finally {
+    for (const [key, prior] of saved) {
+      if (prior.present) globalThis[key] = prior.value;
+      else delete globalThis[key];
+    }
+  }
 });

@@ -1,9 +1,9 @@
 /**
- * Application entry: hash router, navigation state, view mounting.
- * No framework, no build step: deterministic static modules.
+ * Browser entry point. The default experience is the single trading dashboard;
+ * the older read-only views remain available to existing direct links.
  */
 
-import { renderDashboard } from "./views/dashboard.js";
+import { disposeDashboard, renderDashboard } from "./views/dashboard.js";
 import { renderJournal } from "./views/journal.js";
 import { renderLive } from "./views/live.js";
 import { renderSettings } from "./views/settings.js";
@@ -22,6 +22,15 @@ const ROUTES = {
   settings: (view) => renderSettings(view),
 };
 
+const TITLES = {
+  dashboard: "BTC/USDT",
+  journal: "Journal",
+  live: "Live / Paper",
+  statistics: "Statistics",
+  validation: "Historical Validation",
+  settings: "Settings",
+};
+
 function currentRoute() {
   const hash = location.hash || "#/dashboard";
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
@@ -29,28 +38,15 @@ function currentRoute() {
   return { name, parts };
 }
 
-function updateNav(name) {
-  for (const item of document.querySelectorAll(".nav-item")) {
-    if (item.dataset.route === name) item.setAttribute("aria-current", "page");
-    else item.removeAttribute("aria-current");
-  }
-  const titles = {
-    dashboard: "Dashboard",
-    journal: "Journal",
-    live: "Live / Paper",
-    statistics: "Statistics",
-    validation: "Historical Validation",
-    settings: "Settings",
-  };
-  document.title = `Trading Assistant — ${titles[name] || "Dashboard"}`;
-}
-
 function render() {
   const { name, parts } = currentRoute();
   const view = document.getElementById("view");
   if (!view) return;
-  updateNav(name);
-  ROUTES[name](view, parts).catch((error) => {
+
+  disposeDashboard();
+  view.className = "view";
+  document.title = `Trading Assistant — ${TITLES[name] || TITLES.dashboard}`;
+  Promise.resolve(ROUTES[name](view, parts)).catch((error) => {
     view.textContent = "";
     const block = document.createElement("div");
     block.className = "state-block";
@@ -68,6 +64,7 @@ function render() {
 
 window.addEventListener("hashchange", render);
 window.addEventListener("DOMContentLoaded", () => {
-  if (!location.hash) location.hash = "#/dashboard";
+  const refresh = document.getElementById("refresh-dashboard");
+  refresh?.addEventListener("click", render);
   render();
 });
