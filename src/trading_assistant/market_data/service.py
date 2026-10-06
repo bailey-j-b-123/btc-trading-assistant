@@ -192,6 +192,12 @@ class MarketDataService:
         cursor_ms = requested_start_ms
         pages_fetched = 0
         last_http_response: Any = None
+        # Apply a known source cap before each request; legacy/test sources that
+        # do not advertise one retain the configured page size.
+        page_limit = self.settings.market_data_page_limit
+        source_max_limit = getattr(self.source, "max_ohlcv_limit", None)
+        if source_max_limit is not None:
+            page_limit = min(page_limit, source_max_limit)
 
         while cursor_ms <= effective_end_ms and pages_fetched < self.settings.market_data_max_pages:
             page_index = pages_fetched
@@ -200,7 +206,7 @@ class MarketDataService:
                     instrument,
                     timeframe=interval,
                     since_ms=cursor_ms,
-                    limit=self.settings.market_data_page_limit,
+                    limit=page_limit,
                 )
             except Exception as exc:
                 logger.error(
@@ -230,7 +236,7 @@ class MarketDataService:
                     symbol=instrument,
                     timeframe=interval,
                     since_ms=cursor_ms,
-                    limit=self.settings.market_data_page_limit,
+                    limit=page_limit,
                     response=page,
                     http_response=last_http_response,
                     retrieved_at=require_utc_datetime(self._clock(), field_name="clock"),

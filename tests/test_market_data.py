@@ -46,22 +46,60 @@ class FakeSource:
         self.calls = 0
         self.last_http_response = None
         self.requests: list[int] = []
+        self.request_limits: list[int] = []
 
     def fetch_ohlcv(self, symbol, *, timeframe, since_ms, limit):
         self.calls += 1
         self.requests.append(since_ms)
+        self.request_limits.append(limit)
         if self.fail_on_call == self.calls:
             raise ConnectionError("simulated offline exchange")
         return [row for row in self.rows if int(row[0]) >= since_ms][:limit]
 
 
-def configured_settings(tmp_path: Path, *, page_limit: int = 100) -> Settings:
+class RecordingCCXTClient:
+    """Offline stand-in for the unified CCXT exchange client."""
+
+    def __init__(self, exchange_id: str, rows=()):
+        self.id = exchange_id
+        self.timeframes = {"5m": "5m", "1h": "60"}
+        self.last_http_response = None
+        self.rows = list(rows)
+        self.requests: list[tuple[str, str, int, int]] = []
+
+    def fetch_ohlcv(self, symbol, *, timeframe, since, limit):
+        self.requests.append((symbol, timeframe, since, limit))
+        return [row for row in self.rows if int(row[0]) >= since][:limit]
+
+    def close(self):  # pragma: no cover - test client owns no resources
+        return None
+
+
+def ccxt_source_for(exchange_id: str, client: RecordingCCXTClient) -> CCXTMarketDataSource:
+    """Wrap the fake CCXT client without constructing or contacting an exchange."""
+
+    source = CCXTMarketDataSource.__new__(CCXTMarketDataSource)
+    source._exchange = client
+    source.exchange_id = exchange_id
+    source.last_http_response = None
+    return source
+
+
+def configured_settings(
+    tmp_path: Path,
+    *,
+    page_limit: int = 100,
+    exchange: str = "mock-exchange",
+    symbol: str = "ETH/USDT",
+    base_asset: str = "ETH",
+    quote_asset: str = "USDT",
+) -> Settings:
     return Settings(
         _env_file=None,
-        symbol="ETH/USDT",
-        base_asset="ETH",
-        quote_asset="USDT",
-        exchange="mock-exchange",
+        symbol=symbol,
+        base_asset=base_asset,
+        quote_asset=quote_asset,
+        exchange=exchange,
         default_timeframe="5m",
         supported_timeframes=("5m", "15m", "1h", "4h", "1d"),
         raw_data_dir=tmp_path / "raw",
@@ -76,11 +114,27 @@ def migrate_database(database_url: str) -> None:
     command.upgrade(config, "head")
 
 
-def create_service(tmp_path: Path, source: FakeSource, *, page_limit: int = 100):
+def create_service(
+    tmp_path: Path,
+    source,
+    *,
+    page_limit: int = 100,
+    exchange: str = "mock-exchange",
+    symbol: str = "ETH/USDT",
+    base_asset: str = "ETH",
+    quote_asset: str = "USDT",
+):
     database_path = tmp_path / "market.sqlite3"
     engine = create_database_engine(f"sqlite:///{database_path}")
     migrate_database(f"sqlite:///{database_path}")
-    settings = configured_settings(tmp_path, page_limit=page_limit)
+    settings = configured_settings(
+        tmp_path,
+        page_limit=page_limit,
+        exchange=exchange,
+        symbol=symbol,
+        base_asset=base_asset,
+        quote_asset=quote_asset,
+    )
     service = MarketDataService(
         engine,
         source,
@@ -104,6 +158,109 @@ def test_ccxt_source_is_public_and_uses_decimal_parsing():
         assert parsed[5] == Decimal("2.34567891")
     finally:
         source.close()
+
+
+@pytest.mark.parametrize(
+    ("exchange_id", "requested_limit", "expected_limit"),
+    [
+        ("kraken", 5_000, 720),
+        ("kraken", 5, 5),
+        ("binance", 5_000, 5_000),
+    ],
+)
+def test_ccxt_source_uses_only_known_exchange_ohlcv_caps(
+    exchange_id: str, requested_limit: int, expected_limit: int
+):
+    client = RecordingCCXTClient(exchange_id)
+    source = ccxt_source_for(exchange_id, client)
+
+    source.fetch_ohlcv(
+        "BTC/USD",
+        timeframe="1h",
+        since_ms=0,
+        limit=requested_limit,
+    )
+
+    assert client.requests == [("BTC/USD", "1h", 0, expected_limit)]
+    assert source.max_ohlcv_limit == (720 if exchange_id == "kraken" else None)
+
+
+def test_kraken_oversized_setting_is_capped_before_ccxt_and_archiving(tmp_path):
+    client = RecordingCCXTClient(
+        "kraken",
+        [
+            candle_row(0),
+            candle_row(FIVE_MINUTES_MS),
+            candle_row(2 * FIVE_MINUTES_MS),  # current, still-forming candle
+        ],
+    )
+    source = ccxt_source_for("kraken", client)
+    engine, service = create_service(
+        tmp_path,
+        source,
+        page_limit=5_000,
+        exchange="kraken",
+        symbol="BTC/USD",
+        base_asset="BTC",
+        quote_asset="USD",
+    )
+    try:
+        result = service.download_history(
+            start_time=EPOCH,
+            as_of=EPOCH + timedelta(minutes=10),
+        )
+
+        assert client.requests == [("BTC/USD", "5m", 0, 720)]
+        assert result.received_count == 3
+        assert result.accepted_count == result.inserted_count == 2
+        assert result.excluded_open_count == 1
+        assert result.complete
+        assert json.loads(result.raw_files[0].read_text(encoding="utf-8"))["request"] == {
+            "since_ms": 0,
+            "limit": 720,
+        }
+    finally:
+        engine.dispose()
+
+
+def test_kraken_history_older_than_public_window_is_reported_incomplete(tmp_path):
+    # Kraken serves only its latest 720 candles; request a larger range and make
+    # the unavailable earlier part observable rather than treating it as complete.
+    first_available_index = 281
+    last_available_index = 1_000
+    client = RecordingCCXTClient(
+        "kraken",
+        [
+            candle_row(index * FIVE_MINUTES_MS)
+            for index in range(first_available_index, last_available_index + 1)
+        ],
+    )
+    source = ccxt_source_for("kraken", client)
+    engine, service = create_service(
+        tmp_path,
+        source,
+        page_limit=5_000,
+        exchange="kraken",
+        symbol="BTC/USD",
+        base_asset="BTC",
+        quote_asset="USD",
+    )
+    try:
+        result = service.download_history(
+            start_time=EPOCH,
+            as_of=EPOCH + timedelta(milliseconds=(last_available_index + 1) * FIVE_MINUTES_MS),
+        )
+
+        assert client.requests == [("BTC/USD", "5m", 0, 720)]
+        assert result.inserted_count == 720
+        assert not result.complete
+        assert result.missing_candle_count == first_available_index
+        assert result.gaps[0].start == EPOCH
+        assert result.gaps[0].end == EPOCH + timedelta(
+            milliseconds=(first_available_index - 1) * FIVE_MINUTES_MS
+        )
+    finally:
+        engine.dispose()
 
 
 def test_parse_ccxt_row_uses_utc_and_decimal_values():
@@ -329,6 +486,33 @@ def test_download_paginates_and_advances_cursor_by_one_candle(tmp_path):
         assert result.complete
         assert source.requests == [0, 2 * FIVE_MINUTES_MS]
         assert len(result.raw_files) == 2
+    finally:
+        engine.dispose()
+
+
+def test_exchange_page_cap_does_not_truncate_required_history(tmp_path):
+    rows = [candle_row(index * FIVE_MINUTES_MS) for index in range(4)]
+    source = FakeSource(rows)
+    # Simulate a source with a small hard per-request cap. The configured limit
+    # is intentionally oversized; the service must request multiple pages.
+    source.max_ohlcv_limit = 2
+    engine, service = create_service(tmp_path, source, page_limit=5_000)
+    try:
+        result = service.download_history(
+            start_time=EPOCH,
+            end_time=EPOCH + timedelta(minutes=15),
+            as_of=EPOCH + timedelta(minutes=20),
+        )
+
+        assert result.received_count == result.inserted_count == 4
+        assert result.complete
+        assert source.request_limits == [2, 2]
+        assert source.requests == [0, 2 * FIVE_MINUTES_MS]
+        archived_limits = [
+            json.loads(path.read_text(encoding="utf-8"))["request"]["limit"]
+            for path in result.raw_files
+        ]
+        assert archived_limits == [2, 2]
     finally:
         engine.dispose()
 

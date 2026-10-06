@@ -116,6 +116,33 @@ def test_an_unfinished_candle_is_never_analysed() -> None:
         assert plan.plan_as_of == QUALIFYING_BOUNDARY
 
 
+def test_public_refresh_keeps_forming_candle_out_of_step12_analysis() -> None:
+    harness = make_harness(
+        series=labelled_series(),
+        ledger_start=QUALIFYING_BOUNDARY,
+        backfill_start=EPOCH,
+        store_series=False,
+    )
+    unfinished = bar(21, 150, high=160, low=140)
+    harness.source.set_candles(labelled_series() + (unfinished,))
+    harness.advance_to(QUALIFYING_BOUNDARY)
+
+    result = harness.run(refresh_market_data=True)
+
+    assert result.market_data_error is None
+    stored = harness.candles().candles
+    assert len(stored) == 21
+    assert all(candle.timestamp < unfinished.timestamp for candle in stored)
+    cycles = harness.cycles()
+    assert len(cycles) == 1
+    assert cycles[0].as_of == QUALIFYING_BOUNDARY
+    assert cycles[0].candle_open_time == unfinished.timestamp - INTERVAL
+    assert all(
+        observation.candle_open_time < unfinished.timestamp
+        for observation in harness.observations()
+    )
+
+
 def test_stale_feed_cannot_produce_a_fresh_conclusion() -> None:
     harness = harness_with_a_paper_plan()
     harness.advance_to(QUALIFYING_BOUNDARY + 6 * INTERVAL)
