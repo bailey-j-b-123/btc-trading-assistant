@@ -98,7 +98,10 @@ from trading_assistant.setup_qualification.models import (
     SetupState,
 )
 from trading_assistant.setup_qualification.parameters import QualificationParameters
-from trading_assistant.setup_qualification.service import QualificationService
+from trading_assistant.setup_qualification.service import (
+    QualificationService,
+    bounded_replay_start,
+)
 from trading_assistant.trade_planning import (
     PLANNING_RULES_VERSION,
     PlanningParameters,
@@ -725,7 +728,30 @@ class ForwardTestService:
                 heartbeat=heartbeat,
             )
 
+        # One bounded replay for the whole pass: candidates live at the first
+        # pending close were seeded within the replay window, and the ledger
+        # floor extends the replay back to any still-unresolved setup seeded
+        # earlier, so its first terminal transition still records exactly once.
+        first_as_of = to_process[0] + interval
         last_as_of = to_process[-1] + interval
+        recorded_setups, unresolved_floor = self._ledger_setup_index(
+            exchange=exchange, symbol=resolved_symbol, timeframe=resolved_timeframe
+        )
+        window_start = bounded_replay_start(
+            as_of=first_as_of,
+            timeframe=resolved_timeframe,
+            parameters=self.qualification_parameters,
+        )
+        if unresolved_floor is None:
+            replay_start = window_start
+        else:
+            # Align down to a close boundary: a stored creation time is always
+            # a seed boundary, but aligning defensively can only widen the
+            # replay (never narrow it), so coverage is preserved either way.
+            floor_boundary = latest_closed_candle_open_time(
+                unresolved_floor, resolved_timeframe
+            ) + interval
+            replay_start = min(window_start, floor_boundary)
         frames = self.qualification.build_frames(
             exchange=exchange,
             symbol=resolved_symbol,
@@ -734,6 +760,7 @@ class ForwardTestService:
             parameters=self.qualification_parameters,
             pattern_parameters=self.pattern_parameters,
             structure_parameters=self.structure_parameters,
+            start_at=replay_start,
         )
         frame_by_as_of = {frame.patterns.as_of: frame for frame in frames}
         snapshots = enumerate_qualifications(
@@ -741,9 +768,6 @@ class ForwardTestService:
         )
         snapshot_by_as_of = {snapshot.as_of: snapshot for snapshot in snapshots}
 
-        recorded_setups = self._recorded_setup_ids(
-            exchange=exchange, symbol=resolved_symbol, timeframe=resolved_timeframe
-        )
         first_ledger_as_of = self._first_cycle_as_of(
             exchange=exchange, symbol=resolved_symbol, timeframe=resolved_timeframe
         )
@@ -770,7 +794,13 @@ class ForwardTestService:
                 latest_stored=latest_stored,
             )
             last_health = context.data_health
-            cycle, created, plan_created, observation_count = self._record_cycle(
+            (
+                cycle,
+                created,
+                plan_created,
+                observation_count,
+                recorded_setups,
+            ) = self._record_cycle(
                 context=context,
                 exchange=exchange,
                 symbol=resolved_symbol,
@@ -794,11 +824,6 @@ class ForwardTestService:
                 boundary=boundary,
                 interval=interval,
                 recorded_at=instant,
-            )
-            recorded_setups = self._recorded_setup_ids(
-                exchange=exchange,
-                symbol=resolved_symbol,
-                timeframe=resolved_timeframe,
             )
 
         status = HeartbeatStatus.PROCESSED
@@ -1370,8 +1395,13 @@ class ForwardTestService:
         recorded_setups: frozenset[str],
         first_ledger_as_of: datetime | None,
         market_data_json: str,
-    ) -> tuple[ForwardCycle, bool, int, int]:
-        """Record one closed-candle cycle (and its candidate observations)."""
+    ) -> tuple[ForwardCycle, bool, int, int, frozenset[str]]:
+        """Record one closed-candle cycle (and its candidate observations).
+
+        Returns the updated recorded-setup ids so the pass carries them
+        forward without re-reading the ledger after every boundary; the
+        union mirrors exactly what this cycle recorded.
+        """
 
         notes: list[str] = []
         status: CycleStatus
@@ -1574,7 +1604,7 @@ class ForwardTestService:
                 }
             },
         )
-        return stored, created, plans_created, observation_count
+        return stored, created, plans_created, observation_count, recorded_setups
 
     def _should_record_setup(
         self,
@@ -1962,15 +1992,37 @@ class ForwardTestService:
     # Internals
     # ------------------------------------------------------------------
 
-    def _recorded_setup_ids(
+    def _ledger_setup_index(
         self, *, exchange: str, symbol: str, timeframe: str
-    ) -> frozenset[str]:
-        return frozenset(
-            item.setup_id
-            for item in self.ledger.observations(
-                exchange=exchange, symbol=symbol, timeframe=timeframe
-            )
-        )
+    ) -> tuple[frozenset[str], datetime | None]:
+        """Recorded setup ids, plus the oldest creation time still unresolved.
+
+        The floor is the earliest ``setup_created_at`` among setups with no
+        terminal (``NO_SETUP`` with an end time) observation yet. The bounded
+        replay starts at or before it, so even a candidate seeded before the
+        replay window replays and records its first terminal transition
+        exactly once. ``None`` when every recorded setup already resolved.
+        """
+
+        recorded: set[str] = set()
+        terminal: set[str] = set()
+        created: dict[str, datetime] = {}
+        for item in self.ledger.observations(
+            exchange=exchange, symbol=symbol, timeframe=timeframe
+        ):
+            recorded.add(item.setup_id)
+            previous = created.get(item.setup_id)
+            if previous is None or item.setup_created_at < previous:
+                created[item.setup_id] = item.setup_created_at
+            if (
+                item.setup_state is SetupState.NO_SETUP
+                and item.setup_ended_at is not None
+            ):
+                terminal.add(item.setup_id)
+        floors = [
+            created[setup_id] for setup_id in recorded - terminal if setup_id in created
+        ]
+        return frozenset(recorded), (min(floors) if floors else None)
 
     def _current_paper_plan(
         self, *, plans: Sequence[PaperPlan], latest_outcomes

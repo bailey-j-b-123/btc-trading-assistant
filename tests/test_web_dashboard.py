@@ -121,7 +121,7 @@ def test_qualified_renders_with_exact_plan_levels(qualified_client):
     # services: the API must not reshape or recompute any level.
     state = qualified_client.app.state.services
     service = DashboardService(state)
-    snapshot, frame_ = service._evaluate(
+    snapshot, frame_, _frames = service._evaluate(
         exchange=EXCHANGE, symbol=SYMBOL, timeframe="1h", as_of=qualified_clock()
     )
     expected = plan_trade(snapshot=snapshot, frame=frame_, setup_id=selected)
@@ -197,7 +197,7 @@ def test_qualified_but_no_plan_is_distinct(qualified_client, monkeypatch):
     stripped = frame(7, (seed,))  # QUALIFIED snapshot, frame lacking the retest
 
     def fake_evaluate(self, **_kwargs):
-        return snapshot, stripped
+        return snapshot, stripped, (stripped,)
 
     monkeypatch.setattr(DashboardService, "_evaluate", fake_evaluate)
     payload = qualified_client.get("/api/dashboard").json()
@@ -302,3 +302,102 @@ def test_no_price_when_series_missing_for_symbol(qualified_client):
     assert payload["market"]["latest_closed_candle"] is None
     assert payload["freshness"]["status"] == "UNKNOWN"
     assert payload["qualification"]["state"] == "NO_SETUP"
+
+
+# ---------------------------------------------------------------------------
+# Setup-reference overlay: explicit per-kind reference resolution
+# ---------------------------------------------------------------------------
+
+
+def test_setup_reference_overlay_resolves_every_seed_kind():
+    """The chart overlay resolves references without guessing attributes.
+
+    A FailedBreakout carries its reference on the wrapped breakout; resolving
+    it must not depend on the source breakout also being present in the frame
+    catalog. Retests resolve through their source breakout; reference-less
+    events are skipped explicitly.
+    """
+
+    from dataclasses import replace
+
+    from test_pattern_liquidity import bar, prefix, snap
+    from test_setup_qualification import at, failure
+
+    from trading_assistant.pattern_liquidity.events import (
+        Breakout,
+        FailedBreakout,
+        Retest,
+    )
+    from trading_assistant.setup_qualification import QualificationFrame
+
+    seed = failure()
+    assert isinstance(seed, FailedBreakout)
+    # A frame whose catalog holds only the failure (no source breakout).
+    source = snap(prefix() + (bar(5, 112), bar(6, 109)), at=at(7))
+    assert any(
+        isinstance(e, FailedBreakout) and e.id == seed.id
+        for e in source.events()
+    )
+    lone = replace(
+        source,
+        breakouts=(),
+        failed_breakouts=tuple(
+            e for e in source.failed_breakouts if e.id == seed.id
+        ),
+        sweeps=(),
+        retests=(),
+        equal_levels=(),
+        chart_patterns=(),
+    )
+    assert not any(isinstance(e, Breakout) for e in lone.events())
+    resolved = DashboardService._reference_level(
+        frame=QualificationFrame(lone, ()),
+        reference_id=seed.breakout.reference.id,
+    )
+    assert resolved is not None
+    assert resolved["type"] == seed.breakout.reference.type
+    assert resolved["band_low"] == format(seed.breakout.reference.band_low, "f")
+    assert resolved["band_high"] == format(
+        seed.breakout.reference.band_high, "f"
+    )
+
+    # A retest-only catalog resolves through the source breakout as well.
+    retest = next(
+        e
+        for e in source.events()
+        if isinstance(e, Retest) and e.breakout.id == seed.breakout.id
+    ) if any(
+        isinstance(e, Retest) and e.breakout.id == seed.breakout.id
+        for e in source.events()
+    ) else None
+    if retest is not None:
+        lone_retest = replace(
+            source,
+            breakouts=(),
+            failed_breakouts=(),
+            sweeps=(),
+            retests=(retest,),
+            equal_levels=(),
+            chart_patterns=(),
+        )
+        resolved_retest = DashboardService._reference_level(
+            frame=QualificationFrame(lone_retest, ()),
+            reference_id=seed.breakout.reference.id,
+        )
+        assert resolved_retest is not None
+        assert resolved_retest["band_low"] == resolved["band_low"]
+
+    # Unknown references stay unknown; nothing is invented.
+    assert (
+        DashboardService._reference_level(
+            frame=QualificationFrame(source, ()),
+            reference_id="no-such-reference",
+        )
+        is None
+    )
+    assert (
+        DashboardService._reference_level(
+            frame=QualificationFrame(source, ()), reference_id=None
+        )
+        is None
+    )

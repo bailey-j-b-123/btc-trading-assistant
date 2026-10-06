@@ -20,6 +20,7 @@ history preserved, and the absence of any order/account surface.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal as D
 
@@ -54,6 +55,7 @@ from trading_assistant.forward_testing.parameters import fingerprint
 from trading_assistant.journaling.types import OutcomeStatus
 from trading_assistant.market_data.repository import CandleRepository
 from trading_assistant.market_data.timeframes import datetime_to_milliseconds
+from trading_assistant.setup_qualification import SetupState
 from trading_assistant.trade_planning import PlanningParameters
 
 QUALIFYING_BOUNDARY = EPOCH + 21 * INTERVAL
@@ -1195,3 +1197,145 @@ def test_ledger_snapshot_reports_pending_and_versions() -> None:
     assert len(ledger.version_fingerprints) == 1
     assert ledger.version_separation is VersionSeparation.SINGLE_VERSION
     assert ledger.paper_plans and ledger.latest_outcomes == ()
+
+
+# ----------------------------------------------------------------------
+# Bounded replay: long histories record the same decisions whatever the
+# pass shape, and the replay window never grows with stored history
+# ----------------------------------------------------------------------
+
+
+def _padded_series(pad: int = 20):
+    """The labelled series shifted after ``pad`` flat pre-history candles."""
+
+    flat = tuple(bar(i, 100) for i in range(pad))
+    shifted = tuple(
+        replace(c, timestamp=EPOCH + INTERVAL * (pad + i))
+        for i, c in enumerate(labelled_series())
+    )
+    tail = tuple(bar(pad + 21 + i, 124) for i in range(5))
+    return flat + shifted + tail
+
+
+def _decisions(harness) -> list:
+    """The recorded decisions: which setup, at which close, in which state."""
+
+    return sorted(
+        (item.setup_id, item.as_of, item.setup_state.value)
+        for item in harness.observations()
+    )
+
+
+def test_bounded_replay_records_long_history_decisions_independently_of_pass_shape() -> (
+    None
+):
+    """A 47-close history with pre-history longer than the replay window.
+
+    The window binds (the first processed close is 21 closes after the first
+    stored candle), yet one pass and two passes record the same decisions: the
+    same (setup, close, state) records and the same frozen bull-plan levels
+    the unpadded series produces. Only the diagnostic envelope (ancient
+    terminals inside snapshot_json) may differ with pass shape — decisions
+    never do.
+    """
+    series = _padded_series()
+    boundary = EPOCH + 41 * INTERVAL  # the shifted qualifying close
+    end = EPOCH + 46 * INTERVAL
+
+    single = make_harness(series=series, ledger_start=boundary)
+    single.advance_to(end)
+    first = single.run(refresh_market_data=False)
+    assert first.status is HeartbeatStatus.PROCESSED
+    assert first.pending_boundaries == 0
+    assert [cycle.status for cycle in single.cycles()] == [CycleStatus.COMPLETE] * 6
+
+    split = make_harness(series=series, ledger_start=boundary)
+    split.advance_to(boundary + 2 * INTERVAL)
+    split.run(refresh_market_data=False)
+    split.advance_to(end)
+    second = split.run(refresh_market_data=False)
+    assert second.status is HeartbeatStatus.PROCESSED
+    assert second.pending_boundaries == 0
+    assert len(split.cycles()) == len(single.cycles()) == 6
+
+    assert _decisions(split) == _decisions(single)
+    plans_with_levels(single)
+    plans_with_levels(split)
+
+    # The replay floor stays within one window of the newest close: a longer
+    # history can never drag the replay back to genesis.
+    _, floor = single.service._ledger_setup_index(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME
+    )
+    assert floor is not None
+    assert end - floor <= 11 * INTERVAL
+
+
+def test_ledger_setup_index_floor_tracks_only_unresolved_setups() -> None:
+    """The replay floor is the oldest creation time without a terminal row."""
+
+    fresh = make_harness(series=labelled_series(), ledger_start=QUALIFYING_BOUNDARY)
+    ids, floor = fresh.service._ledger_setup_index(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME
+    )
+    assert ids == frozenset()
+    assert floor is None
+
+    harness = harness_with_a_paper_plan()
+    ids, floor = harness.service._ledger_setup_index(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME
+    )
+    assert ids == {item.setup_id for item in harness.observations()}
+    assert floor == min(item.setup_created_at for item in harness.observations())
+
+    # A recorded terminal older than every live setup does not move the floor.
+    # Terminal rows carry no plan: the ledger CHECK constraints require it.
+    template = harness.observations()[0]
+    no_plan = dict(
+        plan_id=None,
+        plan_state=None,
+        plan_json=None,
+        plan_entry=None,
+        plan_invalidation=None,
+        plan_stop=None,
+        plan_risk_per_unit=None,
+        plan_targets=(),
+        plan_target_r_multiples=(),
+        plan_config_fingerprint=None,
+        planning_rules_version=None,
+        paper_plan_id=None,
+    )
+    ancient = replace(
+        template,
+        observation_id="test-ancient-terminal",
+        setup_id="test-ancient-setup",
+        setup_state=SetupState.NO_SETUP,
+        setup_created_at=EPOCH,
+        setup_ended_at=EPOCH + INTERVAL,
+        setup_terminal_reason="maximum_bars_elapsed",
+        **no_plan,
+    )
+    harness.service.ledger.insert_observation(ancient)
+    ids, floor_after = harness.service._ledger_setup_index(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME
+    )
+    assert "test-ancient-setup" in ids
+    assert floor_after == floor
+
+    # Resolving every setup clears the floor entirely.
+    for index, setup_id in enumerate(sorted(ids)):
+        terminal = replace(
+            template,
+            observation_id=f"test-terminal-{index}",
+            setup_id=setup_id,
+            setup_state=SetupState.NO_SETUP,
+            setup_created_at=template.setup_created_at,
+            setup_ended_at=QUALIFYING_BOUNDARY,
+            setup_terminal_reason="maximum_bars_elapsed",
+            **no_plan,
+        )
+        harness.service.ledger.insert_observation(terminal)
+    _, cleared = harness.service._ledger_setup_index(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME
+    )
+    assert cleared is None

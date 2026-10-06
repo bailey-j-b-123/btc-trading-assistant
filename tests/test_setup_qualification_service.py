@@ -13,6 +13,7 @@ from trading_assistant.setup_qualification import (
     QualificationParameters,
     QualificationService,
     SetupState,
+    bounded_replay_start,
 )
 
 TARGET = {"exchange": EXCHANGE, "symbol": SYMBOL, "timeframe": TIMEFRAME}
@@ -99,5 +100,80 @@ def test_requested_higher_timeframe_missing_stays_unknown_and_boundary_validatio
         assert all("higher_timeframe:4h" in s.pending_rules for s in snapshot.setups)
         with pytest.raises(ValueError, match="candle-close boundary"):
             service.snapshot(**TARGET, as_of=EPOCH + INTERVAL / 2)
+    finally:
+        engine.dispose()
+
+
+def _live_setups(snapshot):
+    return [
+        setup
+        for setup in snapshot.setups
+        if setup.state in (SetupState.WATCH, SetupState.QUALIFIED)
+    ]
+
+
+def test_bounded_replay_reproduces_every_live_setup_exactly(tmp_path):
+    """Bounded replay matches full replay on live candidates; old terminals drop.
+
+    With 41 stored candles the 12-frame bounded replay reproduces every live
+    (WATCH or QUALIFIED) setup with dataclass equality at every live-complete
+    boundary (``B >= start + max_bars``), while terminals seeded before the
+    window stay out of the envelope — their ledger records, where they
+    mattered, already exist. Earlier frames are warm-up scaffolding and are
+    asserted only for shape, never for content.
+    """
+    from forward_fixtures import labelled_series
+
+    engine, _ = create_service(tmp_path)
+    service = QualificationService(engine)
+    try:
+        pad = 20
+        flat = tuple(bar(i, 100) for i in range(pad))
+        shifted = tuple(
+            replace(c, timestamp=EPOCH + INTERVAL * (pad + i))
+            for i, c in enumerate(labelled_series())
+        )
+        insert(engine, flat + shifted)
+        parameters = QualificationParameters()
+        as_of = EPOCH + (pad + 21) * INTERVAL
+        full = service.enumerate_snapshots(**TARGET, as_of=as_of, parameters=parameters)
+        assert len(full) == pad + 21
+        assert full[-1].state == SetupState.QUALIFIED
+        assert any(s.state is SetupState.WATCH for s in full[-1].setups), (
+            "the fixture must keep live setups at the end or the test is vacuous"
+        )
+        start = bounded_replay_start(
+            as_of=as_of, timeframe=TIMEFRAME, parameters=parameters
+        )
+        bounded = service.enumerate_snapshots(
+            **TARGET, as_of=as_of, parameters=parameters, start_at=start
+        )
+        assert len(bounded) == 12  # (max_bars + 1) closes back, inclusive
+        assert bounded[0].as_of == start
+        assert bounded[-1].as_of == as_of == full[-1].as_of
+        assert [s.as_of for s in bounded] == [
+            start + i * INTERVAL for i in range(12)
+        ]
+        max_bars = max(
+            parameters.continuation_max_bars,
+            parameters.reversal_max_bars,
+            parameters.range_max_bars,
+        )
+        complete = [s for s in bounded if s.as_of >= start + max_bars * INTERVAL]
+        assert len(complete) == 2  # the final snapshot and the one before it
+        full_by_as_of = {snapshot.as_of: snapshot for snapshot in full}
+        for snapshot in complete:
+            mate = full_by_as_of[snapshot.as_of]
+            assert snapshot.state == mate.state
+            assert _live_setups(snapshot) == _live_setups(mate)
+        assert len(bounded[-1].setups) < len(full[-1].setups)
+        with pytest.raises(ValueError, match="candle-close boundary"):
+            service.enumerate_snapshots(
+                **TARGET, as_of=as_of, start_at=as_of - INTERVAL / 2
+            )
+        with pytest.raises(ValueError, match="must not be after as_of"):
+            service.enumerate_snapshots(
+                **TARGET, as_of=as_of, start_at=as_of + INTERVAL
+            )
     finally:
         engine.dispose()

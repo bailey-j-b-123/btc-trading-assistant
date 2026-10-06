@@ -19,11 +19,15 @@ from trading_assistant.setup_qualification.parameters import (
     RULES_VERSION,
     QualificationParameters,
 )
-from trading_assistant.setup_qualification.service import QualificationService
+from trading_assistant.setup_qualification.service import (
+    QualificationService,
+    bounded_replay_start,
+)
 
 __all__ = [
     "RULES_VERSION",
     "EvidenceStatus",
+    "bounded_replay_start",
     "QualificationEvidence",
     "QualificationFrame",
     "QualificationParameters",

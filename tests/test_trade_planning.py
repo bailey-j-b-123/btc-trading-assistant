@@ -19,6 +19,7 @@ from test_setup_qualification import (
     at,
     breakout,
     candidate,
+    failure,
     frame,
     frozen_range,
     held,
@@ -229,6 +230,35 @@ def qualified_reversal_short():
     return snapshot, frames[-1], candidate(snapshot, seed), seed, confirm
 
 
+def qualified_failed_breakout_reversal():
+    """Real FailedBreakout seed through the real Step 5 replay.
+
+    The seed is a genuinely detected failure (``failure()``); the later
+    directional confirmation is a real bearish breakout re-anchored to a later
+    close, mirroring ``qualified_reversal_short``. The planner must resolve the
+    seed's reference through the wrapped breakout, exactly as Step 5 does.
+    """
+
+    seed = failure()
+    assert isinstance(seed, FailedBreakout)
+    confirm = replace(
+        breakout(True),
+        id="later-failure-reversal-break",
+        known_at=at(8),
+        candle=bar(7, 88),
+        confirmation_candles=(bar(7, 88),),
+    )
+    frames = [
+        frame(7, (seed,), close=89, trend="neutral"),
+        frame(8, (seed, confirm), close=88, trend="neutral"),
+    ]
+    snapshot = result(frames)
+    setup = candidate(snapshot, seed)
+    assert setup.state == SetupState.QUALIFIED
+    assert setup.family == SetupFamily.LIQUIDITY_REVERSAL
+    return snapshot, frames[-1], setup, seed, confirm
+
+
 def qualified_range(mirror=False):
     seed = sweep(mirror, range_seed=True)
     active = frozen_range()
@@ -408,6 +438,70 @@ def test_reversal_short_and_long_plannable():
     assert plan.stop.value == D(90) < plan.entry.value
     assert plan.risk_per_unit == 2
     assert plan.targets[0].level.value == D(96) > plan.entry.value
+
+
+def test_failed_breakout_seed_selects_later_directional_confirmation():
+    """select_confirmation resolves a FailedBreakout seed via its breakout.
+
+    Regression test: direct ``seed.reference`` access raised
+    ``AttributeError: 'FailedBreakout' object has no attribute 'reference'``.
+    The planner must mirror the Step 5 rule predicate exactly (later
+    directional breakout at a different reference).
+    """
+
+    from trading_assistant.trade_planning.levels import select_confirmation
+
+    _snapshot, planning_frame, setup, seed, confirm = (
+        qualified_failed_breakout_reversal()
+    )
+    selected = select_confirmation(
+        planning_frame.patterns,
+        seed,
+        SetupFamily.LIQUIDITY_REVERSAL,
+        setup.direction,
+    )
+    assert selected is not None
+    assert selected.id == confirm.id
+    assert selected.direction == setup.direction == "bearish"
+    assert selected.known_at > seed.known_at
+    assert selected.reference.id != seed.breakout.reference.id
+
+
+def test_failed_breakout_reversal_pipeline_plans_without_attribute_error():
+    """End-to-end FailedBreakout pipeline: detect, qualify, plan.
+
+    The seed below is a genuinely detected Step 4 failure carried through the
+    real Step 5 replay; planning it previously crashed inside confirmation
+    selection instead of producing a deterministic result.
+    """
+
+    snapshot, planning_frame, setup, seed, confirm = (
+        qualified_failed_breakout_reversal()
+    )
+    assert setup.seed_event_id == seed.id
+    plan = plan_trade(snapshot=snapshot, frame=planning_frame, setup_id=setup.id)
+    assert plan.state is PlanState.PLANNABLE
+    assert plan.family is SetupFamily.LIQUIDITY_REVERSAL
+    assert plan.direction == "bearish"
+    assert plan.entry.value == D(88)
+    assert plan.invalidation.value == D(110)
+    assert plan.stop.value == D(110) > plan.entry.value
+    assert plan.risk_per_unit == 22
+    assert plan.rules[5].rule_id == "family_confirmation_available"
+    assert confirm.id in plan.rules[5].reason
+
+
+def test_failed_breakout_watch_setup_reports_no_plan_without_crashing():
+    """A WATCH FailedBreakout candidate refuses planning with a reason."""
+
+    seed = failure()
+    frames = [frame(7, (seed,), close=89, trend="neutral")]
+    snapshot = result(frames)
+    setup = candidate(snapshot, seed)
+    assert setup.state == SetupState.WATCH
+    plan = plan_trade(snapshot=snapshot, frame=frames[-1], setup_id=setup.id)
+    assert plan.state is PlanState.NO_PLAN
+    assert "setup_not_qualified" in plan.reasons
 
 
 @pytest.mark.parametrize("mirror", [False, True])

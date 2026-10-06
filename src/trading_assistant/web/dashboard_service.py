@@ -19,14 +19,14 @@ from trading_assistant.market_data.timeframes import (
     require_utc_datetime,
 )
 from trading_assistant.market_structure.candles import interval_for_timeframe
-from trading_assistant.market_structure.higher_timeframe import (
-    build_higher_timeframe_context,
-)
-from trading_assistant.market_structure.parameters import MarketStructureParameters
 from trading_assistant.market_structure.snapshot import to_jsonable
-from trading_assistant.pattern_liquidity.parameters import (
-    PatternLiquidityParameters,
+from trading_assistant.pattern_liquidity.events import (
+    Breakout,
+    FailedBreakout,
+    Retest,
+    Sweep,
 )
+from trading_assistant.setup_qualification.engine import enumerate_qualifications
 from trading_assistant.setup_qualification.models import (
     QualificationFrame,
     QualificationSnapshot,
@@ -34,6 +34,7 @@ from trading_assistant.setup_qualification.models import (
     SetupState,
 )
 from trading_assistant.setup_qualification.parameters import QualificationParameters
+from trading_assistant.setup_qualification.service import bounded_replay_start
 from trading_assistant.trade_planning.models import PlanState, TradePlanResult
 from trading_assistant.trade_planning.planner import plan_trade
 from trading_assistant.web.freshness import FreshnessReport, evaluate_freshness
@@ -301,7 +302,7 @@ class DashboardService:
             as_of=require_utc_datetime(as_of, field_name="as_of"),
             now=state.now(),
         )
-        snapshot, frame = self._evaluate(
+        snapshot, frame, _frames = self._evaluate(
             exchange=state.settings.exchange,
             symbol=resolved_symbol,
             timeframe=resolved_timeframe,
@@ -541,7 +542,7 @@ class DashboardService:
         as_of: datetime,
     ) -> dict[str, object]:
         try:
-            snapshot, frame = self._evaluate(
+            snapshot, frame, _frames = self._evaluate(
                 exchange=exchange, symbol=symbol, timeframe=timeframe, as_of=as_of
             )
         except DashboardError:
@@ -593,61 +594,28 @@ class DashboardService:
         symbol: str,
         timeframe: str,
         as_of: datetime,
-    ) -> tuple[QualificationSnapshot, QualificationFrame]:
+    ) -> tuple[
+        QualificationSnapshot, QualificationFrame, tuple[QualificationFrame, ...]
+    ]:
+        # One bounded frame build shared by the snapshot and the plan: the
+        # frame handed to Step 6 is the replay frame itself, not a separately
+        # reconstructed copy, and the replay never grows with stored history.
         state = self.state
-        snapshot = state.qualification.snapshot(
-            exchange=exchange, symbol=symbol, timeframe=timeframe, as_of=as_of
-        )
-        frame = self._build_frame(
-            exchange=exchange, symbol=symbol, timeframe=timeframe, as_of=as_of
-        )
-        return snapshot, frame
-
-    def _build_frame(
-        self,
-        *,
-        exchange: str,
-        symbol: str,
-        timeframe: str,
-        as_of: datetime,
-        parameters: QualificationParameters | None = None,
-        pattern_parameters: PatternLiquidityParameters | None = None,
-        structure_parameters: MarketStructureParameters | None = None,
-    ) -> QualificationFrame:
-        """Reconstruct the exact frame QualificationService used at ``as_of``."""
-
-        state = self.state
-        p = parameters or QualificationParameters()
-        sp = structure_parameters or MarketStructureParameters()
-        source = state.patterns.snapshot(
+        parameters = QualificationParameters()
+        frames = state.qualification.build_frames(
             exchange=exchange,
             symbol=symbol,
             timeframe=timeframe,
             as_of=as_of,
-            parameters=pattern_parameters,
-            structure_parameters=sp,
+            parameters=parameters,
+            start_at=bounded_replay_start(
+                as_of=as_of, timeframe=timeframe, parameters=parameters
+            ),
         )
-        higher = []
-        for higher_timeframe in p.higher_timeframes:
-            expected = latest_closed_candle_open_time(as_of, higher_timeframe)
-            result = state.patterns.repository.get_candles(
-                exchange=exchange,
-                symbol=symbol,
-                timeframe=higher_timeframe,
-                end_time=expected,
-            )
-            higher.append(
-                build_higher_timeframe_context(
-                    higher_timeframe,
-                    result.candles,
-                    interval=interval_for_timeframe(higher_timeframe),
-                    as_of=as_of,
-                    expected_latest_closed_open_time=expected,
-                    parameters=sp,
-                    gaps=result.gaps,
-                )
-            )
-        return QualificationFrame(source, tuple(higher))
+        snapshots = enumerate_qualifications(
+            frames, as_of=as_of, parameters=parameters
+        )
+        return snapshots[-1], frames[-1], frames
 
     def _journal_status(
         self,
@@ -815,8 +783,19 @@ class DashboardService:
         if reference_id is None:
             return None
         for event in frame.patterns.events():
-            reference = getattr(event, "reference", None)
-            if reference is not None and reference.id == reference_id:
+            # Resolve per event kind instead of guessing an attribute: a
+            # FailedBreakout carries its reference on the wrapped breakout and
+            # a Retest on its source breakout. Event kinds without a reference
+            # (equal-level clusters, chart patterns) are skipped explicitly.
+            if isinstance(event, FailedBreakout):
+                reference = event.breakout.reference
+            elif isinstance(event, Retest):
+                reference = event.breakout.reference
+            elif isinstance(event, (Breakout, Sweep)):
+                reference = event.reference
+            else:
+                continue
+            if reference.id == reference_id:
                 return {
                     "type": reference.type,
                     "band_low": format(reference.band_low, "f"),
