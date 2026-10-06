@@ -104,6 +104,19 @@ def moving_metrics_from(candles: tuple) -> tuple[int, datetime]:
     return len(candles), candles[-1].timestamp
 
 
+def ohlcv_row(candle) -> list:
+    """One CCXT-shaped OHLCV row for a fixture candle (exact Decimal text values)."""
+
+    return [
+        datetime_to_milliseconds(candle.timestamp),
+        format(candle.open, "f"),
+        format(candle.high, "f"),
+        format(candle.low, "f"),
+        format(candle.close, "f"),
+        format(candle.volume, "f"),
+    ]
+
+
 @dataclass
 class FakeExchange:
     """Minimal public OHLCV source: serves rows from an in-memory candle list."""
@@ -116,6 +129,7 @@ class FakeExchange:
         self.candles: list = []
         self.calls = 0
         self.requests: list[int] = []
+        self.request_limits: list[int] = []
         self.last_http_response = None
 
     def set_candles(self, candles) -> None:
@@ -124,6 +138,7 @@ class FakeExchange:
     def fetch_ohlcv(self, symbol, *, timeframe, since_ms, limit):
         self.calls += 1
         self.requests.append(since_ms)
+        self.request_limits.append(limit)
         if self.calls in self.fail_calls:
             raise self.failing_exception("simulated offline exchange")
         rows = []
@@ -135,17 +150,75 @@ class FakeExchange:
             timestamp = datetime_to_milliseconds(candle.timestamp)
             if timestamp < since_ms:
                 continue
-            rows.append(
-                [
-                    timestamp,
-                    format(candle.open, "f"),
-                    format(candle.high, "f"),
-                    format(candle.low, "f"),
-                    format(candle.close, "f"),
-                    format(candle.volume, "f"),
-                ]
-            )
+            rows.append(ohlcv_row(candle))
         return rows[:limit]
+
+    def close(self) -> None:  # pragma: no cover - nothing to close
+        return None
+
+
+@dataclass
+class RollingWindowExchange:
+    """A Kraken-shaped public OHLCV source: the newest page only.
+
+    Public OHLC endpoints such as Kraken's return at most ``max_ohlcv_limit`` of
+    their *newest* entries no matter how old ``since`` is, and the last entry is
+    the interval that is still forming.  This fake models exactly that: it never
+    serves pre-window history (so unavailable older ranges stay explicit gaps)
+    and it does include the unfinished candle, which the closed-candle rules must
+    keep out of both storage and analysis.  Like ``CCXTMarketDataSource``, it
+    advertises the cap so callers can plan for it; a rolling window is never
+    date-paginated.
+    """
+
+    exchange_id: str = EXCHANGE
+    max_ohlcv_limit: int = 720
+    ohlcv_is_rolling_window: bool = True
+    fail_calls: tuple[int, ...] = ()
+    failing_exception: type[Exception] = ConnectionError
+
+    def __post_init__(self) -> None:
+        self.closed: list = []
+        self.forming = None
+        self.calls = 0
+        self.requests: list[int] = []
+        self.request_limits: list[int] = []
+        self.last_http_response = None
+
+    def set_candles(self, candles) -> None:
+        """Treat ``candles`` as the public history; drop any forming candle."""
+
+        self.closed = list(candles)
+        self.forming = None
+
+    def set_forming_candle(self, candle) -> None:
+        """Make ``candle`` the interval that has not closed yet."""
+
+        self.forming = candle
+
+    def fetch_ohlcv(self, symbol, *, timeframe, since_ms, limit):
+        self.calls += 1
+        self.requests.append(since_ms)
+        self.request_limits.append(limit)
+        if self.calls in self.fail_calls:
+            raise self.failing_exception("simulated offline exchange")
+        rows = [
+            ohlcv_row(candle)
+            for candle in self.closed
+            if candle.timeframe == timeframe
+            and candle.symbol == symbol
+            and datetime_to_milliseconds(candle.timestamp) >= since_ms
+        ]
+        if (
+            self.forming is not None
+            and self.forming.timeframe == timeframe
+            and self.forming.symbol == symbol
+            and datetime_to_milliseconds(self.forming.timestamp) >= since_ms
+        ):
+            rows.append(ohlcv_row(self.forming))
+        # Exactly like Kraken: only the newest ``max_ohlcv_limit`` entries can
+        # ever come back, however far back the caller asked to start.
+        return rows[-min(limit, self.max_ohlcv_limit) :]
 
     def close(self) -> None:  # pragma: no cover - nothing to close
         return None
@@ -178,6 +251,7 @@ def make_service(
     *,
     clock,
     parameters: ForwardParameters | None = None,
+    runner_settings: RunnerSettings | None = None,
     ledger_start: datetime | None = None,
     backfill_start: datetime | None = None,
 ) -> ForwardTestService:
@@ -197,8 +271,14 @@ def make_service(
         settings=settings,
         clock=clock,
         parameters=parameters,
-        runner_settings=RunnerSettings(
-            interval_seconds=D(1), fetch_max_attempts=2, fetch_retry_backoff_seconds=D(0)
+        runner_settings=(
+            runner_settings
+            if runner_settings is not None
+            else RunnerSettings(
+                interval_seconds=D(1),
+                fetch_max_attempts=2,
+                fetch_retry_backoff_seconds=D(0),
+            )
         ),
         market_data_service=market_data,
         ledger_start=ledger_start,
@@ -339,9 +419,10 @@ def make_harness(
     *,
     series: tuple | None = None,
     parameters: ForwardParameters | None = None,
+    runner_settings: RunnerSettings | None = None,
     ledger_start: datetime | None = None,
     backfill_start: datetime | None = None,
-    source: FakeExchange | None | bool = None,
+    source: FakeExchange | RollingWindowExchange | None | bool = None,
     store_series: bool = True,
 ) -> Harness:
     """Build an isolated harness: temp migrated DB, frozen clock, no network."""
@@ -353,7 +434,7 @@ def make_harness(
     resolved_series = series if series is not None else ()
     if store_series and resolved_series:
         insert_candles(engine, resolved_series)
-    fake = source if isinstance(source, FakeExchange) else None
+    fake = source if not isinstance(source, (bool, type(None))) else None
     if source is None and resolved_series:
         fake = FakeExchange()
         fake.set_candles(resolved_series)
@@ -363,6 +444,7 @@ def make_harness(
         fake,
         clock=lambda: clock["t"],
         parameters=parameters,
+        runner_settings=runner_settings,
         ledger_start=ledger_start,
         backfill_start=backfill_start,
     )
@@ -397,6 +479,7 @@ __all__ = [
     "Harness",
     "EXCHANGE",
     "FakeExchange",
+    "RollingWindowExchange",
     "INTERVAL",
     "QUALIFYING_BOUNDARY",
     "QUALIFYING_INDEX",
@@ -413,6 +496,7 @@ __all__ = [
     "migrated_engine",
     "mirrored",
     "moving_metrics_from",
+    "ohlcv_row",
     "sweep_reversal_series",
     "watch_only_series",
 ]

@@ -19,6 +19,8 @@ history preserved, and the absence of any order/account surface.
 
 from __future__ import annotations
 
+import json
+from datetime import timedelta
 from decimal import Decimal as D
 
 import pytest
@@ -28,8 +30,10 @@ from forward_fixtures import (
     EXCHANGE,
     INTERVAL,
     SYMBOL,
+    TIMEFRAME,
     FakeExchange,
     Harness,
+    RollingWindowExchange,
     bar,
     clock_at,
     labelled_series,
@@ -43,11 +47,13 @@ from trading_assistant.forward_testing import (
     DataHealth,
     ForwardParameters,
     HeartbeatStatus,
+    RunnerSettings,
     VersionSeparation,
 )
 from trading_assistant.forward_testing.parameters import fingerprint
 from trading_assistant.journaling.types import OutcomeStatus
 from trading_assistant.market_data.repository import CandleRepository
+from trading_assistant.market_data.timeframes import datetime_to_milliseconds
 from trading_assistant.trade_planning import PlanningParameters
 
 QUALIFYING_BOUNDARY = EPOCH + 21 * INTERVAL
@@ -395,6 +401,225 @@ def test_gapped_window_is_recorded_as_incomplete_and_never_planned() -> None:
     assert harness.plans() == ()
     assert all(item.plan_state is None for item in harness.observations())
     assert result.data_health is DataHealth.INCOMPLETE
+
+
+# ----------------------------------------------------------------------
+# Bootstrap: a cold start seeds itself through the unchanged Step 2 path
+# ----------------------------------------------------------------------
+
+
+def _rolling_source(series: tuple, forming=None) -> "RollingWindowExchange":
+    source = RollingWindowExchange()
+    source.set_candles(series)
+    if forming is not None:
+        source.set_forming_candle(forming)
+    return source
+
+
+def test_cold_start_bootstraps_public_closed_candles_without_a_backfill_start() -> None:
+    """The documented first run seeds history instead of refusing to fetch.
+
+    Regression for the live-data failure: with nothing stored and no
+    ``--backfill-start``, the runner raised ``ForwardDataUnavailable`` *before
+    contacting the exchange at all*, so no closed candle could ever reach
+    storage and every pass ended in ``NO_DATA`` with no forward conclusion.
+    """
+
+    series = labelled_series()
+    forming = bar(21, 150, high=160, low=140)
+    source = _rolling_source(series, forming)
+    harness = make_harness(
+        series=(),
+        store_series=False,
+        source=source,
+        ledger_start=QUALIFYING_BOUNDARY,
+    )
+    harness.advance_to(QUALIFYING_BOUNDARY)
+
+    result = harness.run(refresh_market_data=True)
+
+    # The runner really fetched public data and the failure is gone.
+    assert source.calls == 1
+    # The implicit bootstrap window ends at the latest close and is exactly the
+    # documented default depth.
+    assert source.requests == [
+        datetime_to_milliseconds(
+            QUALIFYING_BOUNDARY
+            - INTERVAL
+            - (RunnerSettings().bootstrap_candles - 1) * INTERVAL
+        )
+    ]
+    assert result.market_data_error is None
+    assert result.market_data_error_type is None
+    assert result.status is HeartbeatStatus.PROCESSED
+
+    # Only closed candles were stored: the still-forming candle is excluded.
+    stored = harness.candles().candles
+    assert [candle.timestamp for candle in stored] == [
+        candle.timestamp for candle in series
+    ]
+    assert all(candle.timestamp < forming.timestamp for candle in stored)
+
+    # A real conclusion is recorded at the latest closed boundary, from exactly
+    # the same unchanged Steps 3-6 pipeline the stored-history tests exercise.
+    assert result.processed_boundaries == (QUALIFYING_BOUNDARY,)
+    cycles = harness.cycles()
+    assert len(cycles) == 1
+    assert cycles[0].status is CycleStatus.COMPLETE
+    assert cycles[0].as_of == QUALIFYING_BOUNDARY
+    assert len(harness.plans()) == 2
+
+
+@pytest.mark.parametrize(
+    ("bootstrap_candles", "minimum_history_candles", "expected_depth"),
+    [
+        (10, 10, 10),
+        (3, 10, 10),  # never fewer than the runner's own precondition
+        (30, 10, 30),
+    ],
+)
+def test_bootstrap_depth_is_bounded_by_configuration(
+    bootstrap_candles: int, minimum_history_candles: int, expected_depth: int
+) -> None:
+    series = tuple(bar(index, 100 + index) for index in range(30))
+    forming = bar(30, 200, high=201, low=199)
+    source = _rolling_source(series, forming)
+    harness = make_harness(
+        series=(),
+        store_series=False,
+        source=source,
+        ledger_start=EPOCH + 30 * INTERVAL,
+        parameters=ForwardParameters(minimum_history_candles=minimum_history_candles),
+        runner_settings=RunnerSettings(
+            interval_seconds=D(1),
+            fetch_max_attempts=1,
+            fetch_retry_backoff_seconds=D(0),
+            bootstrap_candles=bootstrap_candles,
+        ),
+    )
+    harness.advance_to(EPOCH + 30 * INTERVAL)
+
+    result = harness.run(refresh_market_data=True)
+
+    assert result.market_data_error is None
+    # The download starts exactly ``expected_depth`` closed candles before the
+    # latest close; the forming candle is fetched but never stored.
+    assert source.requests == [
+        datetime_to_milliseconds(EPOCH + (30 - expected_depth) * INTERVAL)
+    ]
+    stored = harness.candles().candles
+    assert [candle.timestamp for candle in stored] == [
+        candle.timestamp for candle in series[30 - expected_depth :]
+    ]
+    assert forming.timestamp not in {candle.timestamp for candle in stored}
+    # The pass records that the forming candle was fetched and excluded.
+    heartbeat = harness.service.ledger.latest_heartbeat(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME
+    )
+    assert json.loads(heartbeat.market_data_json)["excluded_open_count"] == 1
+
+
+def test_explicit_backfill_start_is_aligned_to_the_timeframe() -> None:
+    """``--backfill-start`` accepts any UTC instant; Step 2 needs a candle open.
+
+    Regression: an unaligned instant (for example ``10:22``) made Step 2 raise
+    ``ValueError: start_time must align to the requested timeframe``, so the whole
+    pass stored nothing.  The runner now moves the requested instant *up* to the
+    next candle open - never earlier than asked - and downloads from there.
+    """
+
+    series = labelled_series()
+    forming = bar(21, 150, high=160, low=140)
+    source = _rolling_source(series, forming)
+    requested = EPOCH + 10 * INTERVAL + timedelta(minutes=22)
+    harness = make_harness(
+        series=(),
+        store_series=False,
+        source=source,
+        ledger_start=QUALIFYING_BOUNDARY,
+        backfill_start=requested,
+        runner_settings=RunnerSettings(
+            interval_seconds=D(1), fetch_max_attempts=1, fetch_retry_backoff_seconds=D(0)
+        ),
+    )
+    harness.advance_to(QUALIFYING_BOUNDARY)
+
+    result = harness.run(refresh_market_data=True)
+
+    assert result.market_data_error is None
+    # 10:22 is not a candle open, so the download starts at 11:00 - later, never
+    # earlier, than the instant the operator asked for.
+    assert source.requests == [datetime_to_milliseconds(EPOCH + 11 * INTERVAL)]
+    assert result.status is HeartbeatStatus.PROCESSED
+    assert result.processed_boundaries == (QUALIFYING_BOUNDARY,)
+    stored = harness.candles().candles
+    assert [candle.timestamp for candle in stored] == [
+        candle.timestamp for candle in series[11:]
+    ]
+    assert forming.timestamp not in {candle.timestamp for candle in stored}
+
+
+def test_aligned_explicit_backfill_start_is_left_exactly_as_requested() -> None:
+    series = labelled_series()
+    source = _rolling_source(series)
+    aligned = EPOCH + 12 * INTERVAL
+    harness = make_harness(
+        series=(),
+        store_series=False,
+        source=source,
+        ledger_start=QUALIFYING_BOUNDARY,
+        backfill_start=aligned,
+    )
+    harness.advance_to(QUALIFYING_BOUNDARY)
+
+    result = harness.run(refresh_market_data=True)
+
+    assert result.market_data_error is None
+    assert source.requests == [datetime_to_milliseconds(aligned)]
+    assert len(harness.candles().candles) == 21 - 12
+
+
+def test_refresh_after_bootstrap_fetches_only_newly_closed_candles() -> None:
+    """The bootstrap branch never replaces the incremental Step 2 update path."""
+
+    series = labelled_series()
+    fresh = bar(21, 126, low=123)
+    source = _rolling_source(series)
+    source.set_forming_candle(fresh)
+    harness = make_harness(
+        series=(),
+        store_series=False,
+        source=source,
+        ledger_start=QUALIFYING_BOUNDARY,
+        runner_settings=RunnerSettings(
+            interval_seconds=D(1),
+            fetch_max_attempts=1,
+            fetch_retry_backoff_seconds=D(0),
+            bootstrap_candles=21,
+        ),
+    )
+    harness.advance_to(QUALIFYING_BOUNDARY)
+    first = harness.run(refresh_market_data=True)
+    assert first.market_data_error is None
+    assert len(harness.candles().candles) == 21
+
+    # The next candle closes: the refresh starts after the latest stored candle
+    # and stores exactly the one newly closed candle.
+    following = bar(22, 150, high=160, low=140)
+    source.set_candles(series + (fresh,))
+    source.set_forming_candle(following)
+    harness.advance_to(QUALIFYING_BOUNDARY + INTERVAL)
+
+    second = harness.run(refresh_market_data=True)
+
+    assert second.market_data_error is None
+    assert source.requests[-1] == datetime_to_milliseconds(EPOCH + 21 * INTERVAL)
+    stored = harness.candles().candles
+    assert [candle.timestamp for candle in stored] == [
+        candle.timestamp for candle in series + (fresh,)
+    ]
+    assert following.timestamp not in {candle.timestamp for candle in stored}
+    assert second.processed_boundaries == (QUALIFYING_BOUNDARY + INTERVAL,)
 
 
 # ----------------------------------------------------------------------

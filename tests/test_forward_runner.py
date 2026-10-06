@@ -345,6 +345,36 @@ def test_cli_refuses_an_unsupported_timeframe(cli_database) -> None:
     assert cli.main(["status", "--timeframe", "3m"]) == 2
 
 
+def test_cli_wires_the_bootstrap_options_into_the_runner_settings(cli_database) -> None:
+    """``run --once`` on an empty database must be able to seed its own history."""
+
+    from datetime import UTC, datetime
+
+    parser = cli.build_parser()
+    default_service = cli._build_service(parser.parse_args(["run", "--once"]))  # noqa: SLF001
+    assert default_service.backfill_start is None
+    assert (
+        default_service.runner_settings.bootstrap_candles
+        == RunnerSettings().bootstrap_candles
+    )
+    assert default_service.runner_settings.bootstrap_candles > 0
+
+    configured = cli._build_service(  # noqa: SLF001
+        parser.parse_args(
+            [
+                "run",
+                "--once",
+                "--bootstrap-candles",
+                "1234",
+                "--backfill-start",
+                "2026-08-27T10:22:00Z",
+            ]
+        )
+    )
+    assert configured.runner_settings.bootstrap_candles == 1234
+    assert configured.backfill_start == datetime(2026, 8, 27, 10, 22, tzinfo=UTC)
+
+
 def test_cli_exposes_no_execution_or_credential_flags() -> None:
     parser = cli.build_parser()
     texts: list[str] = []
