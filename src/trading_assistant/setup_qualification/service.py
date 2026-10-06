@@ -48,50 +48,90 @@ class QualificationService:
             raise ValueError("as_of must be a base candle-close boundary")
         p = parameters or QualificationParameters()
         sp = structure_parameters or MarketStructureParameters()
+        return enumerate_qualifications(
+            self.build_frames(
+                exchange=exchange,
+                symbol=symbol,
+                timeframe=timeframe,
+                as_of=as_of,
+                parameters=p,
+                pattern_parameters=pattern_parameters,
+                structure_parameters=sp,
+            ),
+            as_of=as_of,
+            parameters=p,
+            known_since=known_since,
+        )
+
+    def build_frames(
+        self,
+        *,
+        exchange: str,
+        symbol: str,
+        timeframe: str,
+        as_of: datetime,
+        parameters: QualificationParameters | None = None,
+        pattern_parameters: PatternLiquidityParameters | None = None,
+        structure_parameters: MarketStructureParameters | None = None,
+    ) -> tuple[QualificationFrame, ...]:
+        """Build one exact Step 3/4 frame per base candle-close boundary up to ``as_of``.
+
+        A read-only refactor of the frame construction Steps 5 and 10 already
+        perform: each frame is a real Step 4 snapshot at its own boundary plus
+        same-as-of higher-timeframe Step 3 contexts. Nothing is resampled,
+        sorted, repaired, or synthesized and no rule or threshold is applied
+        here. Callers that need both the frames and the resulting snapshots
+        (Step 11 replay, the Step 12 forward runner) can build frames once and
+        hand them to :func:`enumerate_qualifications`.
+        """
+
+        as_of = require_utc_datetime(as_of, field_name="as_of")
+        interval = interval_for_timeframe(timeframe)
+        last_open = latest_closed_candle_open_time(as_of, timeframe)
+        if last_open + interval != as_of:
+            raise ValueError("as_of must be a base candle-close boundary")
+        p = parameters or QualificationParameters()
+        sp = structure_parameters or MarketStructureParameters()
         stored = self.patterns.repository.get_candles(
             exchange=exchange,
             symbol=symbol,
             timeframe=timeframe,
             end_time=last_open,
         )
-
-        def frames():
-            at = stored.candles[0].timestamp + interval if stored.candles else as_of
-            while at <= as_of:
-                source = self.patterns.snapshot(
+        frames: list[QualificationFrame] = []
+        at = stored.candles[0].timestamp + interval if stored.candles else as_of
+        while at <= as_of:
+            source = self.patterns.snapshot(
+                exchange=exchange,
+                symbol=symbol,
+                timeframe=timeframe,
+                as_of=at,
+                parameters=pattern_parameters,
+                structure_parameters=sp,
+            )
+            higher = []
+            for higher_timeframe in p.higher_timeframes:
+                expected = latest_closed_candle_open_time(at, higher_timeframe)
+                candles = self.patterns.repository.get_candles(
                     exchange=exchange,
                     symbol=symbol,
-                    timeframe=timeframe,
-                    as_of=at,
-                    parameters=pattern_parameters,
-                    structure_parameters=sp,
+                    timeframe=higher_timeframe,
+                    end_time=expected,
                 )
-                higher = []
-                for tf in p.higher_timeframes:
-                    expected = latest_closed_candle_open_time(at, tf)
-                    candles = self.patterns.repository.get_candles(
-                        exchange=exchange,
-                        symbol=symbol,
-                        timeframe=tf,
-                        end_time=expected,
+                higher.append(
+                    build_higher_timeframe_context(
+                        higher_timeframe,
+                        candles.candles,
+                        interval=interval_for_timeframe(higher_timeframe),
+                        as_of=at,
+                        expected_latest_closed_open_time=expected,
+                        parameters=sp,
+                        gaps=candles.gaps,
                     )
-                    higher.append(
-                        build_higher_timeframe_context(
-                            tf,
-                            candles.candles,
-                            interval=interval_for_timeframe(tf),
-                            as_of=at,
-                            expected_latest_closed_open_time=expected,
-                            parameters=sp,
-                            gaps=candles.gaps,
-                        )
-                    )
-                yield QualificationFrame(source, tuple(higher))
-                at += interval
-
-        return enumerate_qualifications(
-            frames(), as_of=as_of, parameters=p, known_since=known_since
-        )
+                )
+            frames.append(QualificationFrame(source, tuple(higher)))
+            at += interval
+        return tuple(frames)
 
     def snapshot(
         self,

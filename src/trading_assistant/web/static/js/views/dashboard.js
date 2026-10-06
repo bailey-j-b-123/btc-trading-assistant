@@ -53,6 +53,7 @@ export async function renderDashboard(view) {
   }
 
   const meta = await api.meta().catch(() => null);
+  const forward = await api.forward().catch(() => null);
   clearNode(view);
   view.append(
     marketStrip(dashboard, meta, prefs),
@@ -62,8 +63,62 @@ export async function renderDashboard(view) {
     evidenceCard(dashboard),
     explanationCard(dashboard, prefs),
     decisionCard(dashboard),
+    livePaperCard(forward),
   );
   updateTopbar(dashboard);
+}
+
+/* --------------------------------------------------------------------- */
+/* LIVE / PAPER section (Step 12, read-only)                              */
+/* --------------------------------------------------------------------- */
+
+function livePaperCard(forward) {
+  if (forward === null) {
+    return el("section", { class: "card", "aria-label": "Live forward validation" }, [
+      el("div", { class: "stat-banner", dataset: { tone: "warn" } }, [
+        el("span", { text: "LIVE FORWARD VALIDATION — NOT REAL PERFORMANCE" }),
+        el("span", { class: "sub", text: "Forward status is unavailable right now; no live figures are shown rather than stale or invented ones." }),
+      ]),
+      el("div", { class: "chart-note", text: "Paper trading and historical performance do not establish future profitability." }),
+    ]);
+  }
+  const status = forward.status || {};
+  const market = status.market_data || {};
+  const runner = status.runner;
+  const current = status.current_state || {};
+  const metrics = (forward.report || {}).metrics || {};
+  return el("section", { class: "card", "aria-label": "Live forward validation" }, [
+    el("div", { class: "stat-banner", dataset: { tone: market.data_health === "CURRENT" ? "ok" : "warn" } }, [
+      el("span", { text: forward.label || "LIVE FORWARD VALIDATION — NOT REAL PERFORMANCE" }),
+      el("span", { class: "sub", text: forward.disclaimer || "Paper trading and historical performance do not establish future profitability." }),
+    ]),
+    el("div", { class: "stat-cards", style: { marginTop: "12px" } }, [
+      el("div", { class: "stat-card" }, [
+        el("div", { class: "k", text: forward.market_data_label || "LIVE MARKET DATA" }),
+        el("div", { class: "v mono", text: market.data_health || "UNKNOWN" }),
+        el("div", { class: "s", text: market.latest_stored_candle_open ? `latest closed candle ${formatUtc(market.latest_stored_candle_open)}` : "no closed candle stored" }),
+      ]),
+      el("div", { class: "stat-card" }, [
+        el("div", { class: "k", text: "Last successful processing" }),
+        el("div", { class: "v mono", text: runner && runner.latest_cycle_as_of ? formatUtc(runner.latest_cycle_as_of) : "UNKNOWN" }),
+        el("div", { class: "s", text: runner ? `runner ${runner.status} · heartbeat ${formatUtc(runner.recorded_at)}` : "runner has never reported" }),
+      ]),
+      el("div", { class: "stat-card" }, [
+        el("div", { class: "k", text: "Current setup state" }),
+        el("div", { class: "v mono", text: current.setup_state || "UNKNOWN" }),
+        el("div", { class: "s", text: current.available ? `as of ${formatUtc(current.as_of)}` : current.unavailable_reason || "no recorded close yet" }),
+      ]),
+      el("div", { class: "stat-card" }, [
+        el("div", { class: "k", text: forward.paper_label || "PAPER OBSERVATION — NO REAL ORDER" }),
+        el("div", { class: "v mono", text: `${metrics.paper_plan_count ?? 0} paper observation(s)` }),
+        el("div", { class: "s", text: `${metrics.unresolved_count ?? 0} unresolved · entry reached ${metrics.entry_reached_rate?.numerator ?? 0}/${metrics.entry_reached_rate?.denominator ?? 0}` }),
+      ]),
+    ]),
+    el("div", { class: "chart-note", style: { marginTop: "10px" }, text: "Read-only view of recorded closed-candle forward observations. Nothing here is an order, a fill, a position, or realised profit." }),
+    el("div", { style: { marginTop: "10px" } }, [
+      el("a", { class: "btn", href: "#/live" }, ["Open Live / Paper"]),
+    ]),
+  ]);
 }
 
 function updateTopbar(dashboard) {
@@ -447,7 +502,7 @@ function evidenceCard(dashboard) {
   return el("section", { class: "card", "aria-label": "Qualification evidence" }, [
     el("div", { class: "card-head" }, [
       el("h3", { class: "card-title", text: "Evidence" }),
-      el("span", { class: "card-hint", text: setup ? `setup ${shortId(setup.id)}` : "no active setup"),
+      el("span", { class: "card-hint", text: setup ? `setup ${shortId(setup.id)}` : "no active setup" }),
     ]),
     setup
       ? null

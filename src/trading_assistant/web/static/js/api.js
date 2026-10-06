@@ -54,6 +54,9 @@ export const api = {
   statistics: (params = {}) => request("GET", `/api/statistics${queryString(params)}`),
   rollingStatistics: (params = {}) => request("GET", `/api/statistics/rolling${queryString(params)}`),
   validation: (params = {}) => request("GET", `/api/validation${queryString(params)}`),
+  forward: (params = {}) => request("GET", `/api/forward${queryString(params)}`),
+  forwardComparison: (params = {}) =>
+    request("GET", `/api/forward/comparison${queryString(params)}`),
 };
 
 export function queryString(params) {

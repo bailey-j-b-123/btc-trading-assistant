@@ -6,8 +6,17 @@ from alembic.config import Config
 from sqlalchemy import inspect, text
 
 from trading_assistant.database import Base, create_database_engine
+from trading_assistant.forward_testing import models as _forward_models  # noqa: F401
 from trading_assistant.journaling import models as _journal_models  # noqa: F401
 from trading_assistant.market_data import models as _market_data_models  # noqa: F401
+
+FORWARD_TABLES = {
+    "forward_cycles",
+    "forward_observations",
+    "forward_paper_plans",
+    "forward_paper_outcomes",
+    "forward_runner_heartbeats",
+}
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -66,7 +75,7 @@ def test_explicit_alembic_upgrade_preserves_existing_rows_and_tracks_revision(tm
     migrated_engine.dispose()
 
     assert stored_value == "keep"
-    assert revision == "0003_journal"
+    assert revision == "0004_forward_testing"
     assert table_names == {
         "alembic_version",
         "ohlcv_candles",
@@ -75,14 +84,67 @@ def test_explicit_alembic_upgrade_preserves_existing_rows_and_tracks_revision(tm
         "journal_decisions",
         "journal_outcomes",
         "journal_outcome_events",
-    }
+    } | FORWARD_TABLES
     assert set(Base.metadata.tables) == {
         "ohlcv_candles",
         "journal_records",
         "journal_decisions",
         "journal_outcomes",
         "journal_outcome_events",
-    }
+    } | FORWARD_TABLES
+
+
+def test_forward_migration_is_additive_and_never_drops_recorded_observations(tmp_path):
+    database_path = tmp_path / "forward_migration.sqlite3"
+    database_url = _sqlite_url(database_path)
+    config = _alembic_config(database_url)
+
+    # Stop at the Step 11 head, keep some real market data, then migrate.
+    command.upgrade(config, "0003_journal")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO ohlcv_candles "
+                "(exchange, symbol, timeframe, timestamp, open, high, low, close, volume) "
+                "VALUES ('mock-exchange', 'ETH/USDT', '5m', '1970-01-01 00:00:00.000000', "
+                "'10', '11', '9', '10.5', '3')"
+            )
+        )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    migrated_engine = create_database_engine(database_url)
+    with migrated_engine.connect() as connection:
+        revision = connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one()
+        candles = connection.execute(
+            text("SELECT COUNT(*) FROM ohlcv_candles")
+        ).scalar_one()
+    table_names = set(inspect(migrated_engine).get_table_names())
+
+    # The forward ledger's tables exist alongside the Step 2 archive.
+    assert revision == "0004_forward_testing"
+    assert FORWARD_TABLES <= table_names
+    assert "ohlcv_candles" in table_names
+
+    # Downgrading the empty forward ledger removes only Step 12 objects and keeps
+    # the real market history.
+    command.downgrade(config, "0003_journal")
+    with migrated_engine.connect() as connection:
+        remaining = set(inspect(migrated_engine).get_table_names())
+        candles_after = connection.execute(
+            text("SELECT COUNT(*) FROM ohlcv_candles")
+        ).scalar_one()
+        revision_after = connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one()
+    migrated_engine.dispose()
+
+    assert revision_after == "0003_journal"
+    assert candles == candles_after == 1
+    assert FORWARD_TABLES.isdisjoint(remaining)
 
 
 def test_candle_migration_refuses_to_drop_historical_rows(tmp_path):
