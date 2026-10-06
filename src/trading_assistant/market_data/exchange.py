@@ -8,6 +8,10 @@ from typing import Any
 import ccxt
 
 
+# Kraken's public OHLC endpoint returns at most 720 candles per request.
+_KRAKEN_MAX_OHLCV_LIMIT = 720
+
+
 class CCXTMarketDataSource:
     """Fetch public OHLCV through a rate-limited CCXT exchange instance.
 
@@ -32,6 +36,14 @@ class CCXTMarketDataSource:
     def timeframes(self) -> dict[str, str] | None:
         return getattr(self._exchange, "timeframes", None)
 
+    @property
+    def max_ohlcv_limit(self) -> int | None:
+        """Return a known per-request OHLCV cap without constraining other exchanges."""
+
+        if self.exchange_id == "kraken":
+            return _KRAKEN_MAX_OHLCV_LIMIT
+        return None
+
     def fetch_ohlcv(
         self,
         symbol: str,
@@ -47,11 +59,17 @@ class CCXTMarketDataSource:
             raise ValueError(
                 f"Timeframe {timeframe!r} is not supported by CCXT exchange {self.exchange_id!r}"
             )
+        max_limit = self.max_ohlcv_limit
+        request_limit = (
+            min(limit, max_limit)
+            if max_limit is not None and limit is not None
+            else limit
+        )
         response = self._exchange.fetch_ohlcv(
             symbol,
             timeframe=timeframe,
             since=since_ms,
-            limit=limit,
+            limit=request_limit,
         )
         self.last_http_response = getattr(self._exchange, "last_http_response", None)
         return response
