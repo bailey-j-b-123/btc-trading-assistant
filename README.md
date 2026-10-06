@@ -1725,6 +1725,15 @@ never modifies a stored candle, and never rewrites an earlier forward row.
   de-duplication, closed-candle filtering, raw-response archiving, and gap
   reporting are inherited unchanged. No new fetch, parsing, or storage path was
   added.
+* **Bootstrap is bounded and explicit in the ledger.** With no stored history
+  the runner downloads the newest `bootstrap_candles` (default 240) closed
+  candles ending at the latest fully closed candle — the deepest default that
+  keeps the first correctness-first Step 5 replay bounded, and never fewer than
+  the configured `minimum_history_candles` precondition. A `--backfill-start`
+  instant is aligned up to a candle open; an unaligned instant is never allowed
+  to fail the whole pass, and nothing before the requested instant is fetched.
+  The downloaded range and counts (including `excluded_open_count` for the
+  still-forming candle) are recorded on the pass heartbeat.
 * UTC datetimes and exact `Decimal` prices are preserved end to end.
 * Network/rate-limit failures are retried conservatively (default: 3 attempts
   with backoff). If the refresh still fails, the pass processes only candles that
@@ -1883,10 +1892,28 @@ Useful options: `--timeframe`, `--symbol`, `--interval-seconds` (poll cadence,
 default 60), `--no-refresh` (process only already-stored closed candles),
 `--start-at <ISO-8601 UTC boundary>` (begin the ledger at a chosen close),
 `--backfill-start <ISO-8601 UTC instant>` (where the initial public download
-starts when no history is stored), `--horizon-candles`, `--minimum-sample-size`,
+starts when no history is stored; an instant that is not a candle open is moved
+**up** to the next candle open, never earlier),
+`--bootstrap-candles <N>` (newest closed candles the runner seeds itself with
+when no history is stored and no `--backfill-start` is given, default 240),
+`--horizon-candles`, `--minimum-sample-size`,
 `--max-catch-up-candles`, `--fetch-max-attempts`,
 `--retry-backoff-seconds`, `--stop-after-errors`, and the three friction flags
 `--fee-bps`, `--entry-slippage-bps`, `--exit-slippage-bps`.
+
+**First run on an empty database.** The runner seeds its own history: when no
+candle is stored for the instrument/timeframe and no `--backfill-start` was
+given, it downloads the newest `--bootstrap-candles` (default 240) *closed*
+candles from the public endpoint before processing the latest close, so
+`run --once` works on a fresh database instead of reporting `NO_DATA`. This
+changes only how far back the *download* starts — every downloaded row still
+passes the unchanged Step 2 validation, gaps stay explicit, and the
+still-forming candle is still excluded before anything is stored. Once history
+exists, each pass requests only the newly closed candles after the latest stored
+one. Deeper history can be requested explicitly with `--backfill-start`; note
+that the first pass replays the whole stored history through the unchanged
+Step 5 qualification engine, so a deep backfill makes that first pass
+correspondingly slower.
 
 The runner logs each pass (status, cycles, observations, paper plans, outcome
 versions, pending catch-up, data health), retries public fetches conservatively,
