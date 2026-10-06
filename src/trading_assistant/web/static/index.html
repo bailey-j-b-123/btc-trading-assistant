@@ -13,49 +13,41 @@
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="/static/icon.svg" />
   <link rel="stylesheet" href="/static/styles.css" />
-  <title>Trading Assistant — Dashboard</title>
+  <title>Trading Assistant — BTC/USDT</title>
 </head>
 <body>
   <div id="app" class="app-shell">
     <header class="topbar" id="topbar">
-      <div class="topbar-brand">
+      <a class="topbar-brand" href="#/dashboard" aria-label="Trading Assistant dashboard">
         <span class="brand-mark" aria-hidden="true"></span>
-        <div class="brand-text">
-          <span class="brand-name">Trading Assistant</span>
-          <span class="brand-sub">analysis only · no execution</span>
+        <span class="brand-name">Trading Assistant</span>
+      </a>
+      <div class="topbar-instrument" aria-label="Market and mode">
+        <span class="topbar-symbol" id="topbar-symbol">UNKNOWN</span>
+        <span class="topbar-timeframe" id="topbar-timeframe">UNKNOWN</span>
+        <span class="mode-pill">PAPER MODE</span>
+      </div>
+      <div class="topbar-meta">
+        <div class="topbar-candle">
+          <span class="topbar-caption">LAST COMPLETED CANDLE</span>
+          <time class="topbar-candle-time mono" id="topbar-candle-time">UNKNOWN</time>
         </div>
+        <div class="topbar-close">
+          <span class="topbar-caption">CLOSE</span>
+          <span class="topbar-price mono" id="topbar-price">UNKNOWN</span>
+        </div>
+        <span class="system-pill" id="topbar-status" data-tone="neutral" role="status">SYSTEM WARNING</span>
+        <button class="refresh-button" id="refresh-dashboard" type="button" aria-label="Refresh dashboard" title="Refresh dashboard">
+          <span aria-hidden="true">↻</span><span class="refresh-label">Refresh</span>
+        </button>
       </div>
-      <div class="topbar-market" id="topbar-market" aria-live="polite">
-        <span class="topbar-symbol" id="topbar-symbol">—</span>
-        <span class="topbar-price mono" id="topbar-price">—</span>
-        <span class="badge" id="topbar-freshness" data-tone="neutral">UNKNOWN</span>
-      </div>
-      <nav class="sidenav" id="sidenav" aria-label="Primary">
-        <a href="#/dashboard" class="nav-item" data-route="dashboard">
-          <span class="nav-ico" aria-hidden="true">◧</span><span class="nav-label">Dashboard</span>
-        </a>
-        <a href="#/journal" class="nav-item" data-route="journal">
-          <span class="nav-ico" aria-hidden="true">≡</span><span class="nav-label">Journal</span>
-        </a>
-        <a href="#/live" class="nav-item" data-route="live">
-          <span class="nav-ico" aria-hidden="true">◉</span><span class="nav-label">Live / Paper</span>
-        </a>
-        <a href="#/statistics" class="nav-item" data-route="statistics">
-          <span class="nav-ico" aria-hidden="true">∿</span><span class="nav-label">Statistics</span>
-        </a>
-        <a href="#/validation" class="nav-item" data-route="validation">
-          <span class="nav-ico" aria-hidden="true">⌁</span><span class="nav-label">Validation</span>
-        </a>
-        <a href="#/settings" class="nav-item" data-route="settings">
-          <span class="nav-ico" aria-hidden="true">✦</span><span class="nav-label">Settings</span>
-        </a>
-      </nav>
     </header>
 
     <main id="view" class="view" tabindex="-1"></main>
 
     <footer class="footnote">
-      <span>Deterministic engine · journal of record · paper observations only · no orders are ever placed.</span>
+      <span>PAPER OBSERVATION ONLY · NO REAL ORDERS · Paper and historical results do not establish future profitability.</span>
+      <a class="footnote-link" href="#/journal">Open journal</a>
     </footer>
   </div>
 

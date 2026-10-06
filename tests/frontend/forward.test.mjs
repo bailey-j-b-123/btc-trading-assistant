@@ -8,7 +8,7 @@ async function source(path) {
   return readFile(new URL(path, root), "utf8");
 }
 
-test("live/paper UI labels forward observations as paper, not performance", async () => {
+test("the one-page dashboard reuses read-only forward data without primary-page navigation", async () => {
   const [view, api, main, html, dashboard] = await Promise.all([
     source("js/views/live.js"),
     source("js/api.js"),
@@ -18,14 +18,16 @@ test("live/paper UI labels forward observations as paper, not performance", asyn
   ]);
   assert.match(view, /LIVE FORWARD VALIDATION — NOT REAL PERFORMANCE/);
   assert.match(view, /PAPER OBSERVATION — NO REAL ORDER/);
-  assert.match(view, /LIVE MARKET DATA/);
   assert.match(view, /Paper trading and historical performance do not establish future profitability\./);
-  assert.match(view, /not realised profit/);
-  assert.match(dashboard, /LIVE FORWARD VALIDATION — NOT REAL PERFORMANCE/);
-  assert.match(dashboard, /PAPER OBSERVATION — NO REAL ORDER/);
+  assert.match(dashboard, /api\.forward\(\{ limit: 8 \}\)/);
+  assert.match(dashboard, /Recent decisions/);
+  assert.match(dashboard, /performanceViewModel/);
+  assert.match(dashboard, /Paper \/ historical records only/);
   assert.match(api, /\/api\/forward/);
-  assert.match(main, /renderLive/);
-  assert.match(html, /data-route="live"/);
+  assert.match(main, /renderLive/); // legacy direct routes remain available
+  assert.doesNotMatch(html, /data-route="(live|statistics|validation|settings)"/);
+  assert.match(html, /PAPER OBSERVATION ONLY/);
+  assert.match(html, /href="#\/journal"/);
 });
 
 test("live/paper UI keeps both comparison sides labelled and denominated", async () => {
@@ -39,15 +41,16 @@ test("live/paper UI keeps both comparison sides labelled and denominated", async
   assert.match(view, /unresolved/);
 });
 
-test("live/paper UI exposes no order, account, or sizing surface", async () => {
-  const [view, dashboard, api] = await Promise.all([
-    source("js/views/live.js"),
+test("the dashboard exposes no order, account, or sizing surface", async () => {
+  const [dashboard, api] = await Promise.all([
     source("js/views/dashboard.js"),
     source("js/api.js"),
   ]);
-  for (const text of [view, dashboard, api]) {
+  for (const text of [dashboard, api]) {
     assert.doesNotMatch(text, /createOrder|placeOrder|submitOrder|fetchBalance|positions?\(|setLeverage|withdraw/i);
     assert.doesNotMatch(text, /api\/orders|api\/account|api\/balance|api\/positions/i);
   }
-  assert.doesNotMatch(view, /innerHTML|document\.write|eval\(/);
+  assert.match(dashboard, /api\.dashboardDecision\(body\)/);
+  assert.match(dashboard, /This appends a paper journal decision only/);
+  assert.doesNotMatch(dashboard, /innerHTML|document\.write|eval\(/);
 });
