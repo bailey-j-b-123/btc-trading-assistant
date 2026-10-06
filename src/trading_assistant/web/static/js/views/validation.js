@@ -81,7 +81,7 @@ function cohort(name, cohort) {
     el("div", { class: "card-title", style: { marginTop: "16px" }, text: "Friction-adjusted hypothetical R — not realised profit" }),
     distributionRows(m.friction_adjusted_hypothetical_r),
     (cohort.warnings || []).length
-      ? el("div", { class: "chart-note", style: { marginTop: "12px", color: "var(--amber)" }, text: `Warnings: ${(cohort.warnings || []).join(" · ")}`)
+      ? el("div", { class: "chart-note", style: { marginTop: "12px", color: "var(--amber)" }, text: `Warnings: ${(cohort.warnings || []).join(" · ")}` })
       : null,
   ]);
 }

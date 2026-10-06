@@ -4,7 +4,7 @@ A foundation for an evidence-driven cryptocurrency analysis assistant. The inten
 
 **This is not an automated trading bot. It contains deterministic candidate setup definitions, a deterministic, read-only trade *planning* layer, a grounded, fact-locked explanation layer (Step 9) that can only re-state existing deterministic evidence, a read-only presentation dashboard (Step 10) that displays Steps 1–9 output and records Bailey's explicit journal decisions, and an isolated historical validation layer (Step 11) — but no order placement, trade execution, account functionality, autonomous AI decision-making, or automatic strategy optimisation. The UI never executes trades: ACCEPT records a journal row, nothing more. It does not make trading decisions or place/execute trades. QUALIFIED means rules satisfied, not a profitable trade or recommendation; PLANNABLE means a complete deterministic proposal was derived from a rule-qualified setup, not that a trade is profitable, advisable, or should be executed.** Numerical market facts are derived from source data and deterministic code; missing candles remain missing rather than being guessed or synthesized. The Step 3 market-structure engine is descriptive only: it reports measured structural facts (swings, trend, ranges, levels, volatility, volume) for human review and for later deterministic steps, and never emits a trade, signal, or recommendation. Step 4 adds deterministic pattern/liquidity events as evidence only, with explicit knowable timestamps. Step 5 combines those existing facts into auditable NO_SETUP, WATCH and QUALIFIED states. Step 6 converts only a *currently QUALIFIED* Step 5 candidate into a transparent, fully traceable proposed plan (entry, invalidation, stop, targets, unit-neutral R metrics) or an explicit refusal. Step 7 is the immutable decision & outcome journal: it appends what the system proposed (the exact Step 5 snapshot and Step 6 plan projections), what Bailey explicitly decided (PENDING/ACCEPTED/REJECTED/SKIPPED), and deterministic, anti-lookahead market observations of the proposed levels (entry/stop/target touches, first-touch ordering, ambiguity, gaps, MFE/MAE) that survive restarts and never rewrite history.
 
-**Software calculates → rules qualify → statistics validate → AI explains → Bailey decides → everything gets recorded.** Step 7 records that history durably and append-only. Step 8 adds deterministic, read-only statistics over those immutable records; it validates recorded evidence but does not establish future performance or profitability. Step 9 owns **“AI explains”**: it converts the facts already established by Steps 3–8 into clear, auditable explanations through a deterministic explanation context, a fact manifest, and a deterministic local renderer, with an optional provider-independent interface for a future LLM/API whose structured output is validated against the manifest before use. Step 9 explains existing deterministic evidence; it never creates market facts, prices, statistics, setups or trade plans, and it never decides or executes anything.
+**Software calculates → rules qualify → statistics validate → AI explains → Bailey decides → everything gets recorded.** Step 7 records that history durably and append-only. Step 8 adds deterministic, read-only statistics over those immutable records; it validates recorded evidence but does not establish future performance or profitability. Step 9 owns **“AI explains”**: it converts the facts already established by Steps 3–8 into clear, auditable explanations through a deterministic explanation context, a fact manifest, and a deterministic local renderer, with an optional provider-independent interface for a future LLM/API whose structured output is validated against the manifest before use. Step 9 explains existing deterministic evidence; it never creates market facts, prices, statistics, setups or trade plans, and it never decides or executes anything. Step 11 adds an isolated historical replay/report layer, and Step 12 adds a **live forward paper tester**: at each confirmed base-timeframe close it re-uses the unchanged Step 2–9 pipeline, appends an immutable forward observation to its own ledger, and tracks the resulting paper plans through later closed candles — with explicit stale/missing-data verdicts, append-only outcome versions, and a read-only dashboard section that keeps LIVE FORWARD PAPER OBSERVATIONS strictly separate from HISTORICAL VALIDATION. Like every earlier step it has no order placement, exchange credentials, account access, position sizing, leverage, or autonomous decision-making.
 
 ## Current architecture
 
@@ -86,9 +86,19 @@ src/trading_assistant/
 │   └── service.py             Stateless, database-free explanation service
 ├── historical_validation/    Isolated chronological replay/report layer (Step 11)
 │   ├── parameters.py          Versioned split, horizon, and friction scenarios
+│   ├── metrics.py             Shared pure metric helpers (Step 11 + Step 12)
 │   ├── models.py              Immutable report, record, regime, and metric contracts
 │   └── service.py             Read-only Steps 2–7 replay and diagnostics
-└── web/                      Read-only presentation layer (Steps 10–11)
+├── forward_testing/          Live forward paper tester (Step 12; observation only)
+│   ├── parameters.py          Versions, fingerprints, runner/forward parameters
+│   ├── models.py              Frozen cycle/observation/plan/outcome/heartbeat contracts
+│   ├── tables.py              Five append-only SQLAlchemy tables + guard triggers
+│   ├── repository.py          Idempotent appends and version-chain reads
+│   ├── service.py             Closed-candle pass, catch-up, outcome updates, snapshot
+│   ├── reporting.py           Forward metrics, breakdowns, live-vs-historical comparison
+│   ├── runner.py              Closed-candle polling loop, backoff, clean shutdown
+│   └── __main__.py            CLI: run --once / run / status
+└── web/                      Read-only presentation layer (Steps 10–12)
     ├── app.py                 FastAPI factory, JSON errors, security headers
     ├── app_factory.py         Import-light factory for uvicorn
     ├── state.py               AppState: engine, services, injectable clock
@@ -96,7 +106,7 @@ src/trading_assistant/
     ├── dashboard_service.py   Dashboard payload assembly over Steps 2–9
     ├── journal_query.py       SELECT-only filtered journal listing adapter
     ├── schemas.py             Validated decision/observation request contracts
-    ├── routers/               meta / market / dashboard / journal / statistics / validation / settings
+    ├── routers/               meta / market / dashboard / journal / statistics / validation / forward / settings
     └── static/                Zero-build dashboard UI (ES modules + CSS)
         ├── index.html         App shell (semantic markup, external scripts only)
         ├── styles.css         Dark-terminal design system, responsive breakpoints
@@ -365,7 +375,9 @@ The Step 1 foundation revision is unchanged. The Step 2 OHLCV migration adds onl
 
 **Step 3 adds no schema change at all.** Market structure is derived in memory on every request, so no new tables, columns, or migration revisions were introduced. The engine only reads the `ohlcv_candles` table created by Step 2 (verified by a test asserting the table set is unchanged after structure calculations).
 
-**Step 7 adds revision `0003_journal`**, which is strictly additive: four append-only journal tables plus their indexes and SQLite `UPDATE`/`DELETE` guard triggers, with no change to `ohlcv_candles` or any existing row. Its downgrade refuses to run while journal rows exist and otherwise drops only the (empty) journal tables; the candle archive is never dropped or rewritten. `0003` is the current head, so `alembic upgrade head` takes an existing Step 6 database to the journal schema without touching stored market data.
+**Step 7 adds revision `0003_journal`**, which is strictly additive: four append-only journal tables plus their indexes and SQLite `UPDATE`/`DELETE` guard triggers, with no change to `ohlcv_candles` or any existing row. Its downgrade refuses to run while journal rows exist and otherwise drops only the (empty) journal tables; the candle archive is never dropped or rewritten.
+
+**Step 12 adds revision `0004_forward_testing`**, also strictly additive: five forward ledger tables (`forward_cycles`, `forward_observations`, `forward_paper_plans`, `forward_paper_outcomes`, `forward_runner_heartbeats`) plus indexes and SQLite `UPDATE`/`DELETE` guard triggers. The forward ledger is a new, separate store: it never reads or writes the Step 7 journal tables and never rewrites `ohlcv_candles`. `0004_forward_testing` is the current head, so `alembic upgrade head` takes an existing Step 7/11 database to the forward schema without touching stored market data or recorded decisions. Its downgrade refuses to run while forward rows exist and otherwise drops only the (empty) forward tables.
 
 ## Tests
 
@@ -1661,3 +1673,284 @@ optimize thresholds or search parameters. Missing history, few setups, a weak
 out-of-sample result, or a failed strategy are reported honestly.
 
 **Historical performance does not establish future profitability.**
+
+## Step 12 — live forward paper testing (closed-candle observations, no orders)
+
+Step 12 turns the existing system into a **live forward paper tester**: at every
+confirmed base-timeframe close it re-uses the unchanged Step 2–9 pipeline, records
+an immutable forward observation of what the deterministic rules concluded, and
+then follows the resulting paper plans through later closed candles. It is an
+observation and record-keeping layer. It has no order path, no exchange
+credentials, no account/balance/position access, no leverage or sizing, and no
+automatic strategy change.
+
+**PAPER OBSERVATION — NO REAL ORDER. LIVE FORWARD VALIDATION — NOT REAL
+PERFORMANCE.**
+
+### Architecture and data flow
+
+```text
+public OHLCV (kraken, no API key, closed candles only)
+        │  Step 2 MarketDataService  (dedupe / paginate / gap report / raw archive)
+        ▼
+ohlcv_candles (Step 2 storage, unchanged, never rewritten)
+        │  runner decides a close boundary has passed
+        ▼
+forward_testing.ForwardTestService.run_once()
+        ├── Step 3 market structure      (unchanged)
+        ├── Step 4 pattern & liquidity   (unchanged)
+        ├── Step 5 setup qualification   (unchanged)
+        ├── Step 6 trade planning        (unchanged, only for QUALIFIED setups)
+        ├── Step 9 explanation           (unchanged, facts only)
+        ├── append forward cycle + observations (immutable)
+        └── update earlier paper-plan outcomes with newly closed candles
+        ▼
+forward ledger tables  ->  read-only dashboard API/UI + `status` CLI
+        │
+        └── compared side by side with Step 11 historical validation (never merged)
+```
+
+The forward ledger is **separate from** raw Step 2 market data, Bailey's Step 7
+decision journal, and the Step 11 validation report. Step 12 never writes to
+`journal_records`/`journal_decisions`/`journal_outcomes`/`journal_outcome_events`,
+never modifies a stored candle, and never rewrites an earlier forward row.
+
+### Closed-candle policy and market data
+
+* Only candles whose **full interval has closed** are ever analysed. The runner
+  never inspects or concludes from the candle still forming.
+* Data is **public only** (Kraken public OHLCV through the existing Step 2
+  adapter). No API key, secret, or private endpoint is required or read.
+* Candles come through the existing Step 2 service and storage: duplicate
+  de-duplication, closed-candle filtering, raw-response archiving, and gap
+  reporting are inherited unchanged. No new fetch, parsing, or storage path was
+  added.
+* UTC datetimes and exact `Decimal` prices are preserved end to end.
+* Network/rate-limit failures are retried conservatively (default: 3 attempts
+  with backoff). If the refresh still fails, the pass processes only candles that
+  are **already stored**, records the error on the heartbeat and status, and says
+  so; a missing or unavailable candle is **never fabricated**.
+* Staleness is explicit: the status/ledger compare the latest stored closed
+  candle with the expected latest close and report a data-health verdict
+  (`CURRENT`, `STALE`, `INCOMPLETE`, `HISTORICAL`, `UNKNOWN`) with a detail
+  sentence and a staleness count. Stale or incomplete data cannot silently
+  produce a fresh conclusion — a close with no stored candle is recorded as an
+  explicit `MISSING_CANDLE` cycle with no snapshot, no observation and no plan,
+  and a close whose analysed window has a gap has Step 6 planning withheld.
+* A close whose data was incomplete or stale is **retryable**: once the candle
+  actually arrives, that same boundary is re-analysed and the recovered
+  conclusion is appended as its own row. A boundary that already has a complete
+  conclusion is never recomputed from changed data.
+
+### One decision per close, restart-safe recording
+
+Every closed candle produces at most one forward cycle, and cycles are written in
+chronological order. Identity is deterministic — exchange, symbol, timeframe,
+close boundary, candle open time, cycle status, terminal snapshot/plan content
+and the strategy/config fingerprints — so:
+
+* the same candle with the same strategy version and configuration always yields
+  the same logical result;
+* re-running the runner (restart, crash, or a second process) re-inserts nothing:
+  existing rows are verified against the deterministic projection, and a mismatch
+  raises an explicit `ForwardConflict` instead of overwriting history;
+* duplicates in the downloaded candle stream cannot create duplicate decisions;
+* a candle added later cannot change a decision already recorded at an earlier
+  close.
+
+After downtime the runner **catches up chronologically**: it inspects the last
+recorded boundary, finds the missed closes, and processes them in order up to a
+documented cap (default 720 closes per pass; the remainder is reported as
+`pending_catch_up_boundaries`). Gaps are never silently skipped, and unresolved
+paper plans keep being tracked across restarts.
+
+### Recorded forward observation
+
+Each observation is immutable and carries:
+
+* deterministic observation id, exchange, symbol, timeframe, close boundary
+  (`as_of`), the analysed candle's open time and the recording instant;
+* strategy/qualification/planning rules versions and configuration fingerprints;
+* the source-data fingerprint and Step 3/4 snapshot references;
+* the Step 5 state, setup id, family, direction, and the evidence/vetoes that
+  produced it;
+* the Step 6 plan id/state and, in a frozen paper plan, entry, stop,
+  invalidation, targets, risk per unit and R multiples;
+* the Step 9 explanation fingerprint;
+* data-health/freshness verdict and detail;
+* the current paper outcome and its version chain, ambiguity/incomplete flags;
+* the friction assumptions and version in force when the plan was recorded.
+
+Nothing about a past belief is silently rewritten. Outcome evolution is
+**append-only**: a later observation of the same paper plan is a new version
+(`forward_paper_outcomes`), and version numbers never retreat — a previously
+observed window is only re-checked when it was recorded as incomplete.
+
+### Paper-trade semantics
+
+A paper observation is created **only** when the unchanged Step 6 result is
+`PLANNABLE`. `NO_SETUP`, `WATCH`, and `QUALIFIED`-but-`NO_PLAN` closes are
+recorded with their evidence but never produce a paper plan.
+
+Paper tracking is observational and level-based, using the existing Step 7
+outcome semantics over subsequent **closed** candles only:
+
+* a paper plan is resolved only when the proposed levels are actually reached;
+* the proposed entry is **not** assumed to have been filled — an untouched entry
+  ends as `ENTRY_NOT_REACHED`, and a plan invalidated before entry is recorded as
+  such rather than counted as a trade;
+* if OHLC data cannot prove the ordering of entry and exit (or stop and target)
+  inside the same candle, the outcome is `AMBIGUOUS`; the favourable
+  interpretation is never chosen;
+* missing candles inside a window make the outcome `INCOMPLETE_DATA` rather than
+  guessed, and an unproven terminal level stays
+  `TERMINAL_LEVEL_NOT_ESTABLISHED`;
+* all eight existing `OutcomeStatus` values are preserved and shown, including
+  `STOPPED_AFTER_TARGETS` (excluded from R because Step 7 has no partial-exit
+  policy) and `OPEN_AT_CUTOFF`.
+
+A paper observation is never described as an executed trade, a fill, a position
+or realised P&L.
+
+### Friction semantics
+
+Friction reuses the existing, versioned Step 11 `FrictionAssumptions`
+(`fee_bps` charged on both sides, plus adverse `entry_slippage_bps` and
+`exit_slippage_bps`). Reports keep two clearly separate quantities:
+
+* **raw observational R** — hypothetical R from clean, proved proposed-level
+  endpoints only, normalized by the proposed per-unit risk;
+* **friction-adjusted hypothetical R** — the same endpoints after the declared
+  two-sided cost scenario.
+
+Neither is realised P&L or profit. There is no position sizing, capital
+allocation, leverage, margin, liquidation, fill, or order model anywhere in
+Step 12. The friction version/fingerprint in force is stored on every paper plan,
+and the dashboard reuses the recorded assumptions when all stored plans agree on
+them so a different cost model cannot silently change an old observation's
+numbers.
+
+### Live vs historical: never merged
+
+The Step 12 comparison endpoint places the **HISTORICAL VALIDATION** numbers from
+the unchanged Step 11 replay next to the **LIVE FORWARD PAPER OBSERVATIONS** from
+the ledger. Setup / `WATCH` / `QUALIFIED` / `PLANNABLE` counts, entry-reached and
+not-reached, target-hit and stop rates, ambiguous/incomplete/unresolved counts,
+raw and friction-adjusted R, and breakdowns by family, direction, timeframe,
+trend and volatility context are reported per side, each with its own
+denominators and its own label. The two sides are never combined into one
+performance number, and no live result is ever used to adjust a
+strategy parameter.
+
+The forward report always shows its sample size and denominators, and it
+withholds percentages/descriptive summaries below the configured reporting floor
+while still showing the raw counts. Ambiguous, incomplete, unresolved and
+open observations are always visible; they are never hidden or reclassified.
+Unfavourable or empty results are reported honestly, including the warnings that
+the sample is too small to conclude anything.
+
+**Paper trading and historical performance do not establish future
+profitability.**
+
+### Version separation
+
+Strategy/qualification/planning versions and configuration fingerprints are
+stored on every cycle and observation. If the ledger contains more than one
+incompatible fingerprint cohort, the report refuses to blend them: results are
+shown per version cohort, unfavourable versions stay separate, and a combined
+figure is either explicitly unavailable or carries a warning naming the
+difference. Old forward decisions are never retroactively recomputed under new
+logic.
+
+### Running the forward tester
+
+Everything runs locally; there is no Docker, cloud service, queue, or scheduler.
+
+```bash
+alembic upgrade head                                   # additive: 0003_journal -> 0004_forward_testing
+
+# process the closes that are already pending, then exit (safe first run)
+python -m trading_assistant.forward_testing run --once
+
+# continuous closed-candle polling until Ctrl-C / SIGTERM
+python -m trading_assistant.forward_testing run
+
+# inspect market-data health, runner status and recorded sample sizes
+python -m trading_assistant.forward_testing status
+```
+
+Useful options: `--timeframe`, `--symbol`, `--interval-seconds` (poll cadence,
+default 60), `--no-refresh` (process only already-stored closed candles),
+`--start-at <ISO-8601 UTC boundary>` (begin the ledger at a chosen close),
+`--backfill-start <ISO-8601 UTC instant>` (where the initial public download
+starts when no history is stored), `--horizon-candles`, `--minimum-sample-size`,
+`--max-catch-up-candles`, `--fetch-max-attempts`,
+`--retry-backoff-seconds`, `--stop-after-errors`, and the three friction flags
+`--fee-bps`, `--entry-slippage-bps`, `--exit-slippage-bps`.
+
+The runner logs each pass (status, cycles, observations, paper plans, outcome
+versions, pending catch-up, data health), retries public fetches conservatively,
+stops cleanly on SIGINT/SIGTERM after finishing the current pass, and writes a
+`STOPPED` heartbeat. Restarting it is always safe: it continues from the last
+recorded boundary and never duplicates a decision or a paper plan.
+
+Two processes must be running for a complete live view:
+
+1. the **forward runner** (`python -m trading_assistant.forward_testing run`) —
+   the only component that fetches candles and writes the forward ledger;
+2. the **dashboard** (`python -m trading_assistant.web`, `http://127.0.0.1:8040`)
+   — read-only presentation.
+
+If the runner is not running, the dashboard still loads, says the runner has not
+reported, and shows the last recorded state with explicit staleness — it never
+invents live data.
+
+### Dashboard
+
+Step 10 navigation adds a **Live / Paper** view (`GET /api/forward`), and the
+dashboard home shows a compact live/paper card fed by the same endpoint. The view
+is headed **LIVE MARKET DATA** and **PAPER OBSERVATION — NO REAL ORDER**, with
+**LIVE FORWARD VALIDATION — NOT REAL PERFORMANCE** on the forward statistics. It
+shows:
+
+* market-data health, latest closed candle, expected latest close,
+  staleness/intervals detail, and the closed-candle policy;
+* runner status and last successful processing time;
+* the current setup/planning state and the current paper plan (or its absence);
+* unresolved paper observations, latest forward observations with their outcome
+  versions, forward sample size, and forward statistics with denominators;
+* a user-triggered **historical vs forward** comparison with both sides labelled
+  and both denominators, plus warnings and limitations.
+
+The Step 12 endpoints are strictly read-only: they never fetch candles, never run
+a forward pass, never write to the ledger, and accept no strategy thresholds.
+Stale or broken data is visually obvious (tone-coded status banner) and no fake
+or placeholder live data is ever rendered; an empty ledger renders an explicit
+empty state.
+
+### Safety boundaries and limitations
+
+Step 12 contains **no** order submission, no exchange authentication, no private
+API, no deposit/withdrawal/wallet, no balance or account access, no positions, no
+leverage/margin/liquidation controls, no position sizing or capital allocation,
+no hidden execution path, and no `eval`/dynamic execution. Step 9 remains
+explanation-only: it can explain recorded state, evidence, plans, statistics and
+limitations, but it cannot invent facts, alter levels or outcomes, submit
+anything, choose size, claim guaranteed profitability, or accept a setup —
+missing information stays UNKNOWN. Step 10's web security posture is unchanged
+(strict CSP, no inline script, JSON error envelopes), and the dashboard remains
+private-by-design.
+
+Like Step 11, forward testing cannot establish intrabar ordering, real fills,
+latency, liquidity, future fees, funding, or market impact, and it only observes
+the stored public history plus the deterministic rules already present. Missing
+candles, small samples, stale feeds, gaps, ambiguous bars, and poor live results
+are all reported as such.
+
+**Deployment note:** the dashboard and runner are intended for local use. If they
+are exposed beyond localhost, add real authentication and a secured deployment
+(reverse proxy/TLS); neither application ships authentication, because it
+deliberately ships no secrets or credentials.
+
+**Paper trading and historical performance do not establish future
+profitability.**

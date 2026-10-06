@@ -5,6 +5,7 @@
 
 import { renderDashboard } from "./views/dashboard.js";
 import { renderJournal } from "./views/journal.js";
+import { renderLive } from "./views/live.js";
 import { renderSettings } from "./views/settings.js";
 import { renderStatistics } from "./views/statistics.js";
 import { renderValidation } from "./views/validation.js";
@@ -15,6 +16,7 @@ const ROUTES = {
     const journalId = parts[1] ? decodeURIComponent(parts[1]) : null;
     return renderJournal(view, { journalId });
   },
+  live: (view) => renderLive(view),
   statistics: (view) => renderStatistics(view),
   validation: (view) => renderValidation(view),
   settings: (view) => renderSettings(view),
@@ -35,6 +37,7 @@ function updateNav(name) {
   const titles = {
     dashboard: "Dashboard",
     journal: "Journal",
+    live: "Live / Paper",
     statistics: "Statistics",
     validation: "Historical Validation",
     settings: "Settings",

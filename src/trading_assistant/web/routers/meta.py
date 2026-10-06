@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
+from trading_assistant.forward_testing import (
+    FORWARD_LEDGER_RULES_VERSION,
+    FORWARD_RUNNER_RULES_VERSION,
+)
 from trading_assistant.journaling.parameters import (
     DECISION_RULES_VERSION,
     JOURNAL_RULES_VERSION,
@@ -25,7 +29,7 @@ def get_meta(request: Request) -> dict[str, object]:
     return {
         "application": {
             "name": "BTC Trading Assistant",
-            "step": 10,
+            "step": 12,
             "description": (
                 "Evidence-driven analysis dashboard. Software calculates, rules "
                 "qualify, statistics validate, AI explains, Bailey decides, and "
@@ -34,7 +38,13 @@ def get_meta(request: Request) -> dict[str, object]:
             "execution_disabled": True,
             "execution_note": (
                 "This application never places, modifies, or cancels exchange "
-                "orders. ACCEPT records a journal decision only."
+                "orders and never reads a balance, position, or account. ACCEPT "
+                "records a journal decision only; Step 12 records paper "
+                "observations only."
+            ),
+            "paper_trading_note": (
+                "Paper trading and historical performance do not establish "
+                "future profitability."
             ),
             "authentication_required_before_public_deployment": True,
         },
@@ -49,5 +59,7 @@ def get_meta(request: Request) -> dict[str, object]:
             "journal": JOURNAL_RULES_VERSION,
             "decisions": DECISION_RULES_VERSION,
             "statistics": STATISTICS_RULES_VERSION,
+            "forward_ledger": FORWARD_LEDGER_RULES_VERSION,
+            "forward_runner": FORWARD_RUNNER_RULES_VERSION,
         },
     }

@@ -31,6 +31,9 @@ from trading_assistant.web.routers import (
     dashboard as dashboard_router,
 )
 from trading_assistant.web.routers import (
+    forward as forward_router,
+)
+from trading_assistant.web.routers import (
     journal as journal_router,
 )
 from trading_assistant.web.routers import (
@@ -97,10 +100,11 @@ def create_app(
     app = FastAPI(
         title="BTC Trading Assistant Dashboard",
         description=(
-            "Read-only presentation layer over deterministic Steps 1-9. "
-            "No order execution, no exchange authentication."
+            "Read-only presentation layer over deterministic Steps 1-12, "
+            "including live forward paper observations. "
+            "No order execution, no exchange authentication, no account access."
         ),
-        version="10.0.0",
+        version="12.0.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -163,6 +167,7 @@ def create_app(
     app.include_router(journal_router.router)
     app.include_router(statistics_router.router)
     app.include_router(validation_router.router)
+    app.include_router(forward_router.router)
     app.include_router(settings_router.router)
 
     app.mount(

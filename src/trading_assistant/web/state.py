@@ -16,6 +16,7 @@ from sqlalchemy.engine import Engine
 from trading_assistant.ai_explanation import ExplanationService
 from trading_assistant.config import Settings, get_settings
 from trading_assistant.database import create_database_engine
+from trading_assistant.forward_testing import ForwardTestService
 from trading_assistant.historical_validation import HistoricalValidationService
 from trading_assistant.journaling import JournalService
 from trading_assistant.market_data.repository import CandleRepository
@@ -55,6 +56,16 @@ class AppState:
         # and has no persistence/migration side effects.
         self.validation = HistoricalValidationService(engine)
         self.explanations = ExplanationService()
+        # Step 12 read-only view over the immutable forward ledger. It is built
+        # without a market-data source on purpose: the web layer never downloads
+        # candles and never runs the forward runner. Only the runner records
+        # forward cycles; the dashboard only reads what was already recorded.
+        self.forward = ForwardTestService(
+            engine,
+            settings=self.settings,
+            clock=self._clock,
+            explanation_service=self.explanations,
+        )
 
     def now(self) -> datetime:
         instant = self._clock()

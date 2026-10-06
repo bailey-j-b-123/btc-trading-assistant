@@ -101,6 +101,19 @@ def _alembic_config(database_url: str) -> Config:
     return config
 
 
+def _migration_chain_to_head() -> set[str]:
+    """Every Alembic revision applied on the way to the current head."""
+
+    from alembic.script import ScriptDirectory
+
+    script = ScriptDirectory(str(PROJECT_ROOT / "migrations"))
+    revisions: set[str] = set()
+    for head in script.get_heads():
+        for revision in script.iterate_revisions(head, "base"):
+            revisions.add(revision.revision)
+    return revisions
+
+
 def _migrated_engine(path: Path, revision: str = "head"):
     url = _database_url(path)
     command.upgrade(_alembic_config(url), revision)
@@ -1114,7 +1127,10 @@ def test_migration_is_additive_and_preserves_the_candle_archive(tmp_path):
         candles = connection.execute(
             sa.text("SELECT COUNT(*) FROM ohlcv_candles")
         ).scalar_one()
-    assert revision == "0003_journal"
+    # The journal migration is in the applied chain (later additive steps, such as
+    # Step 12's forward ledger, may be the head).
+    assert revision in _migration_chain_to_head()
+    assert "0003_journal" in _migration_chain_to_head()
     assert candles == 1
     assert JOURNAL_TABLES <= set(sa.inspect(engine).get_table_names())
 

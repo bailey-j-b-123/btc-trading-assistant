@@ -10,20 +10,31 @@ It has no database write path and never reads the Bailey journal.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
 from statistics import median
 
 from sqlalchemy.engine import Engine
 
+from trading_assistant.historical_validation.metrics import (
+    CLEAN_OUTCOMES,
+    COMPLETED_OUTCOMES,
+    counts,
+    counts_from_counter,
+    directional_r,
+    distribution,
+    enum_text,
+    friction_adjusted_r,
+    r_exclusion,
+    rate,
+    r_values,
+    terminal_endpoint,
+)
 from trading_assistant.historical_validation.models import (
     Breakdown,
     CohortMetrics,
     DatasetRange,
-    MetricStatus,
-    RateMetric,
-    RDistribution,
     RegimeLabel,
     ResolvedSplit,
     ValidationCohort,
@@ -31,7 +42,6 @@ from trading_assistant.historical_validation.models import (
     ValidationRecord,
     ValidationRecordKind,
     ValidationReport,
-    ValueCount,
 )
 from trading_assistant.historical_validation.parameters import (
     HISTORICAL_VALIDATION_RULES_VERSION,
@@ -48,7 +58,6 @@ from trading_assistant.market_structure.candles import interval_for_timeframe
 from trading_assistant.market_structure.higher_timeframe import (
     build_higher_timeframe_context,
 )
-from trading_assistant.market_structure.numeric import quantize_derived
 from trading_assistant.market_structure.parameters import MarketStructureParameters
 from trading_assistant.pattern_liquidity.parameters import PatternLiquidityParameters
 from trading_assistant.pattern_liquidity.service import PatternLiquidityService
@@ -69,16 +78,9 @@ from trading_assistant.trade_planning import (
 # These are intentionally descriptive labels only.  They are not consumed by
 # Steps 3–6 and never gate or rank a setup.
 _VOLATILITY_WARMUP_OBSERVATIONS = 5
-_COMPLETED_OUTCOMES = frozenset(
-    {
-        OutcomeStatus.ENTRY_NOT_REACHED,
-        OutcomeStatus.INVALIDATED_BEFORE_ENTRY,
-        OutcomeStatus.STOPPED,
-        OutcomeStatus.STOPPED_AFTER_TARGETS,
-        OutcomeStatus.TARGETS_REACHED,
-    }
-)
-_CLEAN_OUTCOMES = frozenset(_COMPLETED_OUTCOMES | {OutcomeStatus.OPEN_AT_CUTOFF})
+# Shared with Step 12 forward reporting via ``historical_validation.metrics``.
+_COMPLETED_OUTCOMES = COMPLETED_OUTCOMES
+_CLEAN_OUTCOMES = CLEAN_OUTCOMES
 
 
 class HistoricalValidationService:
@@ -776,18 +778,9 @@ class HistoricalValidationService:
         Counter[str],
         tuple[tuple[OutcomeObservation, Decimal], ...],
     ]:
-        values: list[Decimal] = []
-        excluded: Counter[str] = Counter()
-        endpoints: list[tuple[OutcomeObservation, Decimal]] = []
-        for observation in observations:
-            endpoint = _terminal_endpoint(observation)
-            if endpoint is None:
-                excluded[_r_exclusion(observation)] += 1
-                continue
-            value = _directional_r(observation, endpoint)
-            values.append(value)
-            endpoints.append((observation, endpoint))
-        return tuple(values), excluded, tuple(endpoints)
+        """Raw observational R values, exclusions and endpoints (shared rules)."""
+
+        return r_values(observations)
 
     def _friction_adjusted_r(
         self,
@@ -795,20 +788,9 @@ class HistoricalValidationService:
         endpoint: Decimal,
         assumptions: FrictionAssumptions,
     ) -> Decimal:
-        scale = Decimal(10_000)
-        entry_slippage = assumptions.entry_slippage_bps / scale
-        exit_slippage = assumptions.exit_slippage_bps / scale
-        fee_rate = assumptions.fee_bps / scale
-        if observation.direction == "bullish":
-            entry = observation.entry_level * (Decimal(1) + entry_slippage)
-            exit_price = endpoint * (Decimal(1) - exit_slippage)
-            gross = exit_price - entry
-        else:
-            entry = observation.entry_level * (Decimal(1) - entry_slippage)
-            exit_price = endpoint * (Decimal(1) + exit_slippage)
-            gross = entry - exit_price
-        fees = (entry + exit_price) * fee_rate
-        return quantize_derived((gross - fees) / observation.risk_per_unit)
+        """Hypothetical friction-adjusted R using the shared Step 11/12 rules."""
+
+        return friction_adjusted_r(observation, endpoint, assumptions)
 
     def _cohort_warnings(
         self, metrics: CohortMetrics, phase: ValidationPhase, config: ValidationConfig
@@ -904,130 +886,17 @@ def _phase_for(value: datetime, split: ResolvedSplit) -> ValidationPhase | None:
     return None
 
 
-def _enum_text(value: object) -> str:
-    return str(getattr(value, "value", value))
-
-
-def _counts(values: Iterable[str]) -> tuple[ValueCount, ...]:
-    counts = Counter(values)
-    return tuple(ValueCount(value, counts[value]) for value in sorted(counts))
-
-
-def _rate(
-    metric: str,
-    numerator: int,
-    denominator: int,
-    definition: str,
-    minimum_sample_size: int,
-) -> RateMetric:
-    status = (
-        MetricStatus.SUFFICIENT_DATA
-        if denominator >= minimum_sample_size
-        else MetricStatus.INSUFFICIENT_DATA
-    )
-    percentage = (
-        quantize_derived(Decimal(numerator) * Decimal(100) / Decimal(denominator))
-        if denominator and status is MetricStatus.SUFFICIENT_DATA
-        else None
-    )
-    return RateMetric(metric, numerator, denominator, percentage, status, definition)
-
-
-def _distribution(
-    metric: str,
-    values: Sequence[Decimal],
-    excluded: Counter[str],
-    records_considered: int,
-    minimum_sample_size: int,
-    definition: str,
-) -> RDistribution:
-    ordered = tuple(sorted(values))
-    sufficiently_sampled = len(ordered) >= minimum_sample_size
-    middle = len(ordered) // 2
-    median_value: Decimal | None
-    if not ordered:
-        median_value = None
-    elif len(ordered) % 2:
-        median_value = quantize_derived(ordered[middle])
-    else:
-        median_value = quantize_derived((ordered[middle - 1] + ordered[middle]) / 2)
-    return RDistribution(
-        metric=metric,
-        records_considered=records_considered,
-        sample_size=len(ordered),
-        status=(
-            MetricStatus.SUFFICIENT_DATA
-            if sufficiently_sampled
-            else MetricStatus.INSUFFICIENT_DATA
-        ),
-        excluded=_counts_from_counter(excluded),
-        values=ordered,
-        average=(
-            quantize_derived(sum(ordered, Decimal(0)) / Decimal(len(ordered)))
-            if sufficiently_sampled
-            else None
-        ),
-        median=median_value if sufficiently_sampled else None,
-        minimum=quantize_derived(ordered[0]) if sufficiently_sampled else None,
-        maximum=quantize_derived(ordered[-1]) if sufficiently_sampled else None,
-        definition=definition,
-    )
-
-
-def _counts_from_counter(counter: Counter[str]) -> tuple[ValueCount, ...]:
-    return tuple(ValueCount(key, counter[key]) for key in sorted(counter))
-
-
-def _terminal_endpoint(observation: OutcomeObservation) -> Decimal | None:
-    if not observation.entry_ordered:
-        return None
-    if observation.status is OutcomeStatus.STOPPED:
-        if observation.stop_reached and not observation.stop_pre_entry:
-            return observation.stop_level
-        return None
-    if (
-        observation.status is OutcomeStatus.TARGETS_REACHED
-        and observation.targets_reached
-    ):
-        reached = tuple(
-            observation.target_levels[index]
-            for index in observation.targets_reached
-            if 0 <= index < len(observation.target_levels)
-        )
-        if len(reached) != len(observation.targets_reached):
-            return None
-        return max(reached) if observation.direction == "bullish" else min(reached)
-    return None
-
-
-def _directional_r(observation: OutcomeObservation, endpoint: Decimal) -> Decimal:
-    move = (
-        endpoint - observation.entry_level
-        if observation.direction == "bullish"
-        else observation.entry_level - endpoint
-    )
-    return quantize_derived(move / observation.risk_per_unit)
-
-
-def _r_exclusion(observation: OutcomeObservation) -> str:
-    if observation.status is OutcomeStatus.STOPPED_AFTER_TARGETS:
-        return "STOPPED_AFTER_TARGETS_NO_PARTIAL_EXIT_POLICY"
-    if observation.status is OutcomeStatus.AMBIGUOUS:
-        return "AMBIGUOUS_OUTCOME"
-    if observation.status is OutcomeStatus.INCOMPLETE_DATA:
-        return "INCOMPLETE_OUTCOME"
-    if observation.status is OutcomeStatus.OPEN_AT_CUTOFF:
-        return "NO_TERMINAL_PROPOSED_LEVEL_R"
-    if (
-        observation.status
-        in {
-            OutcomeStatus.ENTRY_NOT_REACHED,
-            OutcomeStatus.INVALIDATED_BEFORE_ENTRY,
-        }
-        or not observation.entry_ordered
-    ):
-        return "ENTRY_NOT_ORDERED"
-    return "TERMINAL_LEVEL_NOT_ESTABLISHED"
+# The pure rate/R helpers now live in ``historical_validation.metrics`` so
+# Step 12 forward reporting uses the identical definitions instead of a copy.
+# They remain importable here under their historical private names.
+_enum_text = enum_text
+_counts = counts
+_rate = rate
+_distribution = distribution
+_counts_from_counter = counts_from_counter
+_terminal_endpoint = terminal_endpoint
+_directional_r = directional_r
+_r_exclusion = r_exclusion
 
 
 def _concentration_warnings(records: Sequence[ValidationRecord]) -> tuple[str, ...]:
