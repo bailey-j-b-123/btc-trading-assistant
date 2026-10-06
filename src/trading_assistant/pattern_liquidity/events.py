@@ -1,6 +1,7 @@
 """Immutable, JSON-serializable evidence; no trade qualification fields."""
 
 import json
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -19,10 +20,41 @@ from trading_assistant.pattern_liquidity.parameters import PatternLiquidityParam
 Direction = Literal["bullish", "bearish"]
 
 
+#: Bound for the identity memo below: a full multi-year replay holds tens of
+#: thousands of distinct references, so this comfortably covers the working
+#: set while keeping worst-case memory in the tens of megabytes.
+_IDENTITY_MEMO_MAX = 32768
+
+#: LRU memo of computed identities, keyed by ``repr`` of the inputs.
+#:
+#: The chronological replay re-identifies the same structural references once
+#: per bar (measured: ~79k calls, ~2k distinct, over 720 candles), so
+#: memoizing is worth several seconds per snapshot. The key must be ``repr``,
+#: never ``hash`` or equality: ``to_jsonable`` renders ``Decimal('1.10')`` as
+#: ``'1.10'`` (spelling-sensitive) while ``hash`` is numeric, so distinct
+#: spellings are distinct identities that only ``repr`` keeps apart. Values
+#: are pure SHA-256 digests, so concurrent recomputation or eviction changes
+#: timing only, never any returned id; every ``move_to_end``/``popitem`` race
+#: degrades to a recomputation, never to a wrong answer.
+_identity_memo: OrderedDict[str, str] = OrderedDict()
+
+
 def identity(*parts: object) -> str:
     """Versioned SHA-256 of canonical structural identity, never random UUIDs."""
+    key = repr(parts)
+    cached = _identity_memo.get(key)
+    if cached is not None:
+        try:
+            _identity_memo.move_to_end(key)
+        except KeyError:
+            pass  # evicted concurrently; the cached digest is still correct
+        return cached
     payload = json.dumps(to_jsonable(parts), sort_keys=True, separators=(",", ":"))
-    return sha256(("pattern-liquidity-v1:" + payload).encode()).hexdigest()
+    value = sha256(("pattern-liquidity-v1:" + payload).encode()).hexdigest()
+    _identity_memo[key] = value
+    if len(_identity_memo) > _IDENTITY_MEMO_MAX:
+        _identity_memo.popitem(last=False)
+    return value
 
 
 @dataclass(frozen=True, slots=True)
