@@ -44,6 +44,18 @@ class CCXTMarketDataSource:
             return _KRAKEN_MAX_OHLCV_LIMIT
         return None
 
+    @property
+    def ohlcv_is_rolling_window(self) -> bool:
+        """Whether the exchange endpoint cannot provide arbitrary date ranges.
+
+        Kraken's public OHLC endpoint returns only its latest 720 entries,
+        regardless of how old ``since`` is.  It is therefore not safe to run
+        the generic date-based pagination loop against it: a later request can
+        return the same rolling window instead of the next historical page.
+        """
+
+        return self.exchange_id == "kraken"
+
     def fetch_ohlcv(
         self,
         symbol: str,
