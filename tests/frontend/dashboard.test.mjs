@@ -156,7 +156,7 @@ function backendDashboard(overrides = {}) {
       trend: {
         direction: "bullish",
         sufficient: true,
-        basis: "higher_highs_and_higher_lows",
+        reason: "higher_highs_and_higher_lows",
         higher_highs: true,
         higher_lows: true,
         lower_highs: false,

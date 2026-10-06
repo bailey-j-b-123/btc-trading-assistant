@@ -639,8 +639,8 @@ function scenarioText(value) {
 function trendSummaryText(trend) {
   if (!trend || typeof trend !== "object") return "UNKNOWN";
   if (trend.sufficient !== true) {
-    const basis = scenarioText(trend.basis);
-    return basis ? `UNKNOWN (${basis})` : "UNKNOWN (insufficient structure)";
+    const reason = scenarioText(trend.reason);
+    return reason ? `UNKNOWN (${reason})` : "UNKNOWN (insufficient structure)";
   }
   const direction = String(trend.direction || "unknown").toUpperCase();
   return `${direction} · ${trend.transition || "unknown"} · ${trend.momentum || "unknown"}`;

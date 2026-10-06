@@ -49,8 +49,12 @@ def test_terminal_verdict_and_system_status_use_explicit_text():
 
     js = read(STATIC_DIR / "js/views/dashboard.js")
     assert "NO TRADE" in js and "WATCH" in js and "PLANNABLE" in js
-    assert "SYSTEM OK" in js and "SYSTEM WARNING" in js
     assert 'role: "status"' in js
+    # The header health words live in exactly one module: the topbar is the
+    # single source of truth for the global header on every route.
+    topbar = read(STATIC_DIR / "js/topbar.js")
+    assert "SYSTEM OK" in topbar and "SYSTEM WARNING" in topbar
+    assert "SYSTEM OK" not in js and "SYSTEM WARNING" not in js
 
 
 def test_no_inline_scripts_and_csp_allowlist_match():
