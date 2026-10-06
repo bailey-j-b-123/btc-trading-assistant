@@ -25,7 +25,6 @@ import {
   directionArrow,
   directionLabel,
   displayOrUnknown,
-  displayPrice,
   familyLabel,
   formatUtc,
   isMissing,
@@ -42,13 +41,18 @@ import {
   spinner,
   toast,
 } from "../util.js";
+import {
+  integerOrNull,
+  setTopbarWarning,
+  systemHealthViewModel,
+  timeframeLabel,
+  updateTopbar,
+} from "../topbar.js";
+
+export { systemHealthViewModel };
 
 let renderGeneration = 0;
 let activeChart = null;
-
-function integerOrNull(value) {
-  return Number.isInteger(value) && value >= 0 ? value : null;
-}
 
 function countFromMap(map, key) {
   if (!map || typeof map !== "object") return null;
@@ -216,28 +220,6 @@ export function verdictViewModel(dashboard, forward = null) {
   };
 }
 
-export function systemHealthViewModel(dashboard, forward) {
-  const forwardStatus = forward?.status || {};
-  const marketStatus = forwardStatus.market_data || {};
-  const runner = forwardStatus.runner;
-  const pending = integerOrNull(forwardStatus.sample?.pending_catch_up_boundaries) ??
-    integerOrNull(runner?.pending_boundaries);
-  const runnerHealthy = Boolean(
-    runner &&
-    ["STARTED", "PROCESSED", "IDLE"].includes(runner.status) &&
-    !runner.last_error,
-  );
-  const currentData = dashboard?.freshness?.status === "CURRENT" &&
-    dashboard?.market?.complete === true &&
-    marketStatus.data_health === "CURRENT";
-  const healthy = currentData && pending === 0 && runnerHealthy;
-  return {
-    healthy,
-    label: healthy ? "SYSTEM OK" : "SYSTEM WARNING",
-    tone: healthy ? "green" : "amber",
-  };
-}
-
 export function performanceViewModel(forward) {
   const status = forward?.status || {};
   const report = forward?.report || {};
@@ -291,56 +273,6 @@ export function performanceViewModel(forward) {
     disclaimer: forward?.disclaimer ||
       "Paper trading and historical performance do not establish future profitability.",
   };
-}
-
-function timeframeLabel(timeframe) {
-  return isMissing(timeframe) ? "UNKNOWN" : String(timeframe).toUpperCase();
-}
-
-function setTopbarWarning() {
-  const symbol = document.getElementById("topbar-symbol");
-  if (symbol) symbol.textContent = "UNKNOWN";
-  const timeframe = document.getElementById("topbar-timeframe");
-  if (timeframe) timeframe.textContent = "UNKNOWN";
-  const status = document.getElementById("topbar-status");
-  if (status) {
-    status.textContent = "SYSTEM WARNING";
-    status.dataset.tone = "amber";
-  }
-  const time = document.getElementById("topbar-candle-time");
-  if (time) {
-    time.textContent = "UNKNOWN";
-    time.removeAttribute("datetime");
-  }
-  const price = document.getElementById("topbar-price");
-  if (price) price.textContent = "UNKNOWN";
-}
-
-function updateTopbar(dashboard, forward) {
-  const meta = dashboard?.meta || {};
-  const latest = dashboard?.market?.latest_closed_candle || null;
-  const symbol = document.getElementById("topbar-symbol");
-  const timeframe = document.getElementById("topbar-timeframe");
-  const time = document.getElementById("topbar-candle-time");
-  const price = document.getElementById("topbar-price");
-  const status = document.getElementById("topbar-status");
-
-  if (symbol) symbol.textContent = meta.symbol || "UNKNOWN";
-  if (timeframe) timeframe.textContent = timeframeLabel(meta.timeframe);
-  if (time) {
-    time.textContent = latest?.timestamp ? formatUtc(latest.timestamp) : "UNKNOWN";
-    if (latest?.timestamp) time.setAttribute("datetime", latest.timestamp);
-    else time.removeAttribute("datetime");
-  }
-  if (price) price.textContent = latest ? displayPrice(latest.close).display : "UNKNOWN";
-  if (status) {
-    const health = systemHealthViewModel(dashboard, forward);
-    status.textContent = health.label;
-    status.dataset.tone = health.tone;
-    status.title = health.healthy
-      ? "Stored closed-candle data is current; no forward catch-up is pending."
-      : "One or more data/runner health checks are not current or are unavailable. Expand System details.";
-  }
 }
 
 function chartEmpty(title, detail) {
@@ -956,7 +888,9 @@ export function disposeDashboard() {
   renderGeneration += 1;
   if (activeChart) activeChart.destroy();
   activeChart = null;
-  setTopbarWarning();
+  // The header is owned by the topbar module now: the dashboard view resets
+  // and repopulates it during its own render, and every other route goes
+  // through refreshTopbar. Disposal must not blank what it cannot refill.
 }
 
 export async function renderDashboard(view) {
