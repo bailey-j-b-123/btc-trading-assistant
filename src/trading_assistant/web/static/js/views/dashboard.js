@@ -646,85 +646,156 @@ function trendSummaryText(trend) {
   return `${direction} · ${trend.transition || "unknown"} · ${trend.momentum || "unknown"}`;
 }
 
-function metricSummaryText(metric, unit, key = "value") {
-  if (!metric || typeof metric !== "object") return "UNKNOWN";
-  if (isMissing(metric[key])) return "UNKNOWN";
-  const movement = scenarioText(metric.direction?.movement);
-  return movement ? `${metric[key]}${unit} · ${movement}` : `${metric[key]}${unit}`;
+function volatilitySummaryText(volatility) {
+  if (!volatility || typeof volatility !== "object") return "UNKNOWN";
+  if (volatility.available !== true) {
+    const reason = scenarioText(volatility.reason);
+    return reason ? `UNKNOWN (${reason})` : "UNKNOWN";
+  }
+  const value = isMissing(volatility.atr_percent_of_price) ? "?" : volatility.atr_percent_of_price;
+  const label = scenarioText(volatility.direction?.label);
+  if (!label || label === "unknown") return `${value}% of price · trend unknown`;
+  return `${value}% of price · ${label}`;
+}
+
+function volumeSummaryText(volume) {
+  if (!volume || typeof volume !== "object") return "UNKNOWN";
+  if (volume.sufficient !== true) {
+    const reason = scenarioText(volume.reason);
+    return reason ? `UNKNOWN (${reason})` : "UNKNOWN";
+  }
+  const value = isMissing(volume.relative_volume) ? "?" : volume.relative_volume;
+  const label = scenarioText(volume.direction?.label);
+  if (!label || label === "unknown") return `${value}x average · trend unknown`;
+  return `${value}x average · ${label}`;
 }
 
 function rangeSummaryText(range) {
   if (!range || typeof range !== "object") return "UNKNOWN";
-  if (range.state === "NO_RANGE") return "no active range";
-  if (range.state === "ACTIVE") {
-    return `${displayOrUnknown(range.range_low)} → ${displayOrUnknown(range.range_high)} · ${range.transition || "unknown"}`;
-  }
-  return "UNKNOWN";
+  if (range.active !== true) return `no active range (${range.transition || "unknown"})`;
+  const detected = range.detected && typeof range.detected === "object" ? range.detected : null;
+  if (!detected) return "active range reported without detected levels";
+  return `${displayOrUnknown(detected.range_low)} → ${displayOrUnknown(detected.range_high)} · ${range.transition || "unknown"}`;
 }
 
-function levelText(entry) {
-  if (!entry || typeof entry !== "object" || isMissing(entry.level)) return null;
-  const level = displayOrUnknown(entry.level);
-  return entry.source ? `${level} (${entry.source})` : level;
+function zoneBandText(zone) {
+  if (!zone || typeof zone !== "object") return null;
+  return `${displayOrUnknown(zone.band_low)}–${displayOrUnknown(zone.band_high)} (${zone.touch_count ?? "?"} touches)`;
+}
+
+function equalLevelText(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  return `${displayOrUnknown(entry.level)} (${entry.type || "level"} ×${entry.member_count ?? "?"})`;
+}
+
+function marketNowUnavailable(reason) {
+  return el("section", { class: "card terminal-card", "aria-label": "Market now" }, [
+    el("div", { class: "section-title-row" }, [
+      el("h2", { class: "card-title", text: "Market now" }),
+      el("span", { class: "card-hint", text: "backend facts · this close" }),
+    ]),
+    el("div", { class: "plan-reason", text: reason || "Market-state facts unavailable from the backend." }),
+  ]);
+}
+
+function eventCountsLine(events) {
+  const count = (group) => (group && typeof group === "object" && Number.isInteger(group.count) ? group.count : "?");
+  const retests = events.retests && typeof events.retests === "object" ? events.retests : {};
+  const patterns = events.chart_patterns && typeof events.chart_patterns === "object" ? events.chart_patterns : {};
+  return `breakouts ${count(events.breakouts)} · failed breakouts ${count(events.failed_breakouts)} · ` +
+    `sweeps ${count(events.sweeps)} · retests ${count(events.retests)} ` +
+    `(held ${retests.held_count ?? "?"} / failed ${retests.failed_count ?? "?"}) · ` +
+    `chart patterns ${count(events.chart_patterns)} (${patterns.confirmed_count ?? "?"} confirmed)`;
+}
+
+function latestEventLine(label, latest, detail) {
+  if (!latest || typeof latest !== "object") return null;
+  return el("div", {
+    class: "chart-note",
+    text: `${label}: ${detail} at ${formatUtc(latest.known_at)}`,
+  });
+}
+
+function breakoutChips(breakout) {
+  const chips = [];
+  for (const item of Array.isArray(breakout.attempts) ? breakout.attempts : []) {
+    chips.push(`breakout ${directionLabel(item.direction)} @ ${displayOrUnknown(item.close)}`);
+  }
+  for (const item of Array.isArray(breakout.acceptances) ? breakout.acceptances : []) {
+    chips.push(`held retest ${directionLabel(item.direction)}`);
+  }
+  for (const item of Array.isArray(breakout.rejections) ? breakout.rejections : []) {
+    chips.push(item.kind || "rejection");
+  }
+  for (const item of Array.isArray(breakout.sweeps) ? breakout.sweeps : []) {
+    chips.push(`sweep ${directionLabel(item.direction)} → ${displayOrUnknown(item.reclaim_close)}`);
+  }
+  return chips;
 }
 
 function marketNowCard(dashboard) {
   const state = dashboard?.market_state;
-  if (!state || typeof state !== "object") {
-    return el("section", { class: "card terminal-card", "aria-label": "Market now" }, [
-      el("div", { class: "section-title-row" }, [
-        el("h2", { class: "card-title", text: "Market now" }),
-        el("span", { class: "card-hint", text: "backend facts · this close" }),
-      ]),
-      el("div", { class: "plan-reason", text: "Market-state facts unavailable from the backend." }),
-    ]);
+  if (!state || typeof state !== "object" || state.available !== true) {
+    const reason = state && typeof state === "object" ? scenarioText(state.reason) : null;
+    return marketNowUnavailable(reason);
   }
-  const levels = state.nearest_levels || {};
-  const levelsLine = [
-    `support ${levelText(levels.support) || "none in range"}`,
-    `resistance ${levelText(levels.resistance) || "none in range"}`,
-  ];
-  for (const [label, key] of [["equal highs", "equal_highs"], ["equal lows", "equal_lows"]]) {
-    const entries = Array.isArray(levels[key]) ? levels[key] : [];
-    if (entries.length) levelsLine.push(`${label} ${entries.map((entry) => levelText(entry) || "?").join(", ")}`);
-  }
-  const activity = state.breakout_activity || {};
-  const fresh = Array.isArray(activity.fresh) ? activity.fresh : [];
+  const levels = state.levels && typeof state.levels === "object" ? state.levels : {};
+  const events = state.events && typeof state.events === "object" ? state.events : {};
+  const breakout = state.breakout_state && typeof state.breakout_state === "object" ? state.breakout_state : {};
+  const htf = state.higher_timeframes && typeof state.higher_timeframes === "object" ? state.higher_timeframes : {};
+  const chips = breakoutChips(breakout);
   const children = [
     el("div", { class: "performance-summary" }, [
       performanceMetric("Trend", trendSummaryText(state.trend)),
-      performanceMetric("Volatility", metricSummaryText(state.volatility, "% of price")),
-      performanceMetric("Volume", metricSummaryText(state.volume, "x average", "relative_volume")),
+      performanceMetric("Volatility", volatilitySummaryText(state.volatility)),
+      performanceMetric("Volume", volumeSummaryText(state.volume)),
       performanceMetric("Range", rangeSummaryText(state.range)),
     ]),
-    el("div", { class: "chart-note", text: `Nearest levels: ${levelsLine.join(" · ")}` }),
     el("div", {
       class: "chart-note",
-      text: `Fresh breakout attempts at this close: ${activity.attempts ?? "UNKNOWN"} ` +
-        `(${activity.acceptances ?? "?"} accepted · ${activity.rejections ?? "?"} rejected · ${activity.sweeps ?? "?"} sweeps)`,
+      text: `Nearest levels: support ${zoneBandText(levels.nearest_support) || "none in range"} · ` +
+        `resistance ${zoneBandText(levels.nearest_resistance) || "none in range"} · ` +
+        `equal below ${equalLevelText(levels.nearest_level_below) || "none"} · ` +
+        `equal above ${equalLevelText(levels.nearest_level_above) || "none"} · ` +
+        `${levels.zone_count ?? "?"} zones · ${levels.equal_level_count ?? "?"} equal levels`,
     }),
+    el("div", { class: "chart-note", text: `Event catalog: ${eventCountsLine(events)}` }),
   ];
-  if (fresh.length) {
-    children.push(el("div", { class: "outcome-breakdown", "aria-label": "Fresh breakout attempts" },
-      fresh.map((item) => el("span", {
-        class: "outcome-chip",
-        text: `${familyLabel(item.family)} ${directionLabel(item.direction)} → ${item.outcome || "UNKNOWN"}`,
-      })),
+  const latestBreakout = events.breakouts?.latest;
+  if (latestBreakout) {
+    children.push(latestEventLine(
+      "Latest breakout",
+      latestBreakout,
+      `${directionLabel(latestBreakout.direction)} of ${latestBreakout.reference_type || "unknown reference"}`,
     ));
   }
-  for (const context of Array.isArray(state.htf) ? state.htf : []) {
-    children.push(el("div", {
-      class: "chart-note",
-      text: `${context.timeframe} (${context.label || "context"}): trend ${context.trend || "UNKNOWN"}; ` +
-        `range ${context.range_state || "UNKNOWN"}${context.detail ? ` — ${context.detail}` : ""}`,
-    }));
+  const latestSweep = events.sweeps?.latest;
+  if (latestSweep) children.push(latestEventLine("Latest sweep", latestSweep, directionLabel(latestSweep.direction)));
+  const freshCounts = ["attempts", "acceptances", "rejections", "sweeps"]
+    .map((key) => (Array.isArray(breakout[key]) ? breakout[key].length : "?"));
+  children.push(el("div", {
+    class: "chart-note",
+    text: `Fresh at this close: ${freshCounts[0]} attempt(s) · ${freshCounts[1]} acceptance(s) · ` +
+      `${freshCounts[2]} rejection(s) · ${freshCounts[3]} sweep(s)`,
+  }));
+  if (chips.length) {
+    const chipSpans = chips.map((text) => el("span", { class: "outcome-chip", text }));
+    children.push(el("div", { class: "outcome-breakdown", "aria-label": "Fresh breakout activity" }, chipSpans));
   }
-  const latest = state.events?.latest || null;
-  if (latest) {
-    children.push(el("div", {
-      class: "chart-note",
-      text: `Latest catalogued event: ${latest.kind} — ${latest.summary || "no summary"}`,
-    }));
+  const requested = Array.isArray(htf.requested) ? htf.requested : [];
+  if (!requested.length) {
+    children.push(el("div", { class: "chart-note", text: scenarioText(htf.note) || "No higher timeframes requested." }));
+  } else {
+    const contexts = htf.contexts && typeof htf.contexts === "object" ? htf.contexts : {};
+    for (const timeframe of requested) {
+      const context = contexts[timeframe] && typeof contexts[timeframe] === "object" ? contexts[timeframe] : {};
+      children.push(el("div", {
+        class: "chart-note",
+        text: `${timeframe}: trend ${context.trend || "UNKNOWN"}` +
+          (context.available === false ? " (unavailable)" : "") +
+          (context.reason ? ` — ${context.reason}` : ""),
+      }));
+    }
   }
   return el("section", { class: "card terminal-card", "aria-label": "Market now" }, [
     el("div", { class: "section-title-row" }, [
@@ -735,56 +806,82 @@ function marketNowCard(dashboard) {
   ]);
 }
 
+function pendingRequiredText(pending) {
+  const items = Array.isArray(pending) ? pending : [];
+  if (!items.length) return "none";
+  return items.map((item) => `${item.rule || "?"} — ${item.reason || "no reason"}`).join("; ");
+}
+
 function liveSetupNode(setup) {
   const failed = Array.isArray(setup.failed_rules) ? setup.failed_rules : [];
-  const pending = Array.isArray(setup.pending_rules) ? setup.pending_rules : [];
-  const expiry = setup.expired === true ? "EXPIRED" : `expires in ${setup.bars_remaining ?? "?"} bars`;
+  const passed = Array.isArray(setup.passed_rules) ? setup.passed_rules : [];
+  const vetoedBy = Array.isArray(setup.vetoed_by) ? setup.vetoed_by : [];
   return el("div", { class: "terminal-evidence-item" }, [
     el("div", {
       class: "evidence-meta",
       text: `${familyLabel(setup.family)} · ${directionLabel(setup.direction)} · ${setup.state || "UNKNOWN"} · ` +
-        `age ${setup.age_bars ?? "?"} bars · ${expiry}${setup.vetoed_for_selection ? " · VETOED for selection" : ""}`,
+        `age ${setup.age_bars ?? "?"}/${setup.max_bars ?? "?"} bars · ${setup.bars_remaining ?? "?"} left` +
+        (setup.vetoed === true ? ` · VETOED by ${vetoedBy.length ? vetoedBy.join(", ") : "unknown rule"}` : "") +
+        (setup.created_at ? ` · seeded ${formatUtc(setup.created_at)}` : ""),
     }),
+    el("div", { class: "evidence-reason", text: `Passed: ${passed.length ? passed.join(", ") : "none"}` }),
     el("div", { class: "evidence-reason", text: `Failed: ${failed.length ? failed.join(", ") : "none"}` }),
-    el("div", { class: "evidence-reason", text: `Pending: ${pending.length ? pending.join(", ") : "none"}` }),
+    el("div", { class: "evidence-reason", text: `Pending required: ${pendingRequiredText(setup.pending_required)}` }),
   ]);
 }
 
 function strengthenBlock(title, side) {
-  const pending = Array.isArray(side?.pending_rules) ? side.pending_rules : [];
-  const confirmations = side?.confirmations && typeof side.confirmations === "object" ? side.confirmations : {};
-  return el("div", { class: "terminal-evidence-item" }, [
+  const direction = side?.direction || title;
+  const developing = Array.isArray(side?.developing_setups) ? side.developing_setups : [];
+  const starters = side?.to_start_a_setup && typeof side.to_start_a_setup === "object" ? side.to_start_a_setup : {};
+  const rows = [
     el("div", { class: "evidence-meta", text: title }),
-    el("div", {
+    developing.length || side?.none_developing !== true
+      ? null
+      : el("div", { class: "evidence-reason", text: `No developing ${direction} setups.` }),
+    ...developing.map((item) => el("div", {
       class: "evidence-reason",
-      text: pending.length ? `Still required: ${pending.join(" · ")}` : "No pending required rules on this side.",
-    }),
-    ...Object.entries(confirmations).map(([family, text]) => el("div", {
-      class: "evidence-reason",
-      text: `${familyLabel(family)} confirms when: ${text}`,
+      text: `setup ${shortId(item.setup_id)} (${item.state || "UNKNOWN"}): ` +
+        `still required: ${pendingRequiredText(item.pending_required)}`,
     })),
-  ]);
+    ...Object.entries(starters).map(([family, text]) => el("div", {
+      class: "evidence-reason",
+      text: `${familyLabel(family)} starts with: ${text}`,
+    })),
+  ];
+  return el("div", { class: "terminal-evidence-item" }, rows);
+}
+
+function planLevelText(level) {
+  if (!level || typeof level !== "object" || isMissing(level.value)) return null;
+  const source = level.source_type ? ` (${level.source_type})` : "";
+  return `${displayOrUnknown(level.value)}${source}`;
 }
 
 function invalidateNode(item) {
-  const terminal = Array.isArray(item.terminal_evidence) ? item.terminal_evidence : [];
-  const levels = item.levels && typeof item.levels === "object" ? item.levels : null;
+  const evidence = Array.isArray(item.invalidation_evidence) ? item.invalidation_evidence : [];
+  const vetoedBy = Array.isArray(item.vetoed_by) ? item.vetoed_by : [];
   const rows = [
     el("div", {
       class: "evidence-meta",
-      text: `${familyLabel(item.family)} · ${item.state || "UNKNOWN"} · ${item.bars_remaining ?? "?"} bars left`,
+      text: `setup ${shortId(item.setup_id)} · ${item.state || "UNKNOWN"} · ` +
+        `${item.bars_remaining ?? "?"}/${item.max_bars ?? "?"} bars left` +
+        (item.vetoed === true ? ` · VETOED by ${vetoedBy.length ? vetoedBy.join(", ") : "unknown rule"}` : ""),
     }),
-    el("div", {
-      class: "evidence-reason",
-      text: terminal.length ? `Terminal already seen: ${terminal.join(" · ")}` : "No terminal evidence yet.",
-    }),
+    ...(evidence.length
+      ? evidence.map((entry) => el("div", {
+          class: "evidence-reason",
+          text: `${entry.rule || "?"}: ${entry.outcome || "UNKNOWN"} — ${entry.reason || "no reason"}`,
+        }))
+      : [el("div", { class: "evidence-reason", text: "No invalidation/lifecycle evidence yet." })]),
   ];
-  if (levels) {
-    const targets = Array.isArray(levels.targets) ? levels.targets : [];
+  const entry = planLevelText(item.plan_entry);
+  const stop = planLevelText(item.plan_stop);
+  const invalidation = planLevelText(item.plan_invalidation);
+  if (entry || stop || invalidation) {
     rows.push(el("div", {
       class: "evidence-reason",
-      text: `Selected plan levels — entry ${displayOrUnknown(levels.entry)} · stop ${displayOrUnknown(levels.stop)} · ` +
-        `invalidation ${displayOrUnknown(levels.invalidation)} · targets ${targets.length ? targets.map((t) => displayOrUnknown(t)).join(", ") : "UNKNOWN"}`,
+      text: `Selected plan — entry ${entry || "?"} · stop ${stop || "?"} · invalidation ${invalidation || "?"}`,
     }));
   }
   return el("div", { class: "terminal-evidence-item" }, rows);
@@ -792,18 +889,21 @@ function invalidateNode(item) {
 
 function scenarioCard(dashboard) {
   const scenario = dashboard?.scenario;
-  if (!scenario || typeof scenario !== "object") {
+  if (!scenario || typeof scenario !== "object" || scenario.available !== true) {
+    const reason = scenario && typeof scenario === "object" ? scenarioText(scenario.reason) : null;
     return el("section", { class: "card terminal-card", "aria-label": "Scenario" }, [
       el("div", { class: "section-title-row" }, [
         el("h2", { class: "card-title", text: "Scenario" }),
         el("span", { class: "card-hint", text: "answers from backend facts" }),
       ]),
-      el("div", { class: "plan-reason", text: "Scenario answers unavailable from the backend." }),
+      el("div", { class: "plan-reason", text: reason || "Scenario answers unavailable from the backend." }),
     ]);
   }
-  const live = Array.isArray(scenario.bot_seeing) ? scenario.bot_seeing : [];
-  const waiting = Array.isArray(scenario.waiting_for) ? scenario.waiting_for : [];
-  const invalidate = Array.isArray(scenario.invalidate) ? scenario.invalidate : [];
+  const seeing = scenario.bot_seeing && typeof scenario.bot_seeing === "object" ? scenario.bot_seeing : {};
+  const live = Array.isArray(seeing.live_setups) ? seeing.live_setups : [];
+  const waiting = scenario.waiting_for && typeof scenario.waiting_for === "object" ? scenario.waiting_for : {};
+  const pending = Array.isArray(waiting.pending) ? waiting.pending : [];
+  const cases = Array.isArray(scenario.invalidate?.cases) ? scenario.invalidate.cases : [];
   return el("section", { class: "card terminal-card", "aria-label": "Scenario" }, [
     el("div", { class: "section-title-row" }, [
       el("h2", { class: "card-title", text: "Scenario" }),
@@ -811,6 +911,11 @@ function scenarioCard(dashboard) {
     ]),
     el("p", { class: "verdict-summary", text: scenario.doing_now || "The backend supplied no summary." }),
     el("div", { class: "section-title-row" }, [el("h2", { class: "card-title", text: "The bot is seeing" })]),
+    el("div", {
+      class: "chart-note",
+      text: `Aggregate ${seeing.state || "UNKNOWN"} (${seeing.status || "unknown status"}) · ` +
+        `${seeing.live_count ?? live.length} live setup(s)`,
+    }),
     ...(live.length
       ? live.map(liveSetupNode)
       : [el("div", { class: "plan-reason", text: "No live setups at this close." })]),
@@ -818,14 +923,62 @@ function scenarioCard(dashboard) {
     strengthenBlock("BULLISH case", scenario.strengthen_bullish),
     strengthenBlock("BEARISH case", scenario.strengthen_bearish),
     el("div", { class: "section-title-row" }, [el("h2", { class: "card-title", text: "Waiting for" })]),
-    ...(waiting.length
-      ? [el("div", { class: "outcome-breakdown", "aria-label": "Outstanding evidence" },
-          waiting.map((item) => el("span", { class: "outcome-chip", text: String(item) })))]
-      : [el("div", { class: "plan-reason", text: "Nothing outstanding." })]),
+    ...(pending.length
+      ? pending.map((item) => el("div", { class: "terminal-evidence-item" }, [
+          el("div", { class: "evidence-meta", text: item.rule || "?" }),
+          el("div", {
+            class: "evidence-reason",
+            text: `${item.reason || "no reason"} (${Array.isArray(item.setup_ids) ? item.setup_ids.length : "?"} setup(s))`,
+          }),
+        ]))
+      : [el("div", {
+          class: "plan-reason",
+          text: scenarioText(waiting.note) || "Nothing outstanding.",
+        })]),
     el("div", { class: "section-title-row" }, [el("h2", { class: "card-title", text: "What would invalidate" })]),
-    ...(invalidate.length
-      ? invalidate.map(invalidateNode)
+    ...(cases.length
+      ? cases.map(invalidateNode)
       : [el("div", { class: "plan-reason", text: "No live setups to invalidate." })]),
+  ]);
+}
+
+function explanationCard(dashboard) {
+  const explanation = dashboard?.explanation;
+  const sections = Array.isArray(explanation?.sections) ? explanation.sections : [];
+  const limitations = Array.isArray(explanation?.limitations) ? explanation.limitations : [];
+  const body = [];
+  if (explanation && typeof explanation === "object" && explanation.available === false) {
+    const message = explanation.error && typeof explanation.error === "object"
+      ? scenarioText(explanation.error.message)
+      : null;
+    body.push(el("div", {
+      class: "plan-reason",
+      text: message || "No grounded explanation was supplied.",
+    }));
+  } else if (!sections.length) {
+    body.push(el("div", {
+      class: "plan-reason",
+      text: "No grounded explanation sections were supplied.",
+    }));
+  } else {
+    for (const section of sections) {
+      body.push(el("div", { class: "terminal-evidence-item" }, [
+        el("div", { class: "evidence-meta", text: section.title || `Section ${section.number ?? "?"}` }),
+        el("div", { class: "evidence-reason", text: section.text || "No text supplied." }),
+      ]));
+    }
+    for (const limitation of limitations) {
+      body.push(el("div", { class: "performance-caveat", text: String(limitation) }));
+    }
+    body.push(el("div", {
+      class: "chart-note",
+      text: `Grounded locally by ${explanation.renderer_id || "unknown renderer"} ` +
+        `(${explanation.renderer_version || "unknown version"}) · provenance ${explanation.provenance || "UNKNOWN"}`,
+    }));
+  }
+  return el("details", { class: "card terminal-card expandable", "aria-label": "Grounded explanation" }, [
+    el("summary", { text: scenarioText(explanation?.headline) || "Grounded explanation" }),
+    el("div", { class: "details-body" }, body),
   ]);
 }
 
@@ -1132,6 +1285,7 @@ export async function renderDashboard(view) {
       marketNowCard(dashboard),
       scenarioCard(dashboard),
     ]),
+    explanationCard(dashboard),
     el("div", { class: "secondary-grid" }, [
       recentDecisionsCard(forward),
       performanceCard(forward, dashboard.meta || {}),

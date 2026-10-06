@@ -153,10 +153,14 @@ function backendDashboard(overrides = {}) {
       setup_reference: null,
     },
     market_state: {
+      available: true,
+      as_of: timestamp,
       trend: {
         direction: "bullish",
-        sufficient: true,
         reason: "higher_highs_and_higher_lows",
+        sufficient: true,
+        swing_highs: 2,
+        swing_lows: 2,
         higher_highs: true,
         higher_lows: true,
         lower_highs: false,
@@ -165,75 +169,118 @@ function backendDashboard(overrides = {}) {
         momentum: "steady",
       },
       volatility: {
-        value: "2.75345715",
-        unit: "atr_percent_of_price",
-        vs_ceiling: "within",
-        direction: { movement: "contracting", previous: "3.10000000", current: "2.75345715" },
-        trend_known: true,
+        available: true,
+        reason: null,
+        period: 14,
+        atr: "1710.5",
+        atr_percent_of_price: "2.75345715",
+        direction: { label: "contracting", previous: "3.10000000" },
       },
       volume: {
-        relative_volume: "1.00000000",
-        reference_window: 20,
-        direction: { movement: "unknown: previous close insufficient", previous: null, current: "1.00000000" },
-        trend_known: false,
+        sufficient: false,
+        reason: "insufficient_volume_history",
+        period: 20,
+        current: null,
+        rolling_average: null,
+        relative_volume: null,
+        direction: { label: "unknown", previous: null },
       },
-      range: { state: "NO_RANGE", range_low: null, range_high: null, transition: "none" },
-      nearest_levels: {
-        support: { level: "61900", source: "zone" },
-        resistance: null,
-        equal_highs: [],
-        equal_lows: [{ level: "61850", source: "cluster" }],
+      range: { active: false, detected: null, transition: "absent" },
+      levels: {
+        zone_count: 1,
+        nearest_support: { band_low: "61900", band_high: "62000", center: "61950", touch_count: 3 },
+        nearest_resistance: null,
+        equal_level_count: 1,
+        nearest_level_below: { level: "61850", type: "equal_low", member_count: 2 },
+        nearest_level_above: null,
       },
       events: {
-        breakouts: 2,
-        sweeps: 0,
-        equal_levels: 1,
-        zones: 1,
-        latest: { kind: "breakout", summary: "bullish breakout" },
+        breakouts: {
+          count: 2,
+          latest: { id: "b1", direction: "bullish", known_at: timestamp, reference_type: "zone" },
+        },
+        failed_breakouts: { count: 0, latest: null },
+        sweeps: { count: 0, latest: null },
+        retests: { count: 1, held_count: 1, failed_count: 0, latest: { id: "r1", state: "held", known_at: timestamp } },
+        chart_patterns: { count: 0, confirmed_count: 0 },
       },
-      breakout_activity: {
-        attempts: 1,
-        acceptances: 1,
-        rejections: 0,
-        sweeps: 0,
-        fresh: [{ family: "breakout_retest_continuation", direction: "bullish", outcome: "accepted" }],
+      breakout_state: {
+        attempts: [{ id: "b1", direction: "bullish", reference_type: "zone", close: "62160" }],
+        acceptances: [],
+        rejections: [],
+        sweeps: [],
       },
-      htf: [{ timeframe: "4h", label: "context", trend: "bullish", range_state: "NO_RANGE", detail: null }],
-      last_close: { timestamp, close: "62160" },
+      higher_timeframes: {
+        requested: [],
+        note: "no higher timeframes requested; no alignment inferred and none required",
+      },
+      last_close: "62160",
     },
     scenario: {
+      available: true,
       doing_now: "Trend is BULLISH. Volatility contracting.",
-      bot_seeing: [
-        {
-          family: "range_rejection_reversal",
-          state: "WATCH",
-          direction: "bearish",
-          rules: [{ rule_id: "confirmation_event", outcome: "pending", reason: "waiting" }],
-          failed_rules: [],
-          pending_rules: ["confirmation_event"],
-          age_bars: 2,
-          bars_remaining: 4,
-          expired: false,
-          vetoed_for_selection: false,
-        },
-      ],
-      strengthen_bullish: {
-        pending_rules: ["trend"],
-        confirmations: { breakout_retest_continuation: "a retest that holds" },
+      bot_seeing: {
+        state: "WATCH",
+        status: "evaluated",
+        live_count: 1,
+        live_setups: [
+          {
+            setup_id: "setup-watch-1",
+            family: "range_rejection_reversal",
+            direction: "bearish",
+            state: "WATCH",
+            created_at: timestamp,
+            age_bars: 2,
+            max_bars: 10,
+            bars_remaining: 8,
+            vetoed: false,
+            vetoed_by: [],
+            passed_rules: ["seed_event"],
+            failed_rules: [],
+            pending_required: [{ rule: "confirmation_event", reason: "waiting for the confirming close" }],
+            invalidation_evidence: [],
+          },
+        ],
       },
-      strengthen_bearish: { pending_rules: [], confirmations: {} },
-      waiting_for: ["confirmation_event"],
-      invalidate: [
-        {
-          setup_id: "setup-watch-1",
-          family: "range_rejection_reversal",
-          state: "WATCH",
-          direction: "bearish",
-          bars_remaining: 4,
-          terminal_evidence: [],
-          levels: null,
-        },
-      ],
+      strengthen_bullish: {
+        direction: "bullish",
+        developing_setups: [],
+        none_developing: true,
+        to_start_a_setup: { breakout_retest_continuation: "a fresh breakout of a structural band" },
+      },
+      strengthen_bearish: {
+        direction: "bearish",
+        developing_setups: [
+          { setup_id: "setup-watch-1", state: "WATCH", pending_required: [{ rule: "confirmation_event", reason: "waiting" }] },
+        ],
+        none_developing: false,
+        to_start_a_setup: {},
+      },
+      waiting_for: {
+        pending: [{ rule: "confirmation_event", reason: "waiting for the confirming close", setup_ids: ["setup-watch-1"] }],
+        note: null,
+      },
+      invalidate: {
+        cases: [
+          {
+            setup_id: "setup-watch-1",
+            state: "WATCH",
+            bars_remaining: 8,
+            max_bars: 10,
+            invalidation_evidence: [],
+            vetoed: false,
+            vetoed_by: [],
+          },
+        ],
+      },
+    },
+    explanation: {
+      headline: "Step 9 grounded explanation — BTC/USDT 1h — setup state: WATCH",
+      sections: [{ number: 1, title: "WHAT THE ENGINE SEES", text: "The deterministic engine recorded WATCH." }],
+      limitations: ["Paper only."],
+      renderer_id: "local-template-renderer",
+      renderer_version: "ai-explanation-local-v1",
+      provenance: "deterministic-local",
     },
     ...overrides,
   };
@@ -660,25 +707,41 @@ test("market now and scenario render backend facts verbatim", async () => {
     await renderDashboard(view);
     assert.match(view.textContent, /BULLISH · unchanged · steady/);
     assert.match(view.textContent, /2\.75345715% of price · contracting/);
-    assert.match(view.textContent, /unknown: previous close insufficient/);
-    assert.match(view.textContent, /no active range/);
-    assert.match(view.textContent, /support 61,900 \(zone\)/);
+    assert.match(view.textContent, /UNKNOWN \(insufficient_volume_history\)/);
+    assert.match(view.textContent, /no active range \(absent\)/);
+    assert.match(view.textContent, /support 61,900–62,000 \(3 touches\)/);
     assert.match(view.textContent, /resistance none in range/);
-    assert.match(view.textContent, /Fresh breakout attempts at this close: 1 \(1 accepted/);
+    assert.match(view.textContent, /equal below 61,850 \(equal_low ×2\)/);
+    assert.match(view.textContent, /Fresh at this close: 1 attempt\(s\) · 0 acceptance\(s\)/);
+    assert.match(view.textContent, /breakout Bullish @ 62,160/);
+    assert.match(view.textContent, /Latest breakout: Bullish of zone at 2026-10-06 12:00 UTC/);
+    assert.match(view.textContent, /no higher timeframes requested/);
     assert.match(view.textContent, /Trend is BULLISH\. Volatility contracting\./);
-    assert.match(view.textContent, /expires in 4 bars/);
-    assert.match(view.textContent, /Pending: confirmation_event/);
-    assert.match(view.textContent, /Still required: trend/);
-    assert.match(view.textContent, /confirms when: a retest that holds/);
-    assert.match(view.textContent, /No terminal evidence yet\./);
+    assert.match(view.textContent, /Aggregate WATCH \(evaluated\) · 1 live setup/);
+    assert.match(view.textContent, /age 2\/10 bars · 8 left/);
+    assert.match(view.textContent, /Pending required: confirmation_event — waiting for the confirming close/);
+    assert.match(view.textContent, /No developing bullish setups\./);
+    assert.match(view.textContent, /still required: confirmation_event — waiting/);
+    assert.match(view.textContent, /starts with: a fresh breakout of a structural band/);
+    assert.match(view.textContent, /waiting for the confirming close \(1 setup\(s\)\)/);
+    assert.match(view.textContent, /No invalidation\/lifecycle evidence yet\./);
+    assert.match(view.textContent, /Step 9 grounded explanation — BTC\/USDT 1h — setup state: WATCH/);
+    assert.match(view.textContent, /WHAT THE ENGINE SEES/);
+    assert.match(view.textContent, /provenance deterministic-local/);
   });
 });
 
 test("missing market-state and scenario sections stay honestly unavailable", async () => {
-  const dashboard = backendDashboard({ market_state: null, scenario: null });
+  const dashboard = backendDashboard({
+    market_state: { available: false, reason: "no Step 3/4 frame could be built at this boundary" },
+    scenario: { available: false, reason: "no evaluated snapshot at this boundary" },
+    explanation: { available: false, error: { code: "no_snapshot", message: "No snapshot to explain." } },
+  });
   await withDashboard(dashboard, forwardPayload(), async ({ view }) => {
     await renderDashboard(view);
-    assert.match(view.textContent, /Market-state facts unavailable from the backend\./);
-    assert.match(view.textContent, /Scenario answers unavailable from the backend\./);
+    assert.match(view.textContent, /no Step 3\/4 frame could be built at this boundary/);
+    assert.match(view.textContent, /no evaluated snapshot at this boundary/);
+    assert.match(view.textContent, /No snapshot to explain\./);
   });
 });
+
