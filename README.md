@@ -142,7 +142,7 @@ The instrument remains configurable with `TRADING_ASSISTANT_SYMBOL`, `TRADING_AS
 
 ### Downloading and incremental updates
 
-Run `alembic upgrade head` before using the database-backed service. For an initial historical download, pass an explicit timezone-aware UTC start time. A later `update_history` call starts after the latest stored candle; without existing history, it requires an explicit start time. Pagination uses CCXT's `since` and configured page limit, advancing by the requested timeframe. Empty or truncated exchange responses are reported through gaps; pagination stalls and exchange/network errors fail clearly.
+Run `alembic upgrade head` before using the database-backed service. For an initial historical download, pass an explicit timezone-aware UTC start time. A later `update_history` call starts after the latest stored candle; without existing history, it requires an explicit start time. Pagination uses CCXT's `since` and configured page limit, advancing by the requested timeframe. Empty or truncated exchange responses are reported through gaps; pagination stalls and exchange/network errors fail clearly. Rolling-window endpoints — Kraken's public OHLC route returns only its newest 720 entries, whatever `since` is — are requested **without** a date cursor: such a cursor cannot retrieve older candles there, so the requested start bounds the local range check and gap report instead of the exchange request. Every returned row still passes the same filtering, closed-candle and gap validation, and the requested `since` is still recorded in the raw archive.
 
 Example from the project root after installation and migration:
 
@@ -1908,7 +1908,11 @@ candles from the public endpoint before processing the latest close, so
 `run --once` works on a fresh database instead of reporting `NO_DATA`. This
 changes only how far back the *download* starts — every downloaded row still
 passes the unchanged Step 2 validation, gaps stay explicit, and the
-still-forming candle is still excluded before anything is stored. Once history
+still-forming candle is still excluded before anything is stored. On a
+rolling-window endpoint (Kraken public OHLC) the requested start bounds that
+local validation rather than the exchange request: the endpoint is asked for its
+newest 720 entries without a date cursor, so the oldest part of a longer window
+is reported as an explicit gap instead of failing the whole pass. Once history
 exists, each pass requests only the newly closed candles after the latest stored
 one. Deeper history can be requested explicitly with `--backfill-start`; note
 that the first pass replays the whole stored history through the unchanged

@@ -64,7 +64,16 @@ class CCXTMarketDataSource:
         since_ms: int,
         limit: int,
     ) -> Any:
-        """Fetch a single unified CCXT page and retain its HTTP response text."""
+        """Fetch a single unified CCXT page and retain its HTTP response text.
+
+        The locally-derived millisecond cursor is passed through unchanged for
+        date-bounded endpoints.  A rolling-window endpoint (see
+        :attr:`ohlcv_is_rolling_window`) cannot use it: Kraken serves only its
+        newest 720 entries no matter how old ``since`` is, so the cursor can
+        never retrieve older history there and is deliberately not sent.  The
+        returned page is still validated against the requested range by
+        :class:`~trading_assistant.market_data.service.MarketDataService`.
+        """
 
         available_timeframes = self.timeframes
         if available_timeframes and timeframe not in available_timeframes:
@@ -77,10 +86,11 @@ class CCXTMarketDataSource:
             if max_limit is not None and limit is not None
             else limit
         )
+        request_since = None if self.ohlcv_is_rolling_window else since_ms
         response = self._exchange.fetch_ohlcv(
             symbol,
             timeframe=timeframe,
-            since=since_ms,
+            since=request_since,
             limit=request_limit,
         )
         self.last_http_response = getattr(self._exchange, "last_http_response", None)
