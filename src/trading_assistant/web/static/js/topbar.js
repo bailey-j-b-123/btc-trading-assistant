@@ -21,6 +21,82 @@ export function timeframeLabel(timeframe) {
   return isMissing(timeframe) ? "UNKNOWN" : String(timeframe).toUpperCase();
 }
 
+/**
+ * Runner presence and detail labels with distinct honest states.
+ *
+ * - "unavailable": no forward status payload (fetch failed or malformed);
+ *   every runner field stays UNKNOWN.
+ * - "never-run": the backend reports runner:null, i.e. no heartbeat row was
+ *   ever recorded. Pending catch-up may still be a real number: it counts
+ *   stored closed candles no cycle has processed yet.
+ * - "reported": a heartbeat row exists; state/detail/heartbeat/error come
+ *   from it verbatim. Heartbeat age is the server-computed
+ *   heartbeat_age_seconds (recorded_at vs the backend clock), never the
+ *   browser clock.
+ */
+export function runnerDetailsViewModel(forward) {
+  const status = forward?.status;
+  if (!status || typeof status !== "object" || !("runner" in status)) {
+    return {
+      presence: "unavailable",
+      state: "UNKNOWN",
+      detail: "UNKNOWN",
+      pending: "UNKNOWN",
+      latestCycle: "UNKNOWN",
+      heartbeat: "UNKNOWN",
+      lastError: "UNKNOWN",
+    };
+  }
+  const pending = integerOrNull(status.sample?.pending_catch_up_boundaries) ??
+    integerOrNull(status.runner?.pending_boundaries);
+  const pendingText = pending === null
+    ? "UNKNOWN"
+    : pending === 1
+      ? "1 closed candle not yet processed"
+      : `${pending} closed candles not yet processed`;
+  const runner = status.runner || null;
+  if (!runner) {
+    return {
+      presence: "never-run",
+      state: "never run",
+      detail: "not applicable (the runner has never run)",
+      pending: pendingText,
+      latestCycle: "none recorded yet",
+      heartbeat: "never run",
+      lastError: "not applicable (the runner has never run)",
+    };
+  }
+  const age = integerOrNull(runner.heartbeat_age_seconds);
+  const heartbeatTime = runner.recorded_at ? formatUtc(runner.recorded_at) : null;
+  return {
+    presence: "reported",
+    state: runner.status || "UNKNOWN",
+    detail: runner.detail || "no detail recorded",
+    pending: pendingText,
+    latestCycle: runner.latest_cycle_as_of ? formatUtc(runner.latest_cycle_as_of) : "none recorded yet",
+    heartbeat: heartbeatTime
+      ? (age === null ? heartbeatTime : `${heartbeatTime} (${age}s ago)`)
+      : "UNKNOWN",
+    lastError: runner.last_error || "None reported",
+  };
+}
+
+/**
+ * SYSTEM OK verdict. Every conjunct must hold; anything else is a warning:
+ *
+ * - dashboard.freshness.status is CURRENT (server clock says the newest
+ *   boundary is covered AND the latest expected closed candle is stored);
+ * - dashboard.market.complete is true (no gaps in the stored window);
+ * - forward.status.market_data.data_health is CURRENT (the forward side's
+ *   independent freshness verdict agrees);
+ * - pending catch-up is exactly 0 (every stored closed candle processed);
+ * - a runner heartbeat exists with status STARTED, PROCESSED, or IDLE and
+ *   no recorded last_error.
+ *
+ * Never-run, stale data, a recorded runner error, a missing payload, or any
+ * single pending boundary all yield SYSTEM WARNING. See web/freshness.py
+ * for the exact CURRENT/STALE/HISTORICAL/UNKNOWN comparisons.
+ */
 export function systemHealthViewModel(dashboard, forward) {
   const forwardStatus = forward?.status || {};
   const marketStatus = forwardStatus.market_data || {};

@@ -166,3 +166,51 @@ test("a failed header fetch falls back to the warning header", async () => {
     },
   });
 });
+
+test("runner details distinguish unavailable, never-run, and reported", async () => {
+  const { runnerDetailsViewModel } = await import(
+    "../../src/trading_assistant/web/static/js/topbar.js"
+  );
+  const unavailable = runnerDetailsViewModel(null);
+  assert.equal(unavailable.presence, "unavailable");
+  assert.equal(unavailable.state, "UNKNOWN");
+  assert.equal(unavailable.pending, "UNKNOWN");
+
+  const malformed = runnerDetailsViewModel({ status: {} });
+  assert.equal(malformed.presence, "unavailable");
+
+  const neverRun = runnerDetailsViewModel({
+    status: { runner: null, sample: { pending_catch_up_boundaries: 5 } },
+  });
+  assert.equal(neverRun.presence, "never-run");
+  assert.equal(neverRun.state, "never run");
+  assert.equal(neverRun.pending, "5 closed candles not yet processed");
+  assert.equal(neverRun.lastError, "not applicable (the runner has never run)");
+
+  const reported = runnerDetailsViewModel({
+    status: {
+      runner: {
+        status: "PROCESSED",
+        detail: "cycle complete",
+        recorded_at: TIMESTAMP,
+        heartbeat_age_seconds: 125,
+        latest_cycle_as_of: TIMESTAMP,
+        pending_boundaries: 0,
+        last_error: null,
+      },
+      sample: { pending_catch_up_boundaries: 0 },
+    },
+  });
+  assert.equal(reported.presence, "reported");
+  assert.equal(reported.state, "PROCESSED");
+  assert.equal(reported.pending, "0 closed candles not yet processed");
+  assert.equal(reported.heartbeat, "2026-10-06 12:00 UTC (125s ago)");
+  assert.equal(reported.lastError, "None reported");
+
+  const errored = runnerDetailsViewModel({
+    status: { runner: { status: "ERROR", last_error: "boom", recorded_at: null } },
+  });
+  assert.equal(errored.state, "ERROR");
+  assert.equal(errored.lastError, "boom");
+  assert.equal(errored.heartbeat, "UNKNOWN");
+});

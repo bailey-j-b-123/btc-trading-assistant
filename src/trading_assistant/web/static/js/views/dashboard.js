@@ -43,6 +43,7 @@ import {
 } from "../util.js";
 import {
   integerOrNull,
+  runnerDetailsViewModel,
   setTopbarWarning,
   systemHealthViewModel,
   timeframeLabel,
@@ -856,14 +857,12 @@ function systemDetail(label, value) {
 function systemDetailsCard(dashboard, forward) {
   const status = forward?.status || {};
   const market = status.market_data || {};
-  const runner = status.runner || null;
-  const pending = integerOrNull(status.sample?.pending_catch_up_boundaries) ??
-    integerOrNull(runner?.pending_boundaries);
   const missing = integerOrNull(market.missing_candle_count) ??
     integerOrNull(dashboard?.market?.missing_candle_count);
   const latestStored = market.latest_stored_candle_open || dashboard?.freshness?.latest_stored;
   const expected = market.expected_latest_closed_candle_open || dashboard?.freshness?.expected_latest_closed;
   const health = systemHealthViewModel(dashboard, forward);
+  const runner = runnerDetailsViewModel(forward);
 
   return el("details", { class: "card terminal-card expandable system-details" }, [
     el("summary", { text: "System details" }),
@@ -874,12 +873,12 @@ function systemDetailsCard(dashboard, forward) {
       systemDetail("Latest stored candle", latestStored ? formatUtc(latestStored) : "UNKNOWN"),
       systemDetail("Expected latest closed", expected ? formatUtc(expected) : "UNKNOWN"),
       systemDetail("Missing candles", missing === null ? "UNKNOWN" : String(missing)),
-      systemDetail("Runner state", runner?.status || "UNKNOWN"),
-      systemDetail("Runner detail", runner?.detail || "UNKNOWN"),
-      systemDetail("Pending catch-up", pending === null ? "UNKNOWN" : String(pending)),
-      systemDetail("Latest processed close", runner?.latest_cycle_as_of ? formatUtc(runner.latest_cycle_as_of) : "UNKNOWN"),
-      systemDetail("Runner heartbeat", runner?.recorded_at ? formatUtc(runner.recorded_at) : "UNKNOWN"),
-      systemDetail("Last runner error", runner ? (runner.last_error || "None reported") : "UNKNOWN"),
+      systemDetail("Runner state", runner.state),
+      systemDetail("Runner detail", runner.detail),
+      systemDetail("Pending catch-up", runner.pending),
+      systemDetail("Latest processed close", runner.latestCycle),
+      systemDetail("Runner heartbeat", runner.heartbeat),
+      systemDetail("Last runner error", runner.lastError),
     ]),
   ]);
 }
