@@ -69,7 +69,9 @@ export function createPriceChart(container, { height } = {}) {
     priceScaleId: "volume",
   });
   chart.priceScale("volume").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
-  return { chart, series, volume };
+  // The vendored library has no priceLines() enumeration, so this handle keeps
+  // the exact price-line handles it created and clears only those.
+  return { chart, series, volume, priceLineHandles: [] };
 }
 
 export function setCandles(handle, candles) {
@@ -97,8 +99,23 @@ function priceLine(price, { color, title, style = 2, width = 1 }) {
 }
 
 export function clearOverlays(handle) {
-  if (!handle) return;
-  for (const line of handle.series.priceLines()) handle.series.removePriceLine(line);
+  if (!handle || !Array.isArray(handle.priceLineHandles)) return;
+  // Detach the record first so a failed removal can never leave stale tracking
+  // behind, then remove exactly the lines created through addPriceLine below.
+  for (const line of handle.priceLineHandles.splice(0)) handle.series.removePriceLine(line);
+}
+
+/**
+ * Create one price line and remember its handle. The vendored Lightweight
+ * Charts series API returns an opaque handle from createPriceLine(options) and
+ * offers no way to enumerate existing lines, so every overlay line goes through
+ * here and clearOverlays() can remove only what this dashboard created.
+ */
+function addPriceLine(handle, options) {
+  if (!Array.isArray(handle.priceLineHandles)) handle.priceLineHandles = [];
+  const line = handle.series.createPriceLine(options);
+  handle.priceLineHandles.push(line);
+  return line;
 }
 
 /** Apply deterministic overlays; every level must exist in the payload. */
@@ -116,7 +133,7 @@ export function applyOverlays(handle, { overlays = {}, plan = null, prefs = {} }
         [zone.band_high, `${role} high`],
       ]) {
         if (bound === null || bound === undefined) continue;
-        handle.series.createPriceLine(
+        addPriceLine(handle,
           priceLine(bound, { color: OVERLAY_COLORS.zones, title: label, style: 1 }),
         );
       }
@@ -129,7 +146,7 @@ export function applyOverlays(handle, { overlays = {}, plan = null, prefs = {} }
       [overlays.range.range_high, "range high"],
     ]) {
       if (bound === null || bound === undefined) continue;
-      handle.series.createPriceLine(
+      addPriceLine(handle,
         priceLine(bound, { color: OVERLAY_COLORS.range, title: label, style: 3, width: 1 }),
       );
     }
@@ -138,7 +155,7 @@ export function applyOverlays(handle, { overlays = {}, plan = null, prefs = {} }
   if (show.equalLevels !== false) {
     for (const cluster of overlays.equal_levels || []) {
       if (cluster.level === null || cluster.level === undefined) continue;
-      handle.series.createPriceLine(
+      addPriceLine(handle,
         priceLine(cluster.level, {
           color: OVERLAY_COLORS.equalLevels,
           title: cluster.type === "equal_high" ? "equal highs" : "equal lows",
@@ -152,7 +169,7 @@ export function applyOverlays(handle, { overlays = {}, plan = null, prefs = {} }
     for (const swing of overlays.swings || []) {
       const price = swing.price !== undefined ? swing.price : swing.level;
       if (price === null || price === undefined) continue;
-      handle.series.createPriceLine(
+      addPriceLine(handle,
         priceLine(price, {
           color: OVERLAY_COLORS.swings,
           title: swing.kind === "high" ? "swing H" : "swing L",
@@ -167,12 +184,12 @@ export function applyOverlays(handle, { overlays = {}, plan = null, prefs = {} }
     const stop = plan.stop ? plan.stop.value : null;
     const invalidation = plan.invalidation ? plan.invalidation.value : null;
     if (entry !== null && entry !== undefined) {
-      handle.series.createPriceLine(
+      addPriceLine(handle,
         priceLine(entry, { color: OVERLAY_COLORS.entry, title: "entry", style: 0, width: 1 }),
       );
     }
     if (stop !== null && stop !== undefined) {
-      handle.series.createPriceLine(
+      addPriceLine(handle,
         priceLine(stop, { color: OVERLAY_COLORS.stop, title: "protective stop", style: 0 }),
       );
     }
@@ -181,14 +198,14 @@ export function applyOverlays(handle, { overlays = {}, plan = null, prefs = {} }
       invalidation !== undefined &&
       String(invalidation) !== String(stop)
     ) {
-      handle.series.createPriceLine(
+      addPriceLine(handle,
         priceLine(invalidation, { color: OVERLAY_COLORS.invalidation, title: "invalidation", style: 2 }),
       );
     }
     (plan.targets || []).forEach((target, index) => {
       const level = target.level ? target.level.value : null;
       if (level === null || level === undefined) return;
-      handle.series.createPriceLine(
+      addPriceLine(handle,
         priceLine(level, { color: OVERLAY_COLORS.targets, title: `target ${index + 1}`, style: 0 }),
       );
     });
