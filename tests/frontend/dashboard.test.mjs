@@ -152,6 +152,89 @@ function backendDashboard(overrides = {}) {
       swings: [],
       setup_reference: null,
     },
+    market_state: {
+      trend: {
+        direction: "bullish",
+        sufficient: true,
+        basis: "higher_highs_and_higher_lows",
+        higher_highs: true,
+        higher_lows: true,
+        lower_highs: false,
+        lower_lows: false,
+        transition: "unchanged",
+        momentum: "steady",
+      },
+      volatility: {
+        value: "2.75345715",
+        unit: "atr_percent_of_price",
+        vs_ceiling: "within",
+        direction: { movement: "contracting", previous: "3.10000000", current: "2.75345715" },
+        trend_known: true,
+      },
+      volume: {
+        relative_volume: "1.00000000",
+        reference_window: 20,
+        direction: { movement: "unknown: previous close insufficient", previous: null, current: "1.00000000" },
+        trend_known: false,
+      },
+      range: { state: "NO_RANGE", range_low: null, range_high: null, transition: "none" },
+      nearest_levels: {
+        support: { level: "61900", source: "zone" },
+        resistance: null,
+        equal_highs: [],
+        equal_lows: [{ level: "61850", source: "cluster" }],
+      },
+      events: {
+        breakouts: 2,
+        sweeps: 0,
+        equal_levels: 1,
+        zones: 1,
+        latest: { kind: "breakout", summary: "bullish breakout" },
+      },
+      breakout_activity: {
+        attempts: 1,
+        acceptances: 1,
+        rejections: 0,
+        sweeps: 0,
+        fresh: [{ family: "breakout_retest_continuation", direction: "bullish", outcome: "accepted" }],
+      },
+      htf: [{ timeframe: "4h", label: "context", trend: "bullish", range_state: "NO_RANGE", detail: null }],
+      last_close: { timestamp, close: "62160" },
+    },
+    scenario: {
+      doing_now: "Trend is BULLISH. Volatility contracting.",
+      bot_seeing: [
+        {
+          family: "range_rejection_reversal",
+          state: "WATCH",
+          direction: "bearish",
+          rules: [{ rule_id: "confirmation_event", outcome: "pending", reason: "waiting" }],
+          failed_rules: [],
+          pending_rules: ["confirmation_event"],
+          age_bars: 2,
+          bars_remaining: 4,
+          expired: false,
+          vetoed_for_selection: false,
+        },
+      ],
+      strengthen_bullish: {
+        pending_rules: ["trend"],
+        confirmations: { breakout_retest_continuation: "a retest that holds" },
+      },
+      strengthen_bearish: { pending_rules: [], confirmations: {} },
+      waiting_for: ["confirmation_event"],
+      invalidate: [
+        {
+          setup_id: "setup-watch-1",
+          family: "range_rejection_reversal",
+          state: "WATCH",
+          direction: "bearish",
+          bars_remaining: 4,
+          terminal_evidence: [],
+          levels: null,
+        },
+      ],
+    },
     ...overrides,
   };
 }
@@ -569,4 +652,33 @@ test("desktop and narrow layouts use the same one-page dashboard without navigat
   assert.match(css, /@media \(max-width: 760px\)/);
   assert.match(css, /@media \(max-width: 520px\)/);
   assert.match(css, /\.primary-layout \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+  assert.match(css, /\.tertiary-grid \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+});
+
+test("market now and scenario render backend facts verbatim", async () => {
+  await withDashboard(backendDashboard(), forwardPayload(), async ({ view }) => {
+    await renderDashboard(view);
+    assert.match(view.textContent, /BULLISH · unchanged · steady/);
+    assert.match(view.textContent, /2\.75345715% of price · contracting/);
+    assert.match(view.textContent, /unknown: previous close insufficient/);
+    assert.match(view.textContent, /no active range/);
+    assert.match(view.textContent, /support 61,900 \(zone\)/);
+    assert.match(view.textContent, /resistance none in range/);
+    assert.match(view.textContent, /Fresh breakout attempts at this close: 1 \(1 accepted/);
+    assert.match(view.textContent, /Trend is BULLISH\. Volatility contracting\./);
+    assert.match(view.textContent, /expires in 4 bars/);
+    assert.match(view.textContent, /Pending: confirmation_event/);
+    assert.match(view.textContent, /Still required: trend/);
+    assert.match(view.textContent, /confirms when: a retest that holds/);
+    assert.match(view.textContent, /No terminal evidence yet\./);
+  });
+});
+
+test("missing market-state and scenario sections stay honestly unavailable", async () => {
+  const dashboard = backendDashboard({ market_state: null, scenario: null });
+  await withDashboard(dashboard, forwardPayload(), async ({ view }) => {
+    await renderDashboard(view);
+    assert.match(view.textContent, /Market-state facts unavailable from the backend\./);
+    assert.match(view.textContent, /Scenario answers unavailable from the backend\./);
+  });
 });
