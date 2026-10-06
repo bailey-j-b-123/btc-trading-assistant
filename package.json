@@ -1,0 +1,8 @@
+{
+  "name": "btc-trading-assistant-web-tests",
+  "private": true,
+  "description": "Frontend test runner only. The dashboard itself has no build step: static ES modules served by the Python app.",
+  "scripts": {
+    "test": "node --test tests/frontend/*.test.mjs"
+  }
+}
