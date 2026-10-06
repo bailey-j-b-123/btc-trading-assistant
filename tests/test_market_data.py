@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
+import ccxt
 import pytest
 from alembic import command
 from alembic.config import Config
@@ -31,6 +32,10 @@ from trading_assistant.market_data.timeframes import (
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 FIVE_MINUTES_MS = 5 * 60 * 1_000
+
+#: The millisecond cursor the live Step 12 bootstrap derived on 2026-10-06
+#: (2026-09-26T12:00:00Z).  It is a plain local cursor, not an exchange value.
+SINCE_MS = 1_790_424_000_000
 
 
 def candle_row(timestamp_ms: int, *, open_value="10.1", high="11.2", low="9.8", close="10.7", volume="3.25"):
@@ -65,10 +70,14 @@ class RecordingCCXTClient:
         self.timeframes = {"5m": "5m", "1h": "60"}
         self.last_http_response = None
         self.rows = list(rows)
-        self.requests: list[tuple[str, str, int, int]] = []
+        self.requests: list[tuple[str, str, int | None, int]] = []
 
     def fetch_ohlcv(self, symbol, *, timeframe, since, limit):
         self.requests.append((symbol, timeframe, since, limit))
+        if since is None:
+            # No date cursor: exactly like a rolling-window endpoint (Kraken's
+            # public OHLC), only the newest entries can come back.
+            return self.rows[-limit:]
         return [row for row in self.rows if int(row[0]) >= since][:limit]
 
     def close(self):  # pragma: no cover - test client owns no resources
@@ -83,6 +92,57 @@ def ccxt_source_for(exchange_id: str, client: RecordingCCXTClient) -> CCXTMarket
     source.exchange_id = exchange_id
     source.last_http_response = None
     return source
+
+
+class KrakenRollingWindowCCXTClient:
+    """Offline CCXT client that models the observed Kraken public OHLC behaviour.
+
+    Kraken's OHLC route serves only its newest 720 entries, so a start timestamp
+    can never retrieve older history from it, and the live runner request that
+    carried Step 2's locally-derived cursor failed with ``EGeneral:Invalid
+    arguments:since``.  This double reproduces that endpoint contract exactly:
+    any request carrying a ``since`` argument is rejected with the same exchange
+    error, while a request without one receives the newest entries — including
+    the interval that has not closed yet.
+    """
+
+    def __init__(self, rows=(), *, max_entries: int = 720) -> None:
+        self.id = "kraken"
+        self.timeframes = {"5m": "5m", "1h": "60"}
+        self.last_http_response = None
+        self.rows = list(rows)
+        self.max_entries = max_entries
+        self.requests: list[tuple[str, str, int | None, int]] = []
+
+    def fetch_ohlcv(self, symbol, *, timeframe, since, limit):
+        self.requests.append((symbol, timeframe, since, limit))
+        if since is not None:
+            raise ccxt.BadRequest(
+                "kraken GET https://api.kraken.com/0/public/OHLC: "
+                "EGeneral:Invalid arguments:since"
+            )
+        newest = self.rows[-self.max_entries :]
+        return newest[-limit:]
+
+    def close(self):  # pragma: no cover - test client owns no resources
+        return None
+
+
+class CursorForwardingKrakenSource:
+    """The pre-fix Step 2 boundary: the local cursor is forwarded unchanged."""
+
+    exchange_id = "kraken"
+    max_ohlcv_limit = 720
+    ohlcv_is_rolling_window = True
+
+    def __init__(self, client: KrakenRollingWindowCCXTClient) -> None:
+        self._client = client
+        self.last_http_response = None
+
+    def fetch_ohlcv(self, symbol, *, timeframe, since_ms, limit):
+        return self._client.fetch_ohlcv(
+            symbol, timeframe=timeframe, since=since_ms, limit=limit
+        )
 
 
 def configured_settings(
@@ -161,15 +221,17 @@ def test_ccxt_source_is_public_and_uses_decimal_parsing():
 
 
 @pytest.mark.parametrize(
-    ("exchange_id", "requested_limit", "expected_limit"),
+    ("exchange_id", "requested_limit", "expected_limit", "expected_since"),
     [
-        ("kraken", 5_000, 720),
-        ("kraken", 5, 5),
-        ("binance", 5_000, 5_000),
+        # A rolling-window endpoint never receives the local date cursor.
+        ("kraken", 5_000, 720, None),
+        ("kraken", 5, 5, None),
+        # Date-bounded exchanges keep receiving the unchanged millisecond cursor.
+        ("binance", 5_000, 5_000, 0),
     ],
 )
 def test_ccxt_source_uses_only_known_exchange_ohlcv_caps(
-    exchange_id: str, requested_limit: int, expected_limit: int
+    exchange_id: str, requested_limit: int, expected_limit: int, expected_since: int | None
 ):
     client = RecordingCCXTClient(exchange_id)
     source = ccxt_source_for(exchange_id, client)
@@ -181,8 +243,130 @@ def test_ccxt_source_uses_only_known_exchange_ohlcv_caps(
         limit=requested_limit,
     )
 
-    assert client.requests == [("BTC/USD", "1h", 0, expected_limit)]
+    assert client.requests == [("BTC/USD", "1h", expected_since, expected_limit)]
     assert source.max_ohlcv_limit == (720 if exchange_id == "kraken" else None)
+
+
+def test_kraken_ccxt_request_omits_the_local_ms_cursor():
+    """Step 12's bootstrap cursor is not a Kraken OHLC argument.
+
+    Regression for the live Mac failure ``EGeneral:Invalid arguments:since``: the
+    runner derived a local millisecond cursor for the bootstrap window, the
+    adapter forwarded it to CCXT and CCXT sent it as a bare seconds ``since`` to
+    Kraken's rolling-window endpoint, which rejected the request.  Kraken can
+    never serve older candles from that cursor, so it must not be sent at all.
+    """
+
+    client = RecordingCCXTClient("kraken")
+    source = ccxt_source_for("kraken", client)
+
+    source.fetch_ohlcv("BTC/USDT", timeframe="1h", since_ms=SINCE_MS, limit=720)
+
+    assert client.requests == [("BTC/USDT", "1h", None, 720)]
+
+
+@pytest.mark.parametrize("exchange_id", ["binance", "coinbase", "bitstamp"])
+def test_non_kraken_ccxt_requests_keep_the_ms_cursor(exchange_id: str):
+    """Only Kraken changes: date-bounded exchanges keep the cursor unchanged."""
+
+    client = RecordingCCXTClient(exchange_id)
+    source = ccxt_source_for(exchange_id, client)
+
+    source.fetch_ohlcv("BTC/USDT", timeframe="1h", since_ms=SINCE_MS, limit=720)
+
+    assert client.requests == [("BTC/USDT", "1h", SINCE_MS, 720)]
+
+
+def test_kraken_bootstrap_stores_the_requested_window_without_a_since_cursor(tmp_path):
+    """A Step 12 cold start succeeds against the rolling-window endpoint.
+
+    Before the fix the adapter handed CCXT the same cursor the modelled Kraken
+    endpoint rejects, so the whole pass failed with ``ExchangeDataError`` and
+    stored nothing.  The requested bootstrap depth, closed-candle filtering, gap
+    reporting and the incremental update path all have to keep behaving exactly
+    as they do for date-bounded exchanges.
+    """
+
+    # 242 closed candles from EPOCH plus the interval still forming.
+    client = KrakenRollingWindowCCXTClient(
+        [candle_row(index * FIVE_MINUTES_MS) for index in range(243)]
+    )
+    source = ccxt_source_for("kraken", client)
+    engine, service = create_service(
+        tmp_path,
+        source,
+        page_limit=720,
+        exchange="kraken",
+        symbol="BTC/USD",
+        base_asset="BTC",
+        quote_asset="USD",
+    )
+    try:
+        result = service.download_history(
+            start_time=EPOCH,
+            as_of=EPOCH + timedelta(minutes=242 * 5, seconds=30),
+        )
+
+        # The cursor was never sent; the known exchange cap still was.
+        assert client.requests == [("BTC/USD", "5m", None, 720)]
+        # Exactly the requested closed window is stored: the still-forming candle
+        # is excluded and the requested range has no gaps.
+        assert result.received_count == 243
+        assert result.accepted_count == result.inserted_count == 242
+        assert result.excluded_open_count == 1
+        assert result.complete
+        with engine.connect() as connection:
+            assert (
+                connection.execute(text("SELECT COUNT(*) FROM ohlcv_candles")).scalar_one()
+                == 242
+            )
+
+        # The incremental path keeps the same contract: no cursor on the wire and
+        # only the newly closed candle is stored.
+        updated = service.update_history(
+            as_of=EPOCH + timedelta(minutes=243 * 5, seconds=30)
+        )
+        assert client.requests[-1] == ("BTC/USD", "5m", None, 720)
+        assert updated.inserted_count == 1
+        assert updated.complete
+    finally:
+        engine.dispose()
+
+
+def test_forwarded_kraken_cursor_reproduces_the_live_failure(tmp_path):
+    """The double above really models the live failure, diagnostics included.
+
+    A source that still forwards the local cursor fails exactly like the live Mac
+    runner did, and the underlying exchange message stays visible in
+    ``ExchangeDataError`` (the PR #15 diagnostic improvement).
+    """
+
+    client = KrakenRollingWindowCCXTClient(
+        [candle_row(index * FIVE_MINUTES_MS) for index in range(243)]
+    )
+    engine, service = create_service(
+        tmp_path,
+        CursorForwardingKrakenSource(client),
+        page_limit=720,
+        exchange="kraken",
+        symbol="BTC/USD",
+        base_asset="BTC",
+        quote_asset="USD",
+    )
+    try:
+        with pytest.raises(ExchangeDataError) as excinfo:
+            service.download_history(
+                start_time=EPOCH,
+                as_of=EPOCH + timedelta(minutes=242 * 5, seconds=30),
+            )
+
+        assert client.requests == [("BTC/USD", "5m", 0, 720)]
+        assert "EGeneral:Invalid arguments:since" in str(excinfo.value)
+        assert isinstance(excinfo.value.__cause__, ccxt.BadRequest)
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT COUNT(*) FROM ohlcv_candles")).scalar_one() == 0
+    finally:
+        engine.dispose()
 
 
 def test_kraken_oversized_setting_is_capped_before_ccxt_and_archiving(tmp_path):
@@ -210,7 +394,9 @@ def test_kraken_oversized_setting_is_capped_before_ccxt_and_archiving(tmp_path):
             as_of=EPOCH + timedelta(minutes=10),
         )
 
-        assert client.requests == [("BTC/USD", "5m", 0, 720)]
+        # Kraken is asked without the local cursor; the archive still records the
+        # requested range the response is validated against.
+        assert client.requests == [("BTC/USD", "5m", None, 720)]
         assert result.received_count == 3
         assert result.accepted_count == result.inserted_count == 2
         assert result.excluded_open_count == 1
@@ -224,7 +410,8 @@ def test_kraken_oversized_setting_is_capped_before_ccxt_and_archiving(tmp_path):
 
 
 def test_kraken_rolling_window_is_not_date_paginated(tmp_path):
-    # A fake response contains enough rows for the generic source to make a
+    # The requested range is larger than the 720 entries a rolling-window
+    # endpoint can return, so a generic date-paginated source would ask for a
     # second page.  Kraken must still be treated as one rolling-window request;
     # the unavailable tail remains an explicit gap instead of being fabricated.
     client = RecordingCCXTClient(
@@ -244,15 +431,17 @@ def test_kraken_rolling_window_is_not_date_paginated(tmp_path):
     try:
         result = service.download_history(
             start_time=EPOCH,
-            end_time=EPOCH + timedelta(milliseconds=1_440 * FIVE_MINUTES_MS),
-            as_of=EPOCH + timedelta(milliseconds=1_441 * FIVE_MINUTES_MS),
+            end_time=EPOCH + timedelta(milliseconds=2_000 * FIVE_MINUTES_MS),
+            as_of=EPOCH + timedelta(milliseconds=2_001 * FIVE_MINUTES_MS),
         )
 
         assert source.ohlcv_is_rolling_window is True
-        assert client.requests == [("BTC/USD", "5m", 0, 720)]
+        # One cursor-less request only: the newest 720 entries are returned and
+        # the 1_281 earlier candles of the requested range are never invented.
+        assert client.requests == [("BTC/USD", "5m", None, 720)]
         assert result.inserted_count == 720
         assert not result.complete
-        assert result.missing_candle_count == 721
+        assert result.missing_candle_count == 1_281
         with engine.connect() as connection:
             assert connection.execute(text("SELECT COUNT(*) FROM ohlcv_candles")).scalar_one() == 720
     finally:
@@ -287,7 +476,7 @@ def test_kraken_history_older_than_public_window_is_reported_incomplete(tmp_path
             as_of=EPOCH + timedelta(milliseconds=(last_available_index + 1) * FIVE_MINUTES_MS),
         )
 
-        assert client.requests == [("BTC/USD", "5m", 0, 720)]
+        assert client.requests == [("BTC/USD", "5m", None, 720)]
         assert result.inserted_count == 720
         assert not result.complete
         assert result.missing_candle_count == first_available_index
