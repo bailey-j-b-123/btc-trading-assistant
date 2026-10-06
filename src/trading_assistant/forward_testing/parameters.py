@@ -196,12 +196,30 @@ class RunnerSettings:
     candle; it can never change what a closed candle means. Retries are
     conservative and bounded: a failed public-market-data request is retried a
     few times and then reported as an error, never filled in from a guess.
+
+    ``bootstrap_candles`` is the operational data-acquisition depth used only for
+    the very first public download, when nothing is stored yet and no explicit
+    ``backfill_start`` was given: the runner seeds itself with that many newest
+    *closed* candles. It contains no setup, pattern, qualification, planning or
+    risk threshold and cannot change what a closed candle means; a deeper or
+    shallower seed changes only how much history the unchanged Steps 3-6 have to
+    work with at the first boundary. It is deliberately not part of the recorded
+    strategy/config version fingerprints. It is also capped from below by the
+    configured ``minimum_history_candles`` runner precondition.
     """
 
     interval_seconds: Decimal = Decimal(60)
     fetch_max_attempts: int = 3
     fetch_retry_backoff_seconds: Decimal = Decimal(5)
     stop_after_errors: int = 10
+    #: Closed candles the runner seeds itself with when no history is stored.
+    #: 240 is two full range-lookback windows (``ranges.lookback_candles`` = 120),
+    #: keeps the first correctness-first Step 5 replay bounded, and stays inside
+    #: the 720-candle rolling window of the default exchange (asking for the full
+    #: window would itself introduce a spurious one-candle leading gap, because
+    #: that window's newest entry is still forming). Use ``--backfill-start`` or
+    #: ``--bootstrap-candles`` for deeper history.
+    bootstrap_candles: int = 240
 
     def __post_init__(self) -> None:
         interval = as_decimal(self.interval_seconds, name="interval_seconds")
@@ -220,6 +238,12 @@ class RunnerSettings:
         require_int(
             self.stop_after_errors,
             name="stop_after_errors",
+            minimum=1,
+            maximum=100_000,
+        )
+        require_int(
+            self.bootstrap_candles,
+            name="bootstrap_candles",
             minimum=1,
             maximum=100_000,
         )

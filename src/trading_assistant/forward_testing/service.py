@@ -77,8 +77,12 @@ from trading_assistant.journaling.types import OutcomeStatus
 from trading_assistant.market_data.repository import CandleRepository
 from trading_assistant.market_data.service import MarketDataService
 from trading_assistant.market_data.timeframes import (
+    datetime_to_milliseconds,
     latest_closed_candle_open_time,
+    milliseconds_to_datetime,
     require_utc_datetime,
+    timeframe_anchor_milliseconds,
+    timeframe_to_milliseconds,
 )
 from trading_assistant.market_data.types import Candle, MarketDataUpdateResult
 from trading_assistant.market_structure.candles import interval_for_timeframe
@@ -930,10 +934,75 @@ class ForwardTestService:
             "(python -m trading_assistant.forward_testing run)"
         )
 
+    def bootstrap_start(
+        self, *, timeframe: str, as_of: datetime
+    ) -> datetime:
+        """First candle open the initial public download starts from.
+
+        ``backfill_start`` wins when it is configured; an instant that is not a
+        candle open is only ever moved *up* to the next open, never earlier, so a
+        normal ISO instant such as ``10:22`` no longer makes Step 2 reject the
+        whole pass ("start_time must align to the requested timeframe").
+
+        Without an explicit start the runner seeds itself with one bounded window
+        of the newest closed candles: exactly ``RunnerSettings.bootstrap_candles``
+        closes ending at the latest fully closed candle, and never fewer than the
+        configured ``minimum_history_candles`` precondition. This only chooses how
+        far back the *download* starts. Every downloaded row still has to pass the
+        unchanged Step 2 validation and the unchanged closed-candle rules, and the
+        still-forming candle is still excluded before anything is stored.
+        """
+
+        interval = interval_for_timeframe(timeframe)
+        if self.backfill_start is not None:
+            requested = require_utc_datetime(
+                self.backfill_start, field_name="backfill_start"
+            )
+            aligned = _next_candle_open(requested, timeframe)
+            if aligned != requested:
+                logger.info(
+                    "Forward runner adjusted the requested backfill start to a candle open",
+                    extra={
+                        "fields": {
+                            "exchange": self.settings.exchange,
+                            "timeframe": timeframe,
+                            "requested_backfill_start": requested.isoformat(),
+                            "aligned_backfill_start": aligned.isoformat(),
+                        }
+                    },
+                )
+            return aligned
+
+        latest_closed = latest_closed_candle_open_time(as_of, timeframe)
+        depth = max(
+            self.runner_settings.bootstrap_candles,
+            self.parameters.minimum_history_candles,
+        )
+        start = latest_closed - (depth - 1) * interval
+        logger.info(
+            "Forward runner bootstrapping stored market history",
+            extra={
+                "fields": {
+                    "exchange": self.settings.exchange,
+                    "timeframe": timeframe,
+                    "bootstrap_candles": str(depth),
+                    "bootstrap_start": start.isoformat(),
+                    "latest_closed_open": latest_closed.isoformat(),
+                }
+            },
+        )
+        return start
+
     def _refresh_market_data(
         self, *, symbol: str, timeframe: str, as_of: datetime
     ) -> MarketDataUpdateResult:
-        """Fetch closed candles through Step 2 with conservative bounded retries."""
+        """Fetch closed candles through Step 2 with conservative bounded retries.
+
+        With nothing stored yet the pass performs an initial bounded download
+        (see :meth:`bootstrap_start`) so the documented first run can seed its own
+        history instead of refusing to fetch. Once history exists, only the newly
+        closed candles after the latest stored one are requested.
+        """
 
         service = self._market_data_service()
         latest = self.candles.latest_timestamp(
@@ -944,14 +1013,10 @@ class ForwardTestService:
         for attempt in range(1, attempts + 1):
             try:
                 if latest is None:
-                    if self.backfill_start is None:
-                        raise ForwardDataUnavailable(
-                            "no stored history exists for this instrument/timeframe; "
-                            "provide an explicit backfill start before running the "
-                            "forward tester"
-                        )
                     return service.download_history(
-                        start_time=self.backfill_start,
+                        start_time=self.bootstrap_start(
+                            timeframe=timeframe, as_of=as_of
+                        ),
                         symbol=symbol,
                         timeframe=timeframe,
                         as_of=as_of,
@@ -2010,6 +2075,22 @@ def _plan_targets(plan: TradePlanResult) -> tuple[tuple[Any, ...], tuple[Any, ..
         targets.append(target.level.value)
         target_r.append(target.r_multiple)
     return tuple(targets), tuple(target_r)
+
+
+def _next_candle_open(value: datetime, timeframe: str) -> datetime:
+    """Round an instant up to the candle open at or after it (never earlier).
+
+    Candle open times are the only bounds Step 2 accepts, in addition to being
+    the only thing the closed-candle policy reasons about, so an operator-supplied
+    instant is aligned here rather than rejected.
+    """
+
+    interval_ms = timeframe_to_milliseconds(timeframe)
+    anchor_ms = timeframe_anchor_milliseconds(timeframe)
+    value_ms = datetime_to_milliseconds(value, field_name="backfill_start")
+    remainder = (value_ms - anchor_ms) % interval_ms
+    aligned_ms = value_ms if remainder == 0 else value_ms + (interval_ms - remainder)
+    return milliseconds_to_datetime(aligned_ms)
 
 
 def _seconds_between(earlier: datetime, later: datetime) -> int:

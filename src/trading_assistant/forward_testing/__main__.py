@@ -96,6 +96,9 @@ def _build_service(args: argparse.Namespace) -> ForwardTestService:
             stop_after_errors=getattr(
                 args, "stop_after_errors", defaults.stop_after_errors
             ),
+            bootstrap_candles=getattr(
+                args, "bootstrap_candles", defaults.bootstrap_candles
+            ),
         ),
         market_data_factory=lambda: create_market_data_service(engine, settings=settings),
         ledger_start=ledger_start,
@@ -150,7 +153,8 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
         default=None,
         help=(
             "ISO-8601 UTC instant at which the initial public OHLCV download starts "
-            "when no stored history exists"
+            "when no stored history exists; an instant that is not a candle open is "
+            "moved up to the next candle open (never earlier)"
         ),
     )
 
@@ -186,6 +190,15 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--fetch-max-attempts", type=int, default=3)
     run.add_argument("--retry-backoff-seconds", type=int, default=5)
     run.add_argument("--stop-after-errors", type=int, default=10)
+    run.add_argument(
+        "--bootstrap-candles",
+        type=int,
+        default=RunnerSettings().bootstrap_candles,
+        help=(
+            "newest closed candles the runner seeds itself with when no history is "
+            "stored and no --backfill-start is given"
+        ),
+    )
     run.add_argument(
         "--max-passes",
         type=int,
