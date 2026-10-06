@@ -218,12 +218,13 @@ class MarketDataService:
                             "timeframe": interval,
                             "since_ms": cursor_ms,
                             "error_type": type(exc).__name__,
+                            "error": str(exc),
                         }
                     },
                 )
                 raise ExchangeDataError(
                     f"OHLCV fetch failed for {self.source.exchange_id} {instrument} {interval} "
-                    f"at {cursor_ms}ms (underlying error type: {type(exc).__name__})"
+                    f"at {cursor_ms}ms (underlying {type(exc).__name__}: {exc})"
                 ) from exc
 
             pages_fetched += 1

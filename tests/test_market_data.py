@@ -585,6 +585,34 @@ def test_incremental_exchange_failure_preserves_existing_history(tmp_path):
         engine.dispose()
 
 
+def test_exchange_error_message_survives_wrapping_and_logging(tmp_path, caplog):
+    source = FakeSource([], fail_on_call=1)
+    engine, service = create_service(tmp_path, source)
+    try:
+        with caplog.at_level("ERROR", logger="trading_assistant.market_data.service"):
+            with pytest.raises(ExchangeDataError) as captured:
+                service.download_history(
+                    start_time=EPOCH,
+                    end_time=EPOCH,
+                    as_of=EPOCH + timedelta(minutes=5),
+                )
+
+        assert "underlying ConnectionError: simulated offline exchange" in str(
+            captured.value
+        )
+        assert isinstance(captured.value.__cause__, ConnectionError)
+        assert str(captured.value.__cause__) == "simulated offline exchange"
+        failure_record = next(
+            record
+            for record in caplog.records
+            if record.getMessage() == "Market-data exchange request failed"
+        )
+        assert failure_record.fields["error_type"] == "ConnectionError"
+        assert failure_record.fields["error"] == "simulated offline exchange"
+    finally:
+        engine.dispose()
+
+
 def test_invalid_download_is_rejected_before_database_insert(tmp_path):
     invalid = candle_row(0, open_value="12", high="11", low="10", close="10.5")
     source = FakeSource([invalid])
