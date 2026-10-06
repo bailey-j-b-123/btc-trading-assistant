@@ -1399,15 +1399,27 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
 alembic upgrade head                     # create/migrate the SQLite schema
-python scripts/seed_synthetic_demo.py    # OPTIONAL labelled synthetic preview data
+python scripts/download_history.py --all-timeframes   # real candles (needs internet)
+# ...or, offline: python scripts/seed_synthetic_demo.py  # labelled synthetic preview data
 python -m trading_assistant.web          # http://127.0.0.1:8040
 # options: --host 0.0.0.0 --port 8040
 ```
 
-Without seed data the dashboard is honest about emptiness: it shows **NO TRADE**, an
+The server runs a read-only preflight check on startup: if the database is
+missing or unmigrated it prints the exact `alembic upgrade head` fix instead of
+a traceback (bypass with `--skip-preflight` for exotic deployments).
+
+Without data the dashboard is honest about emptiness: it shows **NO TRADE**, an
 `UNKNOWN` freshness badge, and "No stored candles / No journal entries" empty states
 rather than fabricated demo candles. To work with real data, download candles first
-(Step 2 `MarketDataService.update_history`).
+with `python scripts/download_history.py` (a thin CLI over Step 2
+`MarketDataService.download_history`; re-running it is idempotent, so the same
+command backfills history and tops up recent closes). Useful variants:
+
+```bash
+python scripts/download_history.py --timeframe 15m --days 30
+python scripts/download_history.py --start 2024-01-01 --end 2024-06-01
+```
 
 ### Desktop and mobile behaviour
 
