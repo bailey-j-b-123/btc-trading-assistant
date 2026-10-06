@@ -7,6 +7,7 @@ import { renderDashboard } from "./views/dashboard.js";
 import { renderJournal } from "./views/journal.js";
 import { renderSettings } from "./views/settings.js";
 import { renderStatistics } from "./views/statistics.js";
+import { renderValidation } from "./views/validation.js";
 
 const ROUTES = {
   dashboard: (view) => renderDashboard(view),
@@ -15,6 +16,7 @@ const ROUTES = {
     return renderJournal(view, { journalId });
   },
   statistics: (view) => renderStatistics(view),
+  validation: (view) => renderValidation(view),
   settings: (view) => renderSettings(view),
 };
 
@@ -34,6 +36,7 @@ function updateNav(name) {
     dashboard: "Dashboard",
     journal: "Journal",
     statistics: "Statistics",
+    validation: "Historical Validation",
     settings: "Settings",
   };
   document.title = `Trading Assistant — ${titles[name] || "Dashboard"}`;
