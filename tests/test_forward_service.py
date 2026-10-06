@@ -636,7 +636,7 @@ def test_market_data_failure_is_reported_and_never_invented() -> None:
     stored_before = len(harness.candles().candles)
     result = harness.run(refresh_market_data=True)
     assert result.market_data_error is not None
-    assert "ConnectionError" in result.market_data_error
+    assert "underlying ConnectionError: simulated offline exchange" in result.market_data_error
     assert result.market_data_error_type == "ExchangeDataError"
     assert "market-data error" in result.detail
     assert len(harness.candles().candles) == stored_before
