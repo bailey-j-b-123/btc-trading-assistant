@@ -7,7 +7,6 @@ from typing import Any
 
 import ccxt
 
-
 # Kraken's public OHLC endpoint returns at most 720 candles per request.
 _KRAKEN_MAX_OHLCV_LIMIT = 720
 
@@ -24,13 +23,12 @@ class CCXTMarketDataSource:
         if exchange_class is None or exchange_id not in ccxt.exchanges:
             raise ValueError(f"Unknown CCXT exchange id: {exchange_id!r}")
         self._exchange = exchange_class({"enableRateLimit": True})
-        # CCXT's unified numeric parser defaults to float; use Decimal before
-        # OHLCV parsing so available decimal source precision is retained.
-        self._exchange.number = Decimal
         self.exchange_id = self._exchange.id
         self.last_http_response: Any = None
         if not self._exchange.has.get("fetchOHLCV"):
-            raise ValueError(f"CCXT exchange {exchange_id!r} does not support fetchOHLCV")
+            raise ValueError(
+                f"CCXT exchange {exchange_id!r} does not support fetchOHLCV"
+            )
 
     @property
     def timeframes(self) -> dict[str, str] | None:
@@ -89,6 +87,24 @@ class CCXTMarketDataSource:
             else limit
         )
         request_since = None if self.ohlcv_is_rolling_window else since_ms
+
+        # Load CCXT market metadata before switching its numeric parser. Kraken
+        # parses fetched currency precision into ``Decimal`` values when
+        # ``number`` is Decimal, then its market loader passes those values to
+        # ``safe_number``/``safe_string``; CCXT's ``safe_string`` rejects
+        # Decimal and raises ``method() missing currencyPrecision``. The
+        # default float parser is safe for metadata; Decimal is still applied
+        # before OHLCV parsing so candle values retain their source precision.
+        load_markets = getattr(self._exchange, "load_markets", None)
+        if (
+            self.exchange_id == "kraken"
+            and getattr(self._exchange, "markets", None) is None
+            and callable(load_markets)
+        ):
+            self._exchange.number = float
+            load_markets()
+        self._exchange.number = Decimal
+
         response = self._exchange.fetch_ohlcv(
             symbol,
             timeframe=timeframe,

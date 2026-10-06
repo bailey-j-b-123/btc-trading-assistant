@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -92,6 +93,80 @@ def ccxt_source_for(exchange_id: str, client: RecordingCCXTClient) -> CCXTMarket
     source.exchange_id = exchange_id
     source.last_http_response = None
     return source
+
+
+def stub_kraken_market_endpoints(exchange, monkeypatch):
+    """Return deterministic Kraken metadata/OHLC responses through real CCXT parsers."""
+
+    calls = {"assets": [], "asset_pairs": [], "ohlc": []}
+    assets = {
+        "error": [],
+        "result": {
+            "XXBT": {
+                "aclass": "currency",
+                "altname": "XBT",
+                "decimals": 8,
+                "display_decimals": 5,
+                "status": "enabled",
+            },
+            "USDT": {
+                "aclass": "currency",
+                "altname": "USDT",
+                "decimals": 8,
+                "display_decimals": 4,
+                "status": "enabled",
+            },
+        },
+    }
+    asset_pairs = {
+        "error": [],
+        "result": {
+            "XBTUSDT": {
+                "altname": "XBTUSDT",
+                "wsname": "XBT/USDT",
+                "aclass_base": "currency",
+                "base": "XXBT",
+                "aclass_quote": "currency",
+                "quote": "USDT",
+                "lot": "unit",
+                "pair_decimals": 2,
+                "lot_decimals": 8,
+                "lot_multiplier": 1,
+                "leverage_buy": [],
+                "leverage_sell": [],
+                "fees": [[0, 0.26]],
+                "fees_maker": [[0, 0.16]],
+                "status": "online",
+            }
+        },
+    }
+    ohlc = {
+        "error": [],
+        "result": {
+            "XBTUSDT": [
+                [0, "10.1", "11.2", "9.8", "10.7", "10.4", "3.25", 1],
+                [3_600, "10.7", "11.5", "10.2", "11.0", "10.8", "4.5", 1],
+            ],
+            "last": 3_600,
+        },
+    }
+
+    def fetch_assets(params=None):
+        calls["assets"].append((params, exchange.number))
+        return assets
+
+    def fetch_asset_pairs(params=None):
+        calls["asset_pairs"].append((params, exchange.number))
+        return asset_pairs
+
+    def fetch_ohlc(params=None):
+        calls["ohlc"].append((params, exchange.number))
+        return ohlc
+
+    monkeypatch.setattr(exchange, "publicGetAssets", fetch_assets)
+    monkeypatch.setattr(exchange, "publicGetAssetPairs", fetch_asset_pairs)
+    monkeypatch.setattr(exchange, "publicGetOHLC", fetch_ohlc)
+    return calls
 
 
 class KrakenRollingWindowCCXTClient:
@@ -205,19 +280,95 @@ def create_service(
     return engine, service
 
 
-def test_ccxt_source_is_public_and_uses_decimal_parsing():
+def test_ccxt_source_is_public_and_defers_decimal_parsing_until_after_market_load():
     source = CCXTMarketDataSource("kraken")
     try:
         assert source.exchange_id == "kraken"
         assert not source._exchange.apiKey
-        assert source._exchange.number is Decimal
-        parsed = source._exchange.parse_ohlcv(
-            [0, "1.23456789", "1.3", "1.2", "1.25", "1.24", "2.34567891", 4]
-        )
-        assert parsed[1] == Decimal("1.23456789")
-        assert parsed[5] == Decimal("2.34567891")
+        # CCXT market discovery must retain its default parser; Decimal is
+        # applied immediately after discovery and before OHLCV parsing.
+        assert source._exchange.number is float
     finally:
         source.close()
+
+
+def test_kraken_decimal_market_precision_failure_is_reproduced(monkeypatch):
+    """The pre-fix Decimal configuration fails before Kraken's OHLC request.
+
+    Keep the exact CCXT failure visible when the installed version includes
+    Kraken's currencyPrecision guard; older supported CCXT versions predate it.
+    """
+
+    fetch_markets_source = inspect.getsource(ccxt.kraken.fetch_markets)
+    if "method() missing currencyPrecision" not in fetch_markets_source:
+        pytest.skip("installed CCXT version predates the Kraken currencyPrecision guard")
+
+    broken_exchange = ccxt.kraken({"enableRateLimit": True})
+    broken_calls = stub_kraken_market_endpoints(broken_exchange, monkeypatch)
+    broken_exchange.number = Decimal
+    try:
+        with pytest.raises(
+            ccxt.ExchangeError,
+            match=r"kraken method\(\) missing currencyPrecision",
+        ):
+            broken_exchange.fetch_ohlcv(
+                "BTC/USDT", timeframe="1h", since=None, limit=720
+            )
+        assert len(broken_calls["assets"]) == 1
+        assert len(broken_calls["asset_pairs"]) == 1
+        assert broken_calls["ohlc"] == []
+    finally:
+        broken_exchange.close()
+
+
+def test_kraken_source_loads_markets_before_decimal_parsing_and_stores_closed_candles(
+    tmp_path, monkeypatch
+):
+    """Apply Decimal after CCXT metadata loading and retain Step 2 protections."""
+
+    source = CCXTMarketDataSource("kraken")
+    calls = stub_kraken_market_endpoints(source._exchange, monkeypatch)
+    engine, service = create_service(
+        tmp_path,
+        source,
+        page_limit=720,
+        exchange="kraken",
+        symbol="BTC/USDT",
+        base_asset="BTC",
+        quote_asset="USDT",
+    )
+    try:
+        result = service.download_history(
+            start_time=EPOCH,
+            symbol="BTC/USDT",
+            timeframe="1h",
+            as_of=EPOCH + timedelta(hours=1, seconds=1),
+        )
+
+        assert len(calls["assets"]) == len(calls["asset_pairs"]) == 1
+        assert calls["assets"][0][1] is float
+        assert calls["asset_pairs"][0][1] is float
+        assert calls["ohlc"] == [({"pair": "XBTUSDT", "interval": 60}, Decimal)]
+        assert source._exchange.number is Decimal
+        assert result.received_count == 2
+        assert result.accepted_count == result.inserted_count == 1
+        assert result.excluded_open_count == 1
+        assert result.complete
+        stored = service.get_candles(
+            exchange="kraken", symbol="BTC/USDT", timeframe="1h"
+        ).candles
+        assert len(stored) == 1
+        assert stored[0].timestamp == EPOCH
+        assert stored[0].close == Decimal("10.7")
+        assert stored[0].volume == Decimal("3.25")
+        with engine.connect() as connection:
+            count = connection.execute(
+                text("SELECT COUNT(*) FROM ohlcv_candles")
+            ).scalar_one()
+            assert count == 1
+    finally:
+        source.close()
+        engine.dispose()
 
 
 @pytest.mark.parametrize(
