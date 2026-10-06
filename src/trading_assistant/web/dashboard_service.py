@@ -26,10 +26,13 @@ from trading_assistant.pattern_liquidity.events import (
     Retest,
     Sweep,
 )
+from trading_assistant.market_structure.trend import TrendDirection
 from trading_assistant.setup_qualification.engine import enumerate_qualifications
 from trading_assistant.setup_qualification.models import (
     QualificationFrame,
     QualificationSnapshot,
+    RuleOutcome,
+    SetupFamily,
     SetupResult,
     SetupState,
 )
@@ -131,6 +134,7 @@ class DashboardService:
         )
         snapshot: QualificationSnapshot | None = qualification.get("_snapshot")
         frame: QualificationFrame | None = qualification.get("_frame")
+        frames: tuple[QualificationFrame, ...] = qualification.get("_frames", ())
         selected: SetupResult | None = qualification.get("_selected_setup")
 
         plan: TradePlanResult | None = None
@@ -161,6 +165,20 @@ class DashboardService:
             cutoff=resolved_as_of,
         )
         overlays = self._overlays(frame=frame, snapshot=snapshot, selected=selected)
+        market_state = self._market_state(
+            frame=frame,
+            frames=frames,
+            snapshot=snapshot,
+            timeframe=resolved_timeframe,
+        )
+        scenario = self._scenario(
+            snapshot=snapshot,
+            selected=selected,
+            plan=plan,
+            market_state=market_state,
+            timeframe=resolved_timeframe,
+            as_of=resolved_as_of,
+        )
 
         return {
             "meta": {
@@ -170,6 +188,8 @@ class DashboardService:
                 "as_of": to_jsonable(resolved_as_of),
                 "generated_at": to_jsonable(now),
             },
+            "market_state": market_state,
+            "scenario": scenario,
             "market": market,
             "freshness": {
                 "status": freshness.status,
@@ -542,7 +562,7 @@ class DashboardService:
         as_of: datetime,
     ) -> dict[str, object]:
         try:
-            snapshot, frame, _frames = self._evaluate(
+            snapshot, frame, frames = self._evaluate(
                 exchange=exchange, symbol=symbol, timeframe=timeframe, as_of=as_of
             )
         except DashboardError:
@@ -584,6 +604,7 @@ class DashboardService:
             "payload": payload,
             "_snapshot": snapshot,
             "_frame": frame,
+            "_frames": frames,
             "_selected_setup": selected,
         }
 
@@ -802,3 +823,671 @@ class DashboardService:
                     "band_high": format(reference.band_high, "f"),
                 }
         return None
+
+    # ------------------------------------------------------------------
+    # Market state + scenario: deterministic projections, never new analysis
+    # ------------------------------------------------------------------
+
+    def _market_state(
+        self,
+        *,
+        frame: QualificationFrame | None,
+        frames: tuple[QualificationFrame, ...],
+        snapshot: QualificationSnapshot | None,
+        timeframe: str,
+    ) -> dict[str, object]:
+        """Current market facts the stored data genuinely supports.
+
+        Every field projects Step 3/4 objects at ``as_of`` (plus the previous
+        frame for transitions). Nothing is scored, smoothed, or inferred:
+        unavailable inputs stay visibly unavailable.
+        """
+
+        if frame is None or snapshot is None:
+            return {
+                "available": False,
+                "reason": "no Step 3/4 frame could be built at this boundary",
+            }
+        structure = frame.patterns.structure
+        previous = structure_for_previous_frame(frames)
+        trend = structure.trend
+        volatility = structure.volatility
+        volume = structure.volume
+        detected_range = structure.detected_range
+        close = volatility.latest_close
+        return {
+            "available": True,
+            "as_of": to_jsonable(frame.patterns.as_of),
+            "trend": {
+                "direction": trend.direction.value,
+                "reason": trend.reason.value,
+                "sufficient": trend.sufficient,
+                "swing_highs": len(trend.swing_highs),
+                "swing_lows": len(trend.swing_lows),
+                "higher_highs": trend.higher_highs,
+                "higher_lows": trend.higher_lows,
+                "lower_highs": trend.lower_highs,
+                "lower_lows": trend.lower_lows,
+                "transition": trend_transition(
+                    None if previous is None else previous.trend, trend
+                ),
+                "momentum": trend_momentum(
+                    None if previous is None else previous.trend, trend
+                ),
+            },
+            "volatility": {
+                "available": volatility.available,
+                "reason": volatility.reason,
+                "period": volatility.period,
+                "atr": to_jsonable(volatility.atr),
+                "atr_percent_of_price": to_jsonable(
+                    volatility.atr_percent_of_price
+                ),
+                "direction": metric_direction(
+                    None
+                    if previous is None
+                    else previous.volatility.atr_percent_of_price,
+                    volatility.atr_percent_of_price,
+                    up="expanding",
+                    down="contracting",
+                ),
+            },
+            "volume": {
+                "sufficient": volume.sufficient,
+                "reason": volume.reason,
+                "period": volume.period,
+                "current": to_jsonable(volume.current_volume),
+                "rolling_average": to_jsonable(volume.rolling_average_volume),
+                "relative_volume": to_jsonable(volume.relative_volume),
+                "direction": metric_direction(
+                    None
+                    if previous is None
+                    else previous.volume.relative_volume,
+                    volume.relative_volume,
+                    up="strengthening",
+                    down="weakening",
+                ),
+            },
+            "range": {
+                "active": detected_range is not None
+                and detected_range.active,
+                "detected": to_jsonable(detected_range),
+                "transition": range_transition(
+                    None
+                    if previous is None
+                    else previous.detected_range,
+                    detected_range,
+                ),
+            },
+            "levels": nearest_levels(
+                zones=structure.levels.zones,
+                clusters=frame.patterns.equal_levels,
+                close=close,
+            ),
+            "events": event_summary(frame),
+            "breakout_state": breakout_state(frame),
+            "higher_timeframes": htf_summary(frame),
+            "last_close": to_jsonable(close),
+        }
+
+    def _scenario(
+        self,
+        *,
+        snapshot: QualificationSnapshot | None,
+        selected: SetupResult | None,
+        plan: TradePlanResult | None,
+        market_state: dict[str, object],
+        timeframe: str,
+        as_of: datetime,
+    ) -> dict[str, object]:
+        """Answer the six scenario questions from backend facts only.
+
+        Waiting-for and invalidate content is projected from the live setups'
+        own rule outcomes (pending required rules, invalidation/lifecycle
+        evidence, bars remaining before expiry) and, for the selected setup,
+        the exact Step 6 levels. Nothing is predicted or guessed.
+        """
+
+        if snapshot is None or not market_state.get("available"):
+            return {
+                "available": False,
+                "reason": "no evaluated snapshot at this boundary",
+            }
+        parameters = QualificationParameters()
+        interval = interval_for_timeframe(timeframe)
+        live = [
+            s
+            for s in snapshot.setups
+            if s.state in (SetupState.WATCH, SetupState.QUALIFIED)
+        ]
+        live_payload = [
+            live_setup_payload(
+                setup, parameters=parameters, as_of=as_of, interval=interval
+            )
+            for setup in live
+        ]
+        return {
+            "available": True,
+            "doing_now": describe_doing_now(market_state, snapshot),
+            "bot_seeing": {
+                "state": snapshot.state.value,
+                "status": snapshot.status,
+                "live_count": len(live),
+                "live_setups": live_payload,
+            },
+            "strengthen_bullish": strengthen_case(
+                live_payload, direction="bullish"
+            ),
+            "strengthen_bearish": strengthen_case(
+                live_payload, direction="bearish"
+            ),
+            "waiting_for": waiting_for(live_payload),
+            "invalidate": invalidate_cases(
+                live_payload, selected=selected, plan=plan
+            ),
+        }
+
+
+#: What must still happen for a fresh setup of each family to even exist.
+#: These restate the family confirmation rules from setup_qualification;
+#: they are documentation of code constants, not predictions.
+_FAMILY_CONFIRMATION_TEXT = {
+    SetupFamily.BREAKOUT_RETEST.value: (
+        "a fresh breakout of a structural band, then a retest that holds it"
+    ),
+    SetupFamily.LIQUIDITY_REVERSAL.value: (
+        "a failed breakout or liquidity sweep, then a directional breakout "
+        "at a different reference"
+    ),
+    SetupFamily.RANGE_REVERSAL.value: (
+        "a range-boundary seed, then a later close inside the frozen range "
+        "and strictly farther inward"
+    ),
+}
+
+
+def _max_bars_for(family: SetupFamily, parameters: QualificationParameters) -> int:
+    if family is SetupFamily.BREAKOUT_RETEST:
+        return parameters.continuation_max_bars
+    if family is SetupFamily.LIQUIDITY_REVERSAL:
+        return parameters.reversal_max_bars
+    return parameters.range_max_bars
+
+
+def structure_for_previous_frame(frames):
+    """The Step 3 analysis of the frame before the current one, if any."""
+
+    if len(frames) < 2:
+        return None
+    return frames[-2].patterns.structure
+
+
+def trend_transition(previous, current) -> str:
+    """Mechanical trend change between two consecutive frames."""
+
+    if previous is None or current is None:
+        return "unknown"
+    if not previous.sufficient or not current.sufficient:
+        return "unknown"
+    if previous.direction == current.direction:
+        return "unchanged"
+    if current.direction is TrendDirection.NEUTRAL:
+        return "to_neutral"
+    if previous.direction is TrendDirection.NEUTRAL:
+        return "from_neutral"
+    return "reversed"
+
+
+def trend_momentum(previous, current) -> str:
+    """Strengthening/weakening within one trend direction, else unknown.
+
+    Compares the directional swing comparisons (higher highs/lows for a bull
+    trend, lower highs/lows for a bear trend) between two consecutive frames:
+    a comparison flipping false→true is strengthening, true→false is
+    weakening. Anything else (direction change, insufficient structure,
+    unknown comparisons) is honestly unknown rather than inferred.
+    """
+
+    if previous is None or current is None:
+        return "unknown"
+    if not previous.sufficient or not current.sufficient:
+        return "unknown"
+    if previous.direction != current.direction:
+        return "unknown"
+    if current.direction is TrendDirection.BULLISH:
+        keys = ("higher_highs", "higher_lows")
+    elif current.direction is TrendDirection.BEARISH:
+        keys = ("lower_highs", "lower_lows")
+    else:
+        return "unknown"
+    before = [getattr(previous, key) for key in keys]
+    after = [getattr(current, key) for key in keys]
+    if any(value is None for value in (*before, *after)):
+        return "unknown"
+    strengthened = any(not b and a for b, a in zip(before, after))
+    weakened = any(b and not a for b, a in zip(before, after))
+    if strengthened and not weakened:
+        return "strengthening"
+    if weakened and not strengthened:
+        return "weakening"
+    if not strengthened and not weakened:
+        return "steady"
+    return "mixed"
+
+
+def metric_direction(previous, current, *, up: str, down: str) -> dict[str, object]:
+    """Direction of change between two optional Decimal readings."""
+
+    if previous is None or current is None:
+        return {"label": "unknown", "previous": to_jsonable(previous)}
+    if current > previous:
+        return {"label": up, "previous": to_jsonable(previous)}
+    if current < previous:
+        return {"label": down, "previous": to_jsonable(previous)}
+    return {"label": "unchanged", "previous": to_jsonable(previous)}
+
+
+def range_transition(previous, current) -> str:
+    """Mechanical range-state change between two consecutive frames."""
+
+    if previous is None and current is None:
+        return "absent"
+    was_active = previous is not None and previous.active
+    is_active = current is not None and current.active
+    if not was_active and is_active:
+        return "formed"
+    if was_active and not is_active:
+        return "broken"
+    if was_active and is_active:
+        if (
+            previous.range_low == current.range_low
+            and previous.range_high == current.range_high
+        ):
+            return "held"
+        return "redefined"
+    return "absent"
+
+
+def nearest_levels(*, zones, clusters, close) -> dict[str, object]:
+    """Zone/cluster counts plus the bands nearest the latest close."""
+
+    support = None
+    resistance = None
+    if close is not None:
+        below = [z for z in zones if z.band_high <= close]
+        above = [z for z in zones if z.band_low >= close]
+        if below:
+            zone = max(below, key=lambda z: z.band_high)
+            support = {
+                "band_low": format(zone.band_low, "f"),
+                "band_high": format(zone.band_high, "f"),
+                "center": format(zone.center, "f"),
+                "touch_count": zone.touch_count,
+            }
+        if above:
+            zone = min(above, key=lambda z: z.band_low)
+            resistance = {
+                "band_low": format(zone.band_low, "f"),
+                "band_high": format(zone.band_high, "f"),
+                "center": format(zone.center, "f"),
+                "touch_count": zone.touch_count,
+            }
+    level_below = None
+    level_above = None
+    if close is not None:
+        below = [c for c in clusters if c.center <= close]
+        above = [c for c in clusters if c.center >= close]
+        if below:
+            cluster = max(below, key=lambda c: c.center)
+            level_below = {
+                "level": format(cluster.center, "f"),
+                "type": cluster.type,
+                "member_count": cluster.member_count,
+            }
+        if above:
+            cluster = min(above, key=lambda c: c.center)
+            level_above = {
+                "level": format(cluster.center, "f"),
+                "type": cluster.type,
+                "member_count": cluster.member_count,
+            }
+    return {
+        "zone_count": len(zones),
+        "nearest_support": support,
+        "nearest_resistance": resistance,
+        "equal_level_count": len(clusters),
+        "nearest_level_below": level_below,
+        "nearest_level_above": level_above,
+    }
+
+
+def _latest(events, key):
+    if not events:
+        return None
+    return max(events, key=key)
+
+
+def event_summary(frame) -> dict[str, object]:
+    """Catalog counts plus the latest event of each Step 4 kind."""
+
+    patterns = frame.patterns
+    latest_breakout = _latest(patterns.breakouts, key=lambda e: (e.known_at, e.id))
+    latest_failure = _latest(
+        patterns.failed_breakouts, key=lambda e: (e.known_at, e.id)
+    )
+    latest_sweep = _latest(patterns.sweeps, key=lambda e: (e.known_at, e.id))
+    latest_retest = _latest(patterns.retests, key=lambda e: (e.known_at, e.id))
+    held = sum(1 for e in patterns.retests if e.state == "held")
+    failed = sum(1 for e in patterns.retests if e.state == "failed")
+    confirmed_patterns = sum(
+        1 for e in patterns.chart_patterns if e.state == "confirmed"
+    )
+    return {
+        "breakouts": {
+            "count": len(patterns.breakouts),
+            "latest": None
+            if latest_breakout is None
+            else {
+                "id": latest_breakout.id,
+                "direction": latest_breakout.direction,
+                "known_at": to_jsonable(latest_breakout.known_at),
+                "reference_type": latest_breakout.reference.type,
+            },
+        },
+        "failed_breakouts": {
+            "count": len(patterns.failed_breakouts),
+            "latest": None
+            if latest_failure is None
+            else {
+                "id": latest_failure.id,
+                "known_at": to_jsonable(latest_failure.known_at),
+            },
+        },
+        "sweeps": {
+            "count": len(patterns.sweeps),
+            "latest": None
+            if latest_sweep is None
+            else {
+                "id": latest_sweep.id,
+                "direction": latest_sweep.direction,
+                "known_at": to_jsonable(latest_sweep.known_at),
+            },
+        },
+        "retests": {
+            "count": len(patterns.retests),
+            "held_count": held,
+            "failed_count": failed,
+            "latest": None
+            if latest_retest is None
+            else {
+                "id": latest_retest.id,
+                "state": latest_retest.state,
+                "known_at": to_jsonable(latest_retest.known_at),
+            },
+        },
+        "chart_patterns": {
+            "count": len(patterns.chart_patterns),
+            "confirmed_count": confirmed_patterns,
+        },
+    }
+
+
+def breakout_state(frame) -> dict[str, object]:
+    """Fresh-at-this-close attempts, acceptances, rejections, and sweeps."""
+
+    as_of = frame.patterns.as_of
+    patterns = frame.patterns
+    attempts = [
+        {
+            "id": e.id,
+            "direction": e.direction,
+            "reference_type": e.reference.type,
+            "close": format(e.breakout_close, "f"),
+        }
+        for e in patterns.breakouts
+        if e.known_at == as_of
+    ]
+    acceptances = [
+        {
+            "id": e.id,
+            "breakout_id": e.breakout.id,
+            "direction": e.breakout.direction,
+        }
+        for e in patterns.retests
+        if e.known_at == as_of and e.state == "held"
+    ]
+    rejections = [
+        {"id": e.id, "breakout_id": e.breakout.id, "kind": "failed_breakout"}
+        for e in patterns.failed_breakouts
+        if e.known_at == as_of
+    ] + [
+        {"id": e.id, "breakout_id": e.breakout.id, "kind": "failed_retest"}
+        for e in patterns.retests
+        if e.known_at == as_of and e.state == "failed"
+    ]
+    sweeps = [
+        {
+            "id": e.id,
+            "direction": e.direction,
+            "reclaim_close": format(e.reclaim_close, "f"),
+        }
+        for e in patterns.sweeps
+        if e.known_at == as_of
+    ]
+    return {
+        "attempts": attempts,
+        "acceptances": acceptances,
+        "rejections": rejections,
+        "sweeps": sweeps,
+    }
+
+
+def htf_summary(frame) -> dict[str, object]:
+    """Higher-timeframe contexts exactly as the frame carries them."""
+
+    contexts = frame.higher_timeframes
+    if not contexts:
+        return {
+            "requested": [],
+            "note": (
+                "no higher timeframes requested; no alignment inferred "
+                "and none required"
+            ),
+        }
+    return {
+        "requested": [h.timeframe for h in contexts],
+        "contexts": {
+            h.timeframe: {
+                "available": bool(h.available),
+                "trend": h.trend.direction.value
+                if h.available and h.trend is not None
+                else "UNKNOWN",
+                "reason": h.reason,
+            }
+            for h in contexts
+        },
+    }
+
+
+def live_setup_payload(setup, *, parameters, as_of, interval) -> dict[str, object]:
+    """One live setup's rules, age, and expiry projected for the scenario."""
+
+    max_bars = _max_bars_for(setup.family, parameters)
+    age_bars = int((as_of - setup.created_at) // interval)
+    pending_required = []
+    invalidation_evidence = []
+    vetoed_by = []
+    for rule in setup.rules:
+        entry = {"rule": rule.rule_id, "reason": rule.reason}
+        if rule.outcome is RuleOutcome.PENDING and rule.required:
+            pending_required.append(entry)
+        categories = {
+            evidence.category
+            for evidence in rule.evidence
+            if evidence.category in ("invalidation", "lifecycle")
+        }
+        if categories:
+            invalidation_evidence.append(
+                {
+                    "rule": rule.rule_id,
+                    "outcome": rule.outcome.value,
+                    "reason": rule.reason,
+                }
+            )
+        if rule.veto and rule.outcome is RuleOutcome.FAIL:
+            vetoed_by.append(rule.rule_id)
+    return {
+        "setup_id": setup.id,
+        "family": setup.family.value,
+        "direction": setup.direction,
+        "state": setup.state.value,
+        "created_at": to_jsonable(setup.created_at),
+        "age_bars": age_bars,
+        "max_bars": max_bars,
+        "bars_remaining": max(max_bars - age_bars, 0),
+        "vetoed": bool(vetoed_by),
+        "vetoed_by": vetoed_by,
+        "passed_rules": list(setup.passed_rules),
+        "failed_rules": list(setup.failed_rules),
+        "pending_required": pending_required,
+        "invalidation_evidence": invalidation_evidence,
+    }
+
+
+def describe_doing_now(market_state, snapshot) -> str:
+    """One deterministic paragraph: trend, volatility, volume, range, events."""
+
+    trend = market_state["trend"]
+    volatility = market_state["volatility"]
+    volume = market_state["volume"]
+    range_state = market_state["range"]
+    breakout = market_state["breakout_state"]
+    parts = []
+    if trend["sufficient"]:
+        parts.append(
+            f"Trend is {trend['direction'].upper()} ({trend['reason']})."
+        )
+    else:
+        parts.append(
+            f"Trend is UNKNOWN ({trend['reason']}); structure is insufficient "
+            "to classify direction."
+        )
+    if volatility["available"]:
+        direction = volatility["direction"]["label"]
+        if direction == "unknown":
+            parts.append(
+                f"Volatility is at ATR {volatility['atr_percent_of_price']}% "
+                "of price (trend unknown: previous close insufficient)."
+            )
+        else:
+            parts.append(
+                f"Volatility {direction} (ATR "
+                f"{volatility['atr_percent_of_price']}% of price)."
+            )
+    else:
+        parts.append(f"Volatility is UNKNOWN ({volatility['reason']}).")
+    if volume["sufficient"]:
+        direction = volume["direction"]["label"]
+        if direction == "unknown":
+            parts.append(
+                f"Volume is {volume['relative_volume']}x its average "
+                "(trend unknown: previous close insufficient)."
+            )
+        else:
+            parts.append(
+                f"Volume is {direction} at "
+                f"{volume['relative_volume']}x its average."
+            )
+    else:
+        parts.append(f"Volume is UNKNOWN ({volume['reason']}).")
+    detected = range_state["detected"]
+    if range_state["active"] and detected is not None:
+        parts.append(
+            f"Price is inside an active range "
+            f"{detected['range_low']}–{detected['range_high']}."
+        )
+    else:
+        parts.append("No active range.")
+    fresh = []
+    if breakout["attempts"]:
+        fresh.append(f"{len(breakout['attempts'])} breakout attempt(s)")
+    if breakout["acceptances"]:
+        fresh.append(f"{len(breakout['acceptances'])} acceptance(s)")
+    if breakout["rejections"]:
+        fresh.append(f"{len(breakout['rejections'])} rejection(s)")
+    if breakout["sweeps"]:
+        fresh.append(f"{len(breakout['sweeps'])} sweep(s)")
+    if fresh:
+        parts.append("Fresh at this close: " + ", ".join(fresh) + ".")
+    parts.append(f"Qualification state: {snapshot.state.value}.")
+    return " ".join(parts)
+
+
+def strengthen_case(live_payload, *, direction: str) -> dict[str, object]:
+    """What would strengthen one side: pending required rules of live setups."""
+
+    setups = [
+        {
+            "setup_id": item["setup_id"],
+            "state": item["state"],
+            "pending_required": item["pending_required"],
+        }
+        for item in live_payload
+        if item["direction"] == direction
+    ]
+    return {
+        "direction": direction,
+        "developing_setups": setups,
+        "none_developing": not setups,
+        "to_start_a_setup": dict(_FAMILY_CONFIRMATION_TEXT),
+    }
+
+
+def waiting_for(live_payload) -> dict[str, object]:
+    """Merged pending required evidence across every live setup."""
+
+    merged: dict[str, dict[str, object]] = {}
+    for item in live_payload:
+        for pending in item["pending_required"]:
+            entry = merged.setdefault(
+                pending["rule"], {"reason": pending["reason"], "setup_ids": []}
+            )
+            entry["setup_ids"].append(item["setup_id"])  # type: ignore[attr-defined]
+    return {
+        "pending": [
+            {"rule": rule, **entry} for rule, entry in sorted(merged.items())
+        ],
+        "note": None
+        if merged
+        else (
+            "No live setups: waiting for a fresh seed event (breakout, "
+            "failed breakout, or sweep)."
+        ),
+    }
+
+
+def invalidate_cases(live_payload, *, selected, plan) -> dict[str, object]:
+    """Per-setup invalidation: expiry, terminal evidence, exact plan levels."""
+
+    cases = []
+    for item in live_payload:
+        case: dict[str, object] = {
+            "setup_id": item["setup_id"],
+            "state": item["state"],
+            "bars_remaining": item["bars_remaining"],
+            "max_bars": item["max_bars"],
+            "invalidation_evidence": item["invalidation_evidence"],
+            "vetoed": item["vetoed"],
+            "vetoed_by": item["vetoed_by"],
+        }
+        if (
+            selected is not None
+            and plan is not None
+            and plan.state is PlanState.PLANNABLE
+            and item["setup_id"] == selected.id
+        ):
+            case["plan_invalidation"] = to_jsonable(plan.invalidation)
+            case["plan_stop"] = to_jsonable(plan.stop)
+            case["plan_entry"] = to_jsonable(plan.entry)
+        cases.append(case)
+    return {"cases": cases}

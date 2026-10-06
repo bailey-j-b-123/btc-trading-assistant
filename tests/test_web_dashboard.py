@@ -401,3 +401,100 @@ def test_setup_reference_overlay_resolves_every_seed_kind():
         )
         is None
     )
+
+
+# ---------------------------------------------------------------------------
+# Market state + scenario: deterministic projections, never invented facts
+# ---------------------------------------------------------------------------
+
+
+def test_market_state_reports_current_facts(qualified_client):
+    payload = qualified_client.get("/api/dashboard").json()
+    market_state = payload["market_state"]
+    assert market_state["available"] is True
+    assert market_state["trend"]["direction"] == "bullish"
+    assert market_state["trend"]["sufficient"] is True
+    assert market_state["trend"]["transition"] == "unchanged"
+    assert market_state["trend"]["momentum"] == "steady"
+    assert market_state["volatility"]["available"] is True
+    assert market_state["volatility"]["atr_percent_of_price"] == "2.75345715"
+    assert market_state["volatility"]["direction"]["label"] == "contracting"
+    assert market_state["volume"]["sufficient"] is True
+    assert market_state["volume"]["relative_volume"] == "1.00000000"
+    assert market_state["range"]["active"] is False
+    assert market_state["levels"]["zone_count"] == 5
+    assert market_state["levels"]["nearest_support"]["band_high"] == "122"
+    assert market_state["events"]["breakouts"]["count"] == 6
+    assert market_state["events"]["retests"]["held_count"] >= 1
+    assert len(market_state["breakout_state"]["attempts"]) == 2
+    assert market_state["higher_timeframes"]["requested"] == []
+    assert market_state["last_close"] == "124"
+
+
+def test_scenario_answers_come_from_backend_facts(qualified_client):
+    payload = qualified_client.get("/api/dashboard").json()
+    scenario = payload["scenario"]
+    assert scenario["available"] is True
+    assert "BULLISH" in scenario["doing_now"]
+    assert "QUALIFIED" in scenario["doing_now"]
+    seeing = scenario["bot_seeing"]
+    assert seeing["state"] == "QUALIFIED"
+    assert seeing["live_count"] == 4
+    assert all(s["direction"] == "bullish" for s in seeing["live_setups"])
+    assert all(s["bars_remaining"] >= 0 for s in seeing["live_setups"])
+    assert all(s["vetoed"] is False for s in seeing["live_setups"])
+    # Bullish side develops; bearish side has nothing developing.
+    assert len(scenario["strengthen_bullish"]["developing_setups"]) == 4
+    assert scenario["strengthen_bearish"]["none_developing"] is True
+    assert "breakout_retest_continuation" in scenario["strengthen_bearish"][
+        "to_start_a_setup"
+    ]
+    # Waiting-for merges the WATCH setups' pending required rules.
+    waiting = {item["rule"] for item in scenario["waiting_for"]["pending"]}
+    assert waiting == {"held_retest", "later_evaluation"}
+    assert scenario["waiting_for"]["note"] is None
+    # Invalidation carries the exact Step 6 levels for the selected setup.
+    selected = payload["qualification"]["selected_setup_id"]
+    cases = {c["setup_id"]: c for c in scenario["invalidate"]["cases"]}
+    assert cases[selected]["plan_invalidation"]["value"] == "117"
+    assert cases[selected]["plan_stop"]["value"] == "117"
+    assert cases[selected]["plan_entry"]["value"] == "124"
+
+
+def test_market_state_and_scenario_stay_honest_without_data(tmp_path):
+    engine, url = migrated_engine(tmp_path)
+    settings = make_settings(url)
+    client = make_client(engine, settings, clock=qualified_clock())
+    try:
+        payload = client.get("/api/dashboard").json()
+        market_state = payload["market_state"]
+        assert market_state["available"] is True
+        assert market_state["trend"]["sufficient"] is False
+        assert market_state["volatility"]["available"] is False
+        assert market_state["volume"]["sufficient"] is False
+        assert market_state["range"]["active"] is False
+        assert market_state["levels"]["zone_count"] == 0
+        assert market_state["events"]["breakouts"]["count"] == 0
+        assert market_state["last_close"] is None
+        scenario = payload["scenario"]
+        assert scenario["available"] is True
+        assert "UNKNOWN" in scenario["doing_now"]
+        assert "NO_SETUP" in scenario["doing_now"]
+        assert scenario["bot_seeing"]["live_count"] == 0
+        assert scenario["waiting_for"]["pending"] == []
+        assert "fresh seed event" in scenario["waiting_for"]["note"]
+        assert scenario["invalidate"]["cases"] == []
+    finally:
+        engine.dispose()
+
+
+def test_market_state_helpers_are_total():
+    from trading_assistant.web.dashboard_service import (
+        metric_direction,
+        range_transition,
+        trend_transition,
+    )
+
+    assert trend_transition(None, None) == "unknown"
+    assert metric_direction(None, None, up="u", down="d")["label"] == "unknown"
+    assert range_transition(None, None) == "absent"

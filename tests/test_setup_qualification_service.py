@@ -1,6 +1,7 @@
 """Read-only SQLite integration: historical replay, future inserts, no new schema."""
 
 from dataclasses import replace
+from decimal import Decimal
 
 import pytest
 from market_structure_fixtures import EPOCH, EXCHANGE, INTERVAL, SYMBOL, TIMEFRAME
@@ -110,6 +111,58 @@ def _live_setups(snapshot):
         for setup in snapshot.setups
         if setup.state in (SetupState.WATCH, SetupState.QUALIFIED)
     ]
+
+
+def test_same_version_decides_differently_under_different_volume_state(tmp_path):
+    """Market state drives the decision: identical prices, different volume.
+
+    The thin-volume series shares every price print (hence every seed) with
+    the qualifying series; only the latest close prints negligible volume.
+    The same default strategy version then refuses QUALIFIED on the volume
+    rule instead of qualifying — the decision follows market state, not a
+    retuned threshold.
+    """
+    from forward_fixtures import labelled_series
+
+    tmp_b = tmp_path / "thin"
+    tmp_b.mkdir()
+    engine_a, _ = create_service(tmp_path)
+    engine_b, _ = create_service(tmp_b)
+    try:
+        base = labelled_series()
+        thin = tuple(
+            replace(c, volume=Decimal("0.001")) if i == 20 else c
+            for i, c in enumerate(base)
+        )
+        insert(engine_a, base)
+        insert(engine_b, thin)
+        parameters = QualificationParameters()
+        as_of = EPOCH + 21 * INTERVAL
+        snap_a = QualificationService(engine_a).snapshot(
+            **TARGET, as_of=as_of, parameters=parameters
+        )
+        snap_b = QualificationService(engine_b).snapshot(
+            **TARGET, as_of=as_of, parameters=parameters
+        )
+        assert snap_a.state == SetupState.QUALIFIED
+        assert snap_b.state == SetupState.WATCH
+        # The seeds are identical: same families at the same closes.
+        seeds_a = sorted(
+            (s.family, s.created_at) for s in _live_setups(snap_a)
+        )
+        seeds_b = sorted(
+            (s.family, s.created_at) for s in _live_setups(snap_b)
+        )
+        assert seeds_a == seeds_b
+        # Only the volume rule blocks the thin series.
+        assert any(s.state is SetupState.QUALIFIED for s in snap_a.setups)
+        assert not any(s.state is SetupState.QUALIFIED for s in snap_b.setups)
+        assert all(
+            s.failed_rules == ("volume",) for s in _live_setups(snap_b)
+        )
+    finally:
+        engine_a.dispose()
+        engine_b.dispose()
 
 
 def test_bounded_replay_reproduces_every_live_setup_exactly(tmp_path):
