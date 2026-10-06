@@ -68,13 +68,31 @@ export function toChartCandles(payload) {
   return mapped;
 }
 
+export const FALLBACK_CHART_WIDTH = 640;
+export const FALLBACK_CHART_HEIGHT = 420;
+
+/**
+ * Create the price chart, surviving a mount that happens before layout.
+ *
+ * Root cause of the blank chart: this used to return null permanently when
+ * the container measured 0x0 at mount time (stylesheet still loading,
+ * cached HTML with a stale stylesheet, hidden ancestor), so valid stored
+ * candles never reached the library and the chart never recovered. Now a
+ * zero measurement only selects explicit fallback dimensions; the resize
+ * handler below corrects to the real layout as soon as it exists. Only a
+ * missing chart library or a missing container still returns null.
+ */
 export function createPriceChart(container, { height } = {}) {
   const library = typeof window === "undefined" ? null : window.LightweightCharts;
   if (!library || !container) return null;
 
   const measuredWidth = Number(container.clientWidth) || 0;
   const measuredHeight = Number(container.clientHeight) || Number(height) || 0;
-  if (measuredWidth <= 0 || measuredHeight <= 0) return null;
+  const explicitHeight = Number(height) || 0;
+  const initialWidth = measuredWidth > 0 ? measuredWidth : FALLBACK_CHART_WIDTH;
+  const initialHeight = measuredHeight > 0
+    ? measuredHeight
+    : explicitHeight > 0 ? explicitHeight : FALLBACK_CHART_HEIGHT;
 
   const computedFont = typeof getComputedStyle === "function"
     ? getComputedStyle(document.documentElement).getPropertyValue("--mono").trim()
@@ -84,8 +102,8 @@ export function createPriceChart(container, { height } = {}) {
   let volume;
   try {
     chart = library.createChart(container, {
-      width: measuredWidth,
-      height: measuredHeight,
+      width: initialWidth,
+      height: initialHeight,
       autoSize: false,
       layout: {
         background: { type: "solid", color: "transparent" },
@@ -149,6 +167,13 @@ export function createPriceChart(container, { height } = {}) {
     window.addEventListener("resize", resize);
   }
   resize();
+  if ((initialWidth === FALLBACK_CHART_WIDTH || initialHeight === FALLBACK_CHART_HEIGHT) &&
+      typeof requestAnimationFrame === "function") {
+    // Late stylesheet or layout: re-measure once on the next frame so a
+    // fallback-sized chart snaps to the real container even where no
+    // ResizeObserver exists to report the change.
+    requestAnimationFrame(resize);
+  }
   return handle;
 }
 

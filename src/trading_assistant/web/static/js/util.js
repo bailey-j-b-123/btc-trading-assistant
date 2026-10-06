@@ -4,6 +4,17 @@
  * cannot inject markup.
  */
 
+/**
+ * Realm-safe DOM-node check. `instanceof Node` fails for nodes from another
+ * document, which would then be stringified into "[object HTMLDivElement]";
+ * nodeType is true for any DOM node regardless of origin.
+ */
+function isDomNode(value) {
+  if (typeof value !== "object" || value === null) return false;
+  if (typeof value.nodeType === "number") return true;
+  return typeof Node !== "undefined" && value instanceof Node;
+}
+
 export function el(tag, props = {}, children = []) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(props)) {
@@ -12,7 +23,14 @@ export function el(tag, props = {}, children = []) {
     else if (key === "dataset") Object.assign(node.dataset, value);
     else if (key.startsWith("on") && typeof value === "function") {
       node.addEventListener(key.slice(2).toLowerCase(), value);
-    } else if (key === "text") node.textContent = value;
+    } else if (key === "text") {
+      // A node passed as text would render as the literal string
+      // "[object HTMLDivElement]". Fail fast: nodes are children, not text.
+      if (isDomNode(value)) {
+        throw new Error(`el(): prop "text" received a DOM node (${value.nodeName || "unknown"}); pass it as a child instead`);
+      }
+      node.textContent = value;
+    }
     else if (key === "html") throw new Error("innerHTML assignment is forbidden");
     else if (key === "style" && typeof value === "object") Object.assign(node.style, value);
     else if (key === "value") node.value = value;
@@ -23,7 +41,7 @@ export function el(tag, props = {}, children = []) {
   const list = Array.isArray(children) ? children : [children];
   for (const child of list) {
     if (child === null || child === undefined) continue;
-    node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+    node.append(isDomNode(child) ? child : document.createTextNode(String(child)));
   }
   return node;
 }

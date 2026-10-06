@@ -421,7 +421,7 @@ function chartCard(dashboard, initialPrefs) {
       try {
         const handle = createPriceChart(host);
         if (!handle) {
-          host.append(chartEmpty("Chart unavailable", "The chart could not attach to this layout. Stored data has not been replaced."));
+          host.append(chartEmpty("Chart unavailable", "The chart library did not load, so stored candles cannot be drawn. Stored data has not been replaced."));
           return;
         }
         handleRef.current = handle;
