@@ -45,6 +45,9 @@ from trading_assistant.web.routers import (
 from trading_assistant.web.routers import (
     statistics as statistics_router,
 )
+from trading_assistant.web.routers import (
+    validation as validation_router,
+)
 from trading_assistant.web.state import AppState, create_default_state
 
 logger = logging.getLogger(__name__)
@@ -159,6 +162,7 @@ def create_app(
     app.include_router(dashboard_router.router)
     app.include_router(journal_router.router)
     app.include_router(statistics_router.router)
+    app.include_router(validation_router.router)
     app.include_router(settings_router.router)
 
     app.mount(

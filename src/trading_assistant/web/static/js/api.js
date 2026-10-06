@@ -53,6 +53,7 @@ export const api = {
   dashboardDecision: (body) => request("POST", "/api/dashboard/decisions", body),
   statistics: (params = {}) => request("GET", `/api/statistics${queryString(params)}`),
   rollingStatistics: (params = {}) => request("GET", `/api/statistics/rolling${queryString(params)}`),
+  validation: (params = {}) => request("GET", `/api/validation${queryString(params)}`),
 };
 
 export function queryString(params) {

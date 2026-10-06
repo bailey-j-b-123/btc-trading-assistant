@@ -2,7 +2,7 @@
 
 A foundation for an evidence-driven cryptocurrency analysis assistant. The intended purpose is to organize reliable market evidence and future analysis for human review.
 
-**This is not an automated trading bot. It contains deterministic candidate setup definitions, a deterministic, read-only trade *planning* layer, a grounded, fact-locked explanation layer (Step 9) that can only re-state existing deterministic evidence, and a read-only presentation dashboard (Step 10) that displays Steps 1–9 output and records Bailey's explicit journal decisions — but no order placement, backtesting, alerts, trade execution, or autonomous AI decision-making. The UI never executes trades: ACCEPT records a journal row, nothing more. It does not make trading decisions or place/execute trades. QUALIFIED means rules satisfied, not a profitable trade or recommendation; PLANNABLE means a complete deterministic proposal was derived from a rule-qualified setup, not that a trade is profitable, advisable, or should be executed.** Numerical market facts are derived from source data and deterministic code; missing candles remain missing rather than being guessed or synthesized. The Step 3 market-structure engine is descriptive only: it reports measured structural facts (swings, trend, ranges, levels, volatility, volume) for human review and for later deterministic steps, and never emits a trade, signal, or recommendation. Step 4 adds deterministic pattern/liquidity events as evidence only, with explicit knowable timestamps. Step 5 combines those existing facts into auditable NO_SETUP, WATCH and QUALIFIED states. Step 6 converts only a *currently QUALIFIED* Step 5 candidate into a transparent, fully traceable proposed plan (entry, invalidation, stop, targets, unit-neutral R metrics) or an explicit refusal. Step 7 is the immutable decision & outcome journal: it appends what the system proposed (the exact Step 5 snapshot and Step 6 plan projections), what Bailey explicitly decided (PENDING/ACCEPTED/REJECTED/SKIPPED), and deterministic, anti-lookahead market observations of the proposed levels (entry/stop/target touches, first-touch ordering, ambiguity, gaps, MFE/MAE) that survive restarts and never rewrite history.
+**This is not an automated trading bot. It contains deterministic candidate setup definitions, a deterministic, read-only trade *planning* layer, a grounded, fact-locked explanation layer (Step 9) that can only re-state existing deterministic evidence, a read-only presentation dashboard (Step 10) that displays Steps 1–9 output and records Bailey's explicit journal decisions, and an isolated historical validation layer (Step 11) — but no order placement, trade execution, account functionality, autonomous AI decision-making, or automatic strategy optimisation. The UI never executes trades: ACCEPT records a journal row, nothing more. It does not make trading decisions or place/execute trades. QUALIFIED means rules satisfied, not a profitable trade or recommendation; PLANNABLE means a complete deterministic proposal was derived from a rule-qualified setup, not that a trade is profitable, advisable, or should be executed.** Numerical market facts are derived from source data and deterministic code; missing candles remain missing rather than being guessed or synthesized. The Step 3 market-structure engine is descriptive only: it reports measured structural facts (swings, trend, ranges, levels, volatility, volume) for human review and for later deterministic steps, and never emits a trade, signal, or recommendation. Step 4 adds deterministic pattern/liquidity events as evidence only, with explicit knowable timestamps. Step 5 combines those existing facts into auditable NO_SETUP, WATCH and QUALIFIED states. Step 6 converts only a *currently QUALIFIED* Step 5 candidate into a transparent, fully traceable proposed plan (entry, invalidation, stop, targets, unit-neutral R metrics) or an explicit refusal. Step 7 is the immutable decision & outcome journal: it appends what the system proposed (the exact Step 5 snapshot and Step 6 plan projections), what Bailey explicitly decided (PENDING/ACCEPTED/REJECTED/SKIPPED), and deterministic, anti-lookahead market observations of the proposed levels (entry/stop/target touches, first-touch ordering, ambiguity, gaps, MFE/MAE) that survive restarts and never rewrite history.
 
 **Software calculates → rules qualify → statistics validate → AI explains → Bailey decides → everything gets recorded.** Step 7 records that history durably and append-only. Step 8 adds deterministic, read-only statistics over those immutable records; it validates recorded evidence but does not establish future performance or profitability. Step 9 owns **“AI explains”**: it converts the facts already established by Steps 3–8 into clear, auditable explanations through a deterministic explanation context, a fact manifest, and a deterministic local renderer, with an optional provider-independent interface for a future LLM/API whose structured output is validated against the manifest before use. Step 9 explains existing deterministic evidence; it never creates market facts, prices, statistics, setups or trade plans, and it never decides or executes anything.
 
@@ -84,7 +84,11 @@ src/trading_assistant/
 │   ├── renderer.py            Renderer interface + deterministic local renderer
 │   ├── provider.py            Provider interface + manifest grounding validation
 │   └── service.py             Stateless, database-free explanation service
-└── web/                      Read-only presentation layer (Step 10)
+├── historical_validation/    Isolated chronological replay/report layer (Step 11)
+│   ├── parameters.py          Versioned split, horizon, and friction scenarios
+│   ├── models.py              Immutable report, record, regime, and metric contracts
+│   └── service.py             Read-only Steps 2–7 replay and diagnostics
+└── web/                      Read-only presentation layer (Steps 10–11)
     ├── app.py                 FastAPI factory, JSON errors, security headers
     ├── app_factory.py         Import-light factory for uvicorn
     ├── state.py               AppState: engine, services, injectable clock
@@ -92,7 +96,7 @@ src/trading_assistant/
     ├── dashboard_service.py   Dashboard payload assembly over Steps 2–9
     ├── journal_query.py       SELECT-only filtered journal listing adapter
     ├── schemas.py             Validated decision/observation request contracts
-    ├── routers/               meta / market / dashboard / journal / statistics / settings
+    ├── routers/               meta / market / dashboard / journal / statistics / validation / settings
     └── static/                Zero-build dashboard UI (ES modules + CSS)
         ├── index.html         App shell (semantic markup, external scripts only)
         ├── styles.css         Dark-terminal design system, responsive breakpoints
@@ -1363,13 +1367,14 @@ The smallest maintainable stack that integrates with the existing Python applica
 Browser (ES-module SPA)
    │  fetch /api/*  (JSON only; no inline script; CSP default-src 'self')
    ▼
-FastAPI routers ──► AppState (engine + Steps 2–9 services + clock)
+FastAPI routers ──► AppState (engine + Steps 2–11 services + clock)
    │                     │
    │                     ├─ CandleRepository        (Step 2 closed candles)
    │                     ├─ QualificationService    (Step 5 state)
    │                     ├─ plan_trade              (Step 6 plan/refusal)
    │                     ├─ JournalService          (Step 7 decisions/observations)
    │                     ├─ JournalStatisticsService(Step 8 report)
+   │                     ├─ HistoricalValidationService (Step 11 isolated replay)
    │                     └─ ExplanationService      (Step 9 grounded narrative)
    ▼
 Static UI assets (index.html, styles.css, js/, vendor/lightweight-charts)
@@ -1394,8 +1399,8 @@ rather than fabricated demo candles. To work with real data, download candles fi
 
 ### Desktop and mobile behaviour
 
-Four primary areas are reached from a **sidebar on desktop** and a **bottom tab bar on
-mobile** (thumb-reachable, one-handed): **Dashboard, Journal, Statistics, Settings.**
+Five primary areas are reached from a **sidebar on desktop** and a **bottom tab bar on
+mobile** (thumb-reachable, one-handed): **Dashboard, Journal, Statistics, Validation, Settings.**
 The active section is highlighted with `aria-current="page"`.
 
 * **Desktop** lays out cards in a single column under a sticky top bar that always shows
@@ -1430,6 +1435,7 @@ re-derives a number.
 | `POST /api/journal/records/{id}/decisions` | Append/correct a decision on an existing record |
 | `POST /api/journal/records/{id}/observations` | Deterministic Step 7 outcome observation at a cutoff |
 | `GET /api/statistics` (+ `/rolling`) | Step 8 report JSON (counts, rates, distributions) |
+| `GET /api/validation` | Step 11 isolated historical validation report; read-only, no journal writes |
 | `GET /api/settings` | Configured defaults + explicitly unavailable controls |
 
 The only mutating routes are the three journal/decision endpoints above; there is no
@@ -1513,8 +1519,145 @@ execution, exchange authentication, balances, positions, leverage, and auto-trad
 out of scope for all steps.
 
 ```bash
-python -m pytest                        # complete Steps 1–10 Python suite (481 tests)
-node --test tests/frontend/*.test.mjs   # frontend logic tests (22 tests)
-ruff format --check src/trading_assistant/web tests/test_web_*.py tests/web_fixtures.py tests/test_web_frontend_contract.py
-ruff check src/trading_assistant/web tests/test_web_*.py tests/web_fixtures.py tests/test_web_frontend_contract.py
+python -m pytest                        # complete Steps 1–11 Python suite (495 tests)
+node --test tests/frontend/*.test.mjs   # frontend logic tests (23 tests)
+ruff format --check src/trading_assistant/historical_validation src/trading_assistant/web tests/test_historical_validation.py tests/test_web_*.py tests/web_fixtures.py tests/test_web_frontend_contract.py
+ruff check src/trading_assistant/historical_validation src/trading_assistant/web tests/test_historical_validation.py tests/test_web_*.py tests/web_fixtures.py tests/test_web_frontend_contract.py
 ```
+
+## Step 11 — historical torture test / out-of-sample validation
+
+Step 11 is an **isolated, deterministic validation layer**, not a strategy
+optimizer and not an addition to Bailey's decision journal. It replays the
+stored Step 2 candle archive chronologically through the existing Step 3 market
+structure, Step 4 pattern/liquidity, Step 5 qualification, and Step 6 planning
+logic. For each base-candle close it records a derived `SNAPSHOT` or `SETUP`
+artifact in the returned report, including every `NO_SETUP`, `WATCH`, and
+`QUALIFIED` state encountered. A `QUALIFIED` candidate is passed to the
+unchanged Step 6 planner; both a complete `PLANNABLE` proposal and any explicit
+`NO_PLAN`/`INVALID` refusal are preserved exactly in the derived record.
+
+These report records are **not** Step 7 journal rows. The implementation has no
+write path, no migration, no aggregate table, and no interaction with Bailey's
+real decisions or historical journal records. It reads only stored candles using
+explicit end bounds, constructs report values in memory, and returns canonical
+JSON. Raw market data is never rewritten or removed.
+
+### Replay methodology and anti-lookahead guarantees
+
+A base-timeframe candle becomes available only at its close boundary. At each
+boundary the validator builds a fresh Step 4 snapshot with that exact `as_of`,
+then replays Step 5 frames in chronological order. Existing Step 3/4/5 timing
+checks remain authoritative: confirmed swings retain their confirmation time,
+patterns/liquidity retain their `known_at`, and higher-timeframe candles are
+independently bounded by their own close time. A higher-timeframe row is never
+resampled from lower data and is never used while forming.
+
+The validation service additionally freezes the source frame before a run and
+uses explicit `end_time` bounds for every base/higher-timeframe retrieval and
+outcome window. Adding a candle after a historical decision timestamp cannot
+change that earlier setup or Step 6 plan. Step 7's pure `observe_outcome`
+semantics are used unchanged: same-candle entry/exit and stop/target order is
+`AMBIGUOUS`, gaps become `INCOMPLETE_DATA` unless an earlier terminal event is
+already proven, no level outside an OHLC range is claimed as touched, and an
+untouched entry remains `ENTRY_NOT_REACHED`. Ambiguous, incomplete, open, and
+not-observed-at-split-boundary outcomes remain separate; they are never silently
+converted to wins or losses.
+
+### Development and out-of-sample protocol
+
+`ValidationConfig` accepts an explicit `ChronologicalSplit` with strictly
+non-overlapping decision-boundary periods:
+
+```python
+from datetime import UTC, datetime
+from trading_assistant.historical_validation import (
+    ChronologicalSplit, HistoricalValidationService, ValidationConfig,
+)
+
+report = HistoricalValidationService(engine).validate(
+    exchange="kraken",
+    symbol="BTC/USDT",
+    timeframe="1h",
+    config=ValidationConfig(
+        split=ChronologicalSplit(
+            development_start=datetime(2024, 1, 1, tzinfo=UTC),
+            development_end=datetime(2024, 9, 30, tzinfo=UTC),
+            out_of_sample_start=datetime(2024, 10, 1, tzinfo=UTC),
+            out_of_sample_end=datetime(2024, 12, 31, tzinfo=UTC),
+        ),
+        observation_horizon_candles=20,
+    ),
+)
+```
+
+`development_end` must be strictly earlier than `out_of_sample_start`; all
+explicit boundaries must be aligned base-timeframe candle-close boundaries. A plan
+from the development period is observed only through the last *development*
+candle; it cannot use out-of-sample candles to produce a development result.
+The same boundary rule applies to out-of-sample plans. When no split is passed,
+the service derives a documented chronological 70/30 decision-boundary split
+from source timestamps alone (never outcomes) and records its exact resolved
+ranges. A one-boundary dataset honestly reports no out-of-sample period. The
+architecture can run the same immutable configuration over successive explicit
+periods for future walk-forward analysis without changing any strategy rule.
+
+### Friction scenarios and report interpretation
+
+`FrictionAssumptions` are explicit, versioned basis-point inputs:
+`fee_bps` (charged on both proposed entry and terminal endpoint),
+`entry_slippage_bps`, and `exit_slippage_bps` (both adverse). The report shows:
+
+* **raw observational hypothetical R** — only clean terminal proposed-level
+  observations: a proved stop or all proposed targets reached, normalized by the
+  proposed per-unit risk;
+* **friction-adjusted hypothetical R** — the same endpoints after the declared
+  two-sided fee/slippage scenario, still normalized by the original proposed
+  risk.
+
+Neither quantity is realised P&L or profit. There is no position sizing,
+leverage, balance, account, fill, order, partial-exit, equity curve, or money
+management model. `STOPPED_AFTER_TARGETS` is excluded from R because Step 7 has
+no partial-exit policy. Every rate gives its numerator and denominator; samples
+below the configured reporting floor retain counts but withhold percentage and
+descriptive summaries.
+
+Each report includes source candle/date ranges and counts, dataset/config/report
+fingerprints, rule/config identities, exact split boundaries, candidate/setup
+and plan/refusal counts, completed/unresolved/ambiguous/incomplete counts,
+entry/target/stop rates, raw and friction R distributions, and a development vs
+out-of-sample comparison. It also provides diagnostic-only breakdowns by setup
+family, long/short direction, timeframe, Step 3 trend, causal expanding-median
+volatility label, and calendar period. The volatility label is descriptive and
+never feeds Steps 3–6.
+
+Warnings make small samples, ambiguity/incompleteness, plans without a
+within-cohort observation, positive R concentrated in one family or calendar
+period, configured-friction sensitivity, and development-to-out-of-sample raw-R
+deterioration visible. Warnings do not modify or tune the strategy.
+
+### Validation UI and API
+
+The Step 10 navigation has a read-only **Validation** page. It calls
+`GET /api/validation` and is explicitly headed **HISTORICAL VALIDATION — NOT
+LIVE PERFORMANCE**. It displays dataset/fingerprint and split information,
+development and out-of-sample samples, raw and friction-adjusted hypothetical
+metrics, ambiguity/incomplete totals, descriptive breakdowns, and warnings. It
+has no decision, execution, account, balance, leverage, or optimisation control.
+
+The endpoint accepts optional explicit split timestamps plus
+`observation_horizon_candles`, `minimum_sample_size`, `fee_bps`,
+`entry_slippage_bps`, and `exit_slippage_bps`. All four timestamp fields are
+required together when selecting an explicit split. No upstream strategy
+threshold is accepted by the web API.
+
+### Limitations
+
+Validation can only test the stored, closed OHLCV history and the deterministic
+rules already present. It cannot establish intrabar ordering, fills, latency,
+liquidity, changing exchange fees, funding, market impact, data availability at
+the original wall-clock retrieval time, or a causal economic edge. It does not
+optimize thresholds or search parameters. Missing history, few setups, a weak
+out-of-sample result, or a failed strategy are reported honestly.
+
+**Historical performance does not establish future profitability.**

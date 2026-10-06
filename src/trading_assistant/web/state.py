@@ -16,6 +16,7 @@ from sqlalchemy.engine import Engine
 from trading_assistant.ai_explanation import ExplanationService
 from trading_assistant.config import Settings, get_settings
 from trading_assistant.database import create_database_engine
+from trading_assistant.historical_validation import HistoricalValidationService
 from trading_assistant.journaling import JournalService
 from trading_assistant.market_data.repository import CandleRepository
 from trading_assistant.market_data.timeframes import (
@@ -50,6 +51,9 @@ class AppState:
         self.patterns = PatternLiquidityService(engine)
         self.journal = JournalService(engine)
         self.statistics = JournalStatisticsService(engine, config=statistics_config)
+        # Step 11 is derived read-only validation; it does not use JournalService
+        # and has no persistence/migration side effects.
+        self.validation = HistoricalValidationService(engine)
         self.explanations = ExplanationService()
 
     def now(self) -> datetime:
