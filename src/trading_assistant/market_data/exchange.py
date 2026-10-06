@@ -71,7 +71,9 @@ class CCXTMarketDataSource:
         :attr:`ohlcv_is_rolling_window`) cannot use it: Kraken serves only its
         newest 720 entries no matter how old ``since`` is, so the cursor can
         never retrieve older history there and is deliberately not sent.  The
-        returned page is still validated against the requested range by
+        cursor-less response is a superset of any cursor-filtered response, so
+        omitting it cannot remove a candle the caller asked for; the returned
+        page is still validated against the requested range by
         :class:`~trading_assistant.market_data.service.MarketDataService`.
         """
 
