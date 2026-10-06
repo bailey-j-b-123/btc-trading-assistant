@@ -1985,3 +1985,182 @@ deliberately ships no secrets or credentials.
 
 **Paper trading and historical performance do not establish future
 profitability.**
+
+## Operations runbook (forward-first daily operation)
+
+This section is the operator-facing consolidation of the audit: every
+configuration surface, the exact health semantics, the refresh/caching
+contract, the smoke procedure with its results, and the honest list of what
+the system cannot tell you.
+
+### Configuration inventory and tuning audit
+
+There are exactly two configuration surfaces. Neither contains a
+performance-fitted trading threshold, and the repository contains no
+optimizer, grid search, or hyperparameter fitting of any kind (verified by
+source audit).
+
+**1. Runtime settings** (`src/trading_assistant/config.py`, prefix
+`TRADING_ASSISTANT_`, optional `.env`): identity and plumbing only.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `TRADING_ASSISTANT_SYMBOL` | `BTC/USDT` | Instrument |
+| `TRADING_ASSISTANT_EXCHANGE` | `kraken` | Public-data source id |
+| `TRADING_ASSISTANT_DATABASE_URL` | `sqlite:///data/trading_assistant.sqlite3` | App database |
+| `TRADING_ASSISTANT_DEFAULT_TIMEFRAME` | `1h` | Base timeframe |
+| `TRADING_ASSISTANT_SUPPORTED_TIMEFRAMES` | `5m,15m,1h,4h,1d` | Accepted timeframes |
+| `TRADING_ASSISTANT_RAW_DATA_DIR` | `data/raw` | Raw exchange payloads |
+| `TRADING_ASSISTANT_MARKET_DATA_PAGE_LIMIT` | `720` | Download page size |
+| `TRADING_ASSISTANT_MARKET_DATA_MAX_PAGES` | `10000` | Download page cap |
+| `TRADING_ASSISTANT_LOG_LEVEL` | `INFO` | Logging verbosity |
+
+**2. Frozen step parameters** (dataclass defaults in each
+`parameters.py`, each guarded by a `RULES_VERSION` string that is fingerprinted
+into journal records and forward cycles, so results from different rules are
+never mixed):
+
+- Step 3: swing windows 2/2 strict; trend swing_count 2; range lookback 120,
+  2 touches/side, 1% tolerance, 10% max width, 20-candle min span;
+  zones from 40 swings, 1% tolerance, max 12; ATR(14); volume SMA(20).
+- Step 4: breakout/retest/equal-level tolerances 0.1–0.5%; confirmation 1
+  candle; failure/retest windows 10 candles; pattern depth/prominence 1%.
+- Step 5: setup lifetimes 10 bars per family; min relative volume 1.0;
+  max ATR 10% of price; HTF alignment optional and off by default.
+- Step 6: entry at plan close; no stop buffer; up to 2 structural targets
+  plus equal levels; 2R fallback target.
+- Step 8: minimum sample 30; 8 decimal places; quartiles.
+- Step 11: 30% out-of-sample fraction; 20-candle observation horizon;
+  minimum sample 20; zero-fee/slippage default friction (explicitly labelled
+  hypothetical when changed).
+- Step 12: 20-candle horizon; 720-candle catch-up cap; 60s poll;
+  3 fetch attempts; stop after 10 errors; 240 bootstrap candles.
+
+Tuning-audit verdict: every default is a structural or measurement constant
+(windows, tolerances, sample floors). Changing one changes the version
+fingerprint and therefore starts a separated evidence cohort; nothing in the
+pipeline can silently re-fit history.
+
+### Dashboard payload reference: market_state, scenario, explanation
+
+`GET /api/dashboard` carries three descriptive sections beyond the trading
+state. All three are pure projections of deterministic Step 3–6 objects at
+the current boundary — no scores, no predictions:
+
+- `market_state`: trend (direction, reason, sufficiency, frame-over-frame
+  transition and momentum), volatility (ATR and ATR% with
+  expanding/contracting/unchanged/unknown), volume (relative volume with
+  strengthening/weakening/unchanged/unknown), range (active flag, detected
+  band, formed/broken/held/redefined/absent transition), nearest zones and
+  equal levels, event-catalog counts with latest breakouts/sweeps/retests,
+  fresh-at-this-close breakout attempts/acceptances/rejections/sweeps, and
+  higher-timeframe contexts verbatim. Unavailable inputs stay visibly
+  unavailable (`available: false` or explicit UNKNOWN reasons).
+- `scenario`: `doing_now` (one deterministic paragraph), `bot_seeing`
+  (aggregate state plus every live setup's rules, age, and expiry),
+  `strengthen_bullish`/`strengthen_bearish` (pending required rules of
+  developing setups plus what each family needs to start), `waiting_for`
+  (merged pending evidence with reasons and setup counts), `invalidate`
+  (per-setup expiry, invalidation/lifecycle evidence, and the exact Step 6
+  entry/stop/invalidation of the selected setup).
+- `explanation`: the Step 9 grounded local-renderer output (headline,
+  fact-cited sections, limitations, renderer provenance). The dashboard
+  renders it verbatim as a collapsible card; it can only repeat backend
+  facts (see Step 9).
+
+### Freshness, SYSTEM OK, and runner states (exact)
+
+Data freshness (`src/trading_assistant/web/freshness.py`) compares the latest
+stored candle open against the expected latest closed boundary from the
+server clock: CURRENT (stored equals expected), STALE (stored stops early,
+with a staleness count), HISTORICAL (the requested instant is old),
+UNKNOWN (no stored candles). The header pill shows SYSTEM OK only when all
+of these hold: dashboard freshness CURRENT, market window complete, forward
+`data_health` CURRENT, zero pending catch-up boundaries, and a runner
+heartbeat with status STARTED, PROCESSED, or IDLE and no recorded error.
+Anything else — never-run, stale data, a recorded runner error, a missing
+payload, a single pending boundary — is SYSTEM WARNING.
+
+The System-details card distinguishes three runner presences: `unavailable`
+(no forward status payload — every runner field UNKNOWN), `never run`
+(backend reports `runner: null`), and `reported` (state, detail,
+server-computed heartbeat age, last error, all verbatim). Pending catch-up
+is always a counted label ("N closed candles not yet processed").
+
+### Interface caching (no query hacks, no service worker)
+
+The HTML shell (`/`) and every file under `/static/` are served with
+`Cache-Control: no-cache`: the browser revalidates each file by ETag
+(answered `304` when unchanged) before reuse, so a refresh always renders
+the latest interface while unchanged files cost one conditional round-trip.
+There are no `?v=` parameters, no service worker, and no build step; API
+responses are dynamic JSON and carry no cache headers. Covered by
+`tests/test_web_cache.py`, including a 304 round-trip test.
+
+### Daily operation
+
+1. Refresh market data (public Kraken candles only), then run the forward
+   tester continuously (`python -m trading_assistant.forward_testing run`)
+   or once per close (`... run --once`). Each confirmed closed candle is
+   recorded exactly once; restarts are safe and idempotent.
+2. Serve the dashboard (`python -m trading_assistant.web --host 0.0.0.0
+   --port 8040`) and check the header: symbol/timeframe, last completed
+   candle, close, and the SYSTEM pill. Expand System details on any warning.
+3. Never delete or rewrite database history. Schema changes go through the
+   `migrations/versions/` chain (`0001`→`0004`); to repair a database,
+   migrate a fresh file and copy rows over — never hand-edit alembic state.
+
+### Smoke procedure, results, and visual-test status
+
+Procedure (2026-10-06, sandbox without usable network, so exchange download
+was unavailable): migrated a scratch database, inserted 300 deterministic
+synthetic hourly candles ending at the latest closed boundary (clearly
+labelled synthetic — no real market data was available), ran the real
+`forward_testing run --once` CLI (1 close processed, 7 observations,
+5 paper plans), served the real web app, and exercised every route.
+
+Results: `GET /` 200 with `no-cache`; static assets 200 with ETag and
+`no-cache`; `/api/meta`, `/api/dashboard` (303KB, QUALIFIED/PLANNABLE,
+CURRENT, 300 candles, full `market_state`/`scenario`/`explanation`),
+`/api/forward`, `/api/market/candles`, `/api/settings`,
+`/api/journal/records` (honest empty), `/api/statistics` all 200;
+`/api/validation` 200 (66MB replay over the synthetic history in ~94s —
+operators should expect this endpoint to be slow and heavy on large
+histories). The smoke run caught one real integration defect (frontend
+cards written against misremembered payload shapes — fixed and re-verified
+by rendering the actual smoke responses through the real dashboard renderer
+with zero object leaks).
+
+Visual-test status: **no browser visual testing was performed — no browser
+is available in this environment.** Rendering is verified headlessly: 62
+zero-dependency node tests (including full-dashboard MockNode renders),
+Python contract tests over the shipped bundle, and the real-bytes render
+check above. Before trusting any visual change, open the dashboard in a real
+browser at desktop and 360px widths and confirm the chart draws.
+
+### Information gaps (what the system cannot tell you)
+
+- No live or intrabar price: only confirmed closed candles are ever
+  analysed, by design.
+- No win rate, expectancy, drawdown, or realised P&L: only denominated
+  outcome observations and raw/friction-adjusted observational R, by design.
+- A fresh forward ledger starts empty: the N≥30 reporting floor needs
+  weeks of runner operation before combined figures appear.
+- Paper observations are OHLC touch records, not fills: no order book,
+  latency, liquidity, or market-impact modelling.
+- One instrument/timeframe at a time (BTC/USDT 1h); higher-timeframe
+  contexts are optional and off unless requested.
+- `/api/validation` replays are expensive (tens of MB, tens of seconds on
+  hundreds of candles) and are fetched only when the dashboard's
+  Historical-validation disclosure is expanded.
+
+### Security posture (re-confirmed)
+
+No secrets, credentials, tokens, or private API paths exist anywhere in
+`src/` (audited). The exchange surface is public market data only; the
+application never places, modifies, or cancels orders and never reads
+balances, positions, or accounts. The web layer keeps strict CSP, no inline
+scripts, text-only rendering (`innerHTML` is banned and contract-tested),
+and JSON error envelopes. The app remains local-first: expose beyond
+localhost only behind real authentication and TLS, per the Step 12
+deployment note.
