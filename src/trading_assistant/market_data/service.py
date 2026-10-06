@@ -271,6 +271,16 @@ class MarketDataService:
             )
             raw_pages.append(page)
 
+            # Kraken's public OHLC endpoint is a rolling window: it returns at
+            # most the latest 720 candles, regardless of how old ``since`` is.
+            # It is not a normal date-range endpoint, so asking for another
+            # page with a locally-derived timestamp can repeat the same window
+            # rather than advance through history.  Keep the returned page for
+            # validation/storage, where any unavailable older range remains an
+            # explicit gap, but never fabricate pagination for Kraken.
+            if getattr(self.source, "ohlcv_is_rolling_window", False):
+                break
+
             if not isinstance(page, Sequence) or isinstance(page, (str, bytes)):
                 break
             if not page:

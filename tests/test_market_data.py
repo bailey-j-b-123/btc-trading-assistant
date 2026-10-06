@@ -223,6 +223,42 @@ def test_kraken_oversized_setting_is_capped_before_ccxt_and_archiving(tmp_path):
         engine.dispose()
 
 
+def test_kraken_rolling_window_is_not_date_paginated(tmp_path):
+    # A fake response contains enough rows for the generic source to make a
+    # second page.  Kraken must still be treated as one rolling-window request;
+    # the unavailable tail remains an explicit gap instead of being fabricated.
+    client = RecordingCCXTClient(
+        "kraken",
+        [candle_row(index * FIVE_MINUTES_MS) for index in range(1_441)],
+    )
+    source = ccxt_source_for("kraken", client)
+    engine, service = create_service(
+        tmp_path,
+        source,
+        page_limit=5_000,
+        exchange="kraken",
+        symbol="BTC/USD",
+        base_asset="BTC",
+        quote_asset="USD",
+    )
+    try:
+        result = service.download_history(
+            start_time=EPOCH,
+            end_time=EPOCH + timedelta(milliseconds=1_440 * FIVE_MINUTES_MS),
+            as_of=EPOCH + timedelta(milliseconds=1_441 * FIVE_MINUTES_MS),
+        )
+
+        assert source.ohlcv_is_rolling_window is True
+        assert client.requests == [("BTC/USD", "5m", 0, 720)]
+        assert result.inserted_count == 720
+        assert not result.complete
+        assert result.missing_candle_count == 721
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT COUNT(*) FROM ohlcv_candles")).scalar_one() == 720
+    finally:
+        engine.dispose()
+
+
 def test_kraken_history_older_than_public_window_is_reported_incomplete(tmp_path):
     # Kraken serves only its latest 720 candles; request a larger range and make
     # the unavailable earlier part observable rather than treating it as complete.
