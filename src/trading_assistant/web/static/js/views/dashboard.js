@@ -25,11 +25,43 @@ import {
   directionArrow,
   directionLabel,
   displayOrUnknown,
+  displayRounded,
   familyLabel,
   formatUtc,
   isMissing,
   shortId,
 } from "../format.js";
+import {
+  aggregateSeeingLine,
+  backendNoticeText,
+  decisionText,
+  disabledReasonText,
+  doingNowParagraph,
+  evidenceCategoryLabel,
+  healthDetailText,
+  healthLabel,
+  invalidateMetaLine,
+  levelSourceText,
+  liveSetupMetaLine,
+  metricLabelText,
+  metricStatusText,
+  outcomeStatusText,
+  planReasonText,
+  planRefusalSentence,
+  planStateLabel,
+  rangeTransitionText,
+  referenceTypeText,
+  rejectionKindText,
+  setupStateLabel,
+  shortRuleTitle,
+  snapshotReasonText,
+  translateRule,
+  trendMomentumText,
+  trendReasonText,
+  trendTransitionText,
+  unavailableReasonText,
+  verdictStateLabel,
+} from "../plain.js";
 import {
   clearNode,
   el,
@@ -114,20 +146,50 @@ function backendReasons(values) {
     .map((value) => value.trim());
 }
 
-function watchMissingReasons(candidate) {
-  if (!candidate) return [];
-  const reasons = [];
-  for (const rule of candidate.rules || []) {
-    if (!["failed", "pending"].includes(rule.outcome)) continue;
-    if (typeof rule.reason === "string" && rule.reason.trim()) reasons.push(rule.reason.trim());
+/** Rounded one-glance figure; the exact backend spelling stays on hover. */
+function roundedSpan(value, decimals = 2) {
+  const { display, raw } = displayRounded(value, decimals);
+  return el("span", { class: "mono", text: display, title: raw === null ? undefined : `Exact: ${raw}` });
+}
+
+/** Level-3 collapsible block: raw backend strings, verbatim, never reinterpreted. */
+function technicalDetails(summaryText, rows) {
+  const items = (Array.isArray(rows) ? rows : []).filter(Boolean);
+  if (!items.length) return null;
+  return el("details", { class: "details-disclosure" }, [
+    el("summary", { text: summaryText }),
+    el("div", { class: "details-body" }, items.map((row) => el("div", { class: "chart-note mono", text: row }))),
+  ]);
+}
+
+function rawRuleRows(candidate) {
+  if (!candidate || !Array.isArray(candidate.rules)) return [];
+  return candidate.rules.map((rule) => {
+    const outcome = rule?.outcome || "UNKNOWN";
+    const id = rule?.rule_id || "?";
+    const requirement = rule?.required === false ? "optional" : "required";
+    const veto = rule?.veto === true ? " · veto" : "";
+    const reason = typeof rule?.reason === "string" && rule.reason.trim() ? ` — ${rule.reason.trim()}` : "";
+    return `${id}: ${outcome} (${requirement}${veto})${reason}`;
+  });
+}
+
+/** Translated blocking sentences (vetoes first), deduplicated. */
+function blockingRuleSentences(candidate) {
+  if (!candidate || !Array.isArray(candidate.rules)) return [];
+  const direction = candidate.direction || null;
+  const vetoed = [];
+  const failed = [];
+  const pending = [];
+  for (const rule of candidate.rules) {
+    if (rule?.required === false) continue;
+    if (rule?.outcome !== "failed" && rule?.outcome !== "pending") continue;
+    const translated = translateRule(rule, { direction });
+    if (rule?.veto === true && rule?.outcome === "failed") vetoed.push(translated.sentence);
+    else if (rule?.outcome === "failed") failed.push(translated.sentence);
+    else pending.push(translated.sentence);
   }
-  for (const rule of candidate.rules || []) {
-    for (const evidence of Array.isArray(rule.evidence) ? rule.evidence : []) {
-      if (evidence.status !== "unknown" && evidence.status !== "opposing") continue;
-      if (typeof evidence.reason === "string" && evidence.reason.trim()) reasons.push(evidence.reason.trim());
-    }
-  }
-  return [...new Set(reasons)];
+  return [...new Set([...vetoed, ...failed, ...pending])];
 }
 
 function decisionExplanation(dashboard, candidate, plannable) {
@@ -139,26 +201,28 @@ function decisionExplanation(dashboard, candidate, plannable) {
   }
 
   if (qualification.state === "WATCH") {
-    const missing = watchMissingReasons(candidate);
-    if (missing.length) return `Still missing / not confirmed: ${missing.join(" · ")}`;
-    const reasons = backendReasons(qualification.reasons);
-    if (reasons.length) return reasons.join(" · ");
-    return "The backend reports WATCH; no additional reason was supplied.";
+    const blocking = blockingRuleSentences(candidate);
+    if (blocking.length) return blocking.slice(0, 3).join(" ");
+    const reasons = backendReasons(qualification.reasons).map(snapshotReasonText).filter(Boolean);
+    if (reasons.length) return reasons.join(" ");
+    return "Watching: evidence is still developing.";
   }
 
   if (qualification.state === "NO_SETUP") {
-    const reasons = backendReasons(qualification.reasons);
-    return reasons.length
-      ? reasons.join(" · ")
-      : "The deterministic engine reports no active setup in this snapshot.";
+    const reasons = backendReasons(qualification.reasons).map(snapshotReasonText).filter(Boolean);
+    return reasons.length ? reasons.join(" ") : "No active setup in this snapshot.";
   }
 
   if (qualification.state === "QUALIFIED") {
-    const reasons = backendReasons(planning.reasons);
-    if (reasons.length) return `The setup is qualified, but the planner did not produce a plan: ${reasons.join(" · ")}`;
-    if (typeof planning.state_detail === "string" && planning.state_detail.trim()) {
-      return `The setup is qualified, but the planner did not produce a plan: ${planning.state_detail}`;
+    const codes = backendReasons(planning.reasons);
+    if (codes.length) {
+      const details = codes.map(planReasonText).filter(Boolean);
+      return details.length
+        ? `The setup is qualified, but no plan could be built (${details.join("; ")}).`
+        : "The setup is qualified, but no valid trade plan is available.";
     }
+    const detail = typeof planning.state_detail === "string" ? planReasonText(planning.state_detail) : null;
+    if (detail) return `The setup is qualified, but no plan could be built (${detail}).`;
     return "The setup is qualified, but no valid trade plan is available.";
   }
 
@@ -186,8 +250,11 @@ export function verdictViewModel(dashboard, forward = null) {
   if (sameRecordedBoundary) {
     plannedCount = countFromMap(current.plan_state_counts, "PLANNABLE");
   } else if (qualification.available === true) {
+    // The dashboard plans the selected setup only, so the known plannable
+    // count is 1 or 0 whenever a qualified setup exists — regardless of how
+    // many qualified setups share the snapshot.
     if (qualification.state === "NO_SETUP") plannedCount = 0;
-    else if (qualifiedCount === 1 && dashboard?.planning?.state) plannedCount = plannable ? 1 : 0;
+    else if (qualification.state === "QUALIFIED" && dashboard?.planning?.state) plannedCount = plannable ? 1 : 0;
   }
 
   let state = "UNKNOWN";
@@ -203,6 +270,7 @@ export function verdictViewModel(dashboard, forward = null) {
     state = "NO TRADE";
     tone = "neutral";
   }
+  state = verdictStateLabel(state);
 
   const plan = plannable ? dashboard.plan : null;
   const direction = plan?.direction || candidate?.direction || null;
@@ -403,7 +471,7 @@ function decisionCard(dashboard) {
     }, [DECISION_LABELS[decision]]),
   );
   const summary = latest
-    ? `Journal decision · latest ${latest.decision}`
+    ? `Journal decision · latest ${decisionText(latest.decision)}`
     : "Record a journal decision (optional)";
 
   return el("details", { class: "details-disclosure journal-decision" }, [
@@ -415,7 +483,7 @@ function decisionCard(dashboard) {
         role: "note",
         text: availability.enabled
           ? "There is no default. This appends a paper journal decision only — it never places an order. Corrections append; prior history is preserved."
-          : `Controls unavailable: ${availability.reason}`,
+          : `Controls unavailable: ${disabledReasonText(availability.reason)}`,
       }),
     ]),
   ]);
@@ -426,8 +494,12 @@ function openDecisionConfirmation(dashboard, decision) {
   let submitting = false;
   const row = (label, value) => el("div", { class: "kv" }, [
     el("span", { class: "k", text: label }),
-    el("span", { class: "v mono", text: value }),
+    el("span", { class: "v mono" }, [typeof value === "string" ? value : value]),
   ]);
+  const levelCell = (value) => {
+    if (isMissing(value)) return "UNKNOWN";
+    return roundedSpan(value, 2);
+  };
   const reasonInput = el("textarea", {
     class: "input-inline",
     rows: 2,
@@ -450,11 +522,15 @@ function openDecisionConfirmation(dashboard, decision) {
     el("div", { class: "kv", style: { marginBottom: "12px" } }, [
       row("Snapshot as-of", formatUtc(summary.asOf)),
       row("Symbol / timeframe", `${summary.symbol} · ${summary.timeframe}`),
-      row("Setup state", `${summary.setupState} · ${familyLabel(summary.family)} · ${directionLabel(summary.direction)}`),
-      row("Plan state", summary.planState || "UNKNOWN"),
-      row("Entry", displayOrUnknown(summary.entry)),
-      row("Stop", displayOrUnknown(summary.stop)),
-      row("Targets", summary.targets.length ? summary.targets.map((target) => displayOrUnknown(target)).join(", ") : "UNKNOWN"),
+      row("Setup state", `${setupStateLabel(summary.setupState)} · ${familyLabel(summary.family)} · ${directionLabel(summary.direction)}`),
+      row("Plan state", planStateLabel(summary.planState)),
+      row("Entry", levelCell(summary.entry)),
+      row("Stop", levelCell(summary.stop)),
+      row("Targets", summary.targets.length
+        ? el("span", {}, summary.targets.flatMap((target, index) => (
+            index === 0 ? [levelCell(target)] : [", ", levelCell(target)]
+          )))
+        : "UNKNOWN"),
       row("Setup id", summary.setupId ? shortId(summary.setupId, 16) : "UNKNOWN"),
     ]),
     reasonInput,
@@ -494,6 +570,15 @@ function verdictCard(dashboard, forward) {
     ? `${directionArrow(model.direction)} ${directionLabel(model.direction)}`
     : "Direction UNKNOWN";
   const family = model.family ? familyLabel(model.family) : "Setup UNKNOWN";
+  const qualification = dashboard?.qualification || {};
+  const technical = [
+    `backend state: ${qualification.state || "UNKNOWN"} (snapshot status: ${qualification.status || "UNKNOWN"})`,
+    `selected setup: ${qualification.selected_setup_id || "none"}`,
+    ...backendReasons(qualification.reasons).map((reason) => `snapshot reason: ${reason}`),
+    ...rawRuleRows(model.candidate),
+  ];
+  if (qualification.rules_version) technical.push(`rules version: ${qualification.rules_version}`);
+  if (qualification.config_fingerprint) technical.push(`config fingerprint: ${qualification.config_fingerprint}`);
   return el("section", {
     class: "card terminal-card verdict-card",
     "aria-label": "Current verdict",
@@ -507,27 +592,32 @@ function verdictCard(dashboard, forward) {
     el("p", { class: "verdict-summary", text: model.explanation }),
     decisionCard(dashboard),
     candidateCounts(model),
+    technicalDetails("Technical details", technical),
   ]);
 }
 
-function planLevel(label, value, tone = null) {
+function planLevel(label, value, tone = null, { numeric = true, decimals = 2 } = {}) {
+  const content = numeric ? roundedSpan(value, decimals) : el("span", { text: displayOrUnknown(value) });
   return el("div", { class: "plan-level", dataset: tone ? { tone } : {} }, [
     el("div", { class: "label", text: label }),
-    el("div", { class: "value", text: displayOrUnknown(value) }),
+    el("div", { class: "value" }, [content]),
   ]);
 }
 
 function planningReason(dashboard) {
   const planning = dashboard?.planning || {};
   const reasons = backendReasons(planning.reasons);
-  if (reasons.length) return reasons.join(" · ");
-  return typeof planning.state_detail === "string" && planning.state_detail.trim()
-    ? planning.state_detail
-    : null;
+  if (reasons.length) return planRefusalSentence(reasons);
+  if (typeof planning.state_detail === "string" && planning.state_detail.trim()) {
+    const detail = planReasonText(planning.state_detail);
+    return detail ? `The planner could not build a plan: ${detail}.` : null;
+  }
+  return null;
 }
 
 function planCard(dashboard) {
   const plan = hasValidTradePlan(dashboard) ? dashboard.plan : null;
+  const planning = dashboard?.planning || {};
   const body = [];
   if (!plan) {
     body.push(el("div", { class: "plan-empty", text: "No qualified trade plan right now." }));
@@ -536,7 +626,7 @@ function planCard(dashboard) {
   } else {
     body.push(
       el("div", { class: "plan-levels" }, [
-        planLevel("Direction", directionLabel(plan.direction)),
+        planLevel("Direction", directionLabel(plan.direction), null, { numeric: false }),
         planLevel("Entry", plan.entry?.value, "green"),
         planLevel("Stop", plan.stop?.value, "red"),
         planLevel("Invalidation", plan.invalidation?.value, "amber"),
@@ -546,8 +636,8 @@ function planCard(dashboard) {
     const targets = Array.isArray(plan.targets) ? plan.targets : [];
     const targetRows = targets.map((target, index) => el("div", { class: "plan-target-row" }, [
       el("span", { class: "target-index", text: `T${index + 1}` }),
-      el("span", { class: "target-value", text: displayOrUnknown(target?.level?.value) }),
-      el("span", { class: "target-r", text: isMissing(target?.r_multiple) ? "R/R UNKNOWN" : `${target.r_multiple} R` }),
+      el("span", { class: "target-value" }, [roundedSpan(target?.level?.value, 2)]),
+      el("span", { class: "target-r" }, [roundedRMultiple(target?.r_multiple)]),
     ]));
     body.push(el("div", { class: "plan-targets" }, [
       el("div", { class: "plan-targets-title", text: "Targets · risk / reward" }),
@@ -557,6 +647,15 @@ function planCard(dashboard) {
     ]));
     body.push(el("div", { class: "plan-caveat", text: "Deterministic paper plan only · not an order, fill, position, or profit." }));
   }
+  body.push(technicalDetails("Technical plan record", [
+    `planning state: ${planning.state || "UNKNOWN"}`,
+    ...backendReasons(planning.reasons).map((reason) => `reason: ${reason}`),
+    ...(Array.isArray(planning.missing_inputs) ? planning.missing_inputs : [])
+      .filter((value) => typeof value === "string" && value.trim())
+      .map((value) => `missing input: ${value.trim()}`),
+    planning.state_detail ? `state detail: ${planning.state_detail}` : null,
+    plan?.id ? `plan id: ${plan.id}` : null,
+  ]));
 
   return el("section", { class: "card terminal-card plan-card", "aria-label": "Trade plan" }, [
     el("div", { class: "section-title-row" }, [el("h2", { class: "card-title", text: "Trade plan" })]),
@@ -564,46 +663,57 @@ function planCard(dashboard) {
   ]);
 }
 
+function roundedRMultiple(value) {
+  if (isMissing(value)) return el("span", { text: "R/R UNKNOWN" });
+  const { display, raw } = displayRounded(value, 2);
+  return el("span", { text: `${display} R`, title: raw === null ? undefined : `Exact: ${raw}` });
+}
+
 function candidateEvidence(dashboard) {
   const candidate = activeCandidate(dashboard);
   const positive = [];
   const missing = [];
-  if (!candidate) return { candidate: null, positive, missing };
+  const optional = [];
+  if (!candidate) return { candidate: null, positive, missing, optional };
 
-  const seenPositive = new Set();
-  const seenMissing = new Set();
+  const seen = new Set();
+  const direction = candidate.direction || null;
+  const pushRow = (list, rule, item) => {
+    // Each evidence item is translated from its own reason (the backend
+    // always repeats the rule reason there, but an item-level sentence
+    // preserves information if they ever diverge).
+    const source = item && typeof item.reason === "string" && item.reason.trim()
+      ? { ...rule, reason: item.reason }
+      : rule;
+    const translated = translateRule(source, { direction });
+    if (seen.has(translated.sentence)) return;
+    seen.add(translated.sentence);
+    list.push({
+      meta: [evidenceCategoryLabel(item?.category), item?.timeframe || null, translated.title].filter(Boolean).join(" · "),
+      reason: translated.sentence,
+    });
+  };
   for (const rule of candidate.rules || []) {
-    for (const item of Array.isArray(rule.evidence) ? rule.evidence : []) {
-      const reason = typeof item.reason === "string" ? item.reason.trim() : "";
-      if (!reason) continue;
-      const row = {
-        category: item.category || "Evidence",
-        timeframe: item.timeframe || null,
-        ruleId: rule.rule_id || null,
-        reason,
-      };
-      if (item.status === "supportive" && !seenPositive.has(reason)) {
-        positive.push(row);
-        seenPositive.add(reason);
-      } else if (["opposing", "unknown"].includes(item.status) && !seenMissing.has(reason)) {
-        missing.push(row);
-        seenMissing.add(reason);
+    const evidence = Array.isArray(rule.evidence) ? rule.evidence : [];
+    for (const item of evidence) {
+      if (item.status === "supportive" || item.status === "neutral") {
+        pushRow(positive, rule, item);
+      } else if (item.status === "opposing" || item.status === "unknown") {
+        pushRow(rule?.required === false ? optional : missing, rule, item);
       }
     }
-    if (["failed", "pending"].includes(rule.outcome) && typeof rule.reason === "string" && rule.reason.trim()) {
-      const reason = rule.reason.trim();
-      if (!seenMissing.has(reason)) {
-        missing.push({ category: rule.outcome, timeframe: null, ruleId: rule.rule_id || null, reason });
-        seenMissing.add(reason);
-      }
+    // Rules without evidence rows (or whose evidence was filtered) still
+    // surface here when they fail or wait; optional checks never block.
+    if (["failed", "pending"].includes(rule.outcome)) {
+      pushRow(rule?.required === false ? optional : missing, rule, null);
     }
   }
-  return { candidate, positive, missing };
+  return { candidate, positive, missing, optional };
 }
 
 function evidenceColumn(title, tone, rows, emptyText) {
   const items = rows.map((row) => el("div", { class: "terminal-evidence-item" }, [
-    el("div", { class: "evidence-meta", text: [row.category, row.timeframe, row.ruleId].filter(Boolean).join(" · ") }),
+    el("div", { class: "evidence-meta", text: row.meta }),
     el("div", { class: "evidence-reason", text: row.reason }),
   ]));
   return el("div", { class: "evidence-col" }, [
@@ -629,6 +739,11 @@ function evidenceCard(dashboard) {
       evidenceColumn("FOR THE SETUP", "var(--green)", evidence.positive, "No supportive evidence was supplied."),
       evidenceColumn("AGAINST / STILL MISSING", "var(--amber)", evidence.missing, "No opposing or missing-rule detail was supplied."),
     ]),
+    ...(evidence.optional.length ? [el("div", { class: "terminal-evidence-item", style: { marginTop: "12px" } }, [
+      el("div", { class: "evidence-meta", text: "OPTIONAL CONTEXT · NEVER BLOCKS" }),
+      ...evidence.optional.map((row) => el("div", { class: "evidence-reason", text: row.reason })),
+    ])] : []),
+    technicalDetails("Technical evidence record", rawRuleRows(evidence.candidate)),
   ]);
 }
 
@@ -639,53 +754,63 @@ function scenarioText(value) {
 function trendSummaryText(trend) {
   if (!trend || typeof trend !== "object") return "UNKNOWN";
   if (trend.sufficient !== true) {
-    const reason = scenarioText(trend.reason);
-    return reason ? `UNKNOWN (${reason})` : "UNKNOWN (insufficient structure)";
+    return `Unknown (${trendReasonText(trend.reason)})`;
   }
-  const direction = String(trend.direction || "unknown").toUpperCase();
-  return `${direction} · ${trend.transition || "unknown"} · ${trend.momentum || "unknown"}`;
+  const rawDirection = directionLabel(trend.direction);
+  const direction = rawDirection.charAt(0).toUpperCase() + rawDirection.slice(1);
+  return `${direction} · ${trendTransitionText(trend.transition)} · ${trendMomentumText(trend.momentum)}`;
 }
 
 function volatilitySummaryText(volatility) {
   if (!volatility || typeof volatility !== "object") return "UNKNOWN";
   if (volatility.available !== true) {
-    const reason = scenarioText(volatility.reason);
-    return reason ? `UNKNOWN (${reason})` : "UNKNOWN";
+    return `Unknown (${unavailableReasonText(volatility.reason)})`;
   }
-  const value = isMissing(volatility.atr_percent_of_price) ? "?" : volatility.atr_percent_of_price;
-  const label = scenarioText(volatility.direction?.label);
-  if (!label || label === "unknown") return `${value}% of price · trend unknown`;
+  const value = displayRounded(volatility.atr_percent_of_price, 2).display;
+  const label = metricLabelText(volatility.direction?.label);
+  if (label === "trend unknown") return `${value}% of price · trend unknown`;
   return `${value}% of price · ${label}`;
 }
 
 function volumeSummaryText(volume) {
   if (!volume || typeof volume !== "object") return "UNKNOWN";
   if (volume.sufficient !== true) {
-    const reason = scenarioText(volume.reason);
-    return reason ? `UNKNOWN (${reason})` : "UNKNOWN";
+    return `Unknown (${unavailableReasonText(volume.reason)})`;
   }
-  const value = isMissing(volume.relative_volume) ? "?" : volume.relative_volume;
-  const label = scenarioText(volume.direction?.label);
-  if (!label || label === "unknown") return `${value}x average · trend unknown`;
+  const value = displayRounded(volume.relative_volume, 2).display;
+  const label = metricLabelText(volume.direction?.label);
+  if (label === "trend unknown") return `${value}x average · trend unknown`;
   return `${value}x average · ${label}`;
 }
 
 function rangeSummaryText(range) {
   if (!range || typeof range !== "object") return "UNKNOWN";
-  if (range.active !== true) return `no active range (${range.transition || "unknown"})`;
+  const transition = rangeTransitionText(range.transition);
+  if (range.active !== true) return `No active range (${transition})`;
   const detected = range.detected && typeof range.detected === "object" ? range.detected : null;
-  if (!detected) return "active range reported without detected levels";
-  return `${displayOrUnknown(detected.range_low)} → ${displayOrUnknown(detected.range_high)} · ${range.transition || "unknown"}`;
+  if (!detected) return "Active range reported without detected levels";
+  const low = displayRounded(detected.range_low, 2).display;
+  const high = displayRounded(detected.range_high, 2).display;
+  return `${low} → ${high} · ${transition}`;
 }
 
-function zoneBandText(zone) {
+function zoneBandNode(zone) {
   if (!zone || typeof zone !== "object") return null;
-  return `${displayOrUnknown(zone.band_low)}–${displayOrUnknown(zone.band_high)} (${zone.touch_count ?? "?"} touches)`;
+  return el("span", {}, [
+    roundedSpan(zone.band_low, 2),
+    "–",
+    roundedSpan(zone.band_high, 2),
+    ` (${zone.touch_count ?? "?"} touches)`,
+  ]);
 }
 
-function equalLevelText(entry) {
+function equalLevelNode(entry) {
   if (!entry || typeof entry !== "object") return null;
-  return `${displayOrUnknown(entry.level)} (${entry.type || "level"} ×${entry.member_count ?? "?"})`;
+  const kind = entry.type === "equal_high" ? "equal highs" : entry.type === "equal_low" ? "equal lows" : "level";
+  return el("span", {}, [
+    roundedSpan(entry.level, 2),
+    ` (${kind} ×${entry.member_count ?? "?"})`,
+  ]);
 }
 
 function marketNowUnavailable(reason) {
@@ -694,7 +819,7 @@ function marketNowUnavailable(reason) {
       el("h2", { class: "card-title", text: "Market now" }),
       el("span", { class: "card-hint", text: "backend facts · this close" }),
     ]),
-    el("div", { class: "plan-reason", text: reason || "Market-state facts unavailable from the backend." }),
+    el("div", { class: "plan-reason", text: backendNoticeText(reason, "Market-state facts unavailable from the backend.") }),
   ]);
 }
 
@@ -719,16 +844,16 @@ function latestEventLine(label, latest, detail) {
 function breakoutChips(breakout) {
   const chips = [];
   for (const item of Array.isArray(breakout.attempts) ? breakout.attempts : []) {
-    chips.push(`breakout ${directionLabel(item.direction)} @ ${displayOrUnknown(item.close)}`);
+    chips.push(el("span", {}, [`breakout ${directionLabel(item.direction)} @ `, roundedSpan(item.close, 2)]));
   }
   for (const item of Array.isArray(breakout.acceptances) ? breakout.acceptances : []) {
     chips.push(`held retest ${directionLabel(item.direction)}`);
   }
   for (const item of Array.isArray(breakout.rejections) ? breakout.rejections : []) {
-    chips.push(item.kind || "rejection");
+    chips.push(rejectionKindText(item.kind));
   }
   for (const item of Array.isArray(breakout.sweeps) ? breakout.sweeps : []) {
-    chips.push(`sweep ${directionLabel(item.direction)} → ${displayOrUnknown(item.reclaim_close)}`);
+    chips.push(el("span", {}, [`sweep ${directionLabel(item.direction)} → `, roundedSpan(item.reclaim_close, 2)]));
   }
   return chips;
 }
@@ -744,6 +869,10 @@ function marketNowCard(dashboard) {
   const breakout = state.breakout_state && typeof state.breakout_state === "object" ? state.breakout_state : {};
   const htf = state.higher_timeframes && typeof state.higher_timeframes === "object" ? state.higher_timeframes : {};
   const chips = breakoutChips(breakout);
+  const support = zoneBandNode(levels.nearest_support);
+  const resistance = zoneBandNode(levels.nearest_resistance);
+  const below = equalLevelNode(levels.nearest_level_below);
+  const above = equalLevelNode(levels.nearest_level_above);
   const children = [
     el("div", { class: "performance-summary" }, [
       performanceMetric("Trend", trendSummaryText(state.trend)),
@@ -751,14 +880,17 @@ function marketNowCard(dashboard) {
       performanceMetric("Volume", volumeSummaryText(state.volume)),
       performanceMetric("Range", rangeSummaryText(state.range)),
     ]),
-    el("div", {
-      class: "chart-note",
-      text: `Nearest levels: support ${zoneBandText(levels.nearest_support) || "none in range"} · ` +
-        `resistance ${zoneBandText(levels.nearest_resistance) || "none in range"} · ` +
-        `equal below ${equalLevelText(levels.nearest_level_below) || "none"} · ` +
-        `equal above ${equalLevelText(levels.nearest_level_above) || "none"} · ` +
-        `${levels.zone_count ?? "?"} zones · ${levels.equal_level_count ?? "?"} equal levels`,
-    }),
+    el("div", { class: "chart-note" }, [
+      "Nearest levels: support ",
+      support || "none in range",
+      " · resistance ",
+      resistance || "none in range",
+      " · equal below ",
+      below || "none",
+      " · equal above ",
+      above || "none",
+      ` · ${levels.zone_count ?? "?"} zones · ${levels.equal_level_count ?? "?"} equal levels`,
+    ]),
     el("div", { class: "chart-note", text: `Event catalog: ${eventCountsLine(events)}` }),
   ];
   const latestBreakout = events.breakouts?.latest;
@@ -766,7 +898,7 @@ function marketNowCard(dashboard) {
     children.push(latestEventLine(
       "Latest breakout",
       latestBreakout,
-      `${directionLabel(latestBreakout.direction)} of ${latestBreakout.reference_type || "unknown reference"}`,
+      `${directionLabel(latestBreakout.direction)} of ${referenceTypeText(latestBreakout.reference_type)}`,
     ));
   }
   const latestSweep = events.sweeps?.latest;
@@ -779,21 +911,26 @@ function marketNowCard(dashboard) {
       `${freshCounts[2]} rejection(s) · ${freshCounts[3]} sweep(s)`,
   }));
   if (chips.length) {
-    const chipSpans = chips.map((text) => el("span", { class: "outcome-chip", text }));
+    const chipSpans = chips.map((chip) => (
+      typeof chip === "string"
+        ? el("span", { class: "outcome-chip", text: chip })
+        : el("span", { class: "outcome-chip" }, [chip])
+    ));
     children.push(el("div", { class: "outcome-breakdown", "aria-label": "Fresh breakout activity" }, chipSpans));
   }
+  // Higher timeframes are never requested with dashboard defaults, so an empty
+  // request list shows nothing instead of a permanent "not requested" note.
   const requested = Array.isArray(htf.requested) ? htf.requested : [];
-  if (!requested.length) {
-    children.push(el("div", { class: "chart-note", text: scenarioText(htf.note) || "No higher timeframes requested." }));
-  } else {
+  if (requested.length) {
     const contexts = htf.contexts && typeof htf.contexts === "object" ? htf.contexts : {};
     for (const timeframe of requested) {
       const context = contexts[timeframe] && typeof contexts[timeframe] === "object" ? contexts[timeframe] : {};
+      const trend = directionLabel(context.trend).toLowerCase();
       children.push(el("div", {
         class: "chart-note",
-        text: `${timeframe}: trend ${context.trend || "UNKNOWN"}` +
+        text: `${timeframe}: trend ${trend}` +
           (context.available === false ? " (unavailable)" : "") +
-          (context.reason ? ` — ${context.reason}` : ""),
+          (context.reason ? ` — ${unavailableReasonText(context.reason)}` : ""),
       }));
     }
   }
@@ -806,32 +943,37 @@ function marketNowCard(dashboard) {
   ]);
 }
 
-function pendingRequiredText(pending) {
+/**
+ * Pending-required entries carry {rule, reason} only: by backend construction
+ * (live_setup_payload) they are always required + pending, so the translator
+ * fills those in. Unknown shapes fall back to a humanized title.
+ */
+function pendingRequiredSentences(pending, direction = null) {
   const items = Array.isArray(pending) ? pending : [];
-  if (!items.length) return "none";
-  return items.map((item) => `${item.rule || "?"} — ${item.reason || "no reason"}`).join("; ");
+  return items.map((item) => translateRule(
+    { rule_id: item?.rule, outcome: "pending", reason: item?.reason, required: true },
+    { direction },
+  ).sentence);
 }
 
 function liveSetupNode(setup) {
   const failed = Array.isArray(setup.failed_rules) ? setup.failed_rules : [];
   const passed = Array.isArray(setup.passed_rules) ? setup.passed_rules : [];
-  const vetoedBy = Array.isArray(setup.vetoed_by) ? setup.vetoed_by : [];
+  const pending = pendingRequiredSentences(setup.pending_required, setup.direction);
   return el("div", { class: "terminal-evidence-item" }, [
     el("div", {
       class: "evidence-meta",
-      text: `${familyLabel(setup.family)} · ${directionLabel(setup.direction)} · ${setup.state || "UNKNOWN"} · ` +
-        `age ${setup.age_bars ?? "?"}/${setup.max_bars ?? "?"} bars · ${setup.bars_remaining ?? "?"} left` +
-        (setup.vetoed === true ? ` · VETOED by ${vetoedBy.length ? vetoedBy.join(", ") : "unknown rule"}` : "") +
+      text: `${familyLabel(setup.family)} · ${directionLabel(setup.direction)} · ${liveSetupMetaLine(setup)}` +
         (setup.created_at ? ` · seeded ${formatUtc(setup.created_at)}` : ""),
     }),
-    el("div", { class: "evidence-reason", text: `Passed: ${passed.length ? passed.join(", ") : "none"}` }),
-    el("div", { class: "evidence-reason", text: `Failed: ${failed.length ? failed.join(", ") : "none"}` }),
-    el("div", { class: "evidence-reason", text: `Pending required: ${pendingRequiredText(setup.pending_required)}` }),
+    el("div", { class: "evidence-reason", text: `Passed: ${passed.length ? passed.map(shortRuleTitle).join(", ") : "none"}` }),
+    el("div", { class: "evidence-reason", text: `Failed: ${failed.length ? failed.map(shortRuleTitle).join(", ") : "none"}` }),
+    el("div", { class: "evidence-reason", text: pending.length ? `Still required: ${pending.join(" ")}` : "Nothing still required." }),
   ]);
 }
 
 function strengthenBlock(title, side) {
-  const direction = side?.direction || title;
+  const direction = side?.direction ? directionLabel(side.direction) : title;
   const developing = Array.isArray(side?.developing_setups) ? side.developing_setups : [];
   const starters = side?.to_start_a_setup && typeof side.to_start_a_setup === "object" ? side.to_start_a_setup : {};
   const rows = [
@@ -839,11 +981,14 @@ function strengthenBlock(title, side) {
     developing.length || side?.none_developing !== true
       ? null
       : el("div", { class: "evidence-reason", text: `No developing ${direction} setups.` }),
-    ...developing.map((item) => el("div", {
-      class: "evidence-reason",
-      text: `setup ${shortId(item.setup_id)} (${item.state || "UNKNOWN"}): ` +
-        `still required: ${pendingRequiredText(item.pending_required)}`,
-    })),
+    ...developing.map((item) => {
+      const pending = pendingRequiredSentences(item.pending_required);
+      return el("div", {
+        class: "evidence-reason",
+        text: `setup ${shortId(item.setup_id)} (${setupStateLabel(item.state)}): ` +
+          (pending.length ? `still required: ${pending.join(" ")}` : "nothing still required."),
+      });
+    }),
     ...Object.entries(starters).map(([family, text]) => el("div", {
       class: "evidence-reason",
       text: `${familyLabel(family)} starts with: ${text}`,
@@ -852,37 +997,43 @@ function strengthenBlock(title, side) {
   return el("div", { class: "terminal-evidence-item" }, rows);
 }
 
-function planLevelText(level) {
+function planLevelNode(level) {
   if (!level || typeof level !== "object" || isMissing(level.value)) return null;
-  const source = level.source_type ? ` (${level.source_type})` : "";
-  return `${displayOrUnknown(level.value)}${source}`;
+  const source = level.source_type ? ` (${levelSourceText(level.source_type)})` : "";
+  return el("span", {}, [roundedSpan(level.value, 2), source]);
 }
 
 function invalidateNode(item) {
   const evidence = Array.isArray(item.invalidation_evidence) ? item.invalidation_evidence : [];
-  const vetoedBy = Array.isArray(item.vetoed_by) ? item.vetoed_by : [];
   const rows = [
     el("div", {
       class: "evidence-meta",
-      text: `setup ${shortId(item.setup_id)} · ${item.state || "UNKNOWN"} · ` +
-        `${item.bars_remaining ?? "?"}/${item.max_bars ?? "?"} bars left` +
-        (item.vetoed === true ? ` · VETOED by ${vetoedBy.length ? vetoedBy.join(", ") : "unknown rule"}` : ""),
+      text: `setup ${shortId(item.setup_id)} · ${invalidateMetaLine(item)}`,
     }),
     ...(evidence.length
       ? evidence.map((entry) => el("div", {
+          // Invalidation evidence only ever comes from required rules (the
+          // optional rules carry higher_timeframe/classical_pattern evidence),
+          // so the missing `required` field is safely filled in.
           class: "evidence-reason",
-          text: `${entry.rule || "?"}: ${entry.outcome || "UNKNOWN"} — ${entry.reason || "no reason"}`,
+          text: translateRule(
+            { rule_id: entry?.rule, outcome: entry?.outcome, reason: entry?.reason, required: true },
+          ).sentence,
         }))
       : [el("div", { class: "evidence-reason", text: "No invalidation/lifecycle evidence yet." })]),
   ];
-  const entry = planLevelText(item.plan_entry);
-  const stop = planLevelText(item.plan_stop);
-  const invalidation = planLevelText(item.plan_invalidation);
+  const entry = planLevelNode(item.plan_entry);
+  const stop = planLevelNode(item.plan_stop);
+  const invalidation = planLevelNode(item.plan_invalidation);
   if (entry || stop || invalidation) {
-    rows.push(el("div", {
-      class: "evidence-reason",
-      text: `Selected plan — entry ${entry || "?"} · stop ${stop || "?"} · invalidation ${invalidation || "?"}`,
-    }));
+    rows.push(el("div", { class: "evidence-reason" }, [
+      "Selected plan — entry ",
+      entry || "?",
+      " · stop ",
+      stop || "?",
+      " · invalidation ",
+      invalidation || "?",
+    ]));
   }
   return el("div", { class: "terminal-evidence-item" }, rows);
 }
@@ -896,7 +1047,7 @@ function scenarioCard(dashboard) {
         el("h2", { class: "card-title", text: "Scenario" }),
         el("span", { class: "card-hint", text: "answers from backend facts" }),
       ]),
-      el("div", { class: "plan-reason", text: reason || "Scenario answers unavailable from the backend." }),
+      el("div", { class: "plan-reason", text: backendNoticeText(reason, "Scenario answers unavailable from the backend.") }),
     ]);
   }
   const seeing = scenario.bot_seeing && typeof scenario.bot_seeing === "object" ? scenario.bot_seeing : {};
@@ -904,18 +1055,16 @@ function scenarioCard(dashboard) {
   const waiting = scenario.waiting_for && typeof scenario.waiting_for === "object" ? scenario.waiting_for : {};
   const pending = Array.isArray(waiting.pending) ? waiting.pending : [];
   const cases = Array.isArray(scenario.invalidate?.cases) ? scenario.invalidate.cases : [];
+  const snapshotState = dashboard?.qualification?.state ?? seeing.state ?? null;
   return el("section", { class: "card terminal-card", "aria-label": "Scenario" }, [
     el("div", { class: "section-title-row" }, [
       el("h2", { class: "card-title", text: "Scenario" }),
       el("span", { class: "card-hint", text: "answers from backend facts" }),
     ]),
-    el("p", { class: "verdict-summary", text: scenario.doing_now || "The backend supplied no summary." }),
+    el("p", { class: "verdict-summary", text: doingNowParagraph(dashboard?.market_state, snapshotState) }),
+    technicalDetails("Exact backend wording", scenario.doing_now ? [`doing_now: ${scenario.doing_now}`] : []),
     el("div", { class: "section-title-row" }, [el("h2", { class: "card-title", text: "The bot is seeing" })]),
-    el("div", {
-      class: "chart-note",
-      text: `Aggregate ${seeing.state || "UNKNOWN"} (${seeing.status || "unknown status"}) · ` +
-        `${seeing.live_count ?? live.length} live setup(s)`,
-    }),
+    el("div", { class: "chart-note", text: aggregateSeeingLine({ ...seeing, live_count: seeing.live_count ?? live.length }) }),
     ...(live.length
       ? live.map(liveSetupNode)
       : [el("div", { class: "plan-reason", text: "No live setups at this close." })]),
@@ -924,13 +1073,20 @@ function scenarioCard(dashboard) {
     strengthenBlock("BEARISH case", scenario.strengthen_bearish),
     el("div", { class: "section-title-row" }, [el("h2", { class: "card-title", text: "Waiting for" })]),
     ...(pending.length
-      ? pending.map((item) => el("div", { class: "terminal-evidence-item" }, [
-          el("div", { class: "evidence-meta", text: item.rule || "?" }),
-          el("div", {
-            class: "evidence-reason",
-            text: `${item.reason || "no reason"} (${Array.isArray(item.setup_ids) ? item.setup_ids.length : "?"} setup(s))`,
-          }),
-        ]))
+      ? pending.map((item) => {
+          const translated = translateRule(
+            { rule_id: item?.rule, outcome: "pending", reason: item?.reason, required: true },
+          );
+          const count = Array.isArray(item.setup_ids) ? item.setup_ids.length : "?";
+          return el("div", { class: "terminal-evidence-item" }, [
+            el("div", { class: "evidence-meta", text: translated.title }),
+            el("div", {
+              class: "evidence-reason",
+              text: `${translated.sentence} (${count} setup(s))`,
+              title: typeof item?.reason === "string" && item.reason.trim() ? `Backend: ${item.rule || "?"} — ${item.reason.trim()}` : undefined,
+            }),
+          ]);
+        })
       : [el("div", {
           class: "plan-reason",
           text: scenarioText(waiting.note) || "Nothing outstanding.",
@@ -946,7 +1102,16 @@ function explanationCard(dashboard) {
   const explanation = dashboard?.explanation;
   const sections = Array.isArray(explanation?.sections) ? explanation.sections : [];
   const limitations = Array.isArray(explanation?.limitations) ? explanation.limitations : [];
+  // The collapsed label is plain English; the verbatim backend headline and
+  // sections stay inside as the Level-3 technical record.
+  const meta = dashboard?.meta || {};
+  const summaryLine = explanation && typeof explanation === "object" && explanation.available !== false
+    ? `Technical record · ${meta.symbol || "UNKNOWN"} · ${timeframeLabel(meta.timeframe)} · ${setupStateLabel(dashboard?.qualification?.state)}`
+    : "Grounded explanation";
   const body = [];
+  if (scenarioText(explanation?.headline)) {
+    body.push(el("div", { class: "chart-note", text: `Backend headline: ${explanation.headline.trim()}` }));
+  }
   if (explanation && typeof explanation === "object" && explanation.available === false) {
     const message = explanation.error && typeof explanation.error === "object"
       ? scenarioText(explanation.error.message)
@@ -977,7 +1142,7 @@ function explanationCard(dashboard) {
     }));
   }
   return el("details", { class: "card terminal-card expandable", "aria-label": "Grounded explanation" }, [
-    el("summary", { text: scenarioText(explanation?.headline) || "Grounded explanation" }),
+    el("summary", { text: summaryLine }),
     el("div", { class: "details-body" }, body),
   ]);
 }
@@ -996,7 +1161,10 @@ function recentDecisionsCard(forward) {
             el("th", { scope: "col", text: "State" }),
           ])]),
           el("tbody", {}, observations.map((item) => {
-            const states = [item.setup_state || "UNKNOWN", item.plan_state].filter(Boolean);
+            const states = [
+              setupStateLabel(item.setup_state),
+              item.plan_state ? planStateLabel(item.plan_state) : null,
+            ].filter(Boolean);
             return el("tr", {}, [
               el("td", { class: "mono", text: formatUtc(item.as_of) }),
               el("td", { text: familyLabel(item.setup_family) }),
@@ -1037,7 +1205,7 @@ function versionCohortDetails(model) {
       const distribution = metrics.raw_observational_r || {};
       return el("div", { class: "system-detail" }, [
         el("div", { class: "label", text: cohort.version_fingerprint || "Version UNKNOWN" }),
-        el("div", { class: "value", text: `Paper plans ${displayOrUnknown(metrics.paper_plan_count)} · settled ${displayOrUnknown(metrics.completed_count)} · eligible R ${displayOrUnknown(distribution.sample_size)} / ${displayOrUnknown(distribution.records_considered)} (${distribution.status || "UNKNOWN"}) · mean observed R ${displayOrUnknown(distribution.average)}` }),
+        el("div", { class: "value", text: `Paper plans ${displayOrUnknown(metrics.paper_plan_count)} · settled ${displayOrUnknown(metrics.completed_count)} · eligible R ${displayOrUnknown(distribution.sample_size)} / ${displayOrUnknown(distribution.records_considered)} (${metricStatusText(distribution.status)}) · mean observed R ${displayRounded(distribution.average, 2).display}` }),
       ]);
     })),
   ]);
@@ -1047,9 +1215,9 @@ function rateObservationText(rate) {
   const numerator = integerOrNull(rate?.numerator);
   const denominator = integerOrNull(rate?.denominator);
   if (numerator === null || denominator === null) return "UNKNOWN";
-  const percentage = isMissing(rate.percentage) ? null : displayOrUnknown(rate.percentage);
+  const percentage = isMissing(rate.percentage) ? null : displayRounded(rate.percentage, 1).display;
   const measured = percentage === null ? "" : `${percentage}% · `;
-  return `${measured}${numerator}/${denominator} · ${rate.status || "UNKNOWN"}`;
+  return `${measured}${numerator}/${denominator} · ${metricStatusText(rate?.status)}`;
 }
 
 function outcomeRateDetails(model) {
@@ -1075,12 +1243,12 @@ function rDistributionDetails(model) {
   const detailRows = distributions.map(([label, distribution]) => el("div", { class: "performance-rate-row" }, [
     el("div", { class: "performance-rate-head" }, [
       el("span", { class: "label", text: label }),
-      el("span", { class: "value mono", text: `eligible ${displayOrUnknown(distribution.sample_size)} / ${displayOrUnknown(distribution.records_considered)} · ${distribution.status || "UNKNOWN"}` }),
+      el("span", { class: "value mono", text: `eligible ${displayOrUnknown(distribution.sample_size)} / ${displayOrUnknown(distribution.records_considered)} · ${metricStatusText(distribution.status)}` }),
     ]),
-    el("div", { class: "note", text: `mean ${displayOrUnknown(distribution.average)} · median ${displayOrUnknown(distribution.median)} · min ${displayOrUnknown(distribution.minimum)} · max ${displayOrUnknown(distribution.maximum)}` }),
+    el("div", { class: "note", text: `mean ${displayRounded(distribution.average, 2).display} · median ${displayRounded(distribution.median, 2).display} · min ${displayRounded(distribution.minimum, 2).display} · max ${displayRounded(distribution.maximum, 2).display}` }),
     el("div", { class: "note", text: distribution.definition || "Metric definition unavailable." }),
     (Array.isArray(distribution.excluded) && distribution.excluded.length)
-      ? el("div", { class: "note", text: `Excluded: ${distribution.excluded.map((item) => `${item.value} ×${item.count}`).join(" · ")}` })
+      ? el("div", { class: "note", text: `Excluded: ${distribution.excluded.map((item) => `${displayRounded(item.value, 2).display} ×${item.count}`).join(" · ")}` })
       : null,
   ]));
   if (model.frictionAssumptions) {
@@ -1137,8 +1305,8 @@ function historicalReportNode(report) {
     el("div", { class: "performance-summary" }, [
       performanceMetric("OOS replay records", displayOrUnknown(metrics.total_records)),
       performanceMetric("Settled outcomes", displayOrUnknown(metrics.completed_count)),
-      performanceMetric("Eligible / considered R", `${displayOrUnknown(r.sample_size)} / ${displayOrUnknown(r.records_considered)}`, r.status || "UNKNOWN"),
-      performanceMetric("Mean observed R", displayOrUnknown(r.average), "Backend distribution · not expectancy"),
+      performanceMetric("Eligible / considered R", `${displayOrUnknown(r.sample_size)} / ${displayOrUnknown(r.records_considered)}`, metricStatusText(r.status)),
+      performanceMetric("Mean observed R", displayRounded(r.average, 2).display, "Backend distribution · not expectancy"),
     ]),
     el("div", { class: "performance-caveat", text: "Historical validation is a separate stored-candle replay. It is not paper execution, realised profit, or evidence of future profitability." }),
     (report.limitations || []).length
@@ -1152,13 +1320,15 @@ function performanceCard(forward, meta) {
   const rSample = model.eligibleRSample === null || model.consideredRSample === null
     ? "UNKNOWN"
     : `${model.eligibleRSample} / ${model.consideredRSample}`;
+  const meanObserved = displayRounded(model.averageObservedR, 2);
+  const meanFriction = displayRounded(model.averageFrictionAdjustedR, 2);
   const metrics = [
     performanceMetric("Paper plans", model.paperPlans === null ? "UNKNOWN" : String(model.paperPlans)),
     performanceMetric("Settled outcomes", model.resolvedOutcomes === null ? "UNKNOWN" : String(model.resolvedOutcomes)),
     performanceMetric("Unresolved", model.unresolvedOutcomes === null ? "UNKNOWN" : String(model.unresolvedOutcomes)),
-    performanceMetric("Eligible / considered R", rSample, model.rSampleStatus || "UNKNOWN"),
-    performanceMetric("Mean observed R", displayOrUnknown(model.averageObservedR), "Descriptive OHLC observation · not expectancy"),
-    performanceMetric("Mean friction-adjusted R", displayOrUnknown(model.averageFrictionAdjustedR), "Hypothetical only · not realised P&L"),
+    performanceMetric("Eligible / considered R", rSample, metricStatusText(model.rSampleStatus)),
+    performanceMetric("Mean observed R", meanObserved.display, `Descriptive OHLC observation · not expectancy${meanObserved.raw === null ? "" : ` · exact ${meanObserved.raw}`}`),
+    performanceMetric("Mean friction-adjusted R", meanFriction.display, `Hypothetical only · not realised P&L${meanFriction.raw === null ? "" : ` · exact ${meanFriction.raw}`}`),
   ];
 
   const children = [el("div", { class: "performance-summary" }, metrics)];
@@ -1171,7 +1341,7 @@ function performanceCard(forward, meta) {
       el("div", {}, [
         el("div", { class: "performance-caveat", text: "Recorded outcome statuses · counts only, not win/loss classifications" }),
         el("div", { class: "outcome-breakdown", "aria-label": "Recorded outcome states" },
-          model.outcomeStatusCounts.map((item) => el("span", { class: "outcome-chip", text: `${item.value}: ${item.count}` })),
+          model.outcomeStatusCounts.map((item) => el("span", { class: "outcome-chip", text: `${outcomeStatusText(item.value)}: ${item.count}` })),
         ),
       ]),
     );
@@ -1218,8 +1388,8 @@ function systemDetailsCard(dashboard, forward) {
     el("summary", { text: "System details" }),
     el("div", { class: "system-details-grid" }, [
       systemDetail("Summary", health.label),
-      systemDetail("Data health", market.data_health || dashboard?.freshness?.status || "UNKNOWN"),
-      systemDetail("Data health detail", market.data_health_detail || dashboard?.freshness?.reason || "UNKNOWN"),
+      systemDetail("Data health", healthLabel(market.data_health || dashboard?.freshness?.status)),
+      systemDetail("Data health detail", healthDetailText(market.data_health_detail || dashboard?.freshness?.reason)),
       systemDetail("Latest stored candle", latestStored ? formatUtc(latestStored) : "UNKNOWN"),
       systemDetail("Expected latest closed", expected ? formatUtc(expected) : "UNKNOWN"),
       systemDetail("Missing candles", missing === null ? "UNKNOWN" : String(missing)),

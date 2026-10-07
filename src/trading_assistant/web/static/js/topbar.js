@@ -10,8 +10,11 @@
  */
 
 import { api } from "./api.js";
-import { displayPrice, formatUtc, isMissing } from "./format.js";
+import { displayRounded, formatUtc, isMissing } from "./format.js";
+import { runnerStatusLabel } from "./plain.js";
 import { loadPrefs } from "./util.js";
+
+export { runnerStatusLabel };
 
 export function integerOrNull(value) {
   return Number.isInteger(value) && value >= 0 ? value : null;
@@ -29,10 +32,10 @@ export function timeframeLabel(timeframe) {
  * - "never-run": the backend reports runner:null, i.e. no heartbeat row was
  *   ever recorded. Pending catch-up may still be a real number: it counts
  *   stored closed candles no cycle has processed yet.
- * - "reported": a heartbeat row exists; state/detail/heartbeat/error come
- *   from it verbatim. Heartbeat age is the server-computed
- *   heartbeat_age_seconds (recorded_at vs the backend clock), never the
- *   browser clock.
+ * - "reported": a heartbeat row exists; state is its plain-English label while
+ *   detail/heartbeat/error come from it verbatim. Heartbeat age is the
+ *   server-computed heartbeat_age_seconds (recorded_at vs the backend
+ *   clock), never the browser clock.
  */
 export function runnerDetailsViewModel(forward) {
   const status = forward?.status;
@@ -70,14 +73,14 @@ export function runnerDetailsViewModel(forward) {
   const heartbeatTime = runner.recorded_at ? formatUtc(runner.recorded_at) : null;
   return {
     presence: "reported",
-    state: runner.status || "UNKNOWN",
+    state: runnerStatusLabel(runner.status),
     detail: runner.detail || "no detail recorded",
     pending: pendingText,
     latestCycle: runner.latest_cycle_as_of ? formatUtc(runner.latest_cycle_as_of) : "none recorded yet",
     heartbeat: heartbeatTime
       ? (age === null ? heartbeatTime : `${heartbeatTime} (${age}s ago)`)
       : "UNKNOWN",
-    lastError: runner.last_error || "None reported",
+    lastError: runner.last_error || "No errors reported",
   };
 }
 
@@ -96,6 +99,12 @@ export function runnerDetailsViewModel(forward) {
  * Never-run, stale data, a recorded runner error, a missing payload, or any
  * single pending boundary all yield SYSTEM WARNING. See web/freshness.py
  * for the exact CURRENT/STALE/HISTORICAL/UNKNOWN comparisons.
+ *
+ * Only the NEWEST heartbeat row feeds the runner conjunct, so a stale
+ * error in the trail can never stick: the next pass overwrites the verdict
+ * input. A silently dead runner still reads OK until its next boundary
+ * lands unprocessed (pending catch-up or freshness flips first) — the
+ * accepted blind window is one candle interval, never more.
  */
 export function systemHealthViewModel(dashboard, forward) {
   const forwardStatus = forward?.status || {};
@@ -156,7 +165,17 @@ export function updateTopbar(dashboard, forward) {
     if (latest?.timestamp) time.setAttribute("datetime", latest.timestamp);
     else time.removeAttribute("datetime");
   }
-  if (price) price.textContent = latest ? displayPrice(latest.close).display : "UNKNOWN";
+  if (price) {
+    if (latest && !isMissing(latest.close)) {
+      const { display, raw } = displayRounded(latest.close, 2);
+      price.textContent = display;
+      if (raw !== null) price.title = `Exact close: ${raw}`;
+      else price.removeAttribute("title");
+    } else {
+      price.textContent = "UNKNOWN";
+      price.removeAttribute("title");
+    }
+  }
   if (status) {
     const health = systemHealthViewModel(dashboard, forward);
     status.textContent = health.label;

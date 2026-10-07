@@ -248,16 +248,34 @@ export function applyOverlays(handle, payload = {}) {
   const plan = safePayload.plan && safePayload.plan.state === "PLANNABLE"
     ? safePayload.plan
     : null;
-  const seen = new Set();
+  // Group pending lines by exact price: several titles at one price become a
+  // single axis label ("support high + equal highs") instead of overlapping
+  // labels. Nothing is dropped — every level still contributes its title.
+  const byPrice = new Map();
 
   const add = (value, options) => {
     const price = finiteNumber(value);
     if (price === null) return;
-    const key = `${options.title}|${price}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    const line = handle.series.createPriceLine(priceLine(price, options));
-    handle.priceLineHandles.push(line);
+    const key = String(price);
+    const group = byPrice.get(key) || [];
+    if (!group.some((entry) => entry.title === options.title)) {
+      group.push({ title: options.title, color: options.color, style: options.style ?? 2, width: options.width ?? 1 });
+    }
+    byPrice.set(key, group);
+  };
+
+  const flush = () => {
+    for (const [key, group] of byPrice) {
+      const first = group[0];
+      const line = handle.series.createPriceLine(priceLine(Number(key), {
+        color: first.color,
+        title: group.map((entry) => entry.title).join(" + "),
+        style: first.style,
+        width: first.width,
+      }));
+      handle.priceLineHandles.push(line);
+    }
+    byPrice.clear();
   };
 
   if (prefs.zones !== false) {
@@ -319,4 +337,5 @@ export function applyOverlays(handle, payload = {}) {
       });
     });
   }
+  flush();
 }

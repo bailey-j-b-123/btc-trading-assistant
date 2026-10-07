@@ -230,3 +230,334 @@ def test_bounded_replay_reproduces_every_live_setup_exactly(tmp_path):
             )
     finally:
         engine.dispose()
+
+
+def _labelled_store_with_tail(tmp_path, *, tail_price=62160, tail_bars=25):
+    """The equivalence-test store plus flat closes so edges stay in range.
+
+    Same flat warm-up plus labelled candles as
+    ``test_bounded_replay_reproduces_every_live_setup_exactly``; the flat
+    tail only extends the stored history so a test can evaluate past the
+    labelled end (a seed at the window edge needs room for ``as_of``).
+    """
+    from forward_fixtures import labelled_series
+
+    engine, _ = create_service(tmp_path)
+    pad = 20
+    flat = tuple(bar(i, 100) for i in range(pad))
+    shifted = tuple(
+        replace(c, timestamp=EPOCH + INTERVAL * (pad + i))
+        for i, c in enumerate(labelled_series())
+    )
+    first_tail = pad + len(shifted)
+    tail = tuple(
+        replace(
+            bar(first_tail + i, tail_price),
+            timestamp=EPOCH + INTERVAL * (first_tail + i),
+        )
+        for i in range(tail_bars)
+    )
+    insert(engine, flat + shifted + tail)
+    return engine
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        QualificationParameters(),
+        QualificationParameters(
+            continuation_max_bars=5, reversal_max_bars=7, range_max_bars=11
+        ),
+    ],
+    ids=["default", "mixed-max-bars"],
+)
+def test_bounded_window_always_covers_every_live_setup(tmp_path, parameters):
+    """No live setup is ever seeded before the bounded window.
+
+    The expiry rule kills strictly past max_bars ("Exactly max_bars remains
+    eligible"), while the window reaches one frame further back — so every
+    WATCH/QUALIFIED setup is seeded strictly inside the window. The sweep
+    proves it at every boundary of a 60-close replay, under both default
+    and mixed per-family expiries.
+    """
+    from forward_fixtures import labelled_series
+
+    engine = _labelled_store_with_tail(tmp_path)
+    try:
+        service = QualificationService(engine)
+        as_of = EPOCH + (20 + len(labelled_series()) + 20) * INTERVAL
+        full = service.enumerate_snapshots(
+            **TARGET, as_of=as_of, parameters=parameters
+        )
+        assert len(full) > 40
+        checked = 0
+        for snapshot in full:
+            start = bounded_replay_start(
+                as_of=snapshot.as_of, timeframe=TIMEFRAME, parameters=parameters
+            )
+            for setup in _live_setups(snapshot):
+                checked += 1
+                assert setup.created_at >= start, (
+                    f"live setup {setup.id} seeded {setup.created_at} before "
+                    f"window start {start} at {snapshot.as_of}"
+                )
+        assert checked > 0, "the sweep saw no live setup and proves nothing"
+    finally:
+        engine.dispose()
+
+
+def test_bounded_replay_evaluates_seed_at_window_edge(tmp_path):
+    """A setup seeded exactly at the window start is evaluated, not dropped.
+
+    ``as_of`` is chosen so the bounded window starts exactly on an aged
+    setup's seed close. The edge seed is expired there (the window's extra
+    frame is safety margin, never live room), and the bounded replay still
+    carries it with the identical terminal record as the full replay.
+    """
+    engine = _labelled_store_with_tail(tmp_path)
+    try:
+        service = QualificationService(engine)
+        parameters = QualificationParameters()
+        max_bars = max(
+            parameters.continuation_max_bars,
+            parameters.reversal_max_bars,
+            parameters.range_max_bars,
+        )
+        probe = service.enumerate_snapshots(
+            **TARGET, as_of=EPOCH + 41 * INTERVAL, parameters=parameters
+        )
+        aged = sorted(_live_setups(probe[-1]), key=lambda s: s.created_at)
+        assert aged, "the fixture must keep a live setup to age to the edge"
+        edge_seed = aged[0].created_at
+        as_of = edge_seed + (max_bars + 1) * INTERVAL
+        start = bounded_replay_start(
+            as_of=as_of, timeframe=TIMEFRAME, parameters=parameters
+        )
+        assert start == edge_seed
+        full = service.enumerate_snapshots(
+            **TARGET, as_of=as_of, parameters=parameters
+        )
+        bounded = service.enumerate_snapshots(
+            **TARGET, as_of=as_of, parameters=parameters, start_at=start
+        )
+        assert bounded[0].as_of == start
+        full_by_id = {setup.id: setup for setup in full[-1].setups}
+        bounded_by_id = {setup.id: setup for setup in bounded[-1].setups}
+        edge = [
+            setup for setup in full[-1].setups if setup.created_at == edge_seed
+        ]
+        assert edge, "the full replay must still carry the edge seed"
+        for setup in edge:
+            assert setup.state is SetupState.NO_SETUP
+            assert setup.terminal_reason is not None
+            assert setup.id in bounded_by_id, (
+                f"seed at the window edge {setup.id} was dropped"
+            )
+            assert bounded_by_id[setup.id] == full_by_id[setup.id]
+        assert _live_setups(bounded[-1]) == _live_setups(full[-1])
+    finally:
+        engine.dispose()
+
+
+def test_bounded_replay_mixed_max_bars_uses_maximum_and_matches_full(tmp_path):
+    """Mixed per-family expiries widen the window to the maximum only.
+
+    With continuation/reversal/range expiries of 5/7/11 the window holds
+    the maximum plus the one-frame margin (13 frames), and every
+    fully-warmed snapshot inside it matches the full replay exactly.
+    """
+    engine = _labelled_store_with_tail(tmp_path, tail_bars=0)
+    try:
+        service = QualificationService(engine)
+        parameters = QualificationParameters(
+            continuation_max_bars=5, reversal_max_bars=7, range_max_bars=11
+        )
+        as_of = EPOCH + 41 * INTERVAL
+        full = service.enumerate_snapshots(
+            **TARGET, as_of=as_of, parameters=parameters
+        )
+        start = bounded_replay_start(
+            as_of=as_of, timeframe=TIMEFRAME, parameters=parameters
+        )
+        assert start == as_of - 12 * INTERVAL
+        bounded = service.enumerate_snapshots(
+            **TARGET, as_of=as_of, parameters=parameters, start_at=start
+        )
+        assert len(bounded) == 13
+        assert bounded[0].as_of == start
+        assert bounded[-1].as_of == as_of
+        complete = [s for s in bounded if s.as_of >= start + 11 * INTERVAL]
+        assert len(complete) == 2
+        full_by_as_of = {snapshot.as_of: snapshot for snapshot in full}
+        for snapshot in complete:
+            mate = full_by_as_of[snapshot.as_of]
+            assert snapshot.state == mate.state
+            assert _live_setups(snapshot) == _live_setups(mate)
+        assert _live_setups(full[-1]), "the fixture must keep live setups"
+    finally:
+        engine.dispose()
+
+
+def test_dashboard_bounded_evaluation_matches_full_replay(tmp_path):
+    """The dashboard's exact evaluation path matches the full replay.
+
+    This repeats ``DashboardService._evaluate`` step for step — default
+    parameters, ``bounded_replay_start`` rooting, ``build_frames`` plus
+    ``enumerate_qualifications``, final snapshot — and proves the frame
+    count never grows with stored history and the live setups equal the
+    full replay's.
+    """
+    from trading_assistant.setup_qualification.engine import (
+        enumerate_qualifications,
+    )
+
+    engine = _labelled_store_with_tail(tmp_path, tail_bars=0)
+    try:
+        service = QualificationService(engine)
+        parameters = QualificationParameters()
+        as_of = EPOCH + 41 * INTERVAL
+        frames = service.build_frames(
+            **TARGET,
+            as_of=as_of,
+            parameters=parameters,
+            start_at=bounded_replay_start(
+                as_of=as_of, timeframe=TIMEFRAME, parameters=parameters
+            ),
+        )
+        assert len(frames) == 12
+        snapshots = enumerate_qualifications(
+            frames, as_of=as_of, parameters=parameters
+        )
+        assert snapshots[-1].as_of == as_of
+        full = service.enumerate_snapshots(
+            **TARGET, as_of=as_of, parameters=parameters
+        )
+        assert snapshots[-1].state == full[-1].state
+        assert _live_setups(snapshots[-1]) == _live_setups(full[-1])
+    finally:
+        engine.dispose()
+
+
+def _reason_fields(reason):
+    """Mirror plain.js parseAssignments: ;-separated key=value segments."""
+    fields = {}
+    for part in reason.split(";"):
+        key, sep, value = part.strip().partition("=")
+        key = key.strip()
+        if (
+            sep
+            and key
+            and all(char.isalpha() or char == "_" for char in key)
+            and value.strip()
+        ):
+            fields[key] = value.strip()
+    return fields
+
+
+def _assert_decimal_or_none(value):
+    assert value == "None" or Decimal(value) is not None
+
+
+def _assert_reason_shape(rule_id, reason):
+    """Pin the exact reason shapes the frontend translator parses.
+
+    web/static/js/plain.js dispatches on rule_id and parses ;-separated
+    assignments (plus a few anchored patterns); any backend wording change
+    must update the translator in the same commit. Unknown rule ids fail
+    closed so a new rule cannot silently leak raw text to the UI.
+    """
+    fields = _reason_fields(reason)
+    if rule_id == "seed_event":
+        assert reason.startswith("confirmed ")
+        assert "; reference=" in reason
+    elif rule_id == "later_evaluation":
+        assert reason == "evaluation must be strictly after seed confirmation"
+    elif rule_id == "held_retest":
+        assert reason == "requires Step 4 held retest of the seed breakout"
+    elif rule_id == "no_failed_breakout":
+        assert reason == "catalog must contain no confirmed failure of seed breakout"
+    elif rule_id == "no_failed_retest":
+        assert (
+            reason
+            == "catalog must contain no confirmed failed retest of seed breakout"
+        )
+    elif rule_id == "reversal_breakout":
+        assert (
+            reason
+            == "requires later directional Step 4 breakout at a different reference"
+        )
+    elif rule_id == "active_range":
+        assert {"active_bounds", "frozen_bounds"} <= set(fields)
+    elif rule_id == "range_followthrough":
+        assert {"current_close", "seed_close"} <= set(fields)
+    elif rule_id == "structure":
+        assert reason.startswith("trend=")
+        assert {"trend", "reason"} <= set(fields)
+    elif rule_id == "volume":
+        assert set(fields) == {"relative_volume", "minimum", "source_reason"}
+        _assert_decimal_or_none(fields["relative_volume"])
+        assert Decimal(fields["minimum"]) is not None
+    elif rule_id == "volatility":
+        assert "ATR_percent" in fields
+        assert "source_reason" in fields
+        assert "<=" in reason
+        limit = reason.split("<=")[1].split(";")[0].strip()
+        assert Decimal(limit) is not None
+        _assert_decimal_or_none(fields["ATR_percent"])
+    elif rule_id == "location":
+        assert "close" in fields
+        assert "[" in reason and "]" in reason
+        _assert_decimal_or_none(fields["close"])
+    elif rule_id == "lifecycle":
+        if reason == "candidate is contiguous, unexpired and not invalidated":
+            return
+        head = reason.split(";")[0]
+        assert head.strip()
+        assert "=" not in head
+        assert int(fields["age_bars"]) >= 0
+        assert int(fields["max_bars"]) > 0
+    elif rule_id == "classical_pattern":
+        assert reason == "no current confirmed classical pattern since seed"
+    elif rule_id.startswith("classical_pattern:"):
+        head, middle, tail = (part.strip() for part in reason.split(";"))
+        assert head and "=" not in head
+        assert middle == "optional only"
+        assert tail == "cannot qualify or veto a setup"
+    elif rule_id == "higher_timeframe:not_requested":
+        assert reason == "no higher timeframes requested; no alignment inferred"
+    elif rule_id.startswith("higher_timeframe:"):
+        assert reason.startswith("requires aligned trend when mandatory; ")
+        assert {"trend", "unavailable_reason"} <= set(fields)
+    else:
+        raise AssertionError(
+            f"no translator contract for rule {rule_id!r}: "
+            f"extend plain.js and this pin together ({reason!r})"
+        )
+
+
+def test_rule_reasons_keep_frontend_translator_contract(tmp_path):
+    """Every emitted rule reason keeps the shape plain.js parses.
+
+    Sweeps a full labelled replay and checks each rule's reason against
+    the translator's grammar (rule_id dispatch, ;-separated assignments,
+    anchored sentences), so backend wording can never drift silently
+    under the plain-English UI.
+    """
+    engine = _labelled_store_with_tail(tmp_path, tail_bars=0)
+    try:
+        service = QualificationService(engine)
+        full = service.enumerate_snapshots(
+            **TARGET,
+            as_of=EPOCH + 41 * INTERVAL,
+            parameters=QualificationParameters(),
+        )
+        seen: dict[str, int] = {}
+        for snapshot in full:
+            for setup in snapshot.setups:
+                for outcome in setup.rules:
+                    seen[outcome.rule_id] = seen.get(outcome.rule_id, 0) + 1
+                    _assert_reason_shape(outcome.rule_id, outcome.reason)
+        for rule_id in ("structure", "volume", "volatility", "location", "lifecycle"):
+            assert seen.get(rule_id, 0) > 0, f"no {rule_id} rule observed"
+    finally:
+        engine.dispose()

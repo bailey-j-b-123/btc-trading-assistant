@@ -449,7 +449,7 @@ async function withDashboard(dashboard, forward, callback) {
 test("WATCH renders with backend evidence and missing confirmation", async () => {
   await withDashboard(backendDashboard(), forwardPayload(), async ({ view, ids }) => {
     await renderDashboard(view);
-    assert.match(view.textContent, /WATCH/);
+    assert.match(view.textContent, /Watching/);
     assert.match(view.textContent, /Range rejection reversal/);
     assert.match(view.textContent, /A sell-side sweep was recorded\./);
     assert.match(view.textContent, /A confirming close has not been recorded\./);
@@ -470,7 +470,7 @@ test("NO TRADE is rendered from NO_SETUP and its backend reason", async () => {
   });
   await withDashboard(dashboard, forwardPayload(), async ({ view }) => {
     await renderDashboard(view);
-    assert.match(view.textContent, /NO TRADE/);
+    assert.match(view.textContent, /No trade/);
     assert.match(view.textContent, /No candidate met deterministic setup conditions\./);
     assert.match(view.textContent, /No qualified trade plan right now\./);
   });
@@ -482,7 +482,7 @@ test("unavailable qualification data never becomes a zero count or a NO TRADE ve
     planning: { state: "NO_PLAN" },
     plan: null,
   });
-  assert.equal(model.state, "UNKNOWN");
+  assert.equal(model.state, "Unknown");
   assert.equal(model.watchCount, null);
   assert.equal(model.qualifiedCount, null);
   assert.equal(model.plannedCount, null);
@@ -520,11 +520,11 @@ test("PLANNABLE requires the backend plan state and renders its supplied levels"
   forward.status.current_state.as_of = "2026-10-06T11:00:00Z";
   await withDashboard(dashboard, forward, async ({ view }) => {
     await renderDashboard(view);
-    assert.match(view.textContent, /PLANNABLE/);
+    assert.match(view.textContent, /Plan ready/);
     assert.match(view.textContent, /124/);
     assert.match(view.textContent, /117/);
     assert.match(view.textContent, /138/);
-    assert.match(view.textContent, /2 R/);
+    assert.match(view.textContent, /2\.00 R/);
   });
 });
 
@@ -619,12 +619,16 @@ test("repeated dashboard renders dispose old charts and replace, not stack, over
   await withDashboard(dashboard, forward, async ({ view, chartState }) => {
     await renderDashboard(view);
     assert.equal(chartState.charts.length, 1);
-    assert.equal(chartState.charts[0].lines.size, 5); // S/R bounds plus entry, stop, target.
+    // S/R bounds plus entry, stop, target — but the zone low and the stop
+    // share one price, so they merge into a single axis label.
+    assert.equal(chartState.charts[0].lines.size, 4);
+    const titles = [...chartState.charts[0].lines].map((line) => line.options.title);
+    assert.ok(titles.some((title) => title.includes("support low") && title.includes("protective stop")));
     await renderDashboard(view);
     assert.equal(chartState.charts.length, 2);
     assert.equal(chartState.charts[0].removed, true);
     assert.equal(chartState.charts[0].lines.size, 0);
-    assert.equal(chartState.charts[1].lines.size, 5);
+    assert.equal(chartState.charts[1].lines.size, 4);
     assert.equal(chartState.charts.filter((chart) => !chart.removed).length, 1);
   });
 });
@@ -681,8 +685,8 @@ test("measured outcome observations preserve exact denominators and backend defi
   await withDashboard(backendDashboard(), forwardPayload(), async ({ view }) => {
     await renderDashboard(view);
     assert.match(view.textContent, /Outcome observations · exact denominators, not win rates/);
-    assert.match(view.textContent, /0\/1 · INSUFFICIENT_DATA/);
-    assert.match(view.textContent, /OPEN_AT_CUTOFF: 1/);
+    assert.match(view.textContent, /0\/1 · not enough data/);
+    assert.match(view.textContent, /Still open at cutoff: 1/);
     assert.match(view.textContent, /Proposed-level OHLC observation only; not realised P&L/);
     assert.match(view.textContent, /Win\/loss classification, win rate, expectancy, drawdown, and realised P&L are unavailable/);
   });
@@ -702,30 +706,32 @@ test("desktop and narrow layouts use the same one-page dashboard without navigat
   assert.match(css, /\.tertiary-grid \{ grid-template-columns: minmax\(0, 1fr\); \}/);
 });
 
-test("market now and scenario render backend facts verbatim", async () => {
+test("market now and scenario render backend facts in plain English", async () => {
   await withDashboard(backendDashboard(), forwardPayload(), async ({ view }) => {
     await renderDashboard(view);
-    assert.match(view.textContent, /BULLISH · unchanged · steady/);
-    assert.match(view.textContent, /2\.75345715% of price · contracting/);
-    assert.match(view.textContent, /UNKNOWN \(insufficient_volume_history\)/);
-    assert.match(view.textContent, /no active range \(absent\)/);
-    assert.match(view.textContent, /support 61,900–62,000 \(3 touches\)/);
+    assert.match(view.textContent, /Bullish · trend unchanged · steady/);
+    assert.match(view.textContent, /2\.75% of price · contracting/);
+    assert.match(view.textContent, /Unknown \(insufficient volume history\)/);
+    assert.match(view.textContent, /No active range \(no range\)/);
+    assert.match(view.textContent, /support 61,900\.00–62,000\.00 \(3 touches\)/);
     assert.match(view.textContent, /resistance none in range/);
-    assert.match(view.textContent, /equal below 61,850 \(equal_low ×2\)/);
+    assert.match(view.textContent, /equal below 61,850\.00 \(equal lows ×2\)/);
     assert.match(view.textContent, /Fresh at this close: 1 attempt\(s\) · 0 acceptance\(s\)/);
-    assert.match(view.textContent, /breakout Bullish @ 62,160/);
-    assert.match(view.textContent, /Latest breakout: Bullish of zone at 2026-10-06 12:00 UTC/);
-    assert.match(view.textContent, /no higher timeframes requested/);
-    assert.match(view.textContent, /Trend is BULLISH\. Volatility contracting\./);
-    assert.match(view.textContent, /Aggregate WATCH \(evaluated\) · 1 live setup/);
+    assert.match(view.textContent, /breakout Bullish @ 62,160\.00/);
+    assert.match(view.textContent, /Latest breakout: Bullish of price zone at 2026-10-06 12:00 UTC/);
+    assert.doesNotMatch(view.textContent, /no higher timeframes requested/);
+    assert.match(view.textContent, /Trend is bullish \(higher highs and higher lows\)\./);
+    assert.match(view.textContent, /doing_now: Trend is BULLISH\. Volatility contracting\./);
+    assert.match(view.textContent, /Watching 1 developing setup · fully evaluated/);
     assert.match(view.textContent, /age 2\/10 bars · 8 left/);
-    assert.match(view.textContent, /Pending required: confirmation_event — waiting for the confirming close/);
-    assert.match(view.textContent, /No developing bullish setups\./);
-    assert.match(view.textContent, /still required: confirmation_event — waiting/);
+    assert.match(view.textContent, /Still required: waiting for the confirming close/);
+    assert.match(view.textContent, /No developing Bullish setups\./);
+    assert.match(view.textContent, /still required: waiting/);
     assert.match(view.textContent, /starts with: a fresh breakout of a structural band/);
     assert.match(view.textContent, /waiting for the confirming close \(1 setup\(s\)\)/);
     assert.match(view.textContent, /No invalidation\/lifecycle evidence yet\./);
-    assert.match(view.textContent, /Step 9 grounded explanation — BTC\/USDT 1h — setup state: WATCH/);
+    assert.match(view.textContent, /Technical record · BTC\/USDT · 1H · Watching/);
+    assert.match(view.textContent, /Backend headline: Step 9 grounded explanation/);
     assert.match(view.textContent, /WHAT THE ENGINE SEES/);
     assert.match(view.textContent, /provenance deterministic-local/);
   });
@@ -739,9 +745,8 @@ test("missing market-state and scenario sections stay honestly unavailable", asy
   });
   await withDashboard(dashboard, forwardPayload(), async ({ view }) => {
     await renderDashboard(view);
-    assert.match(view.textContent, /no Step 3\/4 frame could be built at this boundary/);
-    assert.match(view.textContent, /no evaluated snapshot at this boundary/);
+    assert.match(view.textContent, /No market frame could be built at this point\./);
+    assert.match(view.textContent, /No completed analysis at this point\./);
     assert.match(view.textContent, /No snapshot to explain\./);
   });
 });
-

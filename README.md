@@ -1433,7 +1433,12 @@ infrastructure** — that deployment concern is deferred.
 The API returns authoritative structured data with explicit `UNKNOWN`/`null` states and
 never substitutes zeros. The frontend may *format* values for display (thousands
 separators, UTC rendering) but preserves the raw authoritative spelling and never
-re-derives a number.
+re-derives a number. The dashboard presents three levels: one-glance cards,
+short plain-English sentences (every backend enum, step reference, and missing
+value translated by the single `plain.js` translator — raw backend tokens never
+render), and expandable technical details carrying rule reasons, config
+fingerprints, and parameters verbatim. Rounded figures are presentation only:
+the exact backend spelling stays on hover and in the technical details.
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -1765,7 +1770,10 @@ and the strategy/config fingerprints — so:
   raises an explicit `ForwardConflict` instead of overwriting history;
 * duplicates in the downloaded candle stream cannot create duplicate decisions;
 * a candle added later cannot change a decision already recorded at an earlier
-  close.
+  close;
+* every setup observed live later records its first terminal transition exactly
+  once (ending time plus terminal reason), so the bounded-replay floor clears
+  instead of pinning at the oldest observation ever.
 
 After downtime the runner **catches up chronologically**: it inspects the last
 recorded boundary, finds the missed closes, and processes them in order up to a
@@ -2081,6 +2089,11 @@ heartbeat with status STARTED, PROCESSED, or IDLE and no recorded error.
 Anything else — never-run, stale data, a recorded runner error, a missing
 payload, a single pending boundary — is SYSTEM WARNING.
 
+Only the newest heartbeat row feeds the runner conjunct: a stale error in the
+trail clears as soon as the next pass records a healthy row. Heartbeat age is
+displayed, never decisive — so a silently dead runner reads OK until its next
+boundary lands unprocessed (at most one candle interval of blind window).
+
 The System-details card distinguishes three runner presences: `unavailable`
 (no forward status payload — every runner field UNKNOWN), `never run`
 (backend reports `runner: null`), and `reported` (state, detail,
@@ -2132,11 +2145,16 @@ by rendering the actual smoke responses through the real dashboard renderer
 with zero object leaks).
 
 Visual-test status: **no browser visual testing was performed — no browser
-is available in this environment.** Rendering is verified headlessly: 62
+is available in this environment.** Rendering is verified headlessly: 83
 zero-dependency node tests (including full-dashboard MockNode renders),
 Python contract tests over the shipped bundle, and the real-bytes render
-check above. Before trusting any visual change, open the dashboard in a real
-browser at desktop and 360px widths and confirm the chart draws.
+check above. Re-smoke after the second pass (2026-10-07, same procedure on
+fresh synthetic data): every route 200 with the same cache headers, and the
+real backend bytes render through the real dashboard renderer with zero
+object leaks, no raw backend tokens outside the technical disclosures, and
+an honestly WARNING pill (stale synthetic data plus pending catch-up).
+Before trusting any visual change, open the dashboard in a real browser at
+desktop and 360px widths and confirm the chart draws.
 
 ### Information gaps (what the system cannot tell you)
 

@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import {
   refreshTopbar,
   setTopbarWarning,
+  systemHealthViewModel,
   updateTopbar,
 } from "../../src/trading_assistant/web/static/js/topbar.js";
 
@@ -81,7 +82,7 @@ test("updateTopbar populates every header field from backend facts", async () =>
       assert.equal(ids.get("topbar-timeframe").textContent, "1H");
       assert.equal(ids.get("topbar-candle-time").textContent, "2026-10-06 12:00 UTC");
       assert.equal(ids.get("topbar-candle-time").attributes.datetime, TIMESTAMP);
-      assert.equal(ids.get("topbar-price").textContent, "62,160");
+      assert.equal(ids.get("topbar-price").textContent, "62,160.00");
       assert.equal(ids.get("topbar-status").textContent, "SYSTEM OK");
     },
   });
@@ -112,7 +113,7 @@ test("refreshTopbar fetches the same truth other routes render without", async (
     run: async (ids) => {
       await refreshTopbar();
       assert.equal(ids.get("topbar-symbol").textContent, "BTC/USDT");
-      assert.equal(ids.get("topbar-price").textContent, "62,160");
+      assert.equal(ids.get("topbar-price").textContent, "62,160.00");
       assert.equal(ids.get("topbar-status").textContent, "SYSTEM OK");
       assert.ok(seen.some((path) => path.startsWith("/api/dashboard")));
       assert.ok(seen.some((path) => path.startsWith("/api/forward")));
@@ -202,15 +203,67 @@ test("runner details distinguish unavailable, never-run, and reported", async ()
     },
   });
   assert.equal(reported.presence, "reported");
-  assert.equal(reported.state, "PROCESSED");
+  assert.equal(reported.state, "Processed");
   assert.equal(reported.pending, "0 closed candles not yet processed");
   assert.equal(reported.heartbeat, "2026-10-06 12:00 UTC (125s ago)");
-  assert.equal(reported.lastError, "None reported");
+  assert.equal(reported.lastError, "No errors reported");
 
   const errored = runnerDetailsViewModel({
     status: { runner: { status: "ERROR", last_error: "boom", recorded_at: null } },
   });
-  assert.equal(errored.state, "ERROR");
+  assert.equal(errored.state, "Error");
   assert.equal(errored.lastError, "boom");
   assert.equal(errored.heartbeat, "UNKNOWN");
+});
+
+test("system verdict needs every health conjunct; age alone never warns", () => {
+  const ok = systemHealthViewModel(headerDashboard(), headerForward());
+  assert.equal(ok.healthy, true);
+  assert.equal(ok.label, "SYSTEM OK");
+  assert.equal(ok.tone, "green");
+
+  // Each single failure flips the verdict to WARNING.
+  const staleFreshness = headerDashboard();
+  staleFreshness.freshness.status = "STALE";
+  assert.equal(systemHealthViewModel(staleFreshness, headerForward()).label, "SYSTEM WARNING");
+
+  const gappyMarket = headerDashboard();
+  gappyMarket.market.complete = false;
+  assert.equal(systemHealthViewModel(gappyMarket, headerForward()).label, "SYSTEM WARNING");
+
+  const staleForward = headerForward();
+  staleForward.status.market_data.data_health = "STALE";
+  assert.equal(systemHealthViewModel(headerDashboard(), staleForward).label, "SYSTEM WARNING");
+
+  const pending = headerForward();
+  pending.status.sample.pending_catch_up_boundaries = 1;
+  assert.equal(systemHealthViewModel(headerDashboard(), pending).label, "SYSTEM WARNING");
+
+  const errored = headerForward();
+  errored.status.runner.status = "ERROR";
+  errored.status.runner.last_error = "boom";
+  assert.equal(systemHealthViewModel(headerDashboard(), errored).label, "SYSTEM WARNING");
+
+  const neverRun = headerForward();
+  neverRun.status.runner = null;
+  assert.equal(systemHealthViewModel(headerDashboard(), neverRun).label, "SYSTEM WARNING");
+
+  const noData = headerForward();
+  noData.status.runner.status = "NO_DATA";
+  assert.equal(systemHealthViewModel(headerDashboard(), noData).label, "SYSTEM WARNING");
+
+  assert.equal(systemHealthViewModel(null, null).label, "SYSTEM WARNING");
+
+  // Heartbeat age is displayed, never decisive: an ancient heartbeat with
+  // otherwise perfect health still reads OK.
+  const ancient = headerForward();
+  ancient.status.runner.heartbeat_age_seconds = 99999;
+  assert.equal(systemHealthViewModel(headerDashboard(), ancient).label, "SYSTEM OK");
+
+  // Recovery clears: a healthy newest row reads OK whatever came before
+  // (the backend test pins that the newest row is what the backend sends).
+  const recovered = headerForward();
+  recovered.status.runner.status = "PROCESSED";
+  recovered.status.runner.last_error = null;
+  assert.equal(systemHealthViewModel(headerDashboard(), recovered).label, "SYSTEM OK");
 });

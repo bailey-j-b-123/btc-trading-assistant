@@ -419,3 +419,32 @@ def test_zero_prices_are_explicitly_unsupported_not_fabricated():
     with pytest.raises(ValueError, match="strictly positive OHLC"):
         snap((candle,))
     assert candle.low == 0
+
+
+def test_identity_memo_distinguishes_decimal_spellings_and_stays_bounded():
+    """The F4a identity memo is repr-keyed and LRU-bounded.
+
+    ``to_jsonable`` renders Decimal spelling ('1.10' vs '1.1') while
+    ``hash`` is numeric, so the memo key must be ``repr``: distinct
+    spellings are distinct identities. The memo also never grows past
+    its bound no matter how many distinct inputs a replay feeds it.
+    """
+    from trading_assistant.pattern_liquidity.events import (
+        _IDENTITY_MEMO_MAX,
+        _identity_memo,
+        identity,
+    )
+
+    _identity_memo.clear()
+    try:
+        first = identity(D("1.10"))
+        second = identity(D("1.1"))
+        assert first != second
+        assert identity(D("1.10")) == first
+        assert len(_identity_memo) == 2
+        for index in range(_IDENTITY_MEMO_MAX + 10):
+            identity(f"distinct-input-{index}")
+        assert len(_identity_memo) == _IDENTITY_MEMO_MAX
+        assert identity(D("1.10")) == first
+    finally:
+        _identity_memo.clear()
