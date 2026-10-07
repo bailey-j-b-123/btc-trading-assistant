@@ -95,19 +95,28 @@ def analyze_patterns(
     observed, completed_retests, failed = set(), set(), set()
     segment = ()
     context = analyze_candles((), interval=interval, as_of=as_of, parameters=sp)
+    # When candles are contiguous, the previous iteration's ``context`` already
+    # is this iteration's ``previous_context``: same segment, and ``as_of`` equal
+    # to the previous close (``analyze_candles`` is pure, so reuse is exact, not
+    # approximate). A gap reset discards the carry, exactly like detector state.
+    carried_context = None
     for candle in closed:
         if segment and candle.timestamp - segment[-1].timestamp != interval:
             segment = ()
             pending.clear()
             live_breakouts.clear()
             live_patterns.clear()
-        previous_context = analyze_candles(
-            segment, interval=interval, as_of=candle.timestamp, parameters=sp
-        )
+            carried_context = None
+        if carried_context is None:
+            carried_context = analyze_candles(
+                segment, interval=interval, as_of=candle.timestamp, parameters=sp
+            )
+        previous_context = carried_context
         previous = segment[-1] if segment else None
         segment = (*segment, candle)
         now = candle.timestamp + interval
         context = analyze_candles(segment, interval=interval, as_of=now, parameters=sp)
+        carried_context = context
         if previous:
             for ref in references(previous_context, instrument):
                 directions = (

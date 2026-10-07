@@ -439,3 +439,50 @@ def test_cli_parameters_and_report_limitations_are_versioned() -> None:
     assert clock_at(QUALIFYING_BOUNDARY) > QUALIFYING_BOUNDARY
     assert bar(21, 126).timestamp == QUALIFYING_BOUNDARY
     assert INTERVAL
+
+
+def test_recovered_pass_clears_the_newest_heartbeat_error() -> None:
+    """A stale ERROR row never poisons the dashboard after recovery.
+
+    The dashboard reads the newest heartbeat row only, so a past failure
+    must not stick: after a successful pass the newest row carries no
+    error while the earlier ERROR row stays preserved in the trail.
+    """
+    harness = make_harness(series=labelled_series(), ledger_start=QUALIFYING_BOUNDARY)
+    harness.advance_to(QUALIFYING_BOUNDARY)
+    harness.service._heartbeat(
+        status=HeartbeatStatus.ERROR,
+        detail="simulated outage before the pass",
+        exchange=EXCHANGE,
+        symbol=SYMBOL,
+        timeframe=TIMEFRAME,
+        recorded_at=QUALIFYING_BOUNDARY,
+        cycles_processed=0,
+        observations_recorded=0,
+        paper_plans_created=0,
+        outcomes_recorded=0,
+        pending_boundaries=1,
+        latest_cycle_as_of=None,
+        last_error="boom",
+        error_type="RuntimeError",
+        market_data_json="{}",
+        runner_id="test-runner",
+    )
+    runner = make_runner(harness, interval_seconds=D("1"))
+    result = runner.run(once=True, refresh_market_data=False)
+    assert result is not None
+
+    rows = heartbeat_rows(harness)
+    statuses = [row.status for row in rows]
+    assert statuses[0] == HeartbeatStatus.ERROR.value
+    assert HeartbeatStatus.PROCESSED.value in statuses
+    assert statuses[-1] == HeartbeatStatus.STOPPED.value
+    assert rows[0].last_error == "boom"
+
+    newest = harness.service.ledger.latest_heartbeat(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME
+    )
+    assert newest is not None
+    assert newest.status is HeartbeatStatus.STOPPED
+    assert newest.last_error is None
+    assert newest.error_type is None

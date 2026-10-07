@@ -103,7 +103,10 @@ class HeartbeatStatus(StrEnum):
     """Runner lifecycle states as recorded by the forward runner itself.
 
     A heartbeat is a statement about the *process*, never about the market. The
-    dashboard derives runner status from the newest heartbeat plus its age.
+    dashboard shows the newest heartbeat (including its server-computed age)
+    and derives the SYSTEM OK/WARNING verdict from freshness, completeness,
+    pending catch-up, and heartbeat status plus the absence of a recorded
+    error — heartbeat age is displayed, never decisive.
     """
 
     STARTED = "STARTED"

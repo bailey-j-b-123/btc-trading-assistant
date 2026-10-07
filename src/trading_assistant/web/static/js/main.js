@@ -3,6 +3,7 @@
  * the older read-only views remain available to existing direct links.
  */
 
+import { refreshTopbar } from "./topbar.js";
 import { disposeDashboard, renderDashboard } from "./views/dashboard.js";
 import { renderJournal } from "./views/journal.js";
 import { renderLive } from "./views/live.js";
@@ -46,6 +47,7 @@ function render() {
   disposeDashboard();
   view.className = "view";
   document.title = `Trading Assistant — ${TITLES[name] || TITLES.dashboard}`;
+  if (name !== "dashboard") refreshTopbar();
   Promise.resolve(ROUTES[name](view, parts)).catch((error) => {
     view.textContent = "";
     const block = document.createElement("div");

@@ -24,6 +24,7 @@ from trading_assistant.pattern_liquidity.events import (
 )
 from trading_assistant.pattern_liquidity.references import references
 from trading_assistant.pattern_liquidity.snapshot import PatternLiquiditySnapshot
+from trading_assistant.setup_qualification.families import reference_for
 from trading_assistant.setup_qualification.models import SetupFamily
 from trading_assistant.trade_planning.parameters import (
     PlanningParameters,
@@ -77,7 +78,10 @@ def select_confirmation(
         )
         return next(candidates, None)
     if family is SetupFamily.LIQUIDITY_REVERSAL:
-        seed_reference = seed.reference
+        # A FailedBreakout seed carries its reference on the wrapped breakout,
+        # exactly as Step 5 resolves it; direct ``seed.reference`` access raised
+        # AttributeError for that seed kind.
+        seed_reference = reference_for(seed)
         candidates = (
             e
             for e in sorted(patterns.breakouts, key=lambda e: (e.known_at, e.id))

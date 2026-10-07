@@ -11,6 +11,8 @@
 
 import { api } from "../api.js";
 import { displayOrUnknown, formatUtc, shortId } from "../format.js";
+import { healthLabel, runnerStatusLabel } from "../plain.js";
+import { integerOrNull } from "../topbar.js";
 import { clearNode, el, emptyState, errorState, spinner } from "../util.js";
 
 export const FORWARD_LABEL = "LIVE FORWARD VALIDATION — NOT REAL PERFORMANCE";
@@ -98,9 +100,10 @@ function distributionBlock(title, distribution) {
 function marketDataCard(status) {
   const market = status.market_data || {};
   const runner = status.runner;
+  const pending = integerOrNull(status.sample?.pending_catch_up_boundaries);
   return card("LIVE MARKET DATA", [
     el("div", { class: "stat-banner", dataset: { tone: healthTone(market.data_health) } }, [
-      el("span", { text: `${MARKET_DATA_LABEL}: ${market.data_health || "UNKNOWN"}` }),
+      el("span", { text: `${MARKET_DATA_LABEL}: ${healthLabel(market.data_health)}` }),
       el("span", { class: "sub", text: market.data_health_detail || "no verdict yet" }),
     ]),
     el("div", { class: "stat-cards", style: { marginTop: "12px" } }, [
@@ -125,7 +128,7 @@ function marketDataCard(status) {
       ),
       statCard(
         "Runner",
-        runner ? runner.status : "never run",
+        runner ? runnerStatusLabel(runner.status) : "never run",
         runner ? `last event ${formatUtc(runner.recorded_at)}` : "start it from the CLI",
       ),
       statCard(
@@ -137,8 +140,8 @@ function marketDataCard(status) {
       ),
       statCard(
         "Pending catch-up",
-        status.sample?.pending_catch_up_boundaries ?? 0,
-        "closed candles not yet processed",
+        pending === null ? "UNKNOWN" : String(pending),
+        pending === null ? "pending count unavailable" : "closed candles not yet processed",
       ),
     ]),
     runner && runner.last_error

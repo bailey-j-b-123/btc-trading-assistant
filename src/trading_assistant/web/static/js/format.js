@@ -5,7 +5,10 @@
  *  - backend values arrive as exact decimal strings or null; raw values are
  *    never altered, recomputed, or invented;
  *  - missing/null/undefined always renders as UNKNOWN, never as zero;
- *  - formatting only adds thousands separators and trims display noise.
+ *  - formatDecimalText only adds thousands separators and trims display noise;
+ *  - displayRounded shows a short rounded figure for one-glance reading while
+ *    keeping the exact backend spelling in `raw` (callers surface it on
+ *    hover), so rounding is presentation only and never a data change.
  */
 
 export const UNKNOWN_TEXT = "UNKNOWN";
@@ -38,6 +41,57 @@ export function displayOrUnknown(value) {
   if (isMissing(value)) return UNKNOWN_TEXT;
   const formatted = formatDecimalText(value);
   return formatted === null ? String(value) : formatted;
+}
+
+/**
+ * Round an exact decimal string to `decimals` places (half away from zero),
+ * operating on the string so binary floats never touch backend values.
+ * Returns null for missing/non-numeric input.
+ */
+export function roundDecimalText(value, decimals = 2) {
+  if (isMissing(value)) return null;
+  const text = String(value).trim();
+  const match = text.match(/^([+-]?)(\d*)(?:\.(\d*))?$/);
+  if (!match || (match[2] === "" && !match[3])) return null;
+  const places = Math.max(0, Math.min(12, Math.trunc(decimals)));
+  const intPart = match[2] === "" ? "0" : match[2];
+  const digits = intPart + (match[3] || "");
+  const integerLength = intPart.length;
+  // One extra digit decides the rounding; padEnd only extends short inputs.
+  const padded = digits.padEnd(integerLength + places + 1, "0");
+  const kept = padded.slice(0, integerLength + places).split("").map(Number);
+  const deciding = Number(padded[integerLength + places]);
+  if (deciding >= 5) {
+    let index = kept.length - 1;
+    while (index >= 0) {
+      kept[index] += 1;
+      if (kept[index] <= 9) break;
+      kept[index] = 0;
+      index -= 1;
+    }
+    // Carry out of "9.9..." grows the integer part by one digit.
+    if (index < 0) kept.unshift(1);
+  }
+  const totalInteger = kept.length - places;
+  const integerPart =
+    (kept.slice(0, totalInteger).join("") || "0").replace(/^0+(?=\d)/, "") || "0";
+  const fractionPart = kept.slice(totalInteger).join("");
+  // A value that rounds to zero is "0.00", never "-0.00".
+  const sign = match[1] === "-" && /[1-9]/.test(integerPart + fractionPart) ? "-" : "";
+  return places === 0 ? `${sign}${integerPart}` : `${sign}${integerPart}.${fractionPart}`;
+}
+
+/**
+ * One-glance rounded display plus the exact backend spelling.
+ * `display` is grouped + rounded; `raw` is the untouched backend string (or
+ * null when missing) for hover/title and technical details.
+ */
+export function displayRounded(value, decimals = 2) {
+  const raw = isMissing(value) ? null : String(value);
+  const rounded = roundDecimalText(value, decimals);
+  if (rounded === null) return { display: UNKNOWN_TEXT, raw };
+  const grouped = formatDecimalText(rounded);
+  return { display: grouped === null ? UNKNOWN_TEXT : grouped, raw };
 }
 
 /** UTC rendering of an ISO-8601 timestamp; missing stays UNKNOWN. */

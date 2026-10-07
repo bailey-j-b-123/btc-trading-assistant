@@ -10,6 +10,8 @@ import {
   clearOverlays,
   createPriceChart,
   destroyPriceChart,
+  FALLBACK_CHART_HEIGHT,
+  FALLBACK_CHART_WIDTH,
   setCandles,
   toChartCandles,
 } from "../../src/trading_assistant/web/static/js/chart.js";
@@ -290,4 +292,104 @@ test("chart data refreshes replace overlay handles and chart disposal releases r
       else delete globalThis[key];
     }
   }
+});
+
+function withChartGlobals(library, observerClass, run) {
+  const saved = new Map();
+  for (const key of ["window", "document", "ResizeObserver", "getComputedStyle", "requestAnimationFrame"]) {
+    saved.set(key, { present: Object.hasOwn(globalThis, key), value: globalThis[key] });
+  }
+  globalThis.document = { documentElement: {} };
+  globalThis.getComputedStyle = () => ({ getPropertyValue: () => "monospace" });
+  if (observerClass) globalThis.ResizeObserver = observerClass;
+  else delete globalThis.ResizeObserver;
+  globalThis.window = { LightweightCharts: library, addEventListener() {}, removeEventListener() {} };
+  try {
+    return run();
+  } finally {
+    for (const [key, prior] of saved) {
+      if (prior.present) globalThis[key] = prior.value;
+      else delete globalThis[key];
+    }
+  }
+}
+
+function stubLibrary(records) {
+  return {
+    createChart: (_container, options) => {
+      const record = { options, candles: [], volume: [], resizedTo: [], removed: false };
+      const series = {
+        setData: (data) => { record.candles = data; },
+        createPriceLine: (lineOptions) => ({ lineOptions }),
+        removePriceLine: () => {},
+      };
+      records.push(record);
+      return {
+        addCandlestickSeries: () => series,
+        addHistogramSeries: () => ({ setData: (data) => { record.volume = data; } }),
+        priceScale: () => ({ applyOptions: () => {} }),
+        resize: (width, height) => { record.resizedTo.push([width, height]); },
+        remove: () => { record.removed = true; },
+      };
+    },
+  };
+}
+
+test("a zero-size container at mount no longer kills the chart: fallback now, real layout on resize", () => {
+  const records = [];
+  const observers = [];
+  class CapturingObserver {
+    constructor(callback) { this.callback = callback; observers.push(this); }
+    observe() {}
+    disconnect() {}
+  }
+  withChartGlobals(stubLibrary(records), CapturingObserver, () => {
+    const container = { clientWidth: 0, clientHeight: 0 };
+    const handle = createPriceChart(container);
+    assert.ok(handle, "chart is created even before layout exists");
+    assert.equal(records[0].options.width, FALLBACK_CHART_WIDTH);
+    assert.equal(records[0].options.height, FALLBACK_CHART_HEIGHT);
+    // The stylesheet lands: the container gains its real size and the
+    // observer reports it; the chart snaps to the real layout.
+    container.clientWidth = 900;
+    container.clientHeight = 530;
+    observers[0].callback();
+    assert.deepEqual(records[0].resizedTo.at(-1), [900, 530]);
+    // Valid stored rows still reach the library after the late layout.
+    setCandles(handle, ROWS);
+    assert.equal(records[0].candles.length, 2);
+    assert.equal(records[0].volume.length, 2);
+    destroyPriceChart(handle);
+  });
+});
+
+test("createPriceChart still returns null only when recovery is impossible", () => {
+  withChartGlobals(stubLibrary([]), null, () => {
+    assert.equal(createPriceChart(null), null);
+  });
+  withChartGlobals(null, null, () => {
+    assert.equal(createPriceChart({ clientWidth: 900, clientHeight: 530 }), null);
+  });
+});
+
+test("real backend row bytes convert and reach setData in order", () => {
+  // Shape pinned to the live /api/dashboard payload: millisecond opens,
+  // exact decimal strings, ascending hourly rows.
+  const rows = [];
+  for (let index = 0; index < 21; index += 1) {
+    const open = 100 + index;
+    rows.push([1704067200000 + index * 3600000, String(open), String(open + 1), String(open - 1), String(open), "10"]);
+  }
+  const records = [];
+  withChartGlobals(stubLibrary(records), null, () => {
+    const handle = createPriceChart({ clientWidth: 900, clientHeight: 530 });
+    setCandles(handle, { candles: rows });
+    assert.equal(records[0].candles.length, 21);
+    assert.equal(records[0].volume.length, 21);
+    const times = records[0].candles.map((candle) => candle.time);
+    assert.deepEqual(times, [...times].sort((a, b) => a - b));
+    assert.equal(new Set(times).size, 21);
+    assert.deepEqual(records[0].candles[0], { time: 1704067200, open: 100, high: 101, low: 99, close: 100 });
+    destroyPriceChart(handle);
+  });
 });

@@ -20,6 +20,7 @@ history preserved, and the absence of any order/account surface.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal as D
 
@@ -36,6 +37,7 @@ from forward_fixtures import (
     RollingWindowExchange,
     bar,
     clock_at,
+    extend,
     labelled_series,
     make_harness,
     mirrored,
@@ -54,6 +56,11 @@ from trading_assistant.forward_testing.parameters import fingerprint
 from trading_assistant.journaling.types import OutcomeStatus
 from trading_assistant.market_data.repository import CandleRepository
 from trading_assistant.market_data.timeframes import datetime_to_milliseconds
+from trading_assistant.setup_qualification import (
+    QualificationParameters,
+    QualificationService,
+    SetupState,
+)
 from trading_assistant.trade_planning import PlanningParameters
 
 QUALIFYING_BOUNDARY = EPOCH + 21 * INTERVAL
@@ -1195,3 +1202,283 @@ def test_ledger_snapshot_reports_pending_and_versions() -> None:
     assert len(ledger.version_fingerprints) == 1
     assert ledger.version_separation is VersionSeparation.SINGLE_VERSION
     assert ledger.paper_plans and ledger.latest_outcomes == ()
+
+
+# ----------------------------------------------------------------------
+# Bounded replay: long histories record the same decisions whatever the
+# pass shape, and the replay window never grows with stored history
+# ----------------------------------------------------------------------
+
+
+def _padded_series(pad: int = 20):
+    """The labelled series shifted after ``pad`` flat pre-history candles."""
+
+    flat = tuple(bar(i, 100) for i in range(pad))
+    shifted = tuple(
+        replace(c, timestamp=EPOCH + INTERVAL * (pad + i))
+        for i, c in enumerate(labelled_series())
+    )
+    tail = tuple(bar(pad + 21 + i, 124) for i in range(5))
+    return flat + shifted + tail
+
+
+def _decisions(harness) -> list:
+    """The recorded decisions: which setup, at which close, in which state."""
+
+    return sorted(
+        (item.setup_id, item.as_of, item.setup_state.value)
+        for item in harness.observations()
+    )
+
+
+def test_bounded_replay_records_long_history_decisions_independently_of_pass_shape() -> (
+    None
+):
+    """A 47-close history with pre-history longer than the replay window.
+
+    The window binds (the first processed close is 21 closes after the first
+    stored candle), yet one pass and two passes record the same decisions: the
+    same (setup, close, state) records and the same frozen bull-plan levels
+    the unpadded series produces. Only the diagnostic envelope (ancient
+    terminals inside snapshot_json) may differ with pass shape — decisions
+    never do.
+    """
+    series = _padded_series()
+    boundary = EPOCH + 41 * INTERVAL  # the shifted qualifying close
+    end = EPOCH + 46 * INTERVAL
+
+    single = make_harness(series=series, ledger_start=boundary)
+    single.advance_to(end)
+    first = single.run(refresh_market_data=False)
+    assert first.status is HeartbeatStatus.PROCESSED
+    assert first.pending_boundaries == 0
+    assert [cycle.status for cycle in single.cycles()] == [CycleStatus.COMPLETE] * 6
+
+    split = make_harness(series=series, ledger_start=boundary)
+    split.advance_to(boundary + 2 * INTERVAL)
+    split.run(refresh_market_data=False)
+    split.advance_to(end)
+    second = split.run(refresh_market_data=False)
+    assert second.status is HeartbeatStatus.PROCESSED
+    assert second.pending_boundaries == 0
+    assert len(split.cycles()) == len(single.cycles()) == 6
+
+    assert _decisions(split) == _decisions(single)
+    plans_with_levels(single)
+    plans_with_levels(split)
+
+    # The replay floor stays within one window of the newest close: a longer
+    # history can never drag the replay back to genesis.
+    _, _, floor = single.service._ledger_setup_index(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME
+    )
+    assert floor is not None
+    assert end - floor <= 11 * INTERVAL
+
+
+def test_ledger_setup_index_floor_tracks_only_unresolved_setups() -> None:
+    """The replay floor is the oldest creation time without a terminal row."""
+
+    fresh = make_harness(series=labelled_series(), ledger_start=QUALIFYING_BOUNDARY)
+    ids, terminal_ids, floor = fresh.service._ledger_setup_index(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME
+    )
+    assert ids == frozenset()
+    assert terminal_ids == frozenset()
+    assert floor is None
+
+    harness = harness_with_a_paper_plan()
+    ids, terminal_ids, floor = harness.service._ledger_setup_index(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME
+    )
+    assert ids == {item.setup_id for item in harness.observations()}
+    assert terminal_ids == {
+        item.setup_id
+        for item in harness.observations()
+        if item.setup_ended_at is not None
+    }
+    assert floor == min(item.setup_created_at for item in harness.observations())
+
+    # A recorded terminal older than every live setup does not move the floor.
+    # Terminal rows carry no plan: the ledger CHECK constraints require it.
+    template = harness.observations()[0]
+    no_plan = dict(
+        plan_id=None,
+        plan_state=None,
+        plan_json=None,
+        plan_entry=None,
+        plan_invalidation=None,
+        plan_stop=None,
+        plan_risk_per_unit=None,
+        plan_targets=(),
+        plan_target_r_multiples=(),
+        plan_config_fingerprint=None,
+        planning_rules_version=None,
+        paper_plan_id=None,
+    )
+    ancient = replace(
+        template,
+        observation_id="test-ancient-terminal",
+        setup_id="test-ancient-setup",
+        setup_state=SetupState.NO_SETUP,
+        setup_created_at=EPOCH,
+        setup_ended_at=EPOCH + INTERVAL,
+        setup_terminal_reason="maximum_bars_elapsed",
+        **no_plan,
+    )
+    harness.service.ledger.insert_observation(ancient)
+    ids, terminal_ids, floor_after = harness.service._ledger_setup_index(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME
+    )
+    assert "test-ancient-setup" in ids
+    assert "test-ancient-setup" in terminal_ids
+    assert floor_after == floor
+
+    # Resolving every setup clears the floor entirely.
+    for index, setup_id in enumerate(sorted(ids)):
+        terminal = replace(
+            template,
+            observation_id=f"test-terminal-{index}",
+            setup_id=setup_id,
+            setup_state=SetupState.NO_SETUP,
+            setup_created_at=template.setup_created_at,
+            setup_ended_at=QUALIFYING_BOUNDARY,
+            setup_terminal_reason="maximum_bars_elapsed",
+            **no_plan,
+        )
+        harness.service.ledger.insert_observation(terminal)
+    _, _, cleared = harness.service._ledger_setup_index(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME
+    )
+    assert cleared is None
+
+
+def _terminal_rows_by_setup(harness):
+    rows: dict[str, list] = {}
+    for observation in harness.observations():
+        if observation.setup_ended_at is not None:
+            rows.setdefault(observation.setup_id, []).append(observation)
+    return rows
+
+
+def test_live_observed_setups_record_their_terminal_transition_exactly_once():
+    """A setup observed live still records its ending, exactly once.
+
+    Regression test for the terminal-recording gate: gating on the
+    merely-observed set skipped every live setup's terminal row, pinned the
+    replay floor at the oldest observation ever, and let the replay window
+    grow without bound. The gate is the terminally-recorded set, so after a
+    26-boundary run every setup the full replay calls terminal has exactly
+    one terminal row mirroring the replay's own verdict, every setup still
+    unresolved is genuinely live, and a repeat pass records nothing new.
+    """
+    end = EPOCH + 46 * INTERVAL
+    series = extend(labelled_series(), tuple((21 + i, 100) for i in range(25)))
+    harness = make_harness(series=series, ledger_start=EPOCH + 21 * INTERVAL)
+    harness.advance_to(end)
+    result = harness.run(refresh_market_data=False)
+    assert result.status is HeartbeatStatus.PROCESSED
+    assert len(harness.cycles()) == 26
+
+    replay = QualificationService(harness.engine).snapshot(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME, as_of=end
+    )
+    verdict = {setup.id: setup for setup in replay.setups}
+    recorded = {
+        observation.setup_id for observation in harness.observations()
+    }
+    assert recorded, "the run must record setups or the test is vacuous"
+    assert recorded <= set(verdict)
+    terminal = _terminal_rows_by_setup(harness)
+    for setup_id in recorded:
+        mate = verdict[setup_id]
+        rows = terminal.get(setup_id, [])
+        if mate.ended_at is None:
+            assert rows == [], f"live setup {setup_id} must have no terminal row"
+            assert mate.state in (SetupState.WATCH, SetupState.QUALIFIED)
+        else:
+            assert len(rows) == 1, f"terminal setup {setup_id} must end once"
+            assert rows[0].setup_ended_at == mate.ended_at
+            assert rows[0].setup_terminal_reason == mate.terminal_reason
+
+    _, terminal_ids, floor = harness.service._ledger_setup_index(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME
+    )
+    assert terminal_ids == frozenset(terminal)
+    assert terminal_ids == {
+        setup_id for setup_id in recorded if verdict[setup_id].ended_at is not None
+    }
+    for setup_id in recorded - terminal_ids:
+        assert verdict[setup_id].state in (
+            SetupState.WATCH,
+            SetupState.QUALIFIED,
+        ), f"unresolved setup {setup_id} must be genuinely live"
+    assert floor is None or end - floor <= 11 * INTERVAL
+
+    before = len(harness.observations())
+    repeat = harness.run(refresh_market_data=False)
+    assert repeat.status is HeartbeatStatus.IDLE
+    assert len(harness.observations()) == before
+
+
+def test_version_change_pins_floor_but_passes_stay_correct():
+    """A mid-stream config change pins the floor; passes stay correct.
+
+    Setup ids embed the config fingerprint, so setups recorded live under
+    the old config can never resolve under the new one: the replay floor
+    pins at the oldest live old-config creation and the replay widens to
+    cover it. The pass must still succeed, record the new config's setups,
+    mirror the new config's own replay verdicts, and never duplicate a
+    terminal row.
+    """
+    series = extend(labelled_series(), tuple((21 + i, 62160) for i in range(12)))
+    harness = make_harness(series=series, ledger_start=EPOCH + 21 * INTERVAL)
+    harness.advance_to(EPOCH + 21 * INTERVAL)
+    first = harness.run(refresh_market_data=False)
+    assert first.status is HeartbeatStatus.PROCESSED
+    old_ids, old_terminal, old_floor = harness.service._ledger_setup_index(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME
+    )
+    assert old_floor is not None, "the fixture must leave old setups live"
+    assert old_ids - old_terminal, "the fixture must leave old setups live"
+
+    harness.service.qualification_parameters = QualificationParameters(
+        continuation_max_bars=3, reversal_max_bars=3, range_max_bars=3
+    )
+    end = EPOCH + 26 * INTERVAL
+    harness.advance_to(end)
+    second = harness.run(refresh_market_data=False)
+    assert second.status is HeartbeatStatus.PROCESSED
+
+    _, new_terminal, new_floor = harness.service._ledger_setup_index(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME
+    )
+    assert new_floor == old_floor
+    assert (old_ids - old_terminal) & new_terminal == frozenset()
+
+    terminal = _terminal_rows_by_setup(harness)
+    for setup_id, rows in terminal.items():
+        assert len(rows) == 1, f"terminal setup {setup_id} recorded twice"
+    replay = QualificationService(harness.engine).snapshot(
+        exchange=EXCHANGE,
+        symbol=SYMBOL,
+        timeframe=TIMEFRAME,
+        as_of=end,
+        parameters=harness.service.qualification_parameters,
+    )
+    verdict = {setup.id: setup for setup in replay.setups}
+    fresh_ids = {
+        observation.setup_id
+        for observation in harness.observations()
+        if observation.setup_id not in old_ids
+    }
+    assert fresh_ids, "the new config must record its own setups"
+    for setup_id in fresh_ids:
+        mate = verdict[setup_id]
+        rows = terminal.get(setup_id, [])
+        if mate.ended_at is None:
+            assert rows == []
+        else:
+            assert len(rows) == 1
+            assert rows[0].setup_ended_at == mate.ended_at
+            assert rows[0].setup_terminal_reason == mate.terminal_reason

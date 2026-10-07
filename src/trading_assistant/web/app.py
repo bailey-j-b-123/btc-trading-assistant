@@ -180,4 +180,22 @@ def create_app(
     def index() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html")
 
+    @app.middleware("http")
+    async def interface_cache_headers(request: Request, call_next):
+        """Refresh-safe interface caching without query hacks or workers.
+
+        The HTML shell and every static asset are served with
+        ``Cache-Control: no-cache``: the browser must revalidate each file
+        (ETag/Last-Modified, answered 304 when unchanged) before reuse, so
+        a refresh always renders the latest interface while unchanged files
+        still cost only a conditional round-trip. API responses are dynamic
+        JSON and are deliberately left untouched.
+        """
+
+        response = await call_next(request)
+        path = request.url.path
+        if path == "/" or path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     return app

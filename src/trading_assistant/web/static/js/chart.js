@@ -68,13 +68,31 @@ export function toChartCandles(payload) {
   return mapped;
 }
 
+export const FALLBACK_CHART_WIDTH = 640;
+export const FALLBACK_CHART_HEIGHT = 420;
+
+/**
+ * Create the price chart, surviving a mount that happens before layout.
+ *
+ * Root cause of the blank chart: this used to return null permanently when
+ * the container measured 0x0 at mount time (stylesheet still loading,
+ * cached HTML with a stale stylesheet, hidden ancestor), so valid stored
+ * candles never reached the library and the chart never recovered. Now a
+ * zero measurement only selects explicit fallback dimensions; the resize
+ * handler below corrects to the real layout as soon as it exists. Only a
+ * missing chart library or a missing container still returns null.
+ */
 export function createPriceChart(container, { height } = {}) {
   const library = typeof window === "undefined" ? null : window.LightweightCharts;
   if (!library || !container) return null;
 
   const measuredWidth = Number(container.clientWidth) || 0;
   const measuredHeight = Number(container.clientHeight) || Number(height) || 0;
-  if (measuredWidth <= 0 || measuredHeight <= 0) return null;
+  const explicitHeight = Number(height) || 0;
+  const initialWidth = measuredWidth > 0 ? measuredWidth : FALLBACK_CHART_WIDTH;
+  const initialHeight = measuredHeight > 0
+    ? measuredHeight
+    : explicitHeight > 0 ? explicitHeight : FALLBACK_CHART_HEIGHT;
 
   const computedFont = typeof getComputedStyle === "function"
     ? getComputedStyle(document.documentElement).getPropertyValue("--mono").trim()
@@ -84,8 +102,8 @@ export function createPriceChart(container, { height } = {}) {
   let volume;
   try {
     chart = library.createChart(container, {
-      width: measuredWidth,
-      height: measuredHeight,
+      width: initialWidth,
+      height: initialHeight,
       autoSize: false,
       layout: {
         background: { type: "solid", color: "transparent" },
@@ -149,6 +167,13 @@ export function createPriceChart(container, { height } = {}) {
     window.addEventListener("resize", resize);
   }
   resize();
+  if ((initialWidth === FALLBACK_CHART_WIDTH || initialHeight === FALLBACK_CHART_HEIGHT) &&
+      typeof requestAnimationFrame === "function") {
+    // Late stylesheet or layout: re-measure once on the next frame so a
+    // fallback-sized chart snaps to the real container even where no
+    // ResizeObserver exists to report the change.
+    requestAnimationFrame(resize);
+  }
   return handle;
 }
 
@@ -223,16 +248,34 @@ export function applyOverlays(handle, payload = {}) {
   const plan = safePayload.plan && safePayload.plan.state === "PLANNABLE"
     ? safePayload.plan
     : null;
-  const seen = new Set();
+  // Group pending lines by exact price: several titles at one price become a
+  // single axis label ("support high + equal highs") instead of overlapping
+  // labels. Nothing is dropped — every level still contributes its title.
+  const byPrice = new Map();
 
   const add = (value, options) => {
     const price = finiteNumber(value);
     if (price === null) return;
-    const key = `${options.title}|${price}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    const line = handle.series.createPriceLine(priceLine(price, options));
-    handle.priceLineHandles.push(line);
+    const key = String(price);
+    const group = byPrice.get(key) || [];
+    if (!group.some((entry) => entry.title === options.title)) {
+      group.push({ title: options.title, color: options.color, style: options.style ?? 2, width: options.width ?? 1 });
+    }
+    byPrice.set(key, group);
+  };
+
+  const flush = () => {
+    for (const [key, group] of byPrice) {
+      const first = group[0];
+      const line = handle.series.createPriceLine(priceLine(Number(key), {
+        color: first.color,
+        title: group.map((entry) => entry.title).join(" + "),
+        style: first.style,
+        width: first.width,
+      }));
+      handle.priceLineHandles.push(line);
+    }
+    byPrice.clear();
   };
 
   if (prefs.zones !== false) {
@@ -294,4 +337,5 @@ export function applyOverlays(handle, payload = {}) {
       });
     });
   }
+  flush();
 }
