@@ -1,7 +1,7 @@
 /**
  * Candlestick chart wrapper for the vendored Lightweight Charts v4 bundle.
- * Input is the backend's stored-candle payload; this module never creates
- * market rows or levels. Chart instances, observers, and price-line handles
+ * Confirmed series input is the backend's stored-candle payload. A separate
+ * ghost series may show public forming OHLC; it never enters confirmed rows. Chart instances, observers, and price-line handles
  * are explicitly disposed when the dashboard is refreshed or unmounted.
  */
 
@@ -99,6 +99,7 @@ export function createPriceChart(container, { height } = {}) {
     : "";
   let chart = null;
   let series;
+  let formingSeries;
   let volume;
   try {
     chart = library.createChart(container, {
@@ -132,6 +133,13 @@ export function createPriceChart(container, { height } = {}) {
       wickDownColor: DOWN,
       borderVisible: false,
     });
+    // Independent temporary series: never append/update the stored confirmed series.
+    formingSeries = chart.addCandlestickSeries({
+      upColor: "rgba(91,155,213,0.26)", downColor: "rgba(232,163,61,0.26)",
+      wickUpColor: "rgba(91,155,213,0.85)", wickDownColor: "rgba(232,163,61,0.85)",
+      borderVisible: true, borderUpColor: "#5b9bd5", borderDownColor: "#e8a33d",
+      priceLineVisible: false, lastValueVisible: false,
+    });
     volume = chart.addHistogramSeries({
       priceFormat: { type: "volume" },
       priceScaleId: "volume",
@@ -145,6 +153,7 @@ export function createPriceChart(container, { height } = {}) {
   const handle = {
     chart,
     series,
+    formingSeries,
     volume,
     container,
     priceLineHandles: [],
@@ -194,6 +203,19 @@ export function setCandles(handle, payload) {
     });
   }
   if (handle.volume && typeof handle.volume.setData === "function") handle.volume.setData(volumeRows);
+}
+
+/** Temporary, explicitly unconfirmed overlay. Never touches handle.series or volume. */
+export function setFormingCandle(handle, candle) {
+  if (!handle || handle.destroyed || !handle.formingSeries) return;
+  if (candle === null) { handle.formingSeries.setData([]); return; }
+  if (!Number.isSafeInteger(candle.time) || candle.time <= 0 ||
+      [candle.open, candle.high, candle.low, candle.close].some((v) => !Number.isFinite(v) || v <= 0) ||
+      candle.high < candle.low || candle.open < candle.low || candle.open > candle.high ||
+      candle.close < candle.low || candle.close > candle.high) return;
+  handle.formingSeries.setData([{
+    time: candle.time, open: candle.open, high: candle.high, low: candle.low, close: candle.close,
+  }]);
 }
 
 function priceLine(price, { color, title, style = 2, width = 1 }) {

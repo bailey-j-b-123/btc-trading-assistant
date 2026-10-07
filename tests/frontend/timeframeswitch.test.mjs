@@ -277,7 +277,7 @@ function chartLibraryState() {
   }
   const library = {
     createChart: () => {
-      const record = { removed: false, candleData: [], volumeData: [], lines: new Set() };
+      const record = { removed: false, candleData: [], formingData: [], volumeData: [], lines: new Set() };
       const series = {
         setData: (rows) => { record.candleData = rows; },
         createPriceLine: (options) => {
@@ -287,10 +287,12 @@ function chartLibraryState() {
         },
         removePriceLine: (line) => record.lines.delete(line),
       };
+      const forming = { setData: (rows) => { record.formingData = rows; } };
+      let candleSeriesCount = 0;
       const volume = { setData: (rows) => { record.volumeData = rows; } };
       charts.push(record);
       return {
-        addCandlestickSeries: () => series,
+        addCandlestickSeries: () => candleSeriesCount++ === 0 ? series : forming,
         addHistogramSeries: () => volume,
         priceScale: () => ({ applyOptions: () => {} }),
         resize: () => {},
@@ -301,7 +303,7 @@ function chartLibraryState() {
   return { charts, observers, ResizeObserverMock, library };
 }
 
-async function withDashboard({ dashboard, forward, market = {}, failCandles = [], failStructure = [], livePrice = null }, callback) {
+async function withDashboard({ dashboard, forward, market = {}, failCandles = [], failStructure = [], livePrice = null, WebSocketImpl = null }, callback) {
   const keys = ["Node", "document", "window", "ResizeObserver", "getComputedStyle", "localStorage", "fetch"];
   const prior = new Map(keys.map((key) => [
     key,
@@ -352,7 +354,7 @@ async function withDashboard({ dashboard, forward, market = {}, failCandles = []
       return node;
     },
   };
-  globalThis.window = { LightweightCharts: chartState.library };
+  globalThis.window = { LightweightCharts: chartState.library, WebSocket: WebSocketImpl };
   globalThis.fetch = async (path, options = {}) => {
     calls.push({ path: String(path), method: options.method || "GET" });
     const url = new URL(String(path), "http://test.invalid");
@@ -908,4 +910,79 @@ test("manual S/R toggle reveals the stored structure without changing setup or h
     assert.equal(dashboard.qualification.state, "WATCH");
     assert.equal(dashboard.multi_timeframe.decision, "awaiting_confirmation");
   });
+});
+
+
+test("public forming OHLC follows 5M/15M/1H/4H chart view only, never the engine or stored series", async () => {
+  const originalNow = Date.now;
+  const now = Date.parse("2026-10-06T13:03:00Z");
+  Date.now = () => now;
+  const intervals = { "5m": 5, "15m": 15, "1h": 60, "4h": 240 };
+  const buckets = { "5m": "2026-10-06T13:00:00Z", "15m": "2026-10-06T13:00:00Z",
+    "1h": "2026-10-06T13:00:00Z", "4h": "2026-10-06T12:00:00Z" };
+  class PublicSocket {
+    static all = [];
+    constructor(url) { this.url = url; this.sent = []; this.closed = false; PublicSocket.all.push(this); }
+    send(data) { this.sent.push(JSON.parse(data)); }
+    close() { this.closed = true; this.onclose?.(); }
+    emit(message) { this.onmessage?.({ data: JSON.stringify(message) }); }
+  }
+  const engineRows = [[Date.parse("2026-10-06T11:00:00Z"), "100", "102", "99", "101", "5"],
+    [Date.parse("2026-10-06T12:00:00Z"), "101", "104", "100", "103", "6"]];
+  const rows = {
+    "5m": [[Date.parse("2026-10-06T12:55:00Z"), "101", "103", "100", "102", "1"]],
+    "15m": [[Date.parse("2026-10-06T12:45:00Z"), "101", "103", "100", "102", "2"]],
+    "4h": [[Date.parse("2026-10-06T08:00:00Z"), "101", "105", "99", "103", "8"]],
+  };
+  const fixture = dashboardFixture({
+    meta: { exchange: "kraken", symbol: SYMBOL, timeframe: "1h", as_of: "2026-10-06T13:00:00Z" },
+    market: { candles: engineRows, latest_closed_candle: { close: "103" } },
+    qualification: { available: true, state: "QUALIFIED", reasons: [], selected_setup_id: "fixed-setup",
+      setups: [{ id: "fixed-setup", state: "QUALIFIED", direction: "bullish" }], snapshot: { setups: [] } },
+    planning: { state: "PLANNABLE", reasons: [] },
+    plan: { state: "PLANNABLE", setup_id: "fixed-setup", entry: { value: "110" },
+      stop: { value: "95" }, invalidation: { value: "95" }, targets: [{ level: { value: "125" } }] },
+  });
+  const before = structuredClone(fixture);
+  try {
+    await withDashboard({ dashboard: fixture, forward: forwardFixture(), WebSocketImpl: PublicSocket,
+      market: { candles: Object.fromEntries(Object.entries(rows).map(([tf, data]) => [tf, candlesPayload(tf, data)])) },
+    }, async ({ view, chartState, calls }) => {
+      await renderDashboard(view);
+      for (const tf of ["1h", "5m", "15m", "4h"]) {
+        if (tf !== "1h") {
+          const previous = PublicSocket.all.at(-1);
+          click(switchButtons(view).find((button) => button.getAttribute("data-timeframe") === tf));
+          assert.equal(previous.closed, true);
+          assert.deepEqual(chartState.charts[0].formingData, []);
+          await flush();
+        }
+        const socket = PublicSocket.all.at(-1);
+        socket.onopen();
+        assert.equal(socket.sent.at(-1).params.interval, intervals[tf]);
+        assert.equal(socket.sent.at(-1).params.symbol[0], "BTC/USDT");
+        const stored = tf === "1h" ? engineRows : rows[tf];
+        const original = structuredClone(toChartCandles(stored));
+        assert.deepEqual(chartState.charts[0].candleData, original);
+        socket.emit({ channel: "ohlc", type: "update", timestamp: new Date(now).toISOString(), data: [{
+          symbol: SYMBOL, interval: intervals[tf], interval_begin: buckets[tf],
+          open: 104, high: 108, low: 102, close: 106, volume: 3, trades: 6,
+        }] });
+        assert.deepEqual(chartState.charts[0].formingData, [{
+          time: Date.parse(buckets[tf]) / 1000, open: 104, high: 108, low: 102, close: 106,
+        }]);
+        assert.deepEqual(chartState.charts[0].candleData, original);
+        const badge = findOne(view, (node) => (node.className || "").split(" ").includes("forming-status"));
+        assert.match(badge.textContent, /FORMING .*DISPLAY ONLY/);
+        assert.equal(badge.dataset.freshness, "CURRENT");
+      }
+      PublicSocket.all.at(-1).close();
+      assert.deepEqual(chartState.charts[0].formingData, []);
+      assert.deepEqual(chartState.charts[0].candleData, toChartCandles(rows["4h"]));
+      assert.deepEqual(fixture, before);
+      assert.deepEqual(drawnLines(chartState), ["entry@110", "protective stop@95", "target 1@125"]);
+      assert.equal(calls.filter((c) => c.path.startsWith("/api/dashboard")).length, 1);
+      assert.equal(calls.filter((c) => c.method !== "GET").length, 0);
+    });
+  } finally { Date.now = originalNow; }
 });

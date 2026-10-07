@@ -378,7 +378,7 @@ function chartLibraryState() {
   }
   const library = {
     createChart: () => {
-      const record = { removed: false, candleData: [], volumeData: [], lines: new Set() };
+      const record = { removed: false, candleData: [], formingData: [], volumeData: [], lines: new Set() };
       const series = {
         setData: (rows) => { record.candleData = rows; },
         createPriceLine: (options) => {
@@ -388,10 +388,12 @@ function chartLibraryState() {
         },
         removePriceLine: (line) => record.lines.delete(line),
       };
+      const forming = { setData: (rows) => { record.formingData = rows; } };
+      let candleSeriesCount = 0;
       const volume = { setData: (rows) => { record.volumeData = rows; } };
       charts.push(record);
       return {
-        addCandlestickSeries: () => series,
+        addCandlestickSeries: () => candleSeriesCount++ === 0 ? series : forming,
         addHistogramSeries: () => volume,
         priceScale: () => ({ applyOptions: () => {} }),
         resize: () => {},

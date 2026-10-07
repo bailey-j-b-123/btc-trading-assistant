@@ -2423,7 +2423,7 @@ desktop and 360px widths and confirm the chart draws.
 ### Information gaps (what the system cannot tell you)
 
 - Live public Kraken ticker prices are **display only**; only stored confirmed
-  closed candles are ever analysed. No forming candle is displayed.
+  closed candles are ever analysed. A separate ghost forming candle is display only.
 - No win rate, expectancy, drawdown, or realised P&L: only denominated
   outcome observations and raw/friction-adjusted observational R, by design.
 - A fresh forward ledger starts empty: the N≥30 reporting floor needs
@@ -2454,8 +2454,8 @@ known reference band (if resolvable), and valid Step 6 plan levels (if any).
 S/R, range, liquidity and swing diagnostics are still calculated and can be
 turned on individually. An existing browser preference keeps its preferred
 symbol and engine timeframe, but resets the old diagnostic overlay defaults
-once; subsequent chart toggle choices persist. The Looking for card projects the setup
-family, direction, observed seed event, pending required rules, known reference
+once; subsequent chart toggle choices persist. The Looking for card projects
+the setup family, direction, observed seed event, pending required rules, known reference
 and available plan invalidation from the same dashboard snapshot. Multiple
 WATCH candidates have **no chosen scenario**. The dashed reference boundaries
 show a known band, not a projected path or future candle. Chart timeframe
@@ -2470,7 +2470,19 @@ not an exchange tick timestamp. Failed requests mark a previous quote stale;
 no quote or an invalid response shows unavailable. A valid quote older than
 45 seconds is stale. The quote never reaches candle history, structure,
 qualification, the hierarchy, planning, or forward/historical testing. No
-forming candle is drawn. Public Kraken connectivity is required for this
-optional display; it can fail while the stored-candle chart continues to work.
+forming candle is drawn by the REST ticker. The chart's **separate ghost series**
+uses public Kraken WebSocket v2 `ohlc` snapshots and trade-event updates for
+BTC/USDT at 5/15/60/240 minutes. Its UTC `interval_begin` must match the
+current epoch-anchored bucket, and the last stored closed candle must be
+adjacent (at most two intervals behind). It is removed on stale/invalid data,
+disconnect or a new time boundary; it is **never promoted** to the stored
+confirmed series or database. Switching views closes the old subscription and
+opens one for the viewed interval. The strict CSP permits only
+`wss://ws.kraken.com` in addition to the same-origin API. Public Kraken
+connectivity is required for this optional display; it can fail while the
+stored-candle chart continues to work. OHLC updates arrive on trades, not at a fixed cadence: a quiet interval
+remains unchanged and becomes stale after 45 seconds without a trade update.
 A resting market at the same price cannot be distinguished from an exchange
-ticker frozen upstream without an exchange-side tick timestamp.
+ticker frozen upstream without an exchange-side tick timestamp. A refresh is
+still required to acquire a newly stored confirmed candle; the ghost is never
+used as a substitute while ingestion catches up.

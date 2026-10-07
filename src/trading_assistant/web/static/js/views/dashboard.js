@@ -7,6 +7,7 @@
 
 import { api } from "../api.js";
 import { mountLiveDisplay } from "../live-display.js";
+import { canShowForming, createFormingStream } from "../forming-display.js";
 import { lookingForCard, scenarioBand } from "../looking-for.js";
 import {
   buildDecisionRequest,
@@ -22,6 +23,7 @@ import {
   destroyPriceChart,
   OVERLAY_COLORS,
   setCandles,
+  setFormingCandle,
   toChartCandles,
 } from "../chart.js";
 import {
@@ -383,7 +385,7 @@ export const CHART_TIMEFRAMES = [
 ];
 
 const CHART_CANDLE_LIMIT = 500;
-const ENGINE_CHART_NOTE = "Only stored market rows and backend-produced levels are drawn. Missing data is left unavailable.";
+const ENGINE_CHART_NOTE = "Confirmed history is stored closed candles only. Any ghost forming candle is public Kraken data, display only; it is never confirmed here.";
 
 function viewedTimeframeLabel(timeframe) {
   const known = CHART_TIMEFRAMES.find((entry) => entry.id === timeframe);
@@ -428,7 +430,7 @@ export function overlaysForViewedTimeframe({ dashboard, viewedTimeframe, structu
 }
 
 function chartHeadingMeta(viewedTimeframe, engineTimeframe) {
-  if (viewedTimeframe === engineTimeframe) return "Stored closed candles · deterministic overlays only";
+  if (viewedTimeframe === engineTimeframe) return "Stored closed candles · separate display-only forming candle when available";
   const viewed = viewedTimeframeLabel(viewedTimeframe);
   const engine = viewedTimeframeLabel(engineTimeframe);
   return `View only — ${viewed} stored candles with ${viewed} structure · engine hierarchy unchanged · plan levels from the ${engine} engine plan`;
@@ -448,6 +450,10 @@ function chartCard(dashboard, initialPrefs) {
   const toolbar = el("div", { class: "chart-toolbar", role: "group", "aria-label": "Chart timeframe and overlays" });
   const handleRef = { current: null };
   const liveDisplay = mountLiveDisplay(symbol);
+  const formingStatus = el("div", { class: "forming-status", role: "status",
+    "aria-label": "Forming candle display only", text: "FORMING — DISPLAY ONLY · LIVE DATA UNAVAILABLE" });
+  const confirmedStatus = el("div", { class: "chart-note", text: "Last confirmed stored close: unavailable" });
+  let formingStream = null;
   const viewed = {
     timeframe: engineTimeframe,
     generation: 0,
@@ -470,6 +476,34 @@ function chartCard(dashboard, initialPrefs) {
     emptyNode = null;
   };
   const planForOverlays = () => (hasValidTradePlan(dashboard) ? dashboard.plan : null);
+  function stopForming() {
+    formingStream?.stop();
+    formingStream = null;
+    setFormingCandle(handleRef.current, null);
+  }
+  function startForming(timeframe, storedRows) {
+    stopForming();
+    const confirmed = toChartCandles(storedRows);
+    const latest = confirmed.at(-1);
+    confirmedStatus.textContent = latest
+      ? `LAST CONFIRMED ${viewedTimeframeLabel(timeframe)} CLOSE · $${latest.close.toLocaleString("en-US")} · stored candle`
+      : "Last confirmed stored close: unavailable";
+    formingStatus.textContent = `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY · LIVE DATA UNAVAILABLE`;
+    if (!handleRef.current || symbol !== "BTC/USDT" || !latest ||
+        !canShowForming(timeframe, latest.time * 1000, Date.now())) return;
+    // This socket is bound ONLY to the selected chart view, never the setup snapshot.
+    formingStream = createFormingStream({
+      timeframe, confirmedOpenMs: latest.time * 1000,
+      onCandle: (candle) => setFormingCandle(handleRef.current, candle),
+      onStatus: (status, receivedAt) => {
+        formingStatus.dataset.freshness = status;
+        formingStatus.textContent = status === "CURRENT"
+          ? `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY · Kraken OHLC · last update ${new Date(receivedAt).toISOString().slice(11, 19)} UTC`
+          : `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY · LIVE DATA ${status} · stored chart unchanged`;
+      },
+    });
+    formingStream.start();
+  }
   const applyViewedOverlays = () => {
     if (!handleRef.current) return;
     applyOverlays(handleRef.current, {
@@ -565,6 +599,7 @@ function chartCard(dashboard, initialPrefs) {
     host.setAttribute("aria-label", `${symbol} ${label} candlestick chart (view only)`);
     updateLiquidityToggle();
     removeChartOverlay();
+    stopForming(); // remove the old temporary candle immediately, before any read
     // No stale overlays: the previous timeframe's levels leave the chart
     // before any new data is requested.
     if (handleRef.current) clearOverlays(handleRef.current);
@@ -592,6 +627,7 @@ function chartCard(dashboard, initialPrefs) {
       const handle = ensureChart();
       if (!handle || generation !== viewed.generation || viewed.cancelled) return;
       setCandles(handle, rows);
+      startForming(timeframe, rows);
       applyViewedOverlays();
       viewNote.textContent = ENGINE_CHART_NOTE;
       return;
@@ -638,6 +674,7 @@ function chartCard(dashboard, initialPrefs) {
     const handle = ensureChart();
     if (!handle || generation !== viewed.generation || viewed.cancelled) return;
     setCandles(handle, fetchedRows);
+    startForming(timeframe, fetchedRows);
 
     let structurePayload = null;
     let structureError = null;
@@ -671,6 +708,8 @@ function chartCard(dashboard, initialPrefs) {
       toolbar,
     ]),
     liveDisplay.node,
+    formingStatus,
+    confirmedStatus,
     lookingForCard(dashboard),
     host,
     viewNote,
@@ -693,10 +732,12 @@ function chartCard(dashboard, initialPrefs) {
       const handle = ensureChart();
       if (!handle) return;
       setCandles(handle, rows);
+      startForming(engineTimeframe, rows);
       applyViewedOverlays();
     },
     destroy() {
       liveDisplay.destroy();
+      stopForming();
       viewed.cancelled = true;
       viewed.generation += 1;
       destroyPriceChart(handleRef.current);
