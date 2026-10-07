@@ -200,6 +200,18 @@ class RunnerSettings:
     conservative and bounded: a failed public-market-data request is retried a
     few times and then reported as an error, never filled in from a guess.
 
+    Failures are classified, not lumped together. A *transient external*
+    failure (connection timeout, DNS failure, connection reset, exchange
+    temporarily unavailable) is recoverable: it drives the bounded exponential
+    backoff between passes (``transient_backoff_min_seconds`` growing to
+    ``transient_backoff_max_seconds``) and never counts toward
+    ``stop_after_errors``, so a temporary internet outage cannot kill the
+    long-running process. A *local/structural* failure (invalid configuration,
+    schema/programming error, deterministic invariant violation, and - per the
+    PR #22 semantics - a SQLite lock failure, which stops the runner
+    immediately) does count toward ``stop_after_errors`` and stops the runner
+    when the limit is reached.
+
     ``bootstrap_candles`` is the operational data-acquisition depth used only for
     the very first public download, when nothing is stored yet and no explicit
     ``backfill_start`` was given: the runner seeds itself with that many newest
@@ -223,6 +235,17 @@ class RunnerSettings:
     #: that window's newest entry is still forming). Use ``--backfill-start`` or
     #: ``--bootstrap-candles`` for deeper history.
     bootstrap_candles: int = 240
+    #: Lower bound of the bounded exponential backoff the runner applies between
+    #: passes after *transient* network failures (connectivity loss, DNS
+    #: failure, exchange temporarily unavailable, request timeout). Transient
+    #: failures never count toward ``stop_after_errors`` - a temporary internet
+    #: outage must not kill the long-running process - but they are never
+    #: retried in a tight loop either.
+    transient_backoff_min_seconds: Decimal = Decimal(5)
+    #: Upper bound of that backoff. The wait grows 5s, 10s, 20s, ... and is
+    #: capped here, so a long outage costs at most one attempt per interval
+    #: instead of a busy loop, and never sleeps for hours.
+    transient_backoff_max_seconds: Decimal = Decimal(300)
 
     def __post_init__(self) -> None:
         interval = as_decimal(self.interval_seconds, name="interval_seconds")
@@ -235,6 +258,23 @@ class RunnerSettings:
         if backoff < 0:
             raise ValueError("fetch_retry_backoff_seconds must not be negative")
         object.__setattr__(self, "fetch_retry_backoff_seconds", backoff)
+        transient_min = as_decimal(
+            self.transient_backoff_min_seconds, name="transient_backoff_min_seconds"
+        )
+        if not Decimal(0) < transient_min <= Decimal(600):
+            raise ValueError(
+                "transient_backoff_min_seconds must be in (0, 600] seconds"
+            )
+        object.__setattr__(self, "transient_backoff_min_seconds", transient_min)
+        transient_max = as_decimal(
+            self.transient_backoff_max_seconds, name="transient_backoff_max_seconds"
+        )
+        if not transient_min <= transient_max <= Decimal(3_600):
+            raise ValueError(
+                "transient_backoff_max_seconds must be between "
+                "transient_backoff_min_seconds and 3600 seconds"
+            )
+        object.__setattr__(self, "transient_backoff_max_seconds", transient_max)
         require_int(
             self.fetch_max_attempts, name="fetch_max_attempts", minimum=1, maximum=10
         )
@@ -250,6 +290,23 @@ class RunnerSettings:
             minimum=1,
             maximum=100_000,
         )
+
+    def transient_backoff_seconds(self, consecutive_transient_failures: int) -> Decimal:
+        """Deterministic bounded exponential backoff for transient failures.
+
+        ``delay(n) = min(min_seconds * 2 ** (n - 1), max_seconds)`` for the
+        ``n``-th consecutive transient failure: 5s, 10s, 20s, 40s, ... capped
+        at ``transient_backoff_max_seconds``. The policy is a pure function of
+        the failure count, so it is trivially testable, never a busy loop, and
+        never sleeps for hours. A fully successful pass resets the count.
+        """
+
+        if consecutive_transient_failures < 1:
+            return self.transient_backoff_min_seconds
+        growth = self.transient_backoff_min_seconds * (
+            Decimal(2) ** (consecutive_transient_failures - 1)
+        )
+        return min(growth, self.transient_backoff_max_seconds)
 
     def fingerprint(self) -> str:
         return fingerprint("runner-settings", self)

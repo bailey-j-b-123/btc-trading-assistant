@@ -28,6 +28,7 @@ data and the recorded versions.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from bisect import bisect_left
 from collections.abc import Callable, Sequence
@@ -40,7 +41,7 @@ from sqlalchemy.engine import Engine
 from trading_assistant.ai_explanation import ExplanationService
 from trading_assistant.ai_explanation.parameters import EXPLANATION_RULES_VERSION
 from trading_assistant.config import Settings, get_settings
-from trading_assistant.database.engine import is_memory_database
+from trading_assistant.database.engine import is_memory_database, is_sqlite_lock_error
 from trading_assistant.forward_testing.errors import (
     ForwardConflict,
     ForwardDataUnavailable,
@@ -75,6 +76,7 @@ from trading_assistant.journaling import (
     snapshot_identity,
 )
 from trading_assistant.journaling.types import OutcomeStatus
+from trading_assistant.market_data.errors import is_transient_network_error
 from trading_assistant.market_data.repository import CandleRepository
 from trading_assistant.market_data.service import MarketDataService
 from trading_assistant.market_data.timeframes import (
@@ -141,6 +143,11 @@ class ForwardRunResult:
     market_data_error: str | None
     market_data_error_type: str | None
     heartbeat: ForwardHeartbeat
+    #: True when the recorded market-data error is a transient external
+    #: network/exchange failure (classified from the actual exception, never
+    #: from error strings). The runner uses it to apply bounded backoff and to
+    #: keep such failures out of the stop-after-errors budget.
+    market_data_error_transient: bool = False
 
     def to_json_dict(self) -> dict[str, Any]:
         from trading_assistant.market_structure.snapshot import to_jsonable
@@ -188,6 +195,7 @@ class ForwardTestService:
         structure_parameters: MarketStructureParameters | None = None,
         planning_parameters: PlanningParameters | None = None,
         explanation_service: ExplanationService | None = None,
+        sleep: Callable[[float], None] | None = None,
     ) -> None:
         self.engine = engine
         self.settings = settings if settings is not None else get_settings()
@@ -239,7 +247,27 @@ class ForwardTestService:
         )
         self._market_data = market_data_service
         self._market_data_factory = market_data_factory
-        self._sleep = time.sleep
+        # Retry-backoff sleeps are interruptible by default: the forward runner
+        # calls ``request_stop`` together with its own stop event, so a Ctrl+C
+        # or SIGTERM during an in-pass backoff is not delayed by it. A pass
+        # already running still finishes (all of its work is bounded); the
+        # runner loop then exits instead of starting another pass.
+        self._stop_event = threading.Event()
+        self._sleep = sleep if sleep is not None else self._interruptible_sleep
+
+    def request_stop(self) -> None:
+        """Make in-pass retry-backoff sleeps return immediately (shutdown)."""
+
+        self._stop_event.set()
+
+    @property
+    def stop_requested(self) -> bool:
+        """Whether a stop was requested (used to end retry loops promptly)."""
+
+        return self._stop_event.is_set()
+
+    def _interruptible_sleep(self, seconds: float) -> None:
+        self._stop_event.wait(timeout=max(0.0, seconds))
 
     # ------------------------------------------------------------------
     # Public read API (never fetches, never writes)
@@ -561,6 +589,7 @@ class ForwardTestService:
         )
         market_error: str | None = None
         market_error_type: str | None = None
+        market_error_transient = False
         if refresh_market_data:
             try:
                 update = self._refresh_market_data(
@@ -584,13 +613,22 @@ class ForwardTestService:
                     }
                 )
             except Exception as exc:  # noqa: BLE001 - reported, never hidden
+                if is_sqlite_lock_error(exc):
+                    # PR #22 semantics, preserved end to end: a SQLite lock
+                    # failure is never swallowed here to be retried on a later
+                    # pass - retrying on top of a held lock only multiplies
+                    # blocked writes - so it propagates and the runner stops
+                    # immediately instead of entering a retry storm.
+                    raise
                 market_error = f"{type(exc).__name__}: {exc}"
                 market_error_type = type(exc).__name__
+                market_error_transient = is_transient_network_error(exc)
                 market_data_json = canonical_json(
                     {
                         "refreshed": False,
                         "error_type": type(exc).__name__,
                         "error": str(exc),
+                        "transient": market_error_transient,
                         "note": (
                             "public market data could not be refreshed; only "
                             "already-stored closed candles may be processed"
@@ -601,10 +639,12 @@ class ForwardTestService:
                     "Forward runner could not refresh public market data",
                     extra={
                         "fields": {
+                            "stage": "ERROR",
                             "exchange": exchange,
                             "symbol": resolved_symbol,
                             "timeframe": resolved_timeframe,
                             "error_type": type(exc).__name__,
+                            "transient": str(market_error_transient),
                         }
                     },
                 )
@@ -663,6 +703,7 @@ class ForwardTestService:
                 latest_cycle_as_of=None if latest_cycle is None else latest_cycle.as_of,
                 market_data_error=market_error,
                 market_data_error_type=market_error_type,
+                market_data_error_transient=market_error_transient,
                 heartbeat=heartbeat,
             )
 
@@ -726,6 +767,7 @@ class ForwardTestService:
                 latest_cycle_as_of=None,
                 market_data_error=market_error,
                 market_data_error_type=market_error_type,
+                market_data_error_transient=market_error_transient,
                 heartbeat=heartbeat,
             )
 
@@ -873,6 +915,7 @@ class ForwardTestService:
             ),
             market_data_error=market_error,
             market_data_error_type=market_error_type,
+            market_data_error_transient=market_error_transient,
             heartbeat=heartbeat,
         )
 
@@ -1083,6 +1126,7 @@ class ForwardTestService:
                     "Forward runner retrying public market-data request",
                     extra={
                         "fields": {
+                            "stage": "RETRY_WAIT",
                             "exchange": self.settings.exchange,
                             "symbol": symbol,
                             "timeframe": timeframe,
@@ -1094,6 +1138,13 @@ class ForwardTestService:
                     },
                 )
                 self._sleep(float(backoff))
+                if self._stop_event.is_set():
+                    # A stop was requested during the backoff: do not start
+                    # another network attempt. The in-flight request is bounded
+                    # by the exchange watchdog, so shutdown waits at most one
+                    # network deadline; the recorded failure then lets the pass
+                    # (and the runner loop) finish promptly.
+                    raise last_error
         assert last_error is not None  # unreachable: the loop re-raises
         raise last_error
 

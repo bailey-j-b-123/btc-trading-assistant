@@ -1753,6 +1753,16 @@ never modifies a stored candle, and never rewrites an earlier forward row.
   The downloaded range and counts (including `excluded_open_count` for the
   still-forming candle) are recorded on the pass heartbeat.
 * UTC datetimes and exact `Decimal` prices are preserved end to end.
+* Every public exchange request runs under a **finite, project-controlled
+  timeout** (`TRADING_ASSISTANT_EXCHANGE_TIMEOUT_MS`, default 10000 ms, bounded
+  to `[1000, 60000]` ms, CCXT millisecond semantics, covering the market-metadata
+  load and the OHLCV fetch; no credentials involved). Because a socket timeout
+  cannot bound DNS resolution, each network call additionally runs under a
+  watchdog deadline of 3x the configured timeout: a request that exceeds it is
+  abandoned, the exchange client is rebuilt, and a transient
+  `ExchangeNetworkTimeout` is raised. The runner can therefore never sit
+  indefinitely inside a network operation, and a shutdown waits at most one
+  network deadline.
 * Network/rate-limit failures are retried conservatively (default: 3 attempts
   with backoff). If the refresh still fails, the pass processes only candles that
   are **already stored**, records the error on the heartbeat and status, and says
@@ -1976,7 +1986,38 @@ staleness — it never invents live data.
   single attempt instead of retrying: retrying on top of a held lock multiplies
   blocked writes and can turn one database failure into a storm of them. The
   original `OperationalError` is surfaced, and the next start continues from the
-  last recorded boundary exactly as before.
+  last recorded boundary exactly as before. This holds on the market-data refresh
+  path too: a lock failure raised while ingesting newly fetched candles is never
+  swallowed into the pass's error report to be retried later.
+* Failures are **classified before any retry decision**. A *transient external*
+  failure (connection timeout, DNS failure, connection reset, the exchange being
+  temporarily unavailable, a request exceeding its finite network deadline) is
+  recoverable indefinitely: it never counts toward `stop_after_errors`, and it
+  is retried after a bounded exponential backoff (5s doubling to a 300s cap;
+  `transient_backoff_min_seconds`/`transient_backoff_max_seconds`), so a
+  temporary internet outage can never kill the long-running process and never
+  produces a tight retry loop. A *local/structural* failure (invalid
+  configuration, schema or programming error, deterministic invariant violation,
+  a non-transient market-data failure on a completed pass) counts toward
+  `stop_after_errors` and stops the runner loudly at the limit: permanent errors
+  are never retried as if they were outages.
+* Classification is by exception type against the real CCXT hierarchy
+  (`NetworkError` and its `RequestTimeout`/`ExchangeNotAvailable`/
+  `DDoSProtection` subclasses, the `requests` network errors, and the
+  operating-system connection/DNS/timeout errors), walking the whole
+  `__cause__`/`__context__` chain because the layers wrap — never by matching
+  error strings.
+* A successful pass resets both the transient backoff and the
+  stop-after-errors counter, and the recovery is logged. All retry sleeps are
+  interruptible, so Ctrl+C/SIGTERM works while waiting between polls and during
+  a backoff; a network request already in flight may only delay shutdown by the
+  finite network deadline.
+* During an outage the data-health verdict stays truthful (`STALE`), missing
+  closes are recorded as `MISSING_CANDLE` cycles with no conclusion, and on
+  recovery the candles that closed during the outage are ingested and the
+  affected boundaries are re-analysed chronologically, appended as their own
+  rows — idempotent, no duplicate cycles, observations, plans or outcomes, and
+  no manual restart.
 
 ### Dashboard
 
@@ -2056,6 +2097,7 @@ source audit).
 | `TRADING_ASSISTANT_RAW_DATA_DIR` | `data/raw` | Raw exchange payloads |
 | `TRADING_ASSISTANT_MARKET_DATA_PAGE_LIMIT` | `720` | Download page size |
 | `TRADING_ASSISTANT_MARKET_DATA_MAX_PAGES` | `10000` | Download page cap |
+| `TRADING_ASSISTANT_EXCHANGE_TIMEOUT_MS` | `10000` | Finite CCXT timeout in milliseconds for every public exchange request (market-metadata load and OHLCV fetch); bounded to `[1000, 60000]`. DNS resolution is bounded separately by a per-request watchdog (3x this value) because a socket timeout cannot cover it |
 | `TRADING_ASSISTANT_LOG_LEVEL` | `INFO` | Logging verbosity |
 
 **2. Frozen step parameters** (dataclass defaults in each

@@ -2,10 +2,12 @@
 
 from trading_assistant.market_data.errors import (
     ExchangeDataError,
+    ExchangeNetworkTimeout,
     HistoricalCandleConflict,
     MarketDataError,
     PaginationError,
     RawDataWriteError,
+    is_transient_network_error,
 )
 from trading_assistant.market_data.service import (
     MarketDataService,
@@ -33,6 +35,7 @@ __all__ = [
     "CandleValidationIssue",
     "CandleValidationReport",
     "ExchangeDataError",
+    "ExchangeNetworkTimeout",
     "HistoricalCandleConflict",
     "MarketDataError",
     "MarketDataService",
@@ -40,6 +43,7 @@ __all__ = [
     "PaginationError",
     "RawDataWriteError",
     "create_market_data_service",
+    "is_transient_network_error",
     "parse_ohlcv_row",
     "validate_ohlcv_rows",
 ]

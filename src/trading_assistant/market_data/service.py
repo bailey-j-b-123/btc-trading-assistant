@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -177,6 +178,7 @@ class MarketDataService:
             "Market-data download started",
             extra={
                 "fields": {
+                    "stage": "FETCHING_MARKET_DATA",
                     "exchange": self.source.exchange_id,
                     "symbol": instrument,
                     "timeframe": interval,
@@ -192,6 +194,7 @@ class MarketDataService:
         cursor_ms = requested_start_ms
         pages_fetched = 0
         last_http_response: Any = None
+        fetch_started_monotonic: float | None = None
         # Apply a known source cap before each request; legacy/test sources that
         # do not advertise one retain the configured page size.
         page_limit = self.settings.market_data_page_limit
@@ -201,6 +204,7 @@ class MarketDataService:
 
         while cursor_ms <= effective_end_ms and pages_fetched < self.settings.market_data_max_pages:
             page_index = pages_fetched
+            fetch_started_monotonic = time.monotonic()
             try:
                 page = self.source.fetch_ohlcv(
                     instrument,
@@ -209,16 +213,19 @@ class MarketDataService:
                     limit=page_limit,
                 )
             except Exception as exc:
+                elapsed_ms = int((time.monotonic() - fetch_started_monotonic) * 1000)
                 logger.error(
                     "Market-data exchange request failed",
                     extra={
                         "fields": {
+                            "stage": "ERROR",
                             "exchange": self.source.exchange_id,
                             "symbol": instrument,
                             "timeframe": interval,
                             "since_ms": cursor_ms,
                             "error_type": type(exc).__name__,
                             "error": str(exc),
+                            "elapsed_ms": str(elapsed_ms),
                         }
                     },
                 )
@@ -595,10 +602,23 @@ def create_market_data_service(
     raw_store: RawResponseStore | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> MarketDataService:
-    """Construct the configured CCXT-backed service without opening a network connection."""
+    """Construct the configured CCXT-backed service without opening a network connection.
+
+    The public source is built with the project-controlled finite exchange
+    timeout (``Settings.exchange_timeout_ms``), so every CCXT request it makes
+    is bounded; the source additionally runs a per-call watchdog because a
+    CCXT timeout cannot bound DNS resolution.
+    """
 
     resolved_settings = settings if settings is not None else get_settings()
-    resolved_source = source if source is not None else CCXTMarketDataSource(resolved_settings.exchange)
+    resolved_source = (
+        source
+        if source is not None
+        else CCXTMarketDataSource(
+            resolved_settings.exchange,
+            timeout_ms=resolved_settings.exchange_timeout_ms,
+        )
+    )
     return MarketDataService(
         engine,
         resolved_source,
