@@ -301,7 +301,7 @@ function chartLibraryState() {
   return { charts, observers, ResizeObserverMock, library };
 }
 
-async function withDashboard({ dashboard, forward, market = {}, failCandles = [], failStructure = [] }, callback) {
+async function withDashboard({ dashboard, forward, market = {}, failCandles = [], failStructure = [], livePrice = null }, callback) {
   const keys = ["Node", "document", "window", "ResizeObserver", "getComputedStyle", "localStorage", "fetch"];
   const prior = new Map(keys.map((key) => [
     key,
@@ -337,7 +337,11 @@ async function withDashboard({ dashboard, forward, market = {}, failCandles = []
   globalThis.Node = MockNode;
   globalThis.ResizeObserver = chartState.ResizeObserverMock;
   globalThis.getComputedStyle = () => ({ getPropertyValue: () => "monospace" });
-  globalThis.localStorage = { getItem: () => null, setItem: (...args) => { prefWrites.push(args); } };
+  const storage = new Map();
+  globalThis.localStorage = {
+    getItem: (key) => storage.get(key) || null,
+    setItem: (key, value) => { storage.set(key, value); prefWrites.push([key, value]); },
+  };
   globalThis.document = {
     documentElement: {},
     getElementById: (id) => ids.get(id) || null,
@@ -354,6 +358,9 @@ async function withDashboard({ dashboard, forward, market = {}, failCandles = []
     const url = new URL(String(path), "http://test.invalid");
     if (url.pathname === "/api/dashboard") return { ok: true, status: 200, json: async () => dashboard };
     if (url.pathname === "/api/forward") return { ok: true, status: 200, json: async () => forward };
+    if (url.pathname === "/api/market/live-price") {
+      return { ok: true, status: 200, json: async () => livePrice || { status: "UNAVAILABLE" } };
+    }
     if (url.pathname === "/api/market/candles") {
       const timeframe = url.searchParams.get("timeframe");
       if (failCandles.includes(timeframe)) {
@@ -456,8 +463,8 @@ test("selecting 5m requests and renders stored 5m candles and 5m structure", asy
     assert.deepEqual(chartState.charts[0].candleData, toChartCandles(FIVE_MIN_ROWS));
     assert.equal(headingTitle(view).textContent, `${SYMBOL} · 5M chart`);
     assert.match(viewNote(view).textContent, /5M stored closed candles/);
-    // 5m levels only: the engine 1h zone is gone, the 5m zone is drawn.
-    assert.deepEqual(drawnLines(chartState), ["resistance low@62150", "resistance high@62200"]);
+    // Diagnostic zones stay hidden by default even on the viewed timeframe.
+    assert.deepEqual(drawnLines(chartState), []);
   });
 });
 
@@ -471,7 +478,7 @@ test("selecting 15m requests and renders stored 15m candles and 15m structure", 
     assert.equal(marketCalls(calls.slice(before), "/api/market/structure", "15m").length, 1);
     assert.deepEqual(chartState.charts[0].candleData, toChartCandles(FIFTEEN_MIN_ROWS));
     assert.equal(headingTitle(view).textContent, `${SYMBOL} · 15M chart`);
-    assert.deepEqual(drawnLines(chartState), ["support low@61950", "support high@62000"]);
+    assert.deepEqual(drawnLines(chartState), []);
   });
 });
 
@@ -485,7 +492,7 @@ test("selecting 4H requests and renders stored 4h candles and 4h structure", asy
     assert.equal(marketCalls(calls.slice(before), "/api/market/structure", "4h").length, 1);
     assert.deepEqual(chartState.charts[0].candleData, toChartCandles(FOUR_H_ROWS));
     assert.equal(headingTitle(view).textContent, `${SYMBOL} · 4H chart`);
-    assert.deepEqual(drawnLines(chartState), ["range low@61000", "range high@63000"]);
+    assert.deepEqual(drawnLines(chartState), []);
   });
 });
 
@@ -494,11 +501,11 @@ test("selecting 1H restores the engine snapshot and its exact overlays", async (
     await renderDashboard(view);
     const initialCandles = chartState.charts[0].candleData;
     const initialLines = drawnLines(chartState);
-    assert.deepEqual(initialLines, ["support low@61900", "support high@62000"]);
+    assert.deepEqual(initialLines, []);
 
     click(switchButtons(view).find((button) => button.getAttribute("data-timeframe") === "5m"));
     await flush();
-    assert.deepEqual(drawnLines(chartState), ["resistance low@62150", "resistance high@62200"]);
+    assert.deepEqual(drawnLines(chartState), []);
 
     click(switchButtons(view).find((button) => button.getAttribute("data-timeframe") === "1h"));
     await flush();
@@ -511,16 +518,24 @@ test("selecting 1H restores the engine snapshot and its exact overlays", async (
   });
 });
 
-test("switching clears stale overlays before new data arrives", async () => {
-  await withDashboard({ dashboard: dashboardFixture(), forward: forwardFixture() }, async ({ view, chartState }) => {
+test("switching clears the setup scenario before new data arrives", async () => {
+  const dashboard = dashboardFixture({ looking_for: {
+    available: true, timeframe: "1h", setup_id: "only-watch", family: "breakout_retest_continuation",
+    direction: "bullish", state: "WATCH", seed_event: { kind: "breakout" },
+    reference: { band_low: "61900", band_high: "62000" }, pending_required: [], invalidation: null,
+  } });
+  await withDashboard({ dashboard, forward: forwardFixture() }, async ({ view, chartState }) => {
     await renderDashboard(view);
-    assert.equal(chartState.charts[0].lines.size, 2);
+    assert.deepEqual(drawnLines(chartState), [
+      "scenario reference low · not prediction@61900",
+      "scenario reference high · not prediction@62000",
+    ]);
     click(switchButtons(view).find((button) => button.getAttribute("data-timeframe") === "5m"));
     // Synchronously after the click — before any response lands — the
     // previous timeframe's levels are already gone.
     assert.equal(chartState.charts[0].lines.size, 0);
     await flush();
-    assert.deepEqual(drawnLines(chartState), ["resistance low@62150", "resistance high@62200"]);
+    assert.deepEqual(drawnLines(chartState), []);
   });
 });
 
@@ -541,8 +556,6 @@ test("plan levels persist across chart switches, governed by the trade plan", as
   await withDashboard({ dashboard, forward: forwardFixture() }, async ({ view, chartState }) => {
     await renderDashboard(view);
     assert.deepEqual(drawnLines(chartState), [
-      "support low@61900",
-      "support high@62000",
       "entry@62250",
       "protective stop@62050",
       "target 1@62600",
@@ -552,8 +565,6 @@ test("plan levels persist across chart switches, governed by the trade plan", as
     // Structure belongs to 5m; the plan lines are unchanged in price and
     // title because they come from the deterministic trade plan.
     assert.deepEqual(drawnLines(chartState), [
-      "resistance low@62150",
-      "resistance high@62200",
       "entry@62250",
       "protective stop@62050",
       "target 1@62600",
@@ -861,5 +872,40 @@ test("existing dashboard behaviour still works alongside the new UI", async () =
     assert.ok(ladder.textContent.includes("Invalidated if:"));
     const strip = compactHierarchyStrip(dashboardFixture());
     assert.equal(strip.getAttribute("aria-label"), "Multi-timeframe status");
+  });
+});
+
+
+test("stale public quote is visibly stale and never changes stored candles or chart decision", async () => {
+  const dashboard = dashboardFixture();
+  const original = structuredClone(dashboard);
+  const stale = { status: "STALE", price: "90000", fetched_at: new Date(Date.now() - 60000).toISOString() };
+  await withDashboard({ dashboard, forward: forwardFixture(), livePrice: stale }, async ({ view, chartState, calls }) => {
+    await renderDashboard(view);
+    await flush();
+    const quote = findOne(view, (node) => (node.className || "").split(" ").includes("live-quote"));
+    assert.equal(quote.dataset.freshness, "STALE");
+    assert.match(quote.textContent, /LIVE DATA STALE/);
+    assert.deepEqual(chartState.charts[0].candleData, toChartCandles(ENGINE_ROWS));
+    assert.deepEqual(dashboard, original);
+    assert.equal(calls.filter((call) => call.path.startsWith("/api/market/live-price")).length, 1);
+    assert.equal(calls.filter((call) => call.method !== "GET").length, 0);
+  });
+});
+
+test("manual S/R toggle reveals the stored structure without changing setup or hierarchy", async () => {
+  const dashboard = dashboardFixture();
+  await withDashboard({ dashboard, forward: forwardFixture() }, async ({ view, chartState, prefWrites }) => {
+    await renderDashboard(view);
+    assert.deepEqual(drawnLines(chartState), []);
+    const button = findOne(view, (node) => node.getAttribute("data-overlay") === "zones");
+    assert.equal(button.getAttribute("aria-pressed"), "false");
+    click(button);
+    assert.equal(button.getAttribute("aria-pressed"), "true");
+    assert.deepEqual(drawnLines(chartState), ["support low@61900", "support high@62000"]);
+    assert.equal(prefWrites.length, 1);
+    assert.deepEqual(chartState.charts[0].candleData, toChartCandles(ENGINE_ROWS));
+    assert.equal(dashboard.qualification.state, "WATCH");
+    assert.equal(dashboard.multi_timeframe.decision, "awaiting_confirmation");
   });
 });

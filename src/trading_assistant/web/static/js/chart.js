@@ -278,7 +278,7 @@ export function applyOverlays(handle, payload = {}) {
     byPrice.clear();
   };
 
-  if (prefs.zones !== false) {
+  if (prefs.zones === true) {
     for (const zone of Array.isArray(overlays.zones) ? overlays.zones : []) {
       const role = zone.role === "support" ? "support" : zone.role === "resistance" ? "resistance" : "zone";
       add(zone.band_low, { color: OVERLAY_COLORS.zones, title: `${role} low`, style: 1 });
@@ -286,12 +286,12 @@ export function applyOverlays(handle, payload = {}) {
     }
   }
 
-  if (prefs.range !== false && overlays.range && typeof overlays.range === "object") {
+  if (prefs.range === true && overlays.range && typeof overlays.range === "object") {
     add(overlays.range.range_low, { color: OVERLAY_COLORS.range, title: "range low", style: 3 });
     add(overlays.range.range_high, { color: OVERLAY_COLORS.range, title: "range high", style: 3 });
   }
 
-  if (prefs.equalLevels !== false) {
+  if (prefs.equalLevels === true) {
     for (const cluster of Array.isArray(overlays.equal_levels) ? overlays.equal_levels : []) {
       add(cluster.level, {
         color: OVERLAY_COLORS.equalLevels,
@@ -301,10 +301,13 @@ export function applyOverlays(handle, payload = {}) {
     }
   }
 
-  const reference = overlays.setup_reference;
-  if (reference && typeof reference === "object") {
-    add(reference.band_low, { color: OVERLAY_COLORS.reference, title: "setup reference low", style: 2 });
-    add(reference.band_high, { color: OVERLAY_COLORS.reference, title: "setup reference high", style: 2 });
+  // Ghosted bounds of a known backend reference only on its setup timeframe.
+  // No series.update(), future time coordinate, generated path, or new price.
+  const band = safePayload.scenarioBand;
+  if (band && Number.isFinite(band.low) && Number.isFinite(band.high) &&
+      band.low > 0 && band.high >= band.low) {
+    add(band.low, { color: OVERLAY_COLORS.reference, title: "scenario reference low · not prediction", style: 2 });
+    add(band.high, { color: OVERLAY_COLORS.reference, title: "scenario reference high · not prediction", style: 2 });
   }
 
   if (prefs.swings === true) {

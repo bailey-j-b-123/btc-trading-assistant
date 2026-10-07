@@ -51,3 +51,11 @@ def get_structure(
     if as_of is not None:
         parsed_as_of = parse_utc_iso(as_of, field_name="as_of")
     return service.structure(symbol=symbol, timeframe=timeframe, as_of=parsed_as_of)
+
+
+@router.get("/live-price")
+def get_live_price() -> dict[str, object]:
+    """Public display-only quote; never reads or writes stored candle tables."""
+    from trading_assistant.web.live_price import live_price
+
+    return live_price()

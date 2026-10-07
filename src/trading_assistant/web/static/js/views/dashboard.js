@@ -6,6 +6,8 @@
  */
 
 import { api } from "../api.js";
+import { mountLiveDisplay } from "../live-display.js";
+import { lookingForCard, scenarioBand } from "../looking-for.js";
 import {
   buildDecisionRequest,
   confirmationSummary,
@@ -445,6 +447,7 @@ function chartCard(dashboard, initialPrefs) {
   });
   const toolbar = el("div", { class: "chart-toolbar", role: "group", "aria-label": "Chart timeframe and overlays" });
   const handleRef = { current: null };
+  const liveDisplay = mountLiveDisplay(symbol);
   const viewed = {
     timeframe: engineTimeframe,
     generation: 0,
@@ -472,6 +475,7 @@ function chartCard(dashboard, initialPrefs) {
     applyOverlays(handleRef.current, {
       overlays: viewed.overlays || {},
       plan: planForOverlays(),
+      scenarioBand: scenarioBand(dashboard?.looking_for, viewed.timeframe),
       prefs: loadPrefs(),
     });
   };
@@ -525,7 +529,7 @@ function chartCard(dashboard, initialPrefs) {
       class: "overlay-toggle",
       type: "button",
       "data-overlay": key,
-      "aria-pressed": String(initialPrefs.overlays?.[key] !== false),
+      "aria-pressed": String(initialPrefs.overlays?.[key] === true),
       "aria-label": `${label} chart overlay`,
       style: { "--swatch": color },
       onclick: () => {
@@ -666,6 +670,8 @@ function chartCard(dashboard, initialPrefs) {
       el("div", {}, [headingTitle, headingMeta]),
       toolbar,
     ]),
+    liveDisplay.node,
+    lookingForCard(dashboard),
     host,
     viewNote,
   ]);
@@ -682,6 +688,7 @@ function chartCard(dashboard, initialPrefs) {
   return {
     node: card,
     mount() {
+      liveDisplay.start();
       if (!validCandles.length) return;
       const handle = ensureChart();
       if (!handle) return;
@@ -689,6 +696,7 @@ function chartCard(dashboard, initialPrefs) {
       applyViewedOverlays();
     },
     destroy() {
+      liveDisplay.destroy();
       viewed.cancelled = true;
       viewed.generation += 1;
       destroyPriceChart(handleRef.current);

@@ -192,7 +192,12 @@ class DashboardService:
             as_of=resolved_as_of,
         )
 
+        looking_for = self._looking_for(
+            frame=frame, snapshot=snapshot, selected=selected, plan=plan
+        )
+
         return {
+            "looking_for": looking_for,
             "meta": {
                 "exchange": exchange,
                 "symbol": resolved_symbol,
@@ -868,6 +873,77 @@ class DashboardService:
             "range": to_jsonable(structure.detected_range),
             "swings": to_jsonable(structure.confirmed_swings),
             "setup_reference": setup_reference,
+        }
+
+    def _looking_for(
+        self,
+        *,
+        frame: QualificationFrame | None,
+        snapshot: QualificationSnapshot | None,
+        selected: SetupResult | None,
+        plan: TradePlanResult | None,
+    ) -> dict[str, object]:
+        """Read-only chart projection. Never selects a trade or changes a setup.
+
+        A single WATCH can be described, but multiple WATCH setups have no
+        uniquely relevant reference. In that case show no scenario rather than
+        arbitrarily privileging one. Only Step 6 PLANNABLE levels are exposed.
+        """
+        if frame is None or snapshot is None or snapshot.status != "evaluated":
+            return {"available": False, "reason": "Setup information unavailable."}
+        watches = [s for s in snapshot.setups if s.state is SetupState.WATCH]
+        subject = selected or (watches[0] if len(watches) == 1 else None)
+        if subject is None:
+            return {
+                "available": False,
+                "reason": (
+                    "Several setups are developing; no single chart scenario is selected."
+                    if watches
+                    else "No active setup at this close."
+                ),
+            }
+        reference = self._reference_level(
+            frame=frame, reference_id=subject.reference_id
+        )
+        seed = next(
+            (e for e in frame.patterns.events() if e.id == subject.seed_event_id), None
+        )
+        seed_kind = {
+            Breakout: "breakout",
+            FailedBreakout: "failed_breakout",
+            Sweep: "sweep",
+            Retest: "retest",
+        }.get(type(seed))
+        return {
+            "available": True,
+            "setup_id": subject.id,
+            "timeframe": snapshot.timeframe,
+            "family": subject.family.value,
+            "direction": subject.direction,
+            "state": subject.state.value,
+            "reference": {"reference_id": subject.reference_id, **reference}
+            if reference
+            else None,
+            "seed_event": None
+            if seed_kind is None
+            else {
+                "kind": seed_kind,
+                "known_at": to_jsonable(seed.known_at),
+            },
+            "pending_required": [
+                {"rule_id": r.rule_id, "reason": r.reason}
+                for r in subject.rules
+                if r.required and r.outcome is RuleOutcome.PENDING
+            ],
+            "invalidation": (
+                format(plan.invalidation.value, "f")
+                if selected is not None
+                and subject.id == selected.id
+                and plan is not None
+                and plan.state is PlanState.PLANNABLE
+                and plan.invalidation.value is not None
+                else None
+            ),
         }
 
     @staticmethod
