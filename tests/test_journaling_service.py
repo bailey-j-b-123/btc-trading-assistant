@@ -143,12 +143,6 @@ def plan_long(parameters: PlanningParameters | None = None):
     return snapshot, planning_frame, setup, plan
 
 
-def two_target_plan():
-    """The long continuation plan with two R-derived targets (115 and 118)."""
-
-    return plan_long(PlanningParameters(r_multiple_fallbacks=(D("1.5"), D(3))))
-
-
 def retarget(value, symbol: str):
     """Deep copy any Step 3-5 structure with every symbol retargeted.
 

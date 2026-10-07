@@ -112,16 +112,32 @@ def qualified_no_plan_scenario():
 
 
 def qualified_invalid_plan_scenario():
+    """QUALIFIED setup whose decision-time close sits on the wrong trade side.
+
+    A mandatory reward-to-risk floor that no target meets is a NO_PLAN under
+    the structural-target policy, so the INVALID branch is exercised with a
+    genuine hard-invariant violation instead: the latest closed close is not
+    on the trade side of the frozen band.
+    """
+
     snapshot, planning_frame, setup = qualified()
-    plan = plan_trade(
-        snapshot=snapshot,
-        frame=planning_frame,
-        setup_id=setup.id,
-        parameters=PlanningParameters(min_r_multiple="3"),
+    wrong_side = replace(
+        planning_frame,
+        patterns=replace(
+            planning_frame.patterns,
+            structure=replace(
+                planning_frame.patterns.structure,
+                volatility=replace(
+                    planning_frame.patterns.structure.volatility, latest_close=D(85)
+                ),
+            ),
+        ),
     )
+    plan = plan_trade(snapshot=snapshot, frame=wrong_side, setup_id=setup.id)
     assert setup.state is SetupState.QUALIFIED
     assert plan.state is PlanState.INVALID
-    return snapshot, planning_frame, setup, plan
+    assert plan.reasons == ("entry_not_on_trade_side",)
+    return snapshot, wrong_side, setup, plan
 
 
 def section_text(explanation_result, number):
@@ -422,8 +438,10 @@ def test_manifest_fact_ids_are_stable_paths_and_match_upstream_values():
 
 def test_arbitrary_symbols_are_not_btc_hardcoded():
     for symbol in ("ETH/USDC", "SOL/USD", "DOGE/EUR"):
+        # upto=9 is the first close whose genuine structural level satisfies
+        # the mandatory reward-to-risk floor, so a PLANNABLE plan exists here.
         snapshot, planning_frame, setup, _seed = qualified_continuation(
-            upto=7, symbol=symbol
+            upto=9, symbol=symbol
         )
         plan = plan_trade(snapshot=snapshot, frame=planning_frame, setup_id=setup.id)
         assert plan.state is PlanState.PLANNABLE
@@ -561,7 +579,7 @@ def test_qualified_invalid_plan_reports_contradiction_not_correction():
     plan_text = section_text(outcome, 7)
     assert outcome.plan_state == "INVALID"
     assert "state INVALID" in plan_text
-    assert "minimum_r_multiple_not_met" in plan_text
+    assert "entry_not_on_trade_side" in plan_text
     assert "violates a hard planning invariant" in plan_text
     assert "never" in section_text(outcome, 10).lower()
     assert outcome.setup_state == "QUALIFIED"  # qualification is preserved verbatim

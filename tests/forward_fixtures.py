@@ -33,7 +33,11 @@ from trading_assistant.market_data.repository import CandleRepository
 from trading_assistant.market_data.service import MarketDataService
 from trading_assistant.market_data.timeframes import datetime_to_milliseconds
 
-from web_fixtures import QUALIFYING_ROWS, migrated_engine  # noqa: F401  (re-export)
+from web_fixtures import (  # noqa: F401  (re-export)
+    QUALIFYING_HIGHS,
+    QUALIFYING_ROWS,
+    migrated_engine,
+)
 
 TIMEFRAME = "1h"
 
@@ -79,11 +83,25 @@ def bar(
     )
 
 
-def labelled_series(*, mirror: bool = False) -> tuple:
-    """The 21-candle labelled series that reaches QUALIFIED at its last close."""
+def labelled_series(*, mirror: bool = False, overhead_level: bool = True) -> tuple:
+    """The 21-candle labelled series that reaches QUALIFIED at its last close.
 
+    With ``overhead_level=True`` the series carries the genuine, confirmed
+    structural level the plan needs (Step 6 refuses a structurally targetless
+    setup). Qualification-replay tests that only care about Step 5 setup
+    populations pass ``overhead_level=False`` so their historical fixtures stay
+    unchanged by the planning level.
+    """
+
+    highs = QUALIFYING_HIGHS if overhead_level else {}
     return tuple(
-        bar(index, price, mirror=mirror) for index, price in enumerate(QUALIFYING_ROWS)
+        bar(
+            index,
+            price,
+            high=highs.get(index),
+            mirror=mirror,
+        )
+        for index, price in enumerate(QUALIFYING_ROWS)
     )
 
 
@@ -293,19 +311,40 @@ def clock_at(boundary: datetime, *, seconds: int = 30) -> datetime:
 
 
 def sweep_reversal_series() -> tuple:
-    """The labelled series plus a failed sweep that qualifies the second family."""
+    """The qualifying rows plus a failed sweep that qualifies the second family.
 
-    return (
-        labelled_series()
-        + (bar(21, 110, high=127, low=108),)
-        + (bar(22, 118, high=121, low=106),)
+    The reversal plan needs a genuine structural level above its 118 entry, so
+    candle 20 carries a confirmed 130 swing high (R 1.50 against the 8-per-unit
+    risk). It is built from the raw rows rather than ``labelled_series`` because
+    the labelled series' own overhead level changes the sweep geometry and the
+    failed-breakout setup would stay WATCH.
+    """
+
+    rows = tuple(
+        bar(index, price, high=("130" if index == 20 else None))
+        for index, price in enumerate(QUALIFYING_ROWS)
     )
+    return rows + (bar(21, 110, high=127, low=108),) + (bar(22, 118, high=121, low=106),)
 
 
 def watch_only_series() -> tuple:
     """The labelled series plus one failed sweep: WATCH/NO_SETUP, never PLANNABLE."""
 
     return labelled_series() + (bar(21, 110, high=127, low=108),)
+
+
+def two_target_series() -> tuple:
+    """The labelled series plus a second genuine overhead level (145).
+
+    Two real structural targets are what a stop-after-a-target-reach needs;
+    with a single target the outcome trajectory completes at that target.
+    """
+
+    highs = {**QUALIFYING_HIGHS, 16: "145"}
+    return tuple(
+        bar(index, price, high=highs.get(index), mirror=False)
+        for index, price in enumerate(QUALIFYING_ROWS)
+    )
 
 
 def bull_plan_boundary() -> datetime:
@@ -506,5 +545,6 @@ __all__ = [
     "moving_metrics_from",
     "ohlcv_row",
     "sweep_reversal_series",
+    "two_target_series",
     "watch_only_series",
 ]

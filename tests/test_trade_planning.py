@@ -14,7 +14,7 @@ from decimal import Decimal as D
 
 import pytest
 from market_structure_fixtures import EXCHANGE, SYMBOL, Candle
-from test_pattern_liquidity import bar, prefix, swing_events
+from test_pattern_liquidity import bar, mirrored, prefix, swing_events
 from test_setup_qualification import (
     at,
     breakout,
@@ -48,7 +48,7 @@ from trading_assistant.setup_qualification import (
 )
 from trading_assistant.trade_planning import (
     BASE_RULES,
-    EntryMode,
+    MINIMUM_R_MULTIPLE_FLOOR,
     PlanningParameters,
     PlanState,
     StopBufferMode,
@@ -81,6 +81,7 @@ PLAN_KEYS = {
     "symbol",
     "targets",
     "timeframe",
+    "preferred_r_multiple_met",
 }
 
 RICH = prefix() + (bar(5, 112), bar(6, 113), bar(7, 111), bar(8, "110.5"))
@@ -187,16 +188,75 @@ def qualified_continuation(upto=7, symbol=SYMBOL, full=False):
     return snapshot, frames[-1], setup, seed
 
 
+def displaced_series(i, mirror=False):
+    """Flat fixture series with one displaced candle at index 4.
+
+    The displacement creates one genuine, confirmed Step 3 structural
+    reference above (long) or below (short) the fixture entry: 116 long / 84
+    short. Under the structural-target policy a setup is only plannable when a
+    real structural level exists, so the shared fixture carries one instead of
+    depending on a synthetic R-derived target.
+    """
+
+    candles = tuple(bar(j, 112, high=("116" if j == 4 else None)) for j in range(i))
+    return mirrored(candles) if mirror else candles
+
+
 def qualified(mirror=False):
     seed = breakout(mirror)
     direction = "bullish" if not mirror else "bearish"
     close = 112 if not mirror else 88
     frames = [
-        frame(6, (seed,), trend=direction, close=close),
-        frame(7, (seed, held(seed)), trend=direction, close=close),
+        frame(6, (seed,), trend=direction, close=close, candles=displaced_series(6, mirror)),
+        frame(
+            7,
+            (seed, held(seed)),
+            trend=direction,
+            close=close,
+            candles=displaced_series(7, mirror),
+        ),
     ]
     snapshot = result(frames)
     return snapshot, frames[-1], candidate(snapshot, seed)
+
+
+def target_level_fixture(level, upto=7):
+    """QUALIFIED continuation setup whose only structural target sits at ``level``.
+
+    The displaced candle is placed so the confirmed swing/zone band lands
+    exactly on ``level``; used to exercise the mandatory reward-to-risk floor
+    at exact R values.
+    """
+
+    candles = tuple(
+        bar(j, 112, high=(str(level) if j == 4 else None)) for j in range(upto + 1)
+    )
+    seed = breakout()
+    frames = [
+        frame(6, (seed,), close=112, candles=candles[:6]),
+        frame(7, (seed, held(seed)), close=112, candles=candles[:7]),
+    ]
+    snapshot = result(frames)
+    return snapshot, frames[-1], candidate(snapshot, seed)
+
+
+def reversal_series(closes, *, high=None, low=None):
+    """Flat reversal fixture series with one displaced candle at index 4.
+
+    The displacement creates the genuine confirmed structural level the
+    reversal families need (96 long / 104 short): the structural-target policy
+    refuses a plan with no real level, so the fixtures carry one.
+    """
+
+    candles = []
+    for j, close in enumerate(closes):
+        candle = bar(j, close)
+        if j == 4 and high is not None:
+            candle = bar(j, close, high=high)
+        elif j == 4 and low is not None:
+            candle = bar(j, close, low=low)
+        candles.append(candle)
+    return tuple(candles)
 
 
 def qualified_reversal_long():
@@ -208,7 +268,15 @@ def qualified_reversal_long():
         candle=bar(6, 112),
         confirmation_candles=(bar(6, 112),),
     )
-    frames = [frame(6, (seed,), close=91), frame(7, (seed, confirm), close=92)]
+    frames = [
+        frame(6, (seed,), close=91, candles=reversal_series((91,) * 6, high="96")),
+        frame(
+            7,
+            (seed, confirm),
+            close=92,
+            candles=reversal_series((91,) * 6 + (92,), high="96"),
+        ),
+    ]
     snapshot = result(frames)
     return snapshot, frames[-1], candidate(snapshot, seed), seed, confirm
 
@@ -223,8 +291,20 @@ def qualified_reversal_short():
         confirmation_candles=(bar(6, 88),),
     )
     frames = [
-        frame(6, (seed,), close=109, trend="neutral"),
-        frame(7, (seed, confirm), close=108, trend="neutral"),
+        frame(
+            6,
+            (seed,),
+            close=109,
+            trend="neutral",
+            candles=reversal_series((109,) * 6, low="104"),
+        ),
+        frame(
+            7,
+            (seed, confirm),
+            close=108,
+            trend="neutral",
+            candles=reversal_series((109,) * 6 + (108,), low="104"),
+        ),
     ]
     snapshot = result(frames)
     return snapshot, frames[-1], candidate(snapshot, seed), seed, confirm
@@ -248,9 +328,23 @@ def qualified_failed_breakout_reversal():
         candle=bar(7, 88),
         confirmation_candles=(bar(7, 88),),
     )
+    # The failed-breakout reversal carries a 22-per-unit risk, so its genuine
+    # structural level must sit a full risk below the entry (66) for the plan
+    # to clear the mandatory reward-to-risk floor.
+    def failed_series(i, close):
+        return tuple(
+            bar(j, close, low=("66" if j == 4 else None)) for j in range(i)
+        )
+
     frames = [
-        frame(7, (seed,), close=89, trend="neutral"),
-        frame(8, (seed, confirm), close=88, trend="neutral"),
+        frame(7, (seed,), close=89, trend="neutral", candles=failed_series(7, 89)),
+        frame(
+            8,
+            (seed, confirm),
+            close=88,
+            trend="neutral",
+            candles=failed_series(8, 88),
+        ),
     ]
     snapshot = result(frames)
     setup = candidate(snapshot, seed)
@@ -334,9 +428,9 @@ def test_gate_failed_watch_and_terminal_and_expired_cannot_plan():
     seed = breakout()
     catalog = (seed, held(seed))
     demoted_frames = [
-        frame(6, (seed,)),
-        frame(7, catalog),
-        frame(8, catalog, volume=None),
+        frame(6, (seed,), candles=displaced_series(6)),
+        frame(7, catalog, candles=displaced_series(7)),
+        frame(8, catalog, volume=None, candles=displaced_series(8)),
     ]
     demoted = enumerate_qualifications(demoted_frames, as_of=at(8))[-1]
     plan = plan_trade(
@@ -346,7 +440,11 @@ def test_gate_failed_watch_and_terminal_and_expired_cannot_plan():
     assert plan.reasons == ("setup_not_qualified",)
 
     invalidated = enumerate_qualifications(
-        [frame(6, (seed,)), frame(7, catalog), frame(8, catalog, close=109)],
+        [
+            frame(6, (seed,), candles=displaced_series(6)),
+            frame(7, catalog, candles=displaced_series(7)),
+            frame(8, catalog, close=109),
+        ],
         as_of=at(8),
     )[-1]
     plan = plan_trade(
@@ -360,7 +458,11 @@ def test_gate_failed_watch_and_terminal_and_expired_cannot_plan():
 
     parameters = QualificationParameters(continuation_max_bars=1)
     expiring = enumerate_qualifications(
-        [frame(6, (seed,)), frame(7, catalog), frame(8, catalog)],
+        [
+            frame(6, (seed,), candles=displaced_series(6)),
+            frame(7, catalog, candles=displaced_series(7)),
+            frame(8, catalog, candles=displaced_series(8)),
+        ],
         as_of=at(8),
         parameters=parameters,
     )
@@ -368,7 +470,7 @@ def test_gate_failed_watch_and_terminal_and_expired_cannot_plan():
     assert expiring[2].setups[0].terminal_reason == "maximum_bars_elapsed"
     plan = plan_trade(
         snapshot=expiring[2],
-        frame=frame(8, catalog),
+        frame=frame(8, catalog, candles=displaced_series(8)),
         setup_id=expiring[2].setups[0].id,
     )
     assert plan.state is PlanState.NO_PLAN
@@ -376,7 +478,7 @@ def test_gate_failed_watch_and_terminal_and_expired_cannot_plan():
     # the earlier historical snapshot still plans its own as_of (immutable record)
     historic = plan_trade(
         snapshot=expiring[1],
-        frame=frame(7, catalog),
+        frame=frame(7, catalog, candles=displaced_series(7)),
         setup_id=expiring[1].setups[0].id,
     )
     assert historic.state is PlanState.PLANNABLE
@@ -529,66 +631,59 @@ def test_range_reversal_uses_opposite_boundary_as_structural_target(mirror):
 # ---------------------------------------------------------------------------
 
 
-def test_entry_mode_frozen_confirmation_per_family():
-    params = PlanningParameters(entry_mode=EntryMode.FROZEN_CONFIRMATION)
+def test_entry_is_always_the_decision_time_close():
+    """Every family is planned at the price actually available at ``as_of``.
+
+    The old frozen-confirmation entry could reuse an earlier confirmation
+    print, which is exactly the "old, better price" a late setup must not be
+    credited with. The entry is now always the latest closed close.
+    """
 
     snapshot, planning_frame, setup = qualified()
-    plan = plan_trade(
-        snapshot=snapshot, frame=planning_frame, setup_id=setup.id, parameters=params
-    )
-    assert plan.state is PlanState.PLANNABLE
-    assert plan.entry.value == D(111)  # held-retest candle close
-    assert plan.entry.source_type == "step4_retest_close"
-    assert plan.entry.source_id.endswith(":held:7")
-    assert plan.risk_per_unit == 1
+    plan = plan_trade(snapshot=snapshot, frame=planning_frame, setup_id=setup.id)
+    assert plan.entry.value == D(112)  # latest closed close, not a frozen print
+    assert plan.entry.source_type == "step3_volatility_latest_close"
+    assert plan.entry.confirmed_at == plan.as_of
 
+    # Reversal short: the confirmation breakout closed at 88, but the plan is
+    # decided at 108 and must use 108, never the gone 88 print.
     snapshot, planning_frame, setup, _seed, confirm = qualified_reversal_short()
-    plan = plan_trade(
-        snapshot=snapshot, frame=planning_frame, setup_id=setup.id, parameters=params
-    )
-    assert plan.entry.value == D(88)  # confirmation breakout close
-    assert plan.entry.source_type == "step4_breakout_close"
-    assert plan.entry.source_id == confirm.id
+    plan = plan_trade(snapshot=snapshot, frame=planning_frame, setup_id=setup.id)
+    assert confirm.breakout_close == D(88)
+    assert plan.entry.value == D(108)
+    assert plan.risk_per_unit == 2  # 110 stop - 108 entry, not 88-110
 
+    # Reversal long: the confirmation closed at 112, the plan is decided at 92.
+    snapshot, planning_frame, setup, _seed, confirm = qualified_reversal_long()
+    plan = plan_trade(snapshot=snapshot, frame=planning_frame, setup_id=setup.id)
+    assert confirm.breakout_close == D(112)
+    assert plan.entry.value == D(92)
+
+    # Range reversal: the seed reclaim close was 109, the plan is decided at 108.
     snapshot, planning_frame, setup, seed = qualified_range()
-    plan = plan_trade(
-        snapshot=snapshot, frame=planning_frame, setup_id=setup.id, parameters=params
-    )
-    assert plan.entry.value == seed.reclaim_close == D(109)
-    assert plan.entry.source_type == "step4_sweep_reclaim_close"
-    assert plan.invalidation.value == D(110)
-    assert plan.risk_per_unit == 1
+    plan = plan_trade(snapshot=snapshot, frame=planning_frame, setup_id=setup.id)
+    assert seed.reclaim_close == D(109)
+    assert plan.entry.value == D(108)
 
 
-def test_frozen_entry_off_band_is_rejected_not_corrected():
-    snapshot, _planning_frame, _setup, _seed, confirm = qualified_reversal_long()
-    # Bullish setup: a confirmation whose own close print lies back beyond the
-    # swept band must be rejected by the planner's defensive side check.
+def test_entry_on_the_wrong_side_of_the_band_is_rejected_not_corrected():
+    snapshot, planning_frame, setup, _seed, _confirm = qualified_reversal_long()
+    # Bullish setup: a decision-time close back below the swept band must be
+    # rejected by the planner's defensive side check, never moved onto it.
     assert snapshot.setups[0].direction == "bullish"
-    broken = replace(confirm, breakout_close=D(85))
-    frames = [
-        frame(6, (sweep(True),), close=91),
-        frame(7, (sweep(True), broken), close=92),
-    ]
-    snap7 = result(
-        [
-            frame(6, (sweep(True),), close=91),
-            frame(7, (sweep(True), replace(broken, breakout_close=D(112))), close=92),
-        ]
+    below_band = replace(
+        planning_frame,
+        patterns=replace(
+            planning_frame.patterns,
+            structure=replace(
+                planning_frame.patterns.structure,
+                volatility=replace(
+                    planning_frame.patterns.structure.volatility, latest_close=D(85)
+                ),
+            ),
+        ),
     )
-    good = candidate(snap7, sweep(True))
-    assert good.state is SetupState.QUALIFIED
-    # planner consumes the *crafted* confirmation frame directly (the snapshot
-    # remains the genuine QUALIFIED one): the frozen level 85 must be rejected.
-    crafted = replace(
-        frames[1], patterns=replace(frames[1].patterns, breakouts=(broken,))
-    )
-    plan = plan_trade(
-        snapshot=snap7,
-        frame=crafted,
-        setup_id=good.id,
-        parameters=PlanningParameters(entry_mode=EntryMode.FROZEN_CONFIRMATION),
-    )
+    plan = plan_trade(snapshot=snapshot, frame=below_band, setup_id=setup.id)
     assert plan.state is PlanState.INVALID
     assert plan.reasons == ("entry_not_on_trade_side",)
     assert plan.entry.value == D(85)  # offending number stays visible, unfixed
@@ -623,7 +718,7 @@ def test_logical_invalidation_is_structural_and_stop_is_buffered():
 
 
 def test_atr_buffer_uses_existing_atr_level():
-    snapshot, planning_frame, setup = qualified()
+    snapshot, planning_frame, setup, _seed = qualified_continuation(upto=9)
     plan = plan_trade(
         snapshot=snapshot,
         frame=with_atr(planning_frame),
@@ -634,10 +729,10 @@ def test_atr_buffer_uses_existing_atr_level():
     )
     assert plan.state is PlanState.PLANNABLE
     assert plan.stop.value == D("107.00000000")  # 110 - quantized(2 x 1.5)
-    assert plan.risk_per_unit == D("5.00000000")
+    assert plan.risk_per_unit == D("3.50000000")  # 110.5 entry - 107 stop
     (target,) = plan.targets
-    assert target.level.value == D("122.00000000")
-    assert target.r_multiple == D("2.00000000")
+    assert target.level.value == D(114)  # genuine confirmed structural level
+    assert target.r_multiple == D("1.00000000")  # exactly the mandatory floor
 
 
 def test_missing_atr_is_gap_not_substitute_buffer():
@@ -693,14 +788,14 @@ def test_stop_pushed_to_non_positive_rejected():
         ),
     )
     assert plan.state is PlanState.INVALID
-    assert plan.reasons == ("stop_non_positive", "no_valid_target_available")
+    assert plan.reasons == ("stop_non_positive", "minimum_r_multiple_not_met")
     assert plan.stop.value is None
     assert plan.risk_per_unit is None
     assert plan.targets == ()
     assert "not a finite positive price" in rule_for(plan, "stop_beyond_entry").reason
 
 
-def test_large_valid_buffer_widens_risk_without_rejection():
+def test_large_valid_buffer_is_never_squeezed_to_manufacture_reward():
     snapshot, planning_frame, setup = qualified()
     plan = plan_trade(
         snapshot=snapshot,
@@ -710,9 +805,14 @@ def test_large_valid_buffer_widens_risk_without_rejection():
             stop_buffer_mode=StopBufferMode.ATR, stop_buffer_atr_multiple="5"
         ),
     )
-    assert plan.state is PlanState.PLANNABLE
+    # The buffered structural stop widens risk to 52 per unit, so the
+    # structural target at 116 is far below 1R. The plan is refused; the stop
+    # and risk are reported exactly as derived and never tightened to fit.
+    assert plan.state is PlanState.NO_PLAN
+    assert plan.reasons == ("minimum_r_multiple_not_met",)
     assert plan.stop.value == D("60.00000000")
     assert plan.risk_per_unit == D("52.00000000")
+    assert plan.targets == ()
 
 
 # ---------------------------------------------------------------------------
@@ -737,72 +837,47 @@ def test_structural_target_only_from_levels_known_at_as_of():
     assert target.reward_per_unit == D("3.5")
     assert target.r_multiple == D("7.00000000")
     assert any("not strictly above entry" in note for note in plan.excluded_targets)
-    assert rule_for(plan, "target_levels_valid").reason.startswith("1 target(s)")
-    assert "structural levels" in rule_for(plan, "target_levels_valid").reason
-
-
-def test_frozen_entry_with_structural_target_exact_numbers():
-    snapshot, planning_frame, setup, _seed = qualified_continuation(upto=9)
-    plan = plan_trade(
-        snapshot=snapshot,
-        frame=planning_frame,
-        setup_id=setup.id,
-        parameters=PlanningParameters(entry_mode=EntryMode.FROZEN_CONFIRMATION),
+    assert rule_for(plan, "target_levels_valid").reason.startswith(
+        "1 genuine structural target(s)"
     )
-    assert plan.entry.value == D(111)  # held-retest close
-    assert plan.risk_per_unit == 1
+
+
+def test_continuation_uses_the_decision_time_close_not_the_retest_close():
+    snapshot, planning_frame, setup, _seed = qualified_continuation(upto=9)
+    plan = plan_trade(snapshot=snapshot, frame=planning_frame, setup_id=setup.id)
+    assert plan.entry.value == D("110.5")  # latest closed close at as_of
+    assert plan.risk_per_unit == D("0.5")
     (target,) = plan.targets
     assert target.is_structural and target.level.value == D(114)
-    assert target.reward_per_unit == 3
-    assert target.r_multiple == D("3.00000000")
+    assert target.reward_per_unit == D("3.5")
+    assert target.r_multiple == D("7.00000000")
 
 
-def test_r_derived_fallback_labelled_and_only_when_needed():
-    snapshot, planning_frame, setup = qualified()  # flat structure: nothing above
-    plan = plan_trade(snapshot=snapshot, frame=planning_frame, setup_id=setup.id)
-    (target,) = plan.targets
-    assert target.is_structural is False
-    assert target.level.source_type == "r_multiple_fallback"
-    assert target.level.source_value == plan.risk_per_unit
-    assert "entry 112 + (2 R x risk 2)" in target.level.transformation
-    assert "no valid structural level" in rule_for(plan, "target_levels_valid").reason
+def test_structurally_targetless_setup_is_refused_not_rescued():
+    """No genuine structural target means no plan - a synthetic R level is gone.
 
-    # With structural evidence available, the fallback is not used at all.
-    snapshot, planning_frame, setup, _seed = qualified_continuation(upto=9)
-    plan = plan_trade(snapshot=snapshot, frame=planning_frame, setup_id=setup.id)
-    assert all(t.is_structural for t in plan.targets)
+    The fixture frames carry no confirmed structural level beyond the entry, so
+    previously an R-derived fallback target made the plan PLANNABLE. Under the
+    structural-target policy the plan is refused and nothing is invented.
+    """
 
-    # Disabling fallbacks leaves the flat-candidate plan with an explicit gap.
-    snapshot, planning_frame, setup = qualified()
-    plan = plan_trade(
-        snapshot=snapshot,
-        frame=planning_frame,
-        setup_id=setup.id,
-        parameters=PlanningParameters(r_multiple_fallbacks=()),
-    )
+    seed = breakout()
+    frames = [frame(6, (seed,), close=112), frame(7, (seed, held(seed)), close=112)]
+    snapshot = result(frames)
+    setup = candidate(snapshot, seed)
+    assert setup.state is SetupState.QUALIFIED
+    plan = plan_trade(snapshot=snapshot, frame=frames[-1], setup_id=setup.id)
     assert plan.state is PlanState.NO_PLAN
     assert plan.reasons == ("no_valid_target_available",)
-
-
-def test_multiple_fallbacks_sorted_and_canonicalized():
-    snapshot, planning_frame, setup = qualified()
-    a = plan_trade(
-        snapshot=snapshot,
-        frame=planning_frame,
-        setup_id=setup.id,
-        parameters=PlanningParameters(r_multiple_fallbacks=(D(3), D("1.5"))),
+    assert plan.targets == ()
+    rule = rule_for(plan, "target_levels_valid")
+    assert rule.outcome is RuleOutcome.FAIL
+    assert "never rescued by an R-derived or synthetic target" in rule.reason
+    # No target of any kind is reported, and nothing is labelled as synthetic.
+    assert plan.to_json_dict()["targets"] == []
+    assert not any(
+        "fallback" in note for note in plan.excluded_targets
     )
-    b = plan_trade(
-        snapshot=snapshot,
-        frame=planning_frame,
-        setup_id=setup.id,
-        parameters=PlanningParameters(r_multiple_fallbacks=(1.5, "3.0")),
-    )
-    assert a == b  # canonical spelling/order -> byte-identical plans and identities
-    assert [t.level.value for t in a.targets] == [D("115.0"), D(118)]
-    assert [str(t.r_multiple) for t in a.targets] == ["1.50000000", "3.00000000"]
-    assert [t.reward_per_unit for t in a.targets] == [D("3.0"), D("6.0")]
-    assert a.targets[0].level.value < a.targets[1].level.value  # nearest R first
 
 
 def test_duplicate_structural_levels_collapse_once():
@@ -884,8 +959,11 @@ def test_target_on_entry_level_rejected_not_bumped():
     snapshot = enumerate_qualifications(frames, as_of=at(7))[-1]
     setup = candidate(snapshot, seed)
     plan = plan_trade(snapshot=snapshot, frame=frames[-1], setup_id=setup.id)
-    assert plan.state is PlanState.PLANNABLE
-    assert not plan.targets[0].is_structural  # fallback, not a nudged 112 -> 112.x
+    # The only candidate sits on the entry, so it is rejected outright and no
+    # substitute level is invented: the plan is refused.
+    assert plan.state is PlanState.NO_PLAN
+    assert plan.reasons == ("no_valid_target_available",)
+    assert plan.targets == ()
     assert any(
         "eq-112: candidate level not strictly above entry" in note
         for note in plan.excluded_targets
@@ -908,9 +986,9 @@ def test_equal_level_targets_can_be_disabled():
         PatternLiquidityParameters(),
     )
     seed = breakout()
-    base = frame(7, (seed, held(seed)))
+    base = frame(7, (seed, held(seed)), candles=displaced_series(7))
     frames = [
-        frame(6, (seed,)),
+        frame(6, (seed,), candles=displaced_series(6)),
         replace(base, patterns=replace(base.patterns, equal_levels=(cluster,))),
     ]
     snapshot = enumerate_qualifications(frames, as_of=at(7))[-1]
@@ -919,13 +997,20 @@ def test_equal_level_targets_can_be_disabled():
     assert enabled.targets[0].level.value == D(115)
     assert enabled.targets[0].level.source_type == "step4_equal_level_cluster"
     assert enabled.targets[0].level.confirmed_at == at(6)
+    assert enabled.targets[1].level.value == D(116)  # confirmed swing/zone level
     disabled = plan_trade(
         snapshot=snapshot,
         frame=frames[-1],
         setup_id=setup.id,
         parameters=PlanningParameters(include_equal_levels_as_targets=False),
     )
-    assert disabled.targets[0].level.source_type == "r_multiple_fallback"
+    # Switching equal levels off never invents a level: the remaining target is
+    # the genuine confirmed structural reference at 116.
+    assert [t.level.value for t in disabled.targets] == [D(116)]
+    assert disabled.targets[0].level.source_type in (
+        "step4_reference_swing_high",
+        "step4_reference_zone",
+    )
 
 
 def test_exact_r_quantization_half_even():
@@ -937,12 +1022,13 @@ def test_exact_r_quantization_half_even():
         parameters=PlanningParameters(
             stop_buffer_mode=StopBufferMode.PERCENTAGE,
             stop_buffer_percentage="0.3",
-            r_multiple_fallbacks=(),
         ),
     )
     assert plan.stop.value == D("109.67000000")
-    assert plan.state is PlanState.NO_PLAN  # no structural level and no fallback
-    assert plan.reasons == ("no_valid_target_available",)
+    assert plan.risk_per_unit == D("2.33000000")
+    (target,) = plan.targets
+    assert target.reward_per_unit == D("4")
+    assert target.r_multiple == D("1.71673820")  # 4 / 2.33 at 8dp half-even
 
     snapshot, planning_frame, setup, _seed = qualified_continuation(upto=9)
     plan = plan_trade(
@@ -966,38 +1052,63 @@ def test_exact_r_quantization_half_even():
 # ---------------------------------------------------------------------------
 
 
-def test_low_r_plannable_without_minimum_r_rule():
-    snapshot, planning_frame, setup = qualified()
-    plan = plan_trade(
-        snapshot=snapshot,
-        frame=planning_frame,
-        setup_id=setup.id,
-        parameters=PlanningParameters(r_multiple_fallbacks=(D("0.25"),)),
-    )
-    assert plan.state is PlanState.PLANNABLE  # low R alone never rejects
-    assert plan.targets[0].r_multiple == D("0.25000000")
-    assert "minimum_r_multiple" not in {r.rule_id for r in plan.rules}
-
-
-def test_minimum_r_excludes_near_target_and_reports_threshold():
-    snapshot, planning_frame, setup = qualified()
-    plan = plan_trade(
-        snapshot=snapshot,
-        frame=planning_frame,
-        setup_id=setup.id,
-        parameters=PlanningParameters(
-            r_multiple_fallbacks=(D(1), D(2)), min_r_multiple="1.5"
-        ),
-    )
-    assert plan.state is PlanState.PLANNABLE
-    assert [t.level.value for t in plan.targets] == [D(116)]
+def test_minimum_r_floor_refuses_a_sub_1r_structural_target():
+    # One genuine structural target at 113.5 with entry 112 and risk 2: R 0.75,
+    # below the mandatory floor, so there is no viable target and no trade.
+    snapshot, planning_frame, setup = target_level_fixture("113.5")
+    plan = plan_trade(snapshot=snapshot, frame=planning_frame, setup_id=setup.id)
+    assert plan.state is PlanState.NO_PLAN
+    assert plan.reasons == ("minimum_r_multiple_not_met",)
+    assert plan.targets == ()
     assert any(
-        "R 1.00000000 < minimum_r_multiple 1.5" in note
+        "R 0.75000000 < minimum_r_multiple 1" in note
         for note in plan.excluded_targets
     )
+    rule = rule_for(plan, "minimum_r_multiple")
+    assert rule.outcome is RuleOutcome.FAIL
+    assert "mandatory minimum_r_multiple 1" in rule.reason
 
 
-def test_minimum_r_rejects_plan_when_nothing_survives():
+@pytest.mark.parametrize(
+    ("level", "r_multiple", "preferred"),
+    [
+        ("114", "1.00000000", False),  # exactly the floor: actionable
+        ("114.5", "1.25000000", False),  # inside the allowed 1R-1.49R band
+        ("114.98", "1.49000000", False),  # just below the preferred threshold
+        ("115", "1.50000000", True),  # preferred classification only, never a gate
+        ("116", "2.00000000", True),
+    ],
+)
+def test_reward_to_risk_is_a_mandatory_floor_plus_a_preference(
+    level, r_multiple, preferred
+):
+    """Exactly 1R is actionable, 1R-1.49R is allowed, >=1.5R is only preferred."""
+
+    snapshot, planning_frame, setup = target_level_fixture(level)
+    plan = plan_trade(snapshot=snapshot, frame=planning_frame, setup_id=setup.id)
+    assert plan.state is PlanState.PLANNABLE
+    (target,) = plan.targets
+    assert target.r_multiple == D(r_multiple)
+    assert plan.preferred_r_multiple_met is preferred
+    rule = rule_for(plan, "minimum_r_multiple")
+    assert rule.outcome is RuleOutcome.PASS
+    assert ("at or above" if preferred else "below") in rule.reason
+
+
+def test_minimum_r_is_always_a_base_rule_with_preferred_classification():
+    snapshot, planning_frame, setup = qualified()
+    plan = plan_trade(snapshot=snapshot, frame=planning_frame, setup_id=setup.id)
+    assert plan.state is PlanState.PLANNABLE
+    assert [r.rule_id for r in plan.rules] == list(BASE_RULES)
+    rule = rule_for(plan, "minimum_r_multiple")
+    assert rule.outcome is RuleOutcome.PASS
+    assert "R 2.00000000" in rule.reason
+    assert "preferred 1.5" in rule.reason
+    # Informational only: the plan is actionable because it clears the floor.
+    assert plan.preferred_r_multiple_met is True
+
+
+def test_minimum_r_excludes_near_target_and_reports_exact_threshold():
     snapshot, planning_frame, setup = qualified()
     plan = plan_trade(
         snapshot=snapshot,
@@ -1005,13 +1116,18 @@ def test_minimum_r_rejects_plan_when_nothing_survives():
         setup_id=setup.id,
         parameters=PlanningParameters(min_r_multiple="3"),
     )
-    assert plan.state is PlanState.INVALID
+    assert plan.state is PlanState.NO_PLAN
     assert plan.reasons == ("minimum_r_multiple_not_met",)
     assert plan.targets == ()
+    assert any(
+        "R 2.00000000 < minimum_r_multiple 3" in note
+        for note in plan.excluded_targets
+    )
     rule = rule_for(plan, "minimum_r_multiple")
     assert rule.outcome is RuleOutcome.FAIL
     assert "minimum_r_multiple 3" in rule.reason
-    assert [r.rule_id for r in plan.rules] == list(BASE_RULES) + ["minimum_r_multiple"]
+    assert [r.rule_id for r in plan.rules] == list(BASE_RULES)
+    assert plan.preferred_r_multiple_met is None
 
 
 # ---------------------------------------------------------------------------
@@ -1185,9 +1301,9 @@ def test_stale_qualified_objects_are_never_actionable():
     seed = breakout()
     catalog = (seed, held(seed))
     frames = [
-        frame(6, (seed,)),
-        frame(7, catalog),
-        frame(8, catalog, volume=None),  # demoted at 8
+        frame(6, (seed,), candles=displaced_series(6)),
+        frame(7, catalog, candles=displaced_series(7)),
+        frame(8, catalog, volume=None, candles=displaced_series(8)),  # demoted at 8
     ]
     history = enumerate_qualifications(frames, as_of=at(8))
     stale, current = history[1], history[2]
@@ -1254,25 +1370,6 @@ def test_range_state_conflicts_are_invalid():
     assert plan.reasons == ("range_followthrough_failed",)
 
 
-def test_range_entry_outside_frozen_bounds_rejected():
-    snapshot, _planning_frame, setup, seed = qualified_range(mirror=False)
-    wild = replace(seed, reclaim_close=D(85))  # below frozen range low 90
-    frames = [
-        frame(6, (wild,), close=85, active_range=frozen_range(), trend="neutral"),
-        frame(7, (wild,), close=108, active_range=frozen_range(), trend="neutral"),
-    ]
-    plan = plan_trade(
-        snapshot=snapshot,
-        frame=frames[1],
-        setup_id=setup.id,
-        parameters=PlanningParameters(entry_mode=EntryMode.FROZEN_CONFIRMATION),
-    )
-    # band side passes (85 <= band low 110); the frozen range bound rejects.
-    assert plan.state is PlanState.INVALID
-    assert plan.reasons == ("range_entry_outside_frozen_bounds",)
-    assert plan.entry.value == D(85)
-
-
 # ---------------------------------------------------------------------------
 # Traceability
 # ---------------------------------------------------------------------------
@@ -1305,8 +1402,10 @@ def test_source_traceability_of_every_level():
 
     (target,) = plan.targets
     assert len(target.level.source_id) == 64
-    assert target.level.source_type == "r_multiple_fallback"
-    assert target.level.observed_at is None  # derived level invents no timestamp
+    # Only genuine evidence-known structural levels can be targets now.
+    assert target.level.source_type.startswith("step4_reference")
+    assert target.level.observed_at is not None
+    assert target.level.observed_at <= plan.as_of
 
     # Every source reference resolves inside the consumed frame's evidence.
     catalog_ids = {e.id for e in planning_frame.patterns.events()}
@@ -1345,7 +1444,7 @@ def test_plan_identity_is_stable_and_config_bound():
     assert alt.entry.value == first.entry.value
     assert first.config_fingerprint != alt.config_fingerprint
     assert first.setup_config_fingerprint == snapshot.config_fingerprint
-    assert first.planning_rules_version == "trade-planning-v1"
+    assert first.planning_rules_version == "trade-planning-v2"
 
 
 def test_full_rebuild_reproduces_identical_plan():
@@ -1379,14 +1478,14 @@ def test_configuration_canonical_spellings_reproduce_same_plan():
         frame=planning_frame,
         setup_id=setup.id,
         parameters=PlanningParameters(
-            r_multiple_fallbacks=(D("2.00"),), min_r_multiple="2.0"
+            min_r_multiple="2.0", preferred_r_multiple="3.00"
         ),
     )
     default = plan_trade(
         snapshot=snapshot,
         frame=planning_frame,
         setup_id=setup.id,
-        parameters=PlanningParameters(min_r_multiple=D(2)),
+        parameters=PlanningParameters(min_r_multiple=D(2), preferred_r_multiple=D(3)),
     )
     assert canonical == default
 
@@ -1394,8 +1493,6 @@ def test_configuration_canonical_spellings_reproduce_same_plan():
 @pytest.mark.parametrize(
     "kwargs",
     [
-        {"entry_mode": "teleport"},
-        {"entry_mode": 3},
         {"stop_buffer_mode": "vibes"},
         {"stop_buffer_atr_multiple": 0},
         {"stop_buffer_atr_multiple": "NaN"},
@@ -1406,11 +1503,13 @@ def test_configuration_canonical_spellings_reproduce_same_plan():
         {"max_structural_targets": 11},
         {"max_structural_targets": True},
         {"include_equal_levels_as_targets": "yes"},
-        {"r_multiple_fallbacks": [2]},
-        {"r_multiple_fallbacks": (D(0),)},
-        {"r_multiple_fallbacks": (D(2), D("2.0"))},
         {"min_r_multiple": -1},
+        {"min_r_multiple": 0},
+        {"min_r_multiple": "0.99"},
         {"min_r_multiple": "not-a-number"},
+        {"min_r_multiple": "NaN"},
+        {"preferred_r_multiple": "0.5"},
+        {"preferred_r_multiple": "NaN"},
     ],
 )
 def test_config_validation(kwargs):
@@ -1442,6 +1541,7 @@ def test_payload_has_no_execution_or_sizing_fields():
     plan = plan_trade(snapshot=snapshot, frame=planning_frame, setup_id=setup.id)
     payload = plan.to_json_dict()
     assert set(payload) == PLAN_KEYS
+    assert payload["preferred_r_multiple_met"] is True
 
     def walk_keys(node):
         if isinstance(node, dict):
@@ -1499,9 +1599,12 @@ def test_inserting_future_candles_cannot_alter_a_historical_plan():
         snapshot=snapshot_full, frame=frame_full, setup_id=setup_full.id
     )
     assert plan_full == plan_trunc
-    # The 114 swing high only confirms later; it cannot become a 7-o'clock target.
-    assert plan_trunc.state is PlanState.PLANNABLE
-    assert all(not t.is_structural for t in plan_trunc.targets)
+    # The 114 swing high only confirms later; at 7 there is no valid target at
+    # all, and none is invented, so the plan is refused rather than credited
+    # with a future level.
+    assert plan_trunc.state is PlanState.NO_PLAN
+    assert plan_trunc.reasons == ("no_valid_target_available",)
+    assert plan_trunc.targets == ()
     later, later_frame, later_setup, _seed = qualified_continuation(upto=9)
     plan_later = plan_trade(snapshot=later, frame=later_frame, setup_id=later_setup.id)
     assert any(t.is_structural and t.level.value == D(114) for t in plan_later.targets)
@@ -1525,9 +1628,9 @@ def test_chronological_replay_plans_at_every_close():
     seed = breakout()
     catalog = (seed, held(seed))
     frames = [
-        frame(6, (seed,)),
-        frame(7, catalog),
-        frame(8, catalog),
+        frame(6, (seed,), candles=displaced_series(6)),
+        frame(7, catalog, candles=displaced_series(7)),
+        frame(8, catalog, candles=displaced_series(8)),
         frame(9, catalog, close=109),
     ]
     history = enumerate_qualifications(frames, as_of=at(9))
@@ -1564,16 +1667,16 @@ def test_chronological_replay_plans_at_every_close():
 @pytest.mark.parametrize("symbol", ["BTC/USDT", "ETH/USD", "SOL/USDC"])
 def test_planner_is_symbol_generic(symbol):
     snapshot, planning_frame, setup, _seed = qualified_continuation(
-        upto=7, symbol=symbol
+        upto=9, symbol=symbol
     )
     assert setup.state is SetupState.QUALIFIED
     plan = plan_trade(snapshot=snapshot, frame=planning_frame, setup_id=setup.id)
     assert plan.state is PlanState.PLANNABLE
     assert plan.symbol == symbol
-    assert plan.entry.value == D(113)  # purely candle-driven numbers
+    assert plan.entry.value == D("110.5")  # purely candle-driven numbers
     assert plan.invalidation.value == D(110)
-    assert plan.risk_per_unit == 3
-    assert plan.targets[0].level.value == D(119)
+    assert plan.risk_per_unit == D("0.5")
+    assert plan.targets[0].level.value == D(114)  # genuine confirmed level
 
 
 def test_ids_differ_only_through_instrument_bound_evidence():
@@ -1627,7 +1730,7 @@ def test_json_projection_is_serializable_and_detached():
     assert payload["targets"][0]["r_multiple"] == "2.00000000"
     assert payload["reasons"] == []
     assert payload["state_detail"] is None
-    assert payload["planning_rules_version"] == "trade-planning-v1"
+    assert payload["planning_rules_version"] == "trade-planning-v2"
     for rule in payload["rules"]:
         assert rule["outcome"] in {"passed", "failed", "pending"}
         assert re.fullmatch(r"[a-z0-9_]+", rule["rule_id"])

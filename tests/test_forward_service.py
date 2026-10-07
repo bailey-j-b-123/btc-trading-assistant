@@ -42,6 +42,7 @@ from forward_fixtures import (
     make_harness,
     mirrored,
     sweep_reversal_series,
+    two_target_series,
     watch_only_series,
 )
 from trading_assistant.forward_testing import (
@@ -844,12 +845,9 @@ def test_stop_after_an_ordered_entry_is_stopped() -> None:
 
 
 def test_stop_after_targets_is_reported_and_excluded_from_raw_r() -> None:
-    # Two explicit fallback targets are needed for a stop after a target reach:
-    # with a single target the trajectory completes at that target.
-    harness = make_harness(series=labelled_series(), ledger_start=QUALIFYING_BOUNDARY)
-    harness.service.planning_parameters = PlanningParameters(
-        r_multiple_fallbacks=(D("2"), D("4"))
-    )
+    # Two genuine structural targets are needed for a stop after a target
+    # reach: with a single target the trajectory completes at that target.
+    harness = make_harness(series=two_target_series(), ledger_start=QUALIFYING_BOUNDARY)
     harness.advance_to(QUALIFYING_BOUNDARY)
     harness.run(refresh_market_data=False)
     plans = harness.plans()
@@ -983,7 +981,9 @@ def test_different_parameter_versions_are_never_silently_combined() -> None:
     harness = harness_with_a_paper_plan()
     default_fingerprint = harness.cycles()[0].version_fingerprint
     # A second, differently configured service records into the same ledger.
-    harness.service.planning_parameters = PlanningParameters(min_r_multiple=D("1"))
+    # A stricter floor than the v2 default (1) is a genuinely different
+    # planning version; the old fixture used 1, which is now the default.
+    harness.service.planning_parameters = PlanningParameters(min_r_multiple=D("2"))
     harness.step((bar(21, 126, low=123),), refresh_market_data=False)
     new_fingerprint = harness.cycles()[-1].version_fingerprint
     assert new_fingerprint != default_fingerprint

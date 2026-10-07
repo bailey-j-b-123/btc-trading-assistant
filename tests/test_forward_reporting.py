@@ -231,7 +231,9 @@ def test_forward_report_never_hides_ambiguous_incomplete_or_open_observations() 
 def test_multiple_versions_are_reported_separately_and_never_combined() -> None:
     harness = harness_with_a_paper_plan()
     first = harness.cycles()[0].version_fingerprint
-    harness.service.planning_parameters = PlanningParameters(min_r_multiple=D("1"))
+    # A stricter floor than the v2 default (1) is a genuinely different
+    # planning version; the old fixture used 1, which is now the default.
+    harness.service.planning_parameters = PlanningParameters(min_r_multiple=D("2"))
     harness.step((bar(21, 126, low=123),), refresh_market_data=False)
 
     snapshot = harness.ledger()
@@ -255,7 +257,9 @@ def test_multiple_versions_are_reported_separately_and_never_combined() -> None:
 
 def test_separated_versions_make_the_comparison_side_explicitly_unavailable() -> None:
     harness = harness_with_a_paper_plan()
-    harness.service.planning_parameters = PlanningParameters(min_r_multiple=D("1"))
+    # A stricter floor than the v2 default (1) is a genuinely different
+    # planning version; the old fixture used 1, which is now the default.
+    harness.service.planning_parameters = PlanningParameters(min_r_multiple=D("2"))
     harness.step((bar(21, 126, low=123),), refresh_market_data=False)
 
     comparison = build_forward_comparison(

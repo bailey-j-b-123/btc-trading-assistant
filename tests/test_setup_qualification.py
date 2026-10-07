@@ -112,8 +112,13 @@ def frame(
     atr="2",
     active_range=None,
     higher=(),
+    candles=None,
 ):
-    source = snap(tuple(bar(j, close) for j in range(i)), at=at(i))
+    # ``candles`` is an optional explicit series (used by fixtures that need a
+    # displaced candle to produce a genuine structural reference); the default
+    # flat series is unchanged, so existing callers keep identical behaviour.
+    series = candles if candles is not None else tuple(bar(j, close) for j in range(i))
+    source = snap(series, at=at(i))
     context = source.structure
     trend_value = (
         TrendDirection.NEUTRAL if trend == "unknown" else TrendDirection(trend)

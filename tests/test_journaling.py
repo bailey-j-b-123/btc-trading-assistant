@@ -779,15 +779,18 @@ def test_projection_refuses_plans_that_are_not_plannable():
         ProposedPlanLevels.from_plan("not a plan")
     assert isinstance(plan, TradePlanResult)
 
-    no_target = plan_trade(
+    # A plan refused because no genuine structural target meets the mandatory
+    # reward-to-risk floor is equally unprojectable.
+    no_viable_target = plan_trade(
         snapshot=snapshot_of_qualified()[0],
         frame=snapshot_of_qualified()[1],
         setup_id=snapshot_of_qualified()[2].id,
-        parameters=PlanningParameters(r_multiple_fallbacks=()),
+        parameters=PlanningParameters(min_r_multiple="3"),
     )
-    assert no_target.state is PlanState.NO_PLAN
+    assert no_viable_target.state is PlanState.NO_PLAN
+    assert no_viable_target.reasons == ("minimum_r_multiple_not_met",)
     with pytest.raises(ValueError, match="PLANNABLE"):
-        ProposedPlanLevels.from_plan(no_target)
+        ProposedPlanLevels.from_plan(no_viable_target)
 
 
 def test_projection_rejects_inconsistent_numbers():

@@ -79,7 +79,9 @@ def test_duplicate_inserts_report_not_created_at_the_same_instant() -> None:
 
 def test_separated_report_warns_that_breakdowns_span_versions() -> None:
     harness = harness_with_a_paper_plan()
-    harness.service.planning_parameters = PlanningParameters(min_r_multiple=D("1"))
+    # A stricter floor than the v2 default (1) is a genuinely different
+    # planning version; the old fixture used 1, which is now the default.
+    harness.service.planning_parameters = PlanningParameters(min_r_multiple=D("2"))
     harness.step((bar(21, 126, low=123),), refresh_market_data=False)
     report = harness.report()
     assert report.version_separation is VersionSeparation.SEPARATED

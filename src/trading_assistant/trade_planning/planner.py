@@ -7,9 +7,23 @@ reproducible immutable snapshot at its planning ``as_of``: to obtain a
 *current* plan, callers must obtain a current Step 5 snapshot and plan against
 it; an old plan is retained history, never a live signal.
 
+Trading policy (deterministic and mandatory):
+
+* Entry is the actual decision-time price (the latest closed close at ``as_of``).
+  An earlier, frozen, or otherwise better price is never substituted, so a
+  setup whose move already happened cannot be chased through an old entry.
+* The stop is the structural invalidation plus the configured buffer. It is
+  never tightened to manufacture an acceptable reward-to-risk.
+* Targets are genuine structural levels only, and at least one must reach the
+  mandatory ``min_r_multiple`` floor (default 1R). A structurally targetless
+  setup is refused; no synthetic R target can rescue it.
+* ``preferred_r_multiple`` is a classification recorded on the plan; it never
+  blocks a plan that clears the mandatory floor.
+
 State vocabulary is fixed and documented. ``reasons`` carries machine-readable
-codes. NO_PLAN means a required fact is missing/UNKNOWN or the source setup is
-not currently usable, so nothing may be guessed through the gap. INVALID means
+codes. NO_PLAN means a required fact is missing/UNKNOWN, the source setup is
+not currently usable, or no genuine structural target reaches the mandatory
+reward-to-risk floor, so nothing may be guessed through the gap. INVALID means
 inputs were present but a derived number violates a hard invariant. State
 priority is INVALID > NO_PLAN so contradictions are never downgraded into a
 mere gap, and offending numbers are reported but never silently corrected.
@@ -45,7 +59,6 @@ from trading_assistant.setup_qualification.models import (
 )
 from trading_assistant.trade_planning.levels import (
     find_seed,
-    frozen_confirmation_level,
     is_available_at,
     is_long,
     plan_close_level,
@@ -65,7 +78,6 @@ from trading_assistant.trade_planning.models import (
 )
 from trading_assistant.trade_planning.parameters import (
     PLANNING_RULES_VERSION,
-    EntryMode,
     PlanningParameters,
     decimal_text,
     fingerprint,
@@ -92,12 +104,11 @@ INVALID_CODES = frozenset(
         "stop_non_positive",
         "stop_not_beyond_entry",
         "non_positive_risk",
-        "minimum_r_multiple_not_met",
     }
 )
 
-#: Exact planning rules in evaluation order. ``minimum_r_multiple`` joins the
-#: used-rule set only when the optional threshold is configured.
+#: Exact planning rules in evaluation order. ``minimum_r_multiple`` is a base
+#: rule: the mandatory reward-to-risk floor is always evaluated.
 BASE_RULES = (
     "source_inputs_consistent",
     "setup_usable",
@@ -113,6 +124,7 @@ BASE_RULES = (
     "stop_beyond_entry",
     "positive_risk",
     "target_levels_valid",
+    "minimum_r_multiple",
 )
 
 
@@ -130,6 +142,7 @@ class _PlanContext:
         self.invalidation = UNKNOWN_LEVEL
         self.stop = UNKNOWN_LEVEL
         self.risk_per_unit: Decimal | None = None
+        self.preferred_r_multiple_met: bool | None = None
         self.targets: tuple[PlannedTarget, ...] = ()
         self.setup: SetupResult | None = None
         self.requested_setup_id: str | None = None
@@ -158,9 +171,7 @@ class _PlanContext:
         instrument: tuple[str, str, str],
         as_of: datetime,
     ) -> TradePlanResult:
-        expected = list(BASE_RULES) + (
-            ["minimum_r_multiple"] if self.parameters.min_r_multiple is not None else []
-        )
+        expected = list(BASE_RULES)
         pending_reason = (
             f"not evaluated; blocking outcome: {self.reasons[0]}"
             if self.reasons
@@ -196,6 +207,7 @@ class _PlanContext:
             "invalidation": self.invalidation,
             "stop": self.stop,
             "risk_per_unit": self.risk_per_unit,
+            "preferred_r_multiple_met": self.preferred_r_multiple_met,
             "targets": self.targets,
             "rules": tuple(self.rules),
             "reasons": tuple(self.reasons),
@@ -411,9 +423,7 @@ def _plan_from_evidence(
         return
 
     # Rule 8: resolve the entry level from the configured entry rule.
-    entry_value = _resolve_entry(
-        context, patterns, setup, seed, confirmation, interval, as_of=as_of
-    )
+    entry_value = _resolve_entry(context, patterns, interval, as_of=as_of)
     if entry_value is None:
         return
 
@@ -559,51 +569,42 @@ def _reverify_family_state(
 def _resolve_entry(
     context: _PlanContext,
     patterns: PatternLiquiditySnapshot,
-    setup: SetupResult,
-    seed: Breakout | FailedBreakout | Sweep,
-    confirmation: Breakout | Retest | None,
     interval: timedelta,
     *,
     as_of: datetime,
 ) -> Decimal | None:
-    if context.parameters.entry_mode is EntryMode.PLAN_CLOSE:
-        value, source_id, observed, confirmed = plan_close_level(
-            patterns.structure.volatility, patterns.timeframe, interval
+    """Entry is always the actual decision-time price.
+
+    The anchor is the latest closed candle's close at the planning ``as_of``.
+    No earlier, frozen, or otherwise better price is ever substituted, so a
+    setup whose move already happened is measured at the price really available
+    now instead of at a gone price that would flatter its reward-to-risk.
+    """
+
+    value, source_id, observed, confirmed = plan_close_level(
+        patterns.structure.volatility, patterns.timeframe, interval
+    )
+    source_type = "step3_volatility_latest_close"
+    # Anti-lookahead: the entry anchor itself must have been known at the
+    # planning instant. A contradiction outranks a missing input, so this
+    # check precedes the missing-close gap below.
+    if observed is not None and observed + interval > as_of:
+        context.fail(
+            "future_evidence_used",
+            "entry_level_available",
+            f"plan-close candle opened {observed} closes {observed + interval} "
+            f"> as_of {as_of}; the entry anchor was not yet known",
         )
-        source_type = "step3_volatility_latest_close"
-        # Anti-lookahead: the entry anchor itself must have been known at the
-        # planning instant. A contradiction outranks a missing input, so this
-        # check precedes the missing-close gap below.
-        if observed is not None and observed + interval > as_of:
-            context.fail(
-                "future_evidence_used",
-                "entry_level_available",
-                f"plan-close candle opened {observed} closes {observed + interval} "
-                f"> as_of {as_of}; the entry anchor was not yet known",
-            )
-            return None
-        if not isinstance(value, Decimal):
-            context.gap(
-                "missing_plan_close",
-                "entry_level_available",
-                "the Step 3 latest closed close is unavailable at the frame; "
-                "no substitute price is invented",
-                input_name="structure.volatility.latest_close",
-            )
-            return None
-    else:
-        value, source_id, source_type, observed, confirmed = frozen_confirmation_level(
-            setup.family, seed, confirmation
+        return None
+    if not isinstance(value, Decimal):
+        context.gap(
+            "missing_plan_close",
+            "entry_level_available",
+            "the Step 3 latest closed close is unavailable at the frame; "
+            "no substitute price is invented",
+            input_name="structure.volatility.latest_close",
         )
-        if value is None:
-            context.gap(
-                "missing_confirmation_level",
-                "entry_level_available",
-                f"the frozen confirmation close for family {setup.family.value} "
-                "is unavailable in FROZEN_CONFIRMATION entry mode",
-                input_name=f"{setup.family.value}:confirmation_level",
-            )
-            return None
+        return None
     if not isinstance(value, Decimal) or not value.is_finite() or value <= 0:
         context.fail(
             "entry_level_not_usable",
@@ -808,7 +809,6 @@ def _select_targets(
     as_of: datetime,
 ) -> None:
     p = context.parameters
-    long = is_long(setup.direction)
     candidates, rejected = structural_target_candidates(
         patterns, entry_value, setup.direction, p, as_of
     )
@@ -835,71 +835,34 @@ def _select_targets(
                 is_structural=True,
             )
         )
-    if not built and context.risk_per_unit is not None:
-        risk = context.risk_per_unit
-        for multiple in p.r_multiple_fallbacks:
-            value = (
-                entry_value + multiple * risk if long else entry_value - multiple * risk
-            )
-            if not value.is_finite() or value <= 0:
-                context.excluded_targets.append(
-                    f"r_fallback {decimal_text(multiple)}: derived level "
-                    f"{decimal_text(value)} is not a finite positive price"
-                )
-                continue
-            reward, r_multiple = _reward_and_r(
-                value, entry_value, setup.direction, risk
-            )
-            sign = "+" if long else "-"
-            built.append(
-                PlannedTarget(
-                    level=PlannedLevel(
-                        value=value,
-                        source_id=fingerprint(
-                            ("r_multiple_fallback", multiple, entry_value, risk)
-                        ),
-                        source_type="r_multiple_fallback",
-                        timeframe=patterns.timeframe,
-                        observed_at=None,
-                        confirmed_at=as_of,
-                        source_value=risk,
-                        transformation=(
-                            f"entry {decimal_text(entry_value)} {sign} "
-                            f"({decimal_text(multiple)} R x risk {decimal_text(risk)})"
-                        ),
-                    ),
-                    reward_per_unit=reward,
-                    r_multiple=r_multiple,
-                    is_structural=False,
-                )
-            )
     if not built:
         context.gap(
             "no_valid_target_available",
             "target_levels_valid",
-            "no structural level is valid at this as_of and no positive "
-            "R-derived fallback target could be derived; gaps are reported, "
-            "never bridged",
+            "no genuine structural level is valid at this as_of; a plan is "
+            "never rescued by an R-derived or synthetic target, so nothing is "
+            "invented and the gap is reported",
         )
         return
     context.record(
         "target_levels_valid",
         RuleOutcome.PASS,
-        f"{len(built)} target(s) from "
-        + (
-            "structural levels known at the planning as_of"
-            if built[0].is_structural
-            else "explicitly labelled r_multiple_fallback entries; no valid "
-            "structural level was available at this as_of"
-        ),
+        f"{len(built)} genuine structural target(s) known at the planning as_of",
     )
     context.targets = tuple(built)
 
 
 def _apply_minimum_r(context: _PlanContext) -> None:
+    """Apply the mandatory reward-to-risk floor to the structural targets.
+
+    The floor is policy: a plan whose structural targets all sit below it is
+    refused, and the refusal is a NO_PLAN (there is no viable target), not a
+    malformed plan. The preferred distance is only a classification: it is
+    recorded and never blocks a plan that clears the mandatory floor.
+    """
+
     threshold = context.parameters.min_r_multiple
-    if threshold is None:
-        return
+    preferred = context.parameters.preferred_r_multiple
     kept: list[PlannedTarget] = []
     for target in context.targets:
         if target.r_multiple is None:
@@ -920,16 +883,24 @@ def _apply_minimum_r(context: _PlanContext) -> None:
         context.fail(
             "minimum_r_multiple_not_met",
             "minimum_r_multiple",
-            f"no proposed target reaches minimum_r_multiple "
-            f"{decimal_text(threshold)}; per-target exclusions with exact R "
-            "values are listed in excluded_targets",
+            f"no genuine structural target reaches the mandatory "
+            f"minimum_r_multiple {decimal_text(threshold)}; per-target "
+            "exclusions with exact R values are listed in excluded_targets",
         )
-    else:
-        context.record(
-            "minimum_r_multiple",
-            RuleOutcome.PASS,
-            f"all {len(kept)} retained target(s) reach R >= {decimal_text(threshold)}",
-        )
+        return
+    nearest = kept[0]
+    context.preferred_r_multiple_met = (
+        nearest.r_multiple is not None and nearest.r_multiple >= preferred
+    )
+    context.record(
+        "minimum_r_multiple",
+        RuleOutcome.PASS,
+        f"{len(kept)} structural target(s) reach R >= "
+        f"{decimal_text(threshold)}; nearest retained target R "
+        f"{decimal_text(nearest.r_multiple)} is "
+        + ("at or above" if context.preferred_r_multiple_met else "below")
+        + f" the preferred {decimal_text(preferred)} (preferred only, never a gate)",
+    )
 
 
 def _reward_and_r(

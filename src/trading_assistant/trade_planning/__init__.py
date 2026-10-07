@@ -19,8 +19,8 @@ from trading_assistant.trade_planning.models import (
     TradePlanResult,
 )
 from trading_assistant.trade_planning.parameters import (
+    MINIMUM_R_MULTIPLE_FLOOR,
     PLANNING_RULES_VERSION,
-    EntryMode,
     PlanningParameters,
     StopBufferMode,
     fingerprint,
@@ -34,9 +34,9 @@ from trading_assistant.trade_planning.planner import (
 __all__ = [
     "BASE_RULES",
     "INVALID_CODES",
+    "MINIMUM_R_MULTIPLE_FLOOR",
     "PLANNING_RULES_VERSION",
     "UNKNOWN_LEVEL",
-    "EntryMode",
     "PlanState",
     "PlannedLevel",
     "PlannedTarget",

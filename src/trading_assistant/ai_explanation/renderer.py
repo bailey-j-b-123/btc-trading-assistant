@@ -769,7 +769,7 @@ class LocalTemplateRenderer(ExplanationRenderer):
                     f"ctx.plan.targets[{index}].r_multiple", unknown="UNKNOWN"
                 )
                 structural = facts.text(f"ctx.plan.targets[{index}].is_structural")
-                kind = "structural" if structural == "True" else "R-derived fallback"
+                kind = "structural" if structural == "True" else "non-structural"
                 lines.append(
                     f"Proposed target {index + 1}: level {level} ({kind}); "
                     f"reward per unit {reward}; R multiple {r_multiple}."
@@ -783,8 +783,9 @@ class LocalTemplateRenderer(ExplanationRenderer):
             lines.append(
                 "Qualification does not equal an actionable plan: Step 6 "
                 "refused to propose levels because a required fact was "
-                "missing/UNKNOWN or the source setup was not usable. Nothing "
-                "was guessed through the gap."
+                "missing/UNKNOWN, the source setup was not usable, or no "
+                "genuine structural target reached the mandatory "
+                "reward-to-risk floor. Nothing was guessed through the gap."
             )
             for index, _missing in enumerate(plan["missing_inputs"]):
                 missing = facts.text(f"ctx.plan.missing_inputs[{index}]")
