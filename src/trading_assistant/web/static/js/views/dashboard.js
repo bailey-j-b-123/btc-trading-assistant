@@ -25,6 +25,7 @@ import {
   setFormingCandle,
   toChartCandles,
 } from "../chart.js";
+import { botWatchingCard, rawRuleRows } from "../bot-watching.js";
 import {
   directionArrow,
   directionLabel,
@@ -36,20 +37,15 @@ import {
   shortId,
 } from "../format.js";
 import {
-  aggregateSeeingLine,
   backendNoticeText,
   decisionText,
   disabledReasonText,
-  doingNowParagraph,
-  evidenceCategoryLabel,
+  hasValidTradePlan,
   healthDetailText,
   healthLabel,
   hierarchyAllowsReadyWording,
   hierarchyDecisionLabel,
   hierarchyStatusLabel,
-  invalidateMetaLine,
-  levelSourceText,
-  liveSetupMetaLine,
   metricLabelText,
   metricStatusText,
   outcomeStatusText,
@@ -60,7 +56,6 @@ import {
   referenceTypeText,
   rejectionKindText,
   setupStateLabel,
-  shortRuleTitle,
   snapshotReasonText,
   translateRule,
   trendMomentumText,
@@ -92,6 +87,7 @@ import {
 export { systemHealthViewModel };
 export { multiTimeframeCard };
 export { compactHierarchyStrip };
+export { hasValidTradePlan };
 
 let renderGeneration = 0;
 let activeChart = null;
@@ -106,16 +102,6 @@ function timeMatches(left, right) {
   const leftMs = Date.parse(left);
   const rightMs = Date.parse(right);
   return Number.isFinite(leftMs) && Number.isFinite(rightMs) && leftMs === rightMs;
-}
-
-export function hasValidTradePlan(dashboard) {
-  return Boolean(
-    dashboard?.qualification?.available === true &&
-    dashboard.qualification.state === "QUALIFIED" &&
-    dashboard?.planning?.state === "PLANNABLE" &&
-    dashboard?.plan &&
-    dashboard.plan.state === "PLANNABLE",
-  );
 }
 
 function activeCandidate(dashboard) {
@@ -169,18 +155,6 @@ function technicalDetails(summaryText, rows) {
     el("summary", { text: summaryText }),
     el("div", { class: "details-body" }, items.map((row) => el("div", { class: "chart-note mono", text: row }))),
   ]);
-}
-
-function rawRuleRows(candidate) {
-  if (!candidate || !Array.isArray(candidate.rules)) return [];
-  return candidate.rules.map((rule) => {
-    const outcome = rule?.outcome || "UNKNOWN";
-    const id = rule?.rule_id || "?";
-    const requirement = rule?.required === false ? "optional" : "required";
-    const veto = rule?.veto === true ? " · veto" : "";
-    const reason = typeof rule?.reason === "string" && rule.reason.trim() ? ` — ${rule.reason.trim()}` : "";
-    return `${id}: ${outcome} (${requirement}${veto})${reason}`;
-  });
 }
 
 /** Translated blocking sentences (vetoes first), deduplicated. */
@@ -1004,84 +978,6 @@ function roundedRMultiple(value) {
   return el("span", { text: `${display} R`, title: raw === null ? undefined : `Exact: ${raw}` });
 }
 
-function candidateEvidence(dashboard) {
-  const candidate = activeCandidate(dashboard);
-  const positive = [];
-  const missing = [];
-  const optional = [];
-  if (!candidate) return { candidate: null, positive, missing, optional };
-
-  const seen = new Set();
-  const direction = candidate.direction || null;
-  const pushRow = (list, rule, item) => {
-    // Each evidence item is translated from its own reason (the backend
-    // always repeats the rule reason there, but an item-level sentence
-    // preserves information if they ever diverge).
-    const source = item && typeof item.reason === "string" && item.reason.trim()
-      ? { ...rule, reason: item.reason }
-      : rule;
-    const translated = translateRule(source, { direction });
-    if (seen.has(translated.sentence)) return;
-    seen.add(translated.sentence);
-    list.push({
-      meta: [evidenceCategoryLabel(item?.category), item?.timeframe || null, translated.title].filter(Boolean).join(" · "),
-      reason: translated.sentence,
-    });
-  };
-  for (const rule of candidate.rules || []) {
-    const evidence = Array.isArray(rule.evidence) ? rule.evidence : [];
-    for (const item of evidence) {
-      if (item.status === "supportive" || item.status === "neutral") {
-        pushRow(positive, rule, item);
-      } else if (item.status === "opposing" || item.status === "unknown") {
-        pushRow(rule?.required === false ? optional : missing, rule, item);
-      }
-    }
-    // Rules without evidence rows (or whose evidence was filtered) still
-    // surface here when they fail or wait; optional checks never block.
-    if (["failed", "pending"].includes(rule.outcome)) {
-      pushRow(rule?.required === false ? optional : missing, rule, null);
-    }
-  }
-  return { candidate, positive, missing, optional };
-}
-
-function evidenceColumn(title, tone, rows, emptyText) {
-  const items = rows.map((row) => el("div", { class: "terminal-evidence-item" }, [
-    el("div", { class: "evidence-meta", text: row.meta }),
-    el("div", { class: "evidence-reason", text: row.reason }),
-  ]));
-  return el("div", { class: "evidence-col" }, [
-    el("h4", {}, [
-      el("span", { class: "dot", style: { background: tone } }),
-      title,
-    ]),
-    ...(items.length ? items : [el("div", { class: "evidence-empty", text: emptyText })]),
-  ]);
-}
-
-function evidenceCard(dashboard) {
-  const evidence = candidateEvidence(dashboard);
-  const subtitle = evidence.candidate
-    ? `${familyLabel(evidence.candidate.family)} · ${directionLabel(evidence.candidate.direction)}`
-    : "No active candidate in this snapshot";
-  return el("section", { class: "card terminal-card", "aria-label": "Deterministic evidence" }, [
-    el("div", { class: "section-title-row" }, [
-      el("h2", { class: "card-title", text: "Evidence" }),
-      el("span", { class: "card-hint", text: subtitle }),
-    ]),
-    el("div", { class: "evidence-grid" }, [
-      evidenceColumn("FOR THE SETUP", "var(--green)", evidence.positive, "No supportive evidence was supplied."),
-      evidenceColumn("AGAINST / STILL MISSING", "var(--amber)", evidence.missing, "No opposing or missing-rule detail was supplied."),
-    ]),
-    ...(evidence.optional.length ? [el("div", { class: "terminal-evidence-item", style: { marginTop: "12px" } }, [
-      el("div", { class: "evidence-meta", text: "OPTIONAL CONTEXT · NEVER BLOCKS" }),
-      ...evidence.optional.map((row) => el("div", { class: "evidence-reason", text: row.reason })),
-    ])] : []),
-    technicalDetails("Technical evidence record", rawRuleRows(evidence.candidate)),
-  ]);
-}
-
 function scenarioText(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -1275,161 +1171,6 @@ function marketNowCard(dashboard) {
       el("span", { class: "card-hint", text: "backend facts · this close" }),
     ]),
     ...children,
-  ]);
-}
-
-/**
- * Pending-required entries carry {rule, reason} only: by backend construction
- * (live_setup_payload) they are always required + pending, so the translator
- * fills those in. Unknown shapes fall back to a humanized title.
- */
-function pendingRequiredSentences(pending, direction = null) {
-  const items = Array.isArray(pending) ? pending : [];
-  return items.map((item) => translateRule(
-    { rule_id: item?.rule, outcome: "pending", reason: item?.reason, required: true },
-    { direction },
-  ).sentence);
-}
-
-function liveSetupNode(setup) {
-  const failed = Array.isArray(setup.failed_rules) ? setup.failed_rules : [];
-  const passed = Array.isArray(setup.passed_rules) ? setup.passed_rules : [];
-  const pending = pendingRequiredSentences(setup.pending_required, setup.direction);
-  return el("div", { class: "terminal-evidence-item" }, [
-    el("div", {
-      class: "evidence-meta",
-      text: `${familyLabel(setup.family)} · ${directionLabel(setup.direction)} · ${liveSetupMetaLine(setup)}` +
-        (setup.created_at ? ` · seeded ${formatUtc(setup.created_at)}` : ""),
-    }),
-    el("div", { class: "evidence-reason", text: `Passed: ${passed.length ? passed.map(shortRuleTitle).join(", ") : "none"}` }),
-    el("div", { class: "evidence-reason", text: `Failed: ${failed.length ? failed.map(shortRuleTitle).join(", ") : "none"}` }),
-    el("div", { class: "evidence-reason", text: pending.length ? `Still required: ${pending.join(" ")}` : "Nothing still required." }),
-  ]);
-}
-
-function strengthenBlock(title, side) {
-  const direction = side?.direction ? directionLabel(side.direction) : title;
-  const developing = Array.isArray(side?.developing_setups) ? side.developing_setups : [];
-  const starters = side?.to_start_a_setup && typeof side.to_start_a_setup === "object" ? side.to_start_a_setup : {};
-  const rows = [
-    el("div", { class: "evidence-meta", text: title }),
-    developing.length || side?.none_developing !== true
-      ? null
-      : el("div", { class: "evidence-reason", text: `No developing ${direction} setups.` }),
-    ...developing.map((item) => {
-      const pending = pendingRequiredSentences(item.pending_required);
-      return el("div", {
-        class: "evidence-reason",
-        text: `setup ${shortId(item.setup_id)} (${setupStateLabel(item.state)}): ` +
-          (pending.length ? `still required: ${pending.join(" ")}` : "nothing still required."),
-      });
-    }),
-    ...Object.entries(starters).map(([family, text]) => el("div", {
-      class: "evidence-reason",
-      text: `${familyLabel(family)} starts with: ${text}`,
-    })),
-  ];
-  return el("div", { class: "terminal-evidence-item" }, rows);
-}
-
-function planLevelNode(level) {
-  if (!level || typeof level !== "object" || isMissing(level.value)) return null;
-  const source = level.source_type ? ` (${levelSourceText(level.source_type)})` : "";
-  return el("span", {}, [roundedSpan(level.value, 2), source]);
-}
-
-function invalidateNode(item) {
-  const evidence = Array.isArray(item.invalidation_evidence) ? item.invalidation_evidence : [];
-  const rows = [
-    el("div", {
-      class: "evidence-meta",
-      text: `setup ${shortId(item.setup_id)} · ${invalidateMetaLine(item)}`,
-    }),
-    ...(evidence.length
-      ? evidence.map((entry) => el("div", {
-          // Invalidation evidence only ever comes from required rules (the
-          // optional rules carry higher_timeframe/classical_pattern evidence),
-          // so the missing `required` field is safely filled in.
-          class: "evidence-reason",
-          text: translateRule(
-            { rule_id: entry?.rule, outcome: entry?.outcome, reason: entry?.reason, required: true },
-          ).sentence,
-        }))
-      : [el("div", { class: "evidence-reason", text: "No invalidation/lifecycle evidence yet." })]),
-  ];
-  const entry = planLevelNode(item.plan_entry);
-  const stop = planLevelNode(item.plan_stop);
-  const invalidation = planLevelNode(item.plan_invalidation);
-  if (entry || stop || invalidation) {
-    rows.push(el("div", { class: "evidence-reason" }, [
-      "Selected plan — entry ",
-      entry || "?",
-      " · stop ",
-      stop || "?",
-      " · invalidation ",
-      invalidation || "?",
-    ]));
-  }
-  return el("div", { class: "terminal-evidence-item" }, rows);
-}
-
-function scenarioCard(dashboard) {
-  const scenario = dashboard?.scenario;
-  if (!scenario || typeof scenario !== "object" || scenario.available !== true) {
-    const reason = scenario && typeof scenario === "object" ? scenarioText(scenario.reason) : null;
-    return el("section", { class: "card terminal-card", "aria-label": "Scenario" }, [
-      el("div", { class: "section-title-row" }, [
-        el("h2", { class: "card-title", text: "Scenario" }),
-        el("span", { class: "card-hint", text: "answers from backend facts" }),
-      ]),
-      el("div", { class: "plan-reason", text: backendNoticeText(reason, "Scenario answers unavailable from the backend.") }),
-    ]);
-  }
-  const seeing = scenario.bot_seeing && typeof scenario.bot_seeing === "object" ? scenario.bot_seeing : {};
-  const live = Array.isArray(seeing.live_setups) ? seeing.live_setups : [];
-  const waiting = scenario.waiting_for && typeof scenario.waiting_for === "object" ? scenario.waiting_for : {};
-  const pending = Array.isArray(waiting.pending) ? waiting.pending : [];
-  const cases = Array.isArray(scenario.invalidate?.cases) ? scenario.invalidate.cases : [];
-  const snapshotState = dashboard?.qualification?.state ?? seeing.state ?? null;
-  return el("section", { class: "card terminal-card", "aria-label": "Scenario" }, [
-    el("div", { class: "section-title-row" }, [
-      el("h2", { class: "card-title", text: "Scenario" }),
-      el("span", { class: "card-hint", text: "answers from backend facts" }),
-    ]),
-    el("p", { class: "verdict-summary", text: doingNowParagraph(dashboard?.market_state, snapshotState) }),
-    technicalDetails("Exact backend wording", scenario.doing_now ? [`doing_now: ${scenario.doing_now}`] : []),
-    el("div", { class: "section-title-row" }, [el("h2", { class: "card-title", text: "The bot is seeing" })]),
-    el("div", { class: "chart-note", text: aggregateSeeingLine({ ...seeing, live_count: seeing.live_count ?? live.length }) }),
-    ...(live.length
-      ? live.map(liveSetupNode)
-      : [el("div", { class: "plan-reason", text: "No live setups at this close." })]),
-    el("div", { class: "section-title-row" }, [el("h2", { class: "card-title", text: "What would strengthen each side" })]),
-    strengthenBlock("BULLISH case", scenario.strengthen_bullish),
-    strengthenBlock("BEARISH case", scenario.strengthen_bearish),
-    el("div", { class: "section-title-row" }, [el("h2", { class: "card-title", text: "Waiting for" })]),
-    ...(pending.length
-      ? pending.map((item) => {
-          const translated = translateRule(
-            { rule_id: item?.rule, outcome: "pending", reason: item?.reason, required: true },
-          );
-          const count = Array.isArray(item.setup_ids) ? item.setup_ids.length : "?";
-          return el("div", { class: "terminal-evidence-item" }, [
-            el("div", { class: "evidence-meta", text: translated.title }),
-            el("div", {
-              class: "evidence-reason",
-              text: `${translated.sentence} (${count} setup(s))`,
-              title: typeof item?.reason === "string" && item.reason.trim() ? `Backend: ${item.rule || "?"} — ${item.reason.trim()}` : undefined,
-            }),
-          ]);
-        })
-      : [el("div", {
-          class: "plan-reason",
-          text: scenarioText(waiting.note) || "Nothing outstanding.",
-        })]),
-    el("div", { class: "section-title-row" }, [el("h2", { class: "card-title", text: "What would invalidate" })]),
-    ...(cases.length
-      ? cases.map(invalidateNode)
-      : [el("div", { class: "plan-reason", text: "No live setups to invalidate." })]),
   ]);
 }
 
@@ -1974,18 +1715,20 @@ export async function renderDashboard(view) {
         chart.node,
         compactHierarchyStrip(dashboard),
       ]),
+      // Fix #2: the side stack answers "what is the bot focused on" at a
+      // glance — verdict (overall state) → Bot is watching (the one primary
+      // setup + grouped others) → Trade plan (exact levels).
       el("div", { class: "side-stack" }, [
         verdictCard(dashboard, forward),
+        botWatchingCard(dashboard),
         planCard(dashboard),
       ]),
     ]),
-    evidenceCard(dashboard),
     multiTimeframeCard(dashboard),
     el("div", { class: "tertiary-grid" }, [
       marketNowCard(dashboard),
-      scenarioCard(dashboard),
+      explanationCard(dashboard),
     ]),
-    explanationCard(dashboard),
     el("div", { class: "secondary-grid" }, [
       recentDecisionsCard(forward),
       performanceCard(forward, dashboard.meta || {}),

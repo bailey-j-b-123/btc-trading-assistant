@@ -2486,3 +2486,48 @@ A resting market at the same price cannot be distinguished from an exchange
 ticker frozen upstream without an exchange-side tick timestamp. A refresh is
 still required to acquire a newly stored confirmed candle; the ghost is never
 used as a substitute while ingestion catches up.
+
+### Setup presentation boundary (Fix #2)
+
+The engine may track many setup candidates internally; that is unchanged. The
+normal dashboard now presents them as **Bot is watching**: one primary setup,
+three translated confirmed facts, one "Next" requirement, one invalidation
+statement, and compact grouped counts of the other live candidates. This is
+presentation only — no setup detection, qualification, ranking, thresholds,
+planning, or hierarchy logic changed, and the engine's candidate collection is
+never mutated, merged, filtered, or re-ordered by the interface.
+
+Primary-setup selection is never a frontend choice. The card shows the
+qualification snapshot's `selected_setup_id` (the engine's deterministic
+selection), or — only when the engine selected nothing — the single subject
+the backend itself resolved for the `looking_for` payload. When the backend
+provides neither (for example several WATCH candidates at once), the card
+states honestly that N setups are being monitored with **no single setup
+selected**; array order is never used to promote a candidate, and a
+backend-named setup whose data is missing is never substituted with another.
+
+"Other setups being watched" groups the backend's live candidate collection
+(`scenario.bot_seeing.live_setups`, or the qualification setup list filtered
+by the backend's own WATCH/QUALIFIED states when the scenario section is
+unavailable) by family + direction, showing at most three count rows plus
+"+ N more setup groups". Counts come verbatim from that collection; row
+order is a count-only summary ordering that never implies trading priority,
+and groups containing QUALIFIED candidates are labelled so nothing reads as
+more developed than it is. No setup state is ever upgraded by presentation:
+WATCH stays "Watching", QUALIFIED stays "Qualified", and plan-versus-hierarchy
+wording keeps the Fix #1 gates.
+
+The normal view carries no setup ids, rule ids, seed timestamps, or
+passed/failed/still-required rule dumps. All of that audit material — every
+live candidate with its id, family, direction, state, age, seed time, raw and
+translated rule lists, the selected setup's full rule record and evidence
+columns, the strengthen/wait/invalidate evidence, the exact backend
+`doing_now` string, and the ended (invalidated/expired) candidates — remains
+available behind the single collapsed **Technical details / All setups**
+disclosure. The former expanded Evidence card and Scenario rule dumps were
+folded into that disclosure, so no audit information was deleted; ended
+candidates, previously shown nowhere, are now listed there. The compact
+LOOKING FOR card near the chart is unchanged and stays complementary:
+LOOKING FOR carries the immediate chart scenario (reference band, next
+behaviour, plan invalidation level), while Bot is watching carries the
+setup/candidate summary and its supporting evidence.

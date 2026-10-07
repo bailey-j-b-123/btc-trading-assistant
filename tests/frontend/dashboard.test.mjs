@@ -88,6 +88,13 @@ function findNodes(node, predicate, found = []) {
   return found;
 }
 
+/** Text of a card with every collapsed <details> disclosure excluded. */
+function normalViewText(node) {
+  if (node.tagName === "DETAILS") return "";
+  const own = node.tagName === "#TEXT" ? node.textContent : node._text || "";
+  return own + (node.children || []).map((child) => normalViewText(child)).join("");
+}
+
 function backendDashboard(overrides = {}) {
   const timestamp = "2026-10-06T12:00:00Z";
   const setup = {
@@ -215,6 +222,19 @@ function backendDashboard(overrides = {}) {
         note: "no higher timeframes requested; no alignment inferred and none required",
       },
       last_close: "62160",
+    },
+    // The backend's own single-subject resolution for one WATCH setup.
+    looking_for: {
+      available: true,
+      setup_id: "setup-watch-1",
+      timeframe: "1h",
+      family: "range_rejection_reversal",
+      direction: "bearish",
+      state: "WATCH",
+      seed_event: { kind: "retest", known_at: "2026-10-06T10:00:00Z" },
+      reference: null,
+      pending_required: [{ rule_id: "confirmation_event", reason: "A confirming close has not been recorded." }],
+      invalidation: null,
     },
     scenario: {
       available: true,
@@ -456,6 +476,15 @@ test("WATCH renders with backend evidence and missing confirmation", async () =>
     assert.match(view.textContent, /A sell-side sweep was recorded\./);
     assert.match(view.textContent, /A confirming close has not been recorded\./);
     assert.equal(ids.get("topbar-status").textContent, "SYSTEM OK");
+    // Fix #2: the one WATCH setup the backend itself resolved is the primary
+    // focus of the Bot-is-watching card (Why facts + one Next requirement).
+    const card = findNodes(view, (node) => (node.className || "").split(" ").includes("bot-watching-card"))[0];
+    assert.ok(card);
+    assert.match(card.textContent, /Bot is watching/);
+    assert.match(card.textContent, /Bearish range rejection/);
+    assert.match(card.textContent, /A confirming close has not been recorded\./);
+    assert.match(card.textContent, /Invalid if/);
+    assert.match(card.textContent, /Scenario — not prediction/);
   });
 });
 
@@ -507,6 +536,7 @@ test("compact LOOKING FOR keeps its complete backend facts behind collapsed tech
 
 test("NO TRADE is rendered from NO_SETUP and its backend reason", async () => {
   const dashboard = backendDashboard({
+    looking_for: { available: false, reason: "No active setup at this close." },
     qualification: {
       available: true,
       state: "NO_SETUP",
@@ -515,12 +545,40 @@ test("NO TRADE is rendered from NO_SETUP and its backend reason", async () => {
       selected_setup_id: null,
       snapshot: { setups: [] },
     },
+    scenario: {
+      available: true,
+      doing_now: "Trend is UNKNOWN. No active range. Qualification state: NO_SETUP.",
+      bot_seeing: { state: "NO_SETUP", status: "evaluated", live_count: 0, live_setups: [] },
+      strengthen_bullish: {
+        direction: "bullish",
+        developing_setups: [],
+        none_developing: true,
+        to_start_a_setup: { breakout_retest_continuation: "a fresh breakout of a structural band" },
+      },
+      strengthen_bearish: {
+        direction: "bearish",
+        developing_setups: [],
+        none_developing: true,
+        to_start_a_setup: {},
+      },
+      waiting_for: {
+        pending: [],
+        note: "No live setups: waiting for a fresh seed event (breakout, failed breakout, or sweep).",
+      },
+      invalidate: { cases: [] },
+    },
   });
   await withDashboard(dashboard, forwardPayload(), async ({ view }) => {
     await renderDashboard(view);
     assert.match(view.textContent, /No trade/);
     assert.match(view.textContent, /No candidate met deterministic setup conditions\./);
     assert.match(view.textContent, /No qualified trade plan right now\./);
+    // The setup-focus card stays honest with zero live candidates.
+    const card = findNodes(view, (node) => (node.className || "").split(" ").includes("bot-watching-card"))[0];
+    assert.ok(card);
+    assert.match(card.textContent, /No setups being monitored at this close\./);
+    assert.match(card.textContent, /waiting for a fresh seed event/);
+    assert.match(card.textContent, /Nothing else is being monitored\./);
   });
 });
 
@@ -538,6 +596,18 @@ test("unavailable qualification data never becomes a zero count or a NO TRADE ve
 
 test("PLANNABLE requires the backend plan state and renders its supplied levels", async () => {
   const dashboard = backendDashboard({
+    looking_for: {
+      available: true,
+      setup_id: "setup-qualified-1",
+      timeframe: "1h",
+      family: "breakout_retest_continuation",
+      direction: "bullish",
+      state: "QUALIFIED",
+      seed_event: { kind: "breakout", known_at: "2026-10-06T10:00:00Z" },
+      reference: { type: "swing_high", band_low: "117", band_high: "118" },
+      pending_required: [],
+      invalidation: "117",
+    },
     qualification: {
       available: true,
       state: "QUALIFIED",
@@ -549,8 +619,71 @@ test("PLANNABLE requires the backend plan state and renders its supplied levels"
         state: "QUALIFIED",
         family: "breakout_retest_continuation",
         direction: "bullish",
-        rules: [],
+        rules: [
+          {
+            rule_id: "seed_event",
+            required: true,
+            outcome: "passed",
+            reason: "confirmed Breakout",
+            evidence: [{ status: "supportive", category: "event", timeframe: "1h", reason: "confirmed Breakout" }],
+          },
+          {
+            rule_id: "held_retest",
+            required: true,
+            outcome: "passed",
+            reason: "requires Step 4 held retest of the seed breakout",
+            evidence: [{ status: "supportive", category: "confirmation", timeframe: "1h", reason: "requires Step 4 held retest of the seed breakout" }],
+          },
+        ],
       }] },
+    },
+    scenario: {
+      available: true,
+      doing_now: "Trend is BULLISH. Qualification state: QUALIFIED.",
+      bot_seeing: {
+        state: "QUALIFIED",
+        status: "evaluated",
+        live_count: 1,
+        live_setups: [
+          {
+            setup_id: "setup-qualified-1",
+            family: "breakout_retest_continuation",
+            direction: "bullish",
+            state: "QUALIFIED",
+            created_at: "2026-10-06T10:00:00Z",
+            age_bars: 2,
+            max_bars: 10,
+            bars_remaining: 8,
+            vetoed: false,
+            vetoed_by: [],
+            passed_rules: ["seed_event", "held_retest"],
+            failed_rules: [],
+            pending_required: [],
+            invalidation_evidence: [],
+          },
+        ],
+      },
+      strengthen_bullish: {
+        direction: "bullish",
+        developing_setups: [{ setup_id: "setup-qualified-1", state: "QUALIFIED", pending_required: [] }],
+        none_developing: false,
+        to_start_a_setup: {},
+      },
+      strengthen_bearish: { direction: "bearish", developing_setups: [], none_developing: true, to_start_a_setup: {} },
+      waiting_for: { pending: [], note: null },
+      invalidate: {
+        cases: [
+          {
+            setup_id: "setup-qualified-1",
+            state: "QUALIFIED",
+            bars_remaining: 8,
+            max_bars: 10,
+            invalidation_evidence: [],
+            vetoed: false,
+            vetoed_by: [],
+          },
+        ],
+      },
     },
     planning: { state: "PLANNABLE", reasons: [], missing_inputs: [], state_detail: null },
     plan: {
@@ -570,6 +703,10 @@ test("PLANNABLE requires the backend plan state and renders its supplied levels"
       decision_label: "Trade ready",
       overall: "TRADE READY",
       counter_trend: false,
+      waiting_for: ["15M acceptance of the setup reference level"],
+      waiting_for_text: "Waiting for: 15M acceptance of the setup reference level",
+      invalidated_if: ["a closed lower-timeframe candle closing below the setup reference level 117–118"],
+      invalidated_if_text: "Invalidated if: a closed lower-timeframe candle closing below the setup reference level 117–118",
     },
   });
   const original = structuredClone(dashboard);
@@ -586,6 +723,15 @@ test("PLANNABLE requires the backend plan state and renders its supplied levels"
     assert.match(view.textContent, /138/);
     assert.match(view.textContent, /2\.00 R/);
     assert.equal(verdictViewModel(dashboard).state, "PLAN CALCULATED");
+    // Fix #2: the engine-selected setup is the primary focus; its Next line is
+    // the hierarchy's own waiting label, and no state is upgraded anywhere.
+    const card = findNodes(view, (node) => (node.className || "").split(" ").includes("bot-watching-card"))[0];
+    assert.ok(card);
+    assert.match(card.textContent, /Bullish breakout → retest/);
+    assert.match(card.textContent, /Qualified/);
+    assert.match(card.textContent, /NextWaiting for lower-timeframe confirmation/);
+    assert.match(card.textContent, /Invalid ifa closed lower-timeframe candle closing below the setup reference level 117–118/);
+    assert.doesNotMatch(card.textContent, /Trade ready|TRADE READY|PLAN READY/);
     const permitted = {
       ...dashboard,
       multi_timeframe: { available: true, status: "evaluated", decision: "plannable",
@@ -792,16 +938,32 @@ test("market now and scenario render backend facts in plain English", async () =
     assert.match(view.textContent, /breakout Bullish @ 62,160\.00/);
     assert.match(view.textContent, /Latest breakout: Bullish of price zone at 2026-10-06 12:00 UTC/);
     assert.doesNotMatch(view.textContent, /no higher timeframes requested/);
-    assert.match(view.textContent, /Trend is bullish \(higher highs and higher lows\)\./);
-    assert.match(view.textContent, /doing_now: Trend is BULLISH\. Volatility contracting\./);
-    assert.match(view.textContent, /Watching 1 developing setup · fully evaluated/);
-    assert.match(view.textContent, /age 2\/10 bars · 8 left/);
-    assert.match(view.textContent, /Still required: waiting for the confirming close/);
-    assert.match(view.textContent, /No developing Bullish setups\./);
-    assert.match(view.textContent, /still required: waiting/);
-    assert.match(view.textContent, /starts with: a fresh breakout of a structural band/);
-    assert.match(view.textContent, /waiting for the confirming close \(1 setup\(s\)\)/);
-    assert.match(view.textContent, /No invalidation\/lifecycle evidence yet\./);
+    // Fix #2: the composed doing-now paragraph is gone from the normal view
+    // (the Market now card above carries the same structured facts); the
+    // exact backend string stays in the collapsed audit disclosure.
+    const card = findNodes(view, (node) => (node.className || "").split(" ").includes("bot-watching-card"))[0];
+    assert.ok(card);
+    const disclosure = findNodes(card, (node) => node.tagName === "DETAILS")[0];
+    assert.ok(disclosure);
+    assert.equal(disclosure.open, false);
+    assert.match(disclosure.textContent, /doing_now: Trend is BULLISH\. Volatility contracting\./);
+    assert.match(disclosure.textContent, /Watching 1 developing setup · fully evaluated/);
+    assert.match(disclosure.textContent, /age 2\/10 bars · 8 left/);
+    assert.match(disclosure.textContent, /Still required: waiting for the confirming close/);
+    assert.match(disclosure.textContent, /No developing Bullish setups\./);
+    assert.match(disclosure.textContent, /still required: waiting/);
+    assert.match(disclosure.textContent, /starts with: a fresh breakout of a structural band/);
+    assert.match(disclosure.textContent, /waiting for the confirming close \(1 setup\(s\)\)/);
+    assert.match(disclosure.textContent, /No invalidation\/lifecycle evidence yet\./);
+    // The normal view shows only the primary summary plus grouped others.
+    const normalText = normalViewText(card);
+    assert.match(normalText, /Bot is watching/);
+    assert.match(normalText, /Bearish range rejection/);
+    assert.match(normalText, /A sell-side sweep was recorded\./);
+    assert.match(normalText, /A confirming close has not been recorded\./);
+    assert.match(normalText, /No other setups being watched\./);
+    assert.match(normalText, /Scenario — not prediction/);
+    assert.doesNotMatch(normalText, /doing_now|Passed:|Failed:|Still required|strengthen|Waiting for/);
     assert.match(view.textContent, /Technical record · BTC\/USDT · 1H · Watching/);
     assert.match(view.textContent, /Backend headline: Step 9 grounded explanation/);
     assert.match(view.textContent, /WHAT THE ENGINE SEES/);
