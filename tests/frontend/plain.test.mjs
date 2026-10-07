@@ -12,6 +12,7 @@ import {
   evidenceCategoryLabel,
   healthDetailText,
   healthLabel,
+  hasValidTradePlan,
   hierarchyAllowsReadyWording,
   hierarchyDecisionLabel,
   hierarchyStatusLabel,
@@ -369,4 +370,20 @@ test("aggregate and meta lines translate states and vetoes", () => {
     invalidateMetaLine({ state: "QUALIFIED", bars_remaining: 5, max_bars: 10, vetoed: false }),
     "Qualified · 5/10 bars left",
   );
+});
+
+test("hasValidTradePlan reads only the backend's own plan states", () => {
+  const complete = {
+    qualification: { available: true, state: "QUALIFIED" },
+    planning: { state: "PLANNABLE" },
+    plan: { state: "PLANNABLE" },
+  };
+  assert.equal(hasValidTradePlan(complete), true);
+  // A WATCH setup, a refused plan, or unavailable qualification can never
+  // combine into a "valid plan" — no frontend path upgrades them.
+  assert.equal(hasValidTradePlan({ ...complete, qualification: { available: true, state: "WATCH" } }), false);
+  assert.equal(hasValidTradePlan({ ...complete, planning: { state: "NO_PLAN" } }), false);
+  assert.equal(hasValidTradePlan({ ...complete, plan: { state: "NO_PLAN" } }), false);
+  assert.equal(hasValidTradePlan({ ...complete, qualification: { available: false } }), false);
+  assert.equal(hasValidTradePlan(null), false);
 });

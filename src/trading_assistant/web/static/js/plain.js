@@ -108,6 +108,22 @@ export function hierarchyAllowsReadyWording(payload) {
     payload?.decision === "plannable" && payload?.counter_trend !== true;
 }
 
+/**
+ * Presentation-only gate: does the backend payload itself describe a complete
+ * deterministic plan (Step 5 QUALIFIED + Step 6 PLANNABLE at the same
+ * boundary)? Pure backend-field read — it re-derives nothing and can never
+ * upgrade a trading state on its own.
+ */
+export function hasValidTradePlan(dashboard) {
+  return Boolean(
+    dashboard?.qualification?.available === true &&
+      dashboard.qualification.state === "QUALIFIED" &&
+      dashboard?.planning?.state === "PLANNABLE" &&
+      dashboard?.plan &&
+      dashboard.plan.state === "PLANNABLE",
+  );
+}
+
 /** Short display translation of existing Step 13 payload states. */
 export function hierarchyStatusLabel(payload) {
   if (payload?.available !== true) return "HIERARCHY UNAVAILABLE";
