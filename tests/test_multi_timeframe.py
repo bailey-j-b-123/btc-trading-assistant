@@ -1385,3 +1385,126 @@ def test_hierarchy_migration_is_additive_and_refuses_to_drop_rows(tmp_path):
     )
     engine.dispose()
     assert observations["observations"] == 1
+
+
+def test_cli_parser_has_no_duplicate_options() -> None:
+    """Verify that constructing the CLI parser succeeds without ArgumentError
+    and that no subparser registers duplicate option strings (e.g. duplicate --symbol).
+    """
+    from trading_assistant.multi_timeframe import __main__ as cli
+
+    parser = cli.build_parser()
+
+    # The documented subcommands exist.
+    subparsers_action = [
+        action
+        for action in parser._actions
+        if isinstance(action, cli.argparse._SubParsersAction)
+    ][0]
+    assert {"run", "status", "replay"} <= set(subparsers_action.choices.keys())
+
+    # For every subcommand parser, assert no option string is registered more than once.
+    for name, subparser in subparsers_action.choices.items():
+        all_option_strings: list[str] = []
+        for action in subparser._actions:
+            for opt in action.option_strings:
+                assert opt not in all_option_strings, (
+                    f"Subparser {name!r} has duplicate option string {opt!r}"
+                )
+                all_option_strings.append(opt)
+
+        # --symbol must exist exactly once on every subparser
+        symbol_actions = [
+            action
+            for action in subparser._actions
+            if "--symbol" in action.option_strings
+        ]
+        assert len(symbol_actions) == 1, (
+            f"Subparser {name!r} must have exactly one --symbol option, got {len(symbol_actions)}"
+        )
+
+
+def test_cli_runner_settings_defaults_and_overrides() -> None:
+    """Verify _runner_settings gracefully uses RunnerSettings defaults when
+    arguments are omitted, preventing decimal.InvalidOperation, and respects overrides.
+    """
+    from trading_assistant.forward_testing.parameters import RunnerSettings
+    from trading_assistant.multi_timeframe import __main__ as cli
+
+    parser = cli.build_parser()
+    defaults = RunnerSettings()
+
+    # Omitted flags on run subparser
+    parsed_default = parser.parse_args(["run", "--once"])
+    settings = cli._runner_settings(parsed_default)
+    assert settings.interval_seconds == defaults.interval_seconds
+    assert settings.fetch_max_attempts == defaults.fetch_max_attempts
+    assert settings.fetch_retry_backoff_seconds == defaults.fetch_retry_backoff_seconds
+    assert settings.stop_after_errors == defaults.stop_after_errors
+    assert settings.bootstrap_candles == defaults.bootstrap_candles
+
+    # Explicit flags on run subparser
+    parsed_explicit = parser.parse_args([
+        "run",
+        "--once",
+        "--interval-seconds", "45",
+        "--fetch-max-attempts", "7",
+        "--retry-backoff-seconds", "15",
+        "--stop-after-errors", "4",
+        "--bootstrap-candles", "250",
+    ])
+    settings_explicit = cli._runner_settings(parsed_explicit)
+    assert settings_explicit.interval_seconds == Decimal("45")
+    assert settings_explicit.fetch_max_attempts == 7
+    assert settings_explicit.fetch_retry_backoff_seconds == Decimal("15")
+    assert settings_explicit.stop_after_errors == 4
+    assert settings_explicit.bootstrap_candles == 250
+
+
+def test_cli_all_entry_points_execute(tmp_path, monkeypatch) -> None:
+    """Verify ALL Step 13 CLI entry points can construct and execute cleanly:
+    - run --once
+    - run (continuous)
+    - status
+    - replay
+    """
+    from pathlib import Path
+    from unittest.mock import patch
+    from trading_assistant.multi_timeframe import __main__ as cli
+
+    database_path = tmp_path / "cli_test.sqlite3"
+    database_url = f"sqlite:///{database_path}"
+    monkeypatch.setenv("TRADING_ASSISTANT_DATABASE_URL", database_url)
+
+    alembic_config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    alembic_config.attributes["database_url"] = database_url
+    command.upgrade(alembic_config, "head")
+
+    # 1. status
+    rc_status = cli.main(["status", "--symbol", "BTC/USDT"])
+    assert rc_status == 0
+
+    # 2. run --once --no-refresh
+    rc_run_once = cli.main(["run", "--once", "--no-refresh", "--symbol", "BTC/USDT"])
+    assert rc_run_once == 0
+
+    # 3. replay
+    rc_replay = cli.main([
+        "replay",
+        "--start", "2024-01-01T00:00:00Z",
+        "--end", "2024-01-01T00:15:00Z",
+        "--symbol", "BTC/USDT",
+    ])
+    assert rc_replay == 0
+
+    # 4. run (continuous entry point, patched to avoid blocking loop)
+    with patch(
+        "trading_assistant.multi_timeframe.runner.MultiTimeframeRunner.run",
+        return_value=None,
+    ) as mock_run:
+        rc_run_continuous = cli.main(["run", "--no-refresh", "--symbol", "BTC/USDT"])
+        assert rc_run_continuous == 0
+        assert mock_run.call_count == 1
+        call_kwargs = mock_run.call_args.kwargs
+        assert call_kwargs["once"] is False
+        assert call_kwargs["refresh_market_data"] is False

@@ -44,25 +44,36 @@ from trading_assistant.web.schemas import parse_utc_iso
 
 def _runner_settings(args: argparse.Namespace) -> RunnerSettings:
     defaults = RunnerSettings()
+    interval_raw = getattr(args, "interval_seconds", None)
+    fetch_max_attempts = getattr(args, "fetch_max_attempts", None)
+    retry_raw = getattr(args, "retry_backoff_seconds", None)
+    stop_after_errors = getattr(args, "stop_after_errors", None)
+    bootstrap_candles = getattr(args, "bootstrap_candles", None)
     return RunnerSettings(
-        interval_seconds=Decimal(
-            str(getattr(args, "interval_seconds", defaults.interval_seconds))
+        interval_seconds=(
+            defaults.interval_seconds
+            if interval_raw is None
+            else Decimal(str(interval_raw))
         ),
-        fetch_max_attempts=getattr(
-            args, "fetch_max_attempts", defaults.fetch_max_attempts
+        fetch_max_attempts=(
+            defaults.fetch_max_attempts
+            if fetch_max_attempts is None
+            else fetch_max_attempts
         ),
-        fetch_retry_backoff_seconds=Decimal(
-            str(
-                getattr(
-                    args, "retry_backoff_seconds", defaults.fetch_retry_backoff_seconds
-                )
-            )
+        fetch_retry_backoff_seconds=(
+            defaults.fetch_retry_backoff_seconds
+            if retry_raw is None
+            else Decimal(str(retry_raw))
         ),
-        stop_after_errors=getattr(
-            args, "stop_after_errors", defaults.stop_after_errors
+        stop_after_errors=(
+            defaults.stop_after_errors
+            if stop_after_errors is None
+            else stop_after_errors
         ),
-        bootstrap_candles=getattr(
-            args, "bootstrap_candles", defaults.bootstrap_candles
+        bootstrap_candles=(
+            defaults.bootstrap_candles
+            if bootstrap_candles is None
+            else bootstrap_candles
         ),
     )
 
@@ -103,7 +114,7 @@ def _add_runner_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--symbol", default=None)
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m trading_assistant.multi_timeframe",
         description=(
@@ -137,14 +148,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     replay_parser.add_argument("--start", required=True)
     replay_parser.add_argument("--end", required=True)
-    replay_parser.add_argument("--symbol", default=None)
     replay_parser.add_argument(
         "--record",
         action="store_true",
         help="append each replayed evaluation to the immutable ledger",
     )
     _add_runner_arguments(replay_parser)
+    return parser
 
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
     args = parser.parse_args(argv)
     configure_logging()
     service = _build_service(args)
