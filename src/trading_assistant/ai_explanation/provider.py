@@ -173,12 +173,25 @@ def validate_provider_response(
             "but no Step 8 report exists in the context"
         )
 
-    for field_name, claims in (
-        ("evidence_for", response.evidence_for),
-        ("evidence_against", response.evidence_against),
-        ("unknowns", response.unknowns),
-        ("factual_claims", response.factual_claims),
+    # Claim collections must be ordered tuples/lists: anything else (None, a
+    # string, a set) is a malformed response, and sets would also make the
+    # violation order nondeterministic. Lists are accepted so JSON-decoded
+    # responses validate exactly like constructed ones.
+    claim_fields: list[tuple[str, tuple | list]] = []
+    for field_name in (
+        "evidence_for",
+        "evidence_against",
+        "unknowns",
+        "factual_claims",
     ):
+        claims = getattr(response, field_name)
+        if not isinstance(claims, (tuple, list)):
+            violations.append(
+                f"invalid_claims_type: {field_name} must be a tuple of FactualClaim"
+            )
+            claims = ()
+        claim_fields.append((field_name, claims))
+    for field_name, claims in claim_fields:
         for index, claim in enumerate(claims):
             violations.extend(
                 _validate_claim(
@@ -200,17 +213,27 @@ def validate_provider_response(
         prose_fields.append(("summary", response.summary))
     for name in ("plan_explanation", "statistics_explanation"):
         value = getattr(response, name)
-        if isinstance(value, str):
-            prose_fields.append((name, value))
-    for index, note in enumerate(response.risk_notes):
-        if isinstance(note, str):
-            prose_fields.append((f"risk_notes[{index}]", note))
-    for field_name, claims in (
-        ("evidence_for", response.evidence_for),
-        ("evidence_against", response.evidence_against),
-        ("unknowns", response.unknowns),
-        ("factual_claims", response.factual_claims),
-    ):
+        if value is None:
+            continue
+        # Non-string prose must fail loudly: silently skipping it would let it
+        # bypass every numeric-token and forbidden-language scan below while
+        # still being rendered.
+        if not isinstance(value, str):
+            violations.append(f"invalid_prose_type: {name} must be a string or None")
+            continue
+        prose_fields.append((name, value))
+    risk_notes = response.risk_notes
+    if not isinstance(risk_notes, (tuple, list)):
+        violations.append("invalid_prose_type: risk_notes must be a tuple of strings")
+        risk_notes = ()
+    for index, note in enumerate(risk_notes):
+        if not isinstance(note, str):
+            violations.append(
+                f"invalid_prose_type: risk_notes[{index}] must be a string"
+            )
+            continue
+        prose_fields.append((f"risk_notes[{index}]", note))
+    for field_name, claims in claim_fields:
         for index, claim in enumerate(claims):
             if isinstance(claim, FactualClaim):
                 prose_fields.append((f"{field_name}[{index}].text", claim.text))
@@ -246,13 +269,20 @@ def _validate_claim(
         return [f"invalid_claim_type: {where} must be a FactualClaim"]
     if not isinstance(claim.text, str) or not claim.text.strip():
         violations.append(f"empty_claim_text: {where}")
-    if not claim.fact_ids:
+    fact_ids = claim.fact_ids
+    if not isinstance(fact_ids, (tuple, list)):
+        violations.append(
+            f"invalid_fact_ids_type: {where} fact_ids must be a tuple of "
+            "manifest fact IDs"
+        )
+        fact_ids = ()
+    if not fact_ids:
         violations.append(
             f"claim_without_fact_reference: {where} must reference at least "
             "one manifest fact ID"
         )
-    for fact_id in claim.fact_ids:
-        fact = manifest.get(fact_id)
+    for fact_id in fact_ids:
+        fact = manifest.get(fact_id) if isinstance(fact_id, str) else None
         if fact is None:
             violations.append(f"unknown_fact_reference: {where} -> {fact_id}")
             continue
@@ -266,8 +296,10 @@ def _validate_claim(
                 f"known_claimed_as_unknown: {where} -> {fact_id} has a known "
                 "value and cannot be listed as unknown"
             )
-    placeholders = _PLACEHOLDER.findall(claim.text)
-    claimed = set(claim.fact_ids)
+    placeholders = (
+        _PLACEHOLDER.findall(claim.text) if isinstance(claim.text, str) else []
+    )
+    claimed = set(fact_ids)
     for placeholder in placeholders:
         if manifest.get(placeholder) is None:
             violations.append(

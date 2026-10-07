@@ -556,7 +556,8 @@ class LocalTemplateRenderer(ExplanationRenderer):
                 kind = "required" if required == "True" else "optional"
                 lines.append(f"Rule {rule_id} ({kind}) passed: {reason}")
             if not passed_any:
-                lines.append(f"Setup {setup['id']}: no passed rules recorded.")
+                setup_id = facts.text(f"ctx.qualification.setups[{index}].id")
+                lines.append(f"Setup {setup_id}: no passed rules recorded.")
         return "\n".join(lines) if lines else "None recorded."
 
     def _evidence_against(
@@ -684,10 +685,14 @@ class LocalTemplateRenderer(ExplanationRenderer):
             decision = facts.text("ctx.multi_timeframe.decision")
             alignment = facts.text("ctx.multi_timeframe.alignment")
             counter_trend = facts.text("ctx.multi_timeframe.counter_trend")
+            context_tf = facts.text("ctx.multi_timeframe.context.timeframe")
+            setup_tf = facts.text("ctx.multi_timeframe.setup.timeframe")
+            confirmation_tf = facts.text("ctx.multi_timeframe.confirmation.timeframe")
+            execution_tf = facts.text("ctx.multi_timeframe.execution.timeframe")
             lines.append(
-                f"Multi-timeframe hierarchy (4H context, 1H setup, 15M "
-                f"confirmation, 5M execution): overall decision {decision}, "
-                f"alignment {alignment}"
+                f"Multi-timeframe hierarchy ({context_tf} context, {setup_tf} "
+                f"setup, {confirmation_tf} confirmation, {execution_tf} "
+                f"execution): overall decision {decision}, alignment {alignment}"
                 + (
                     "; this is a counter-trend setup, flagged as such, and it "
                     "stays below PLANNABLE: an ordinary setup opposing the "
@@ -828,10 +833,13 @@ class LocalTemplateRenderer(ExplanationRenderer):
             )
         for group_index, _group in enumerate(report["groups"]):
             key_pairs = report["groups"][group_index]["key"]
-            rendered_key = ", ".join(
-                f"{key}={value if value is not None else 'UNKNOWN'}"
-                for key, value in key_pairs
-            )
+            rendered_pairs = []
+            for pair_index in range(len(key_pairs)):
+                base = f"ctx.statistics.report.groups[{group_index}].key[{pair_index}]"
+                dim = facts.text(f"{base}[0]")
+                val = facts.text(f"{base}[1]", unknown="UNKNOWN")
+                rendered_pairs.append(f"{dim}={val}")
+            rendered_key = ", ".join(rendered_pairs)
             lines.append(f"Group ({rendered_key}):")
             lines.extend(
                 self._group_lines(
