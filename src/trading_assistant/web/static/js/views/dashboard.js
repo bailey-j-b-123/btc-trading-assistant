@@ -83,6 +83,7 @@ import {
 } from "../topbar.js";
 
 export { systemHealthViewModel };
+export { multiTimeframeCard };
 
 let renderGeneration = 0;
 let activeChart = null;
@@ -1412,6 +1413,126 @@ export function disposeDashboard() {
   // through refreshTopbar. Disposal must not blank what it cannot refill.
 }
 
+// ---------------------------------------------------------------------------
+// Step 13: multi-timeframe ladder (4H context → 1H setup → 15M confirmation →
+// 5M execution → overall). The frontend only renders the backend's deterministic
+// plain-English payload; it never computes a layer state, a level, or a verdict.
+// ---------------------------------------------------------------------------
+
+const LADDER_TONE_CLASS = {
+  good: "mtf-tone-good",
+  warn: "mtf-tone-warn",
+  bad: "mtf-tone-bad",
+  neutral: "mtf-tone-neutral",
+};
+
+export function ladderViewModel(dashboard) {
+  const payload = dashboard?.multi_timeframe;
+  if (!payload || typeof payload !== "object" || payload.available !== true) {
+    return null;
+  }
+  const ladder = Array.isArray(payload.ladder) ? payload.ladder : [];
+  return {
+    overall: typeof payload.overall === "string" && payload.overall ? payload.overall : "UNKNOWN",
+    decisionLabel:
+      typeof payload.decision_label === "string" && payload.decision_label
+        ? payload.decision_label
+        : "Unknown",
+    alignmentLabel:
+      typeof payload.alignment_label === "string" && payload.alignment_label
+        ? payload.alignment_label
+        : "Unknown",
+    counterTrend: payload.counter_trend === true,
+    status: typeof payload.status === "string" ? payload.status : "unknown",
+    decisionTime: typeof payload.decision_time === "string" ? payload.decision_time : null,
+    rows: ladder.map((row) => ({
+      role: typeof row?.role === "string" ? row.role : "",
+      label: typeof row?.label === "string" && row.label ? row.label : "STEP",
+      timeframe: typeof row?.timeframe === "string" ? row.timeframe : "",
+      state: typeof row?.state === "string" && row.state ? row.state : "Unknown",
+      detail: typeof row?.detail === "string" && row.detail ? row.detail : "",
+      boundaryOpen: typeof row?.boundary_open === "string" ? row.boundary_open : null,
+      boundaryClose: typeof row?.boundary_close === "string" ? row.boundary_close : null,
+      available: row?.available === true,
+      tone: LADDER_TONE_CLASS[row?.tone] ? row.tone : "neutral",
+    })),
+    waitingForText:
+      typeof payload.waiting_for_text === "string" && payload.waiting_for_text
+        ? payload.waiting_for_text
+        : "",
+    invalidatedIfText:
+      typeof payload.invalidated_if_text === "string" && payload.invalidated_if_text
+        ? payload.invalidated_if_text
+        : "",
+    limitations: Array.isArray(payload.limitations) ? payload.limitations : [],
+  };
+}
+
+function ladderRow(row) {
+  return el("div", { class: `mtf-step mtf-${row.tone}` }, [
+    el("div", { class: "mtf-step-head" }, [
+      el("span", { class: "mtf-step-label", text: row.label }),
+      el("span", { class: "mtf-step-state", text: row.state }),
+    ]),
+    row.detail
+      ? el("div", { class: "mtf-step-detail", text: row.detail })
+      : null,
+    row.boundaryOpen
+      ? el("div", { class: "mtf-step-boundary", text: `Closed candle ${formatUtc(row.boundaryOpen)} → ${formatUtc(row.boundaryClose)}` })
+      : null,
+  ].filter(Boolean));
+}
+
+function multiTimeframeCard(dashboard) {
+  const model = ladderViewModel(dashboard);
+  if (!model) {
+    const payload = dashboard?.multi_timeframe;
+    const reason =
+      payload?.error?.message || "The multi-timeframe hierarchy is not available right now.";
+    return el("section", { class: "card terminal-card", "aria-label": "Multi-timeframe ladder" }, [
+      el("div", { class: "section-title-row" }, [
+        el("h2", { class: "card-title", text: "Multi-timeframe ladder" }),
+        el("span", { class: "card-hint", text: "unavailable" }),
+      ]),
+      el("div", { class: "card-body" }, [el("p", { class: "mtf-unavailable", text: reason })]),
+    ]);
+  }
+  const children = [
+    el("div", { class: "section-title-row" }, [
+      el("h2", { class: "card-title", text: "Multi-timeframe ladder" }),
+      el("span", { class: "card-hint", text: model.decisionLabel }),
+    ]),
+    el("div", { class: "mtf-ladder", role: "list" }, [
+      ...model.rows.flatMap((row, index) =>
+        index === 0
+          ? [ladderRow(row)]
+          : [
+              el("div", { class: "mtf-arrow", text: "↓", "aria-hidden": "true" }),
+              ladderRow(row),
+            ]
+      ),
+    ]),
+    el("div", { class: `mtf-overall mtf-${model.counterTrend ? "warn" : "neutral"}` }, [
+      el("span", { class: "mtf-overall-label", text: "OVERALL" }),
+      el("span", { class: "mtf-overall-state", text: model.overall }),
+      el("span", { class: "mtf-overall-meta", text: `${model.alignmentLabel}${model.counterTrend ? " · counter-trend setup flagged" : ""}` }),
+    ]),
+  ];
+  if (model.waitingForText) {
+    children.push(el("div", { class: "mtf-note", text: model.waitingForText }));
+  }
+  if (model.invalidatedIfText) {
+    children.push(el("div", { class: "mtf-note mtf-note-warn", text: model.invalidatedIfText }));
+  }
+  children.push(
+    el("details", { class: "mtf-limitations" }, [
+      el("summary", { text: "What this card is (and is not)" }),
+      el("ul", {}, model.limitations.map((line) => el("li", { text: line }))),
+    ])
+  );
+  return el("section", { class: "card terminal-card", "aria-label": "Multi-timeframe ladder" }, children);
+}
+
 export async function renderDashboard(view) {
   const generation = ++renderGeneration;
   if (activeChart) activeChart.destroy();
@@ -1451,6 +1572,7 @@ export async function renderDashboard(view) {
       ]),
     ]),
     evidenceCard(dashboard),
+    multiTimeframeCard(dashboard),
     el("div", { class: "tertiary-grid" }, [
       marketNowCard(dashboard),
       scenarioCard(dashboard),

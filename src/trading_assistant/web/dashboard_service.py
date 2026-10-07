@@ -27,6 +27,11 @@ from trading_assistant.pattern_liquidity.events import (
     Sweep,
 )
 from trading_assistant.market_structure.trend import TrendDirection
+from trading_assistant.multi_timeframe import (
+    HIERARCHY_LIMITATIONS,
+    HierarchySnapshot,
+    ladder_payload as hierarchy_ladder_payload,
+)
 from trading_assistant.setup_qualification.engine import enumerate_qualifications
 from trading_assistant.setup_qualification.models import (
     QualificationFrame,
@@ -156,6 +161,12 @@ class DashboardService:
         journal_payload = self._journal_status(
             snapshot=snapshot, selected=selected, plan=plan
         )
+        # Step 13: evaluate the multi-timeframe hierarchy once, at this same
+        # decision instant, and feed the identical snapshot to the ladder
+        # payload and the Step 9 explanation (one evaluation, two readers).
+        hierarchy_snapshot, multi_timeframe_payload = self._multi_timeframe(
+            symbol=resolved_symbol, as_of=resolved_as_of
+        )
         explanation_payload = self._explanation(
             snapshot=snapshot,
             frame=frame,
@@ -163,6 +174,7 @@ class DashboardService:
             plan=plan,
             journal_id=journal_payload.get("journal_id"),
             cutoff=resolved_as_of,
+            hierarchy=hierarchy_snapshot,
         )
         overlays = self._overlays(frame=frame, snapshot=snapshot, selected=selected)
         market_state = self._market_state(
@@ -205,6 +217,7 @@ class DashboardService:
             "overlays": overlays,
             "journal": journal_payload,
             "explanation": explanation_payload,
+            "multi_timeframe": multi_timeframe_payload,
         }
 
     def candles(
@@ -702,6 +715,64 @@ class DashboardService:
             "disabled_reason": disabled_reason,
         }
 
+    def _multi_timeframe(
+        self, *, symbol: str, as_of: datetime
+    ) -> tuple[HierarchySnapshot | None, dict[str, object]]:
+        """Evaluate the Step 13 hierarchy at the dashboard decision instant.
+
+        The ladder is one compact card: it never redesigns the dashboard and
+        never replaces any existing section. A hierarchy evaluation failure is
+        degraded to an explicit unavailable payload: the rest of the dashboard
+        is unaffected, and the failure is never hidden.
+        """
+
+        state = self.state
+        service = state.multi_timeframe
+        if service is None:
+            return None, {
+                "available": False,
+                "error": {
+                    "type": "HierarchyNotConfigured",
+                    "message": (
+                        state.multi_timeframe_unavailable_reason
+                        or "the multi-timeframe hierarchy service is not configured"
+                    ),
+                },
+                "limitations": HIERARCHY_LIMITATIONS,
+            }
+        try:
+            snapshot = service.evaluate(symbol=symbol, decision_time=as_of)
+        except Exception as exc:
+            logger.exception("multi-timeframe hierarchy evaluation failed")
+            return None, {
+                "available": False,
+                "error": {
+                    "type": type(exc).__name__,
+                    "message": str(exc),
+                },
+                "limitations": HIERARCHY_LIMITATIONS,
+            }
+        payload = hierarchy_ladder_payload(snapshot)
+        latest = service.ledger.latest_observation(
+            exchange=state.settings.exchange,
+            symbol=symbol,
+            hierarchy_fingerprint=service.hierarchy.fingerprint(),
+        )
+        payload["latest_recorded"] = (
+            None
+            if latest is None
+            else {
+                "observation_id": latest.observation_id,
+                "decision_time": latest.decision_time.isoformat().replace(
+                    "+00:00", "Z"
+                ),
+                "decision": latest.decision,
+                "status": latest.status,
+                "recorded_at": latest.recorded_at.isoformat().replace("+00:00", "Z"),
+            }
+        )
+        return snapshot, payload
+
     def _explanation(
         self,
         *,
@@ -711,6 +782,7 @@ class DashboardService:
         plan: TradePlanResult | None,
         journal_id: str | None,
         cutoff: datetime,
+        hierarchy: HierarchySnapshot | None = None,
     ) -> dict[str, object]:
         if snapshot is None:
             return _error_payload(
@@ -742,6 +814,7 @@ class DashboardService:
                 latest_decision=latest_decision,
                 statistics_report=statistics_report,
                 statistics_config=state.statistics_config,
+                hierarchy=hierarchy,
             )
             result = state.explanations.explain(context)
             return result.to_json_dict()

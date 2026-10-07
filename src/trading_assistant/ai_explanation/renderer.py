@@ -247,6 +247,9 @@ class LocalTemplateRenderer(ExplanationRenderer):
         if plan_present:
             plan_state = facts.text("ctx.plan.state")
             headline += f" — plan state: {plan_state}"
+        if payload.get("multi_timeframe") is not None:
+            decision = facts.text("ctx.multi_timeframe.decision")
+            headline += f" — hierarchy: {decision}"
         return headline
 
     def _what_engine_sees(self, facts: _FactAccess, payload: dict[str, Any]) -> str:
@@ -372,7 +375,112 @@ class LocalTemplateRenderer(ExplanationRenderer):
                     )
             if not evidence["events"]:
                 lines.append("Recorded events: none.")
+        lines.extend(self._hierarchy_lines(facts, payload))
         return "\n".join(lines)
+
+    def _hierarchy_lines(
+        self, facts: _FactAccess, payload: dict[str, Any]
+    ) -> list[str]:
+        """Step 13 multi-timeframe ladder lines, only when the snapshot exists.
+
+        Every value is read from the recorded hierarchy payload through the
+        fact manifest, exactly like every other section: the renderer never
+        computes a market fact, and when no hierarchy snapshot was supplied
+        the section stays silent rather than inventing one.
+        """
+
+        hierarchy = payload.get("multi_timeframe")
+        if hierarchy is None:
+            return []
+        lines: list[str] = []
+        decision = facts.text("ctx.multi_timeframe.decision")
+        alignment = facts.text("ctx.multi_timeframe.alignment")
+        counter_trend = facts.text("ctx.multi_timeframe.counter_trend")
+        decision_time = facts.text("ctx.multi_timeframe.decision_time")
+        lines.append(
+            f"Multi-timeframe hierarchy at {decision_time}: overall decision "
+            f"{decision}, alignment {alignment}"
+            + (
+                " (counter-trend setup, explicitly flagged; an ordinary "
+                "counter-trend setup stays below PLANNABLE)."
+                if counter_trend == "True"
+                else "."
+            )
+        )
+        status = facts.text("ctx.multi_timeframe.status", unknown="evaluated")
+        if status == "incomplete" and decision != "no_setup":
+            lines.append(
+                "The recorded hierarchy evaluation is incomplete: required "
+                "market data is missing or stale, so the hierarchy is waiting "
+                "for complete/current data rather than presenting a "
+                "trade-ready conclusion."
+            )
+        context = hierarchy["context"]
+        context_tf = facts.text("ctx.multi_timeframe.context.timeframe")
+        if context["available"] is False:
+            lines.append(
+                f"{context_tf} context: unavailable at the decision time."
+            )
+        else:
+            regime = facts.text("ctx.multi_timeframe.context.regime")
+            trend = facts.text(
+                "ctx.multi_timeframe.context.trend_direction", unknown="UNKNOWN"
+            )
+            swings = facts.text(
+                "ctx.multi_timeframe.context.confirmed_swing_count"
+            )
+            lines.append(
+                f"{context_tf} context: {regime} (trend {trend}, {swings} "
+                "confirmed swings)."
+            )
+        setup = hierarchy["setup"]
+        setup_tf = facts.text("ctx.multi_timeframe.setup.timeframe")
+        if setup["setup_id"] is None:
+            if setup["terminal_reason"] is not None:
+                terminal = facts.text("ctx.multi_timeframe.setup.terminal_reason")
+                lines.append(f"{setup_tf} setup: none active (a setup ended: {terminal}).")
+            else:
+                lines.append(f"{setup_tf} setup: none active.")
+        else:
+            family = facts.text("ctx.multi_timeframe.setup.family")
+            direction = facts.text("ctx.multi_timeframe.setup.direction")
+            setup_state = facts.text("ctx.multi_timeframe.setup.setup_state")
+            band_low = facts.text(
+                "ctx.multi_timeframe.setup.reference_band_low", unknown="UNKNOWN"
+            )
+            band_high = facts.text(
+                "ctx.multi_timeframe.setup.reference_band_high", unknown="UNKNOWN"
+            )
+            lines.append(
+                f"{setup_tf} setup: {family} ({direction}), state {setup_state}, "
+                f"reference band {band_low} to {band_high}."
+            )
+        confirmation = hierarchy["confirmation"]
+        confirmation_tf = facts.text("ctx.multi_timeframe.confirmation.timeframe")
+        confirmation_state = facts.text("ctx.multi_timeframe.confirmation.state")
+        confirmation_reason = facts.text(
+            "ctx.multi_timeframe.confirmation.reason", unknown="UNKNOWN"
+        )
+        lines.append(
+            f"{confirmation_tf} confirmation: {confirmation_state} "
+            f"({confirmation_reason})."
+        )
+        execution = hierarchy["execution"]
+        execution_tf = facts.text("ctx.multi_timeframe.execution.timeframe")
+        execution_state = facts.text("ctx.multi_timeframe.execution.state")
+        execution_reason = facts.text(
+            "ctx.multi_timeframe.execution.reason", unknown="UNKNOWN"
+        )
+        lines.append(
+            f"{execution_tf} execution: {execution_state} ({execution_reason})."
+        )
+        for index, _reason in enumerate(hierarchy["waiting_for"]):
+            waiting = facts.text(f"ctx.multi_timeframe.waiting_for[{index}]")
+            lines.append(f"Waiting for: {waiting}.")
+        for index, _reason in enumerate(hierarchy["invalidated_if"]):
+            invalidated = facts.text(f"ctx.multi_timeframe.invalidated_if[{index}]")
+            lines.append(f"Invalidated if: {invalidated}.")
+        return lines
 
     def _why_it_matters(
         self, facts: _FactAccess, payload: dict[str, Any], focus_ids: tuple[int, ...]
@@ -570,6 +678,24 @@ class LocalTemplateRenderer(ExplanationRenderer):
             lines.append(
                 "QUALIFIED means the recorded rules were satisfied; it never "
                 "means profitable, advisable or executable."
+            )
+        hierarchy = payload.get("multi_timeframe")
+        if hierarchy is not None:
+            decision = facts.text("ctx.multi_timeframe.decision")
+            alignment = facts.text("ctx.multi_timeframe.alignment")
+            counter_trend = facts.text("ctx.multi_timeframe.counter_trend")
+            lines.append(
+                f"Multi-timeframe hierarchy (4H context, 1H setup, 15M "
+                f"confirmation, 5M execution): overall decision {decision}, "
+                f"alignment {alignment}"
+                + (
+                    "; this is a counter-trend setup, flagged as such, and it "
+                    "stays below PLANNABLE: an ordinary setup opposing the "
+                    "established 4H structure cannot complete the hierarchy on "
+                    "lower-timeframe signals alone."
+                    if counter_trend == "True"
+                    else "."
+                )
             )
         journal = payload["journal"]
         if journal is not None:
@@ -955,6 +1081,16 @@ class LocalTemplateRenderer(ExplanationRenderer):
                     f"This setup already ended ({terminal}); nothing can "
                     "re-qualify it retroactively."
                 )
+        hierarchy = payload.get("multi_timeframe")
+        if hierarchy is not None:
+            for index, _reason in enumerate(hierarchy["waiting_for"]):
+                waiting = facts.text(f"ctx.multi_timeframe.waiting_for[{index}]")
+                lines.append(f"The hierarchy is waiting for: {waiting}.")
+            for index, _reason in enumerate(hierarchy["invalidated_if"]):
+                invalidated = facts.text(
+                    f"ctx.multi_timeframe.invalidated_if[{index}]"
+                )
+                lines.append(f"The hierarchy view is invalidated if: {invalidated}.")
         if not lines:
             lines.append(
                 "No setup or plan is recorded, so there is no thesis to "

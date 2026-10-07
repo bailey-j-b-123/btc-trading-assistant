@@ -25,6 +25,7 @@ from trading_assistant.market_data.timeframes import (
     timeframe_to_milliseconds,
 )
 from trading_assistant.market_structure.candles import interval_for_timeframe
+from trading_assistant.multi_timeframe import MultiTimeframeService
 from trading_assistant.pattern_liquidity import PatternLiquidityService
 from trading_assistant.setup_qualification import QualificationService
 from trading_assistant.statistics import JournalStatisticsService
@@ -66,6 +67,27 @@ class AppState:
             clock=self._clock,
             explanation_service=self.explanations,
         )
+        # Step 13 read-only hierarchy evaluation over stored closed candles.
+        # Like the forward service above, it is built without a market-data
+        # source on purpose: the web layer never downloads candles and never
+        # runs the hierarchy runner. Only the runner records hierarchy
+        # observations; the dashboard only reads what was already recorded and
+        # evaluates the ladder live at its own decision instant. When the
+        # configured supported_timeframes do not cover the default 4H/1H/15M/5M
+        # hierarchy, the service is unavailable (never an error): the dashboard
+        # ladder reports itself unavailable with the exact reason, and the rest
+        # of the dashboard is unaffected.
+        self.multi_timeframe: MultiTimeframeService | None
+        self.multi_timeframe_unavailable_reason: str | None = None
+        try:
+            self.multi_timeframe = MultiTimeframeService(
+                engine,
+                settings=self.settings,
+                clock=self._clock,
+            )
+        except ValueError as exc:
+            self.multi_timeframe = None
+            self.multi_timeframe_unavailable_reason = str(exc)
 
     def now(self) -> datetime:
         instant = self._clock()

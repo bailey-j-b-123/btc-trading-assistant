@@ -13,7 +13,7 @@ loudly instead of guessing through them.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from trading_assistant.ai_explanation.errors import ContextBuildError
 from trading_assistant.ai_explanation.models import ExplanationContext
@@ -43,6 +43,12 @@ from trading_assistant.statistics.config import StatisticsConfig
 from trading_assistant.statistics.models import StatisticsReport
 from trading_assistant.trade_planning.models import TradePlanResult
 
+if TYPE_CHECKING:
+    # Imported lazily at runtime (see the hierarchy guard below): Step 9 is a
+    # leaf explanation layer and must not pull the Step 13 package — including
+    # its database service — into its own module load order.
+    from trading_assistant.multi_timeframe.models import HierarchySnapshot
+
 
 def build_explanation_context(
     *,
@@ -55,6 +61,7 @@ def build_explanation_context(
     latest_outcome: OutcomeObservation | None = None,
     statistics_report: StatisticsReport | None = None,
     statistics_config: StatisticsConfig | None = None,
+    hierarchy: "HierarchySnapshot | None" = None,
 ) -> ExplanationContext:
     """Assemble the canonical fact payload for one explanation.
 
@@ -62,6 +69,11 @@ def build_explanation_context(
     verbatim when supplied. Raises :class:`ContextBuildError` for inconsistent
     combinations (wrong instrument, wrong setup, future-dated statistics,
     dangling journal links); missing optional inputs are simply absent.
+
+    ``hierarchy`` is the optional Step 13 multi-timeframe snapshot evaluated at
+    the same decision instant; when supplied it is copied verbatim under the
+    ``multi_timeframe`` payload key so the renderer can explain the ladder in
+    the same auditable, grounded way as every other section.
     """
 
     if not isinstance(snapshot, QualificationSnapshot):
@@ -78,6 +90,11 @@ def build_explanation_context(
         obj, expected = value
         if obj is not None and not isinstance(obj, expected):
             raise ContextBuildError(f"{name} must be a {expected.__name__} or None")
+    if hierarchy is not None:
+        from trading_assistant.multi_timeframe.models import HierarchySnapshot
+
+        if not isinstance(hierarchy, HierarchySnapshot):
+            raise ContextBuildError("hierarchy must be a HierarchySnapshot or None")
     if setup_id is not None and (not isinstance(setup_id, str) or not setup_id.strip()):
         raise ContextBuildError("setup_id must be a non-empty string or None")
 
@@ -173,6 +190,20 @@ def build_explanation_context(
                 f"rules_version {statistics_report.rules_version!r}"
             )
 
+    if hierarchy is not None:
+        hierarchy_instrument = (hierarchy.exchange, hierarchy.symbol)
+        if hierarchy_instrument != (snapshot.exchange, snapshot.symbol):
+            raise ContextBuildError(
+                f"hierarchy instrument {hierarchy_instrument} does not match "
+                f"snapshot instrument {(snapshot.exchange, snapshot.symbol)}"
+            )
+        if hierarchy.decision_time > snapshot.as_of:
+            raise ContextBuildError(
+                f"hierarchy decision_time {hierarchy.decision_time} is after "
+                f"the explanation as_of {snapshot.as_of}; a hierarchy evaluated "
+                "beyond the explanation cutoff is future data"
+            )
+
     limitations: list[str] = []
     if frame is None:
         limitations.append(
@@ -224,6 +255,9 @@ def build_explanation_context(
             latest_outcome=latest_outcome,
         ),
         "statistics": _statistics_payload(statistics_report, statistics_config),
+        "multi_timeframe": (
+            None if hierarchy is None else hierarchy.to_json_dict()
+        ),
         "limitations": list(limitations),
     }
 

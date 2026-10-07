@@ -9,6 +9,7 @@ from trading_assistant.database import Base, create_database_engine
 from trading_assistant.forward_testing import models as _forward_models  # noqa: F401
 from trading_assistant.journaling import models as _journal_models  # noqa: F401
 from trading_assistant.market_data import models as _market_data_models  # noqa: F401
+from trading_assistant.multi_timeframe import tables as _hierarchy_models  # noqa: F401
 
 FORWARD_TABLES = {
     "forward_cycles",
@@ -17,6 +18,8 @@ FORWARD_TABLES = {
     "forward_paper_outcomes",
     "forward_runner_heartbeats",
 }
+
+HIERARCHY_TABLES = {"forward_hierarchy_observations"}
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -75,7 +78,7 @@ def test_explicit_alembic_upgrade_preserves_existing_rows_and_tracks_revision(tm
     migrated_engine.dispose()
 
     assert stored_value == "keep"
-    assert revision == "0004_forward_testing"
+    assert revision == "0005_multi_timeframe_hierarchy"
     assert table_names == {
         "alembic_version",
         "ohlcv_candles",
@@ -84,14 +87,14 @@ def test_explicit_alembic_upgrade_preserves_existing_rows_and_tracks_revision(tm
         "journal_decisions",
         "journal_outcomes",
         "journal_outcome_events",
-    } | FORWARD_TABLES
+    } | FORWARD_TABLES | HIERARCHY_TABLES
     assert set(Base.metadata.tables) == {
         "ohlcv_candles",
         "journal_records",
         "journal_decisions",
         "journal_outcomes",
         "journal_outcome_events",
-    } | FORWARD_TABLES
+    } | FORWARD_TABLES | HIERARCHY_TABLES
 
 
 def test_forward_migration_is_additive_and_never_drops_recorded_observations(tmp_path):
@@ -124,13 +127,15 @@ def test_forward_migration_is_additive_and_never_drops_recorded_observations(tmp
         ).scalar_one()
     table_names = set(inspect(migrated_engine).get_table_names())
 
-    # The forward ledger's tables exist alongside the Step 2 archive.
-    assert revision == "0004_forward_testing"
+    # The forward ledger's and hierarchy ledger's tables exist alongside the
+    # Step 2 archive.
+    assert revision == "0005_multi_timeframe_hierarchy"
     assert FORWARD_TABLES <= table_names
+    assert HIERARCHY_TABLES <= table_names
     assert "ohlcv_candles" in table_names
 
-    # Downgrading the empty forward ledger removes only Step 12 objects and keeps
-    # the real market history.
+    # Downgrading the empty forward/hierarchy ledgers removes only Step 12/13
+    # objects and keeps the real market history.
     command.downgrade(config, "0003_journal")
     with migrated_engine.connect() as connection:
         remaining = set(inspect(migrated_engine).get_table_names())
@@ -145,6 +150,7 @@ def test_forward_migration_is_additive_and_never_drops_recorded_observations(tmp
     assert revision_after == "0003_journal"
     assert candles == candles_after == 1
     assert FORWARD_TABLES.isdisjoint(remaining)
+    assert HIERARCHY_TABLES.isdisjoint(remaining)
 
 
 def test_candle_migration_refuses_to_drop_historical_rows(tmp_path):
