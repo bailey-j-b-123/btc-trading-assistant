@@ -11,6 +11,7 @@ or inferred; when a fact is absent the sentence says so.
 from __future__ import annotations
 
 from trading_assistant.multi_timeframe.models import (
+    HierarchyDecision,
     HierarchySnapshot,
     alignment_label,
     confirmation_label,
@@ -109,6 +110,15 @@ def explain_hierarchy(snapshot: HierarchySnapshot) -> dict[str, object]:
             f"This setup runs counter to the {context_tf} structure; it is "
             "flagged as counter-trend, not hidden."
         )
+        if snapshot.decision is not HierarchyDecision.PLANNABLE:
+            sentences.append(
+                f"It is blocked below PLANNABLE: an ordinary setup opposing "
+                f"the established {context_tf} structure cannot complete the "
+                "hierarchy on lower-timeframe signals alone. It may only "
+                "become eligible with explicit, deterministic evidence that "
+                f"the {context_tf} structure has failed/transitioned, plus a "
+                "specifically defined reversal setup satisfying that policy."
+            )
     elif snapshot.alignment.value in ("conflicting", "unknown") and setup.setup_id is not None:
         sentences.append(
             f"The {context_tf} context is {alignment_label(snapshot.alignment).lower()}, "

@@ -5,13 +5,15 @@ upgrade a setup, or overwrite the context:
 
 * ``PLANNABLE`` requires the COMPLETE hierarchy: an evaluated context, a
   QUALIFIED setup, a CONFIRMING confirmation, an ARMED or TRIGGERED execution,
-  and an alignment that permits completion (ALIGNED, NEUTRAL, or an explicitly
-  flagged COUNTER_TREND). A 5M trigger alone never produces PLANNABLE.
+  and an alignment that permits completion (ALIGNED, or NEUTRAL range
+  context). A 5M trigger alone never produces PLANNABLE, and an ordinary
+  COUNTER_TREND setup never produces PLANNABLE: lower timeframes refine, they
+  never override established 4H directional structure.
 * ``WATCH`` — a setup exists but is not QUALIFIED yet; lower layers cannot
   upgrade it.
 * ``AWAITING_CONFIRMATION`` — the setup is QUALIFIED but the confirmation layer
   has not confirmed (WAITING or CONTRADICTING), or the alignment cannot
-  support a complete decision (CONFLICTING / UNKNOWN context).
+  support a complete decision (COUNTER_TREND / CONFLICTING / UNKNOWN).
 * ``AWAITING_EXECUTION`` — the setup is QUALIFIED and CONFIRMING, but the
   execution layer has not reached ARMED/TRIGGERED.
 * ``INVALIDATED`` — the setup ended, or a lower layer invalidated the idea.
@@ -223,6 +225,30 @@ def gate_decision(
         )
 
     # Confirmation is CONFIRMING.
+    if alignment is HierarchyAlignment.COUNTER_TREND:
+        # An ordinary setup opposing established 4H directional structure
+        # must NOT reach PLANNABLE merely because the lower layers produced
+        # confirmation/entry signals. It stays below PLANNABLE — visibly —
+        # until explicit, deterministic evidence shows the higher-timeframe
+        # structure has failed/transitioned AND a specifically defined
+        # reversal setup satisfies that policy. No such reversal policy
+        # exists in the deterministic system yet, so this path always
+        # blocks. The flag and the reason stay recorded, never hidden.
+        reasons.append("counter_trend_blocked_below_plannable")
+        waiting_for.append(
+            f"explicit deterministic evidence that the {context.timeframe} "
+            "structure has failed/transitioned, plus a specifically defined "
+            "reversal setup satisfying that policy (an ordinary counter-trend "
+            "setup stays below PLANNABLE)"
+        )
+        return (
+            HierarchyDecision.AWAITING_CONFIRMATION,
+            tuple(dict.fromkeys(reasons)),
+            "evaluated",
+            counter_trend,
+            tuple(waiting_for),
+            tuple(invalidated_if),
+        )
     if alignment not in PLANNABLE_ALIGNMENTS:
         reasons.append(f"alignment_not_plannable:{alignment.value}")
         waiting_for.append(
@@ -241,8 +267,6 @@ def gate_decision(
 
     if execution.state in (ExecutionState.ARMED, ExecutionState.TRIGGERED):
         reasons.append("hierarchy_complete")
-        if counter_trend:
-            reasons.append("counter_trend_setup_flagged")
         return (
             HierarchyDecision.PLANNABLE,
             tuple(dict.fromkeys(reasons)),

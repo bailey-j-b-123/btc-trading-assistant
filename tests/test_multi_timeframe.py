@@ -825,15 +825,65 @@ def test_gating_plannable_requires_the_complete_hierarchy():
         assert waiting_for == ()
 
 
-def test_gating_plannable_allows_an_explicitly_flagged_counter_trend():
-    decision, reasons, status, counter_trend, _, _ = _gate(
+def test_gating_counter_trend_never_reaches_plannable_bullish_context_bearish_setup():
+    """Bullish 4H + bearish 1H setup: blocked even with confirming 15m and
+    armed/triggered 5m. Lower timeframes never override the 4H structure."""
+
+    for execution_state in (ExecutionState.ARMED, ExecutionState.TRIGGERED):
+        decision, reasons, status, counter_trend, waiting_for, _ = _gate(
+            context_regime=ContextRegime.BULLISH_STRUCTURE,
+            setup_kwargs={"direction": "bearish"},
+            execution_state=execution_state,
+        )
+        assert decision is HierarchyDecision.AWAITING_CONFIRMATION
+        assert decision is not HierarchyDecision.PLANNABLE
+        assert status == "evaluated"
+        assert counter_trend is True
+        assert "counter_trend_blocked_below_plannable" in reasons
+        assert waiting_for
+        assert any("failed/transitioned" in item for item in waiting_for)
+
+
+def test_gating_counter_trend_never_reaches_plannable_bearish_context_bullish_setup():
+    """Bearish 4H + bullish 1H setup: blocked even with confirming 15m and
+    armed/triggered 5m."""
+
+    for execution_state in (ExecutionState.ARMED, ExecutionState.TRIGGERED):
+        decision, reasons, status, counter_trend, waiting_for, _ = _gate(
+            context_regime=ContextRegime.BEARISH_STRUCTURE,
+            setup_kwargs={"direction": "bullish"},
+            execution_state=execution_state,
+        )
+        assert decision is HierarchyDecision.AWAITING_CONFIRMATION
+        assert decision is not HierarchyDecision.PLANNABLE
+        assert status == "evaluated"
+        assert counter_trend is True
+        assert "counter_trend_blocked_below_plannable" in reasons
+        assert waiting_for
+        assert any("failed/transitioned" in item for item in waiting_for)
+
+
+def test_gating_counter_trend_blocked_reason_is_explicitly_visible():
+    """The counter-trend flag AND the reason it is blocked stay recorded."""
+
+    decision, reasons, _status, counter_trend, waiting_for, _ = _gate(
         context_regime=ContextRegime.BEARISH_STRUCTURE,
         setup_kwargs={"direction": "bullish"},
         execution_state=ExecutionState.TRIGGERED,
     )
-    assert decision is HierarchyDecision.PLANNABLE
     assert counter_trend is True
-    assert "counter_trend_setup_flagged" in reasons
+    assert "counter_trend_blocked_below_plannable" in reasons
+    assert any("counter-trend" in item and "PLANNABLE" in item for item in waiting_for)
+
+
+def test_gating_conflicting_and_unknown_alignment_never_plannable():
+    for regime in (ContextRegime.TRANSITION, ContextRegime.UNKNOWN):
+        decision, reasons, _, _, _, _ = _gate(
+            context_regime=regime,
+            execution_state=ExecutionState.TRIGGERED,
+        )
+        assert decision is not HierarchyDecision.PLANNABLE
+        assert any("alignment_not_plannable" in reason for reason in reasons)
 
 
 def test_gating_invalidated():
@@ -1045,6 +1095,37 @@ def test_explain_hierarchy_flags_counter_trend_explicitly():
     explanation = explain_hierarchy(snapshot)
     assert snapshot.counter_trend is True
     assert any("counter to the 4H structure" in s for s in explanation["sentences"])
+    # The blocked reason is visible in the explanation too.
+    assert snapshot.decision is not HierarchyDecision.PLANNABLE
+    assert any("blocked below PLANNABLE" in s for s in explanation["sentences"])
+    assert any("failed/transitioned" in s for s in explanation["sentences"])
+
+
+def test_ladder_payload_marks_a_blocked_counter_trend_unmistakably():
+    snapshot = _snapshot(
+        context_kwargs={"regime": ContextRegime.BEARISH_STRUCTURE},
+        setup_kwargs={"direction": "bullish"},
+    )
+    payload = ladder_payload(snapshot)
+    assert snapshot.decision is HierarchyDecision.AWAITING_CONFIRMATION
+    assert payload["counter_trend"] is True
+    assert payload["alignment"] == "counter_trend"
+    assert payload["overall"] == "COUNTER-TREND SETUP — BLOCKED BELOW PLANNABLE"
+    assert payload["decision_label"] == "Waiting for lower-timeframe confirmation"
+    assert any("counter-trend" in item and "PLANNABLE" in item for item in payload["waiting_for"])
+    assert any(
+        "stays below PLANNABLE" in limitation for limitation in payload["limitations"]
+    )
+
+
+def test_ladder_payload_aligned_plannable_keeps_its_overall_phrase():
+    snapshot = _snapshot(
+        context_kwargs={"regime": ContextRegime.BULLISH_STRUCTURE},
+        setup_kwargs={"direction": "bullish"},
+    )
+    payload = ladder_payload(snapshot)
+    assert snapshot.counter_trend is False
+    assert payload["overall"] == "WAITING FOR ENTRY TIMING"
 
 
 def test_ladder_payload_uses_plain_english_and_carries_the_snapshot():

@@ -400,8 +400,12 @@ class LocalTemplateRenderer(ExplanationRenderer):
         lines.append(
             f"Multi-timeframe hierarchy at {decision_time}: overall decision "
             f"{decision}, alignment {alignment}"
-            + (" (counter-trend setup, explicitly flagged)."
-               if counter_trend == "True" else ".")
+            + (
+                " (counter-trend setup, explicitly flagged; an ordinary "
+                "counter-trend setup stays below PLANNABLE)."
+                if counter_trend == "True"
+                else "."
+            )
         )
         context = hierarchy["context"]
         context_tf = facts.text("ctx.multi_timeframe.context.timeframe")
@@ -676,8 +680,14 @@ class LocalTemplateRenderer(ExplanationRenderer):
                 f"Multi-timeframe hierarchy (4H context, 1H setup, 15M "
                 f"confirmation, 5M execution): overall decision {decision}, "
                 f"alignment {alignment}"
-                + ("; this is a counter-trend setup and is flagged as such."
-                   if counter_trend == "True" else ".")
+                + (
+                    "; this is a counter-trend setup, flagged as such, and it "
+                    "stays below PLANNABLE: an ordinary setup opposing the "
+                    "established 4H structure cannot complete the hierarchy on "
+                    "lower-timeframe signals alone."
+                    if counter_trend == "True"
+                    else "."
+                )
             )
         journal = payload["journal"]
         if journal is not None:

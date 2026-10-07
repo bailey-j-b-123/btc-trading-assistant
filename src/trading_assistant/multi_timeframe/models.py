@@ -85,14 +85,22 @@ class HierarchyDecision(StrEnum):
 
 
 #: Alignment values under which a QUALIFIED setup may still complete the
-#: hierarchy. ``COUNTER_TREND`` is allowed but always flagged; ``CONFLICTING``
-#: and ``UNKNOWN`` mean the higher-timeframe context cannot support a complete
-#: decision, so the hierarchy stops below PLANNABLE.
+#: hierarchy. ``ALIGNED`` proceeds normally; ``NEUTRAL`` (range context) keeps
+#: its intended behaviour. ``COUNTER_TREND`` is deliberately EXCLUDED: an
+#: ordinary setup opposing established 4H directional structure must never
+#: reach PLANNABLE merely because the lower layers produced confirmation/entry
+#: signals — lower timeframes refine, they never override the 4H structure.
+#: A counter-trend trade may only become eligible in the future if there is
+#: explicit, deterministic evidence that the higher-timeframe structure has
+#: failed/transitioned AND a specifically defined reversal setup satisfies that
+#: policy. No such reversal policy exists in the deterministic system yet, so
+#: counter-trend setups stay below PLANNABLE (always flagged, never hidden).
+#: ``CONFLICTING`` and ``UNKNOWN`` mean the higher-timeframe context cannot
+#: support a complete decision, so the hierarchy stops below PLANNABLE.
 PLANNABLE_ALIGNMENTS = frozenset(
     {
         HierarchyAlignment.ALIGNED,
         HierarchyAlignment.NEUTRAL,
-        HierarchyAlignment.COUNTER_TREND,
     }
 )
 

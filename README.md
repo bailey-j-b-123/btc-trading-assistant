@@ -2088,9 +2088,11 @@ OVERALL           — one deterministic decision for the whole hierarchy
 it.** A 5M pattern can never create a trade without a valid 1H parent setup and
 an evaluated 4H context, and a lower timeframe can never silently overwrite the
 4H interpretation — a counter-trend setup is always explicitly flagged, never
-hidden. No qualification threshold is weakened anywhere: the existing Steps 3–6
-remain the only authority on structure, setups and plans, and this layer adds no
-new indicator and no new threshold.
+hidden, and it stays below `PLANNABLE` (an ordinary setup opposing established
+4H directional structure cannot complete the hierarchy on lower-timeframe
+signals alone). No qualification threshold is weakened anywhere: the existing
+Steps 3–6 remain the only authority on structure, setups and plans, and this
+layer adds no new indicator and no new threshold.
 
 ### Hard boundaries
 
@@ -2142,13 +2144,23 @@ new indicator and no new threshold.
 ### Conflict handling and final gating
 
 The context/setup relationship is one explicit enum: `ALIGNED`,
-`COUNTER_TREND` (allowed, always flagged), `NEUTRAL` (range context),
-`CONFLICTING` (transition structure), `UNKNOWN`. There is no silent 4H override.
+`COUNTER_TREND` (always flagged, never hidden, and **kept below PLANNABLE**),
+`NEUTRAL` (range context), `CONFLICTING` (transition structure), `UNKNOWN`.
+There is no silent 4H override.
 
 The final gate is strictly hierarchical — `PLANNABLE` requires the *complete*
 hierarchy (evaluated context + QUALIFIED setup + CONFIRMING confirmation +
-ARMED/TRIGGERED execution + a permitting alignment). A 5M trigger alone never
-produces `PLANNABLE`. The overall decision vocabulary: `NO_SETUP`, `WATCH`,
+ARMED/TRIGGERED execution + a permitting alignment: `ALIGNED`, or `NEUTRAL`
+range context). A 5M trigger alone never produces `PLANNABLE`, and an ordinary
+setup opposing established 4H bullish/bearish structure never produces
+`PLANNABLE` either: lower timeframes refine, they never override the 4H
+structure, so a counter-trend setup stays at `AWAITING_CONFIRMATION` with the
+block recorded explicitly (`counter_trend_blocked_below_plannable`) and shown
+on the dashboard and in the explanation. A counter-trend trade may only become
+eligible in the future if there is explicit, deterministic evidence that the
+higher-timeframe structure has failed/transitioned AND a specifically defined
+reversal setup satisfies that policy; no such reversal policy exists in the
+deterministic system yet. The overall decision vocabulary: `NO_SETUP`, `WATCH`,
 `AWAITING_CONFIRMATION`, `AWAITING_EXECUTION`, `PLANNABLE`, `INVALIDATED`.
 When context or setup data is unavailable the evaluation is recorded as
 `incomplete` with an explicit reason — a missing candle never becomes a trading

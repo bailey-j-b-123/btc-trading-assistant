@@ -261,7 +261,60 @@ def test_service_counter_trend_fixture_flags_counter_trend(counter_engine):
     assert snapshot.counter_trend is True
     # The 4H context is never overridden by the bullish 1H setup.
     assert snapshot.setup.direction == "bullish"
-    assert snapshot.decision.value == "awaiting_execution"
+    # An ordinary counter-trend setup stays below PLANNABLE.
+    assert snapshot.decision.value == "awaiting_confirmation"
+    assert "counter_trend_blocked_below_plannable" in snapshot.reasons
+    assert any(
+        "counter-trend" in item and "PLANNABLE" in item for item in snapshot.waiting_for
+    )
+
+
+def test_service_counter_trend_stays_blocked_even_when_lower_layers_complete(tmp_path):
+    """Bearish 4H + bullish 1H + confirming 15m + triggered 5m: still not PLANNABLE.
+
+    The lower layers complete exactly as they would for an aligned setup; the
+    4H directional structure is what keeps the hierarchy below PLANNABLE, and
+    the block stays visible in the snapshot, the ladder payload and the
+    deterministic explanation.
+    """
+
+    engine, _url = migrated_engine(tmp_path, "hierarchy.sqlite3")
+    scenario = scenario_candles(
+        band_low=BAND_LOW,
+        band_high=BAND_HIGH,
+        closes_15m=("120", "119", "118", "117.5"),
+        closes_5m=(
+            "123", "122", "121", "120", "119", "118",
+            "117.5", "117", "117.2", "117.5", "117.8", "118",
+        ),
+    )
+    insert_hierarchy(engine, hierarchy_candles(aligned=False, scenario=scenario))
+    service = make_service(engine)
+    snapshot = service.evaluate(decision_time=SCENARIO_DECISION_TIME)
+
+    # The lower layers genuinely completed.
+    assert snapshot.setup.setup_state == "QUALIFIED"
+    assert snapshot.confirmation.state.value == "confirming"
+    assert snapshot.execution.state.value == "triggered"
+    # ... and the hierarchy still refuses to complete.
+    assert snapshot.alignment.value == "counter_trend"
+    assert snapshot.counter_trend is True
+    assert snapshot.decision.value == "awaiting_confirmation"
+    assert snapshot.decision.value != "plannable"
+    assert "counter_trend_blocked_below_plannable" in snapshot.reasons
+    assert any(
+        "failed/transitioned" in item for item in snapshot.waiting_for
+    )
+
+    # The block is visible in the ladder payload and the explanation.
+    from trading_assistant.multi_timeframe.explanation import explain_hierarchy
+    from trading_assistant.multi_timeframe.ladder import ladder_payload
+
+    payload = ladder_payload(snapshot)
+    assert payload["counter_trend"] is True
+    assert payload["overall"] == "COUNTER-TREND SETUP — BLOCKED BELOW PLANNABLE"
+    explanation = explain_hierarchy(snapshot)
+    assert any("blocked below PLANNABLE" in s for s in explanation["sentences"])
 
 
 def test_service_scenario_plannable_when_execution_triggers(tmp_path):

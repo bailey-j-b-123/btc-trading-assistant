@@ -7,8 +7,12 @@ explicit enum:
 
 * ``ALIGNED`` — the setup direction agrees with the context structure;
 * ``COUNTER_TREND`` — the setup direction disagrees with a directional
-  context structure. Allowed, but always flagged: a counter-trend setup is
-  explicitly identified as such, never hidden;
+  context structure. Always flagged and never hidden, but an ordinary
+  counter-trend setup stays BELOW PLANNABLE: lower timeframes refine, they
+  never override the 4H structure. A counter-trend trade may only become
+  eligible in the future with explicit, deterministic evidence that the
+  higher-timeframe structure has failed/transitioned AND a specifically
+  defined reversal setup satisfying that policy (no such policy exists yet);
 * ``NEUTRAL`` — the context is a range: no directional context to agree or
   disagree with;
 * ``CONFLICTING`` — the context itself is in transition (conflicting or

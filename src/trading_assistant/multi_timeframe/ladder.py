@@ -109,13 +109,19 @@ def ladder_payload(snapshot: HierarchySnapshot) -> dict[str, Any]:
         }
         for step in explanation["ladder"]  # type: ignore[index]
     ]
+    # A blocked counter-trend setup gets an unmistakable overall phrase: the
+    # decision enum stays AWAITING_CONFIRMATION, but the dashboard must show
+    # exactly why an otherwise-complete lower-timeframe chain cannot complete.
+    overall = overall_phrase(snapshot.decision)
+    if snapshot.counter_trend and snapshot.decision is not HierarchyDecision.PLANNABLE:
+        overall = "COUNTER-TREND SETUP — BLOCKED BELOW PLANNABLE"
     return {
         "available": True,
         "hierarchy": snapshot.hierarchy.to_json_dict(),
         "decision_time": to_jsonable(snapshot.decision_time),
         "decision": snapshot.decision.value,
         "decision_label": decision_label(snapshot.decision),
-        "overall": overall_phrase(snapshot.decision),
+        "overall": overall,
         "alignment": snapshot.alignment.value,
         "alignment_label": alignment_label(snapshot.alignment),
         "counter_trend": snapshot.counter_trend,
@@ -139,7 +145,10 @@ def ladder_payload(snapshot: HierarchySnapshot) -> dict[str, Any]:
             "never used at any layer.",
             "Lower timeframes refine the setup layer; they never create a trade "
             "on their own and never overwrite the higher-timeframe context.",
-            "A counter-trend setup is explicitly flagged, not hidden.",
+            "A counter-trend setup is explicitly flagged, never hidden, and it "
+            "stays below PLANNABLE: an ordinary setup opposing the established "
+            "4H structure cannot complete the hierarchy on lower-timeframe "
+            "signals alone.",
         ),
     }
 
