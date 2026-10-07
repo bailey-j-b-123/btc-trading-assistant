@@ -33,6 +33,7 @@ test("clean defaults hide historical diagnostics but retain an actual scenario b
   assert.equal(DEFAULT_PREFS.overlays.range, false);
   assert.equal(DEFAULT_PREFS.overlays.equalLevels, false);
   assert.equal(DEFAULT_PREFS.overlays.swings, false);
+  assert.equal(DEFAULT_PREFS.overlays.planLevels, true);
   const handle = chart();
   const overlays = { zones: [{ band_low: "10", band_high: "20" }],
     equal_levels: [{ level: "30" }], range: { range_low: "40", range_high: "50" },
@@ -41,27 +42,37 @@ test("clean defaults hide historical diagnostics but retain an actual scenario b
     invalidation: { value: "70" }, targets: [{ level: { value: "90" } }] };
   const snapshot = { overlays, plan, scenarioBand: scenarioBand(fact, "1h"), prefs: DEFAULT_PREFS };
   applyOverlays(handle, snapshot);
-  assert.deepEqual(names(handle), ["scenario reference low · not prediction", "scenario reference high · not prediction",
-    "entry", "protective stop", "target 1"]);
+  assert.deepEqual(names(handle), ["Zone low", "Zone high", "Entry", "Stop / Invalidation", "T1"]);
   applyOverlays(handle, { ...snapshot, prefs: { overlays: {
     zones: true, range: true, equalLevels: true, swings: true, planLevels: true,
   } } });
-  for (const name of ["zone low", "range low", "equal lows", "swing high", "entry"]) {
+  for (const name of ["Zone low", "Range low", "Equal lows", "Swing high", "Entry"]) {
     assert.ok(names(handle).some((value) => value.includes(name)), name);
   }
   assert.equal(handle.lines.size, 11); // diagnostic detail remains available, never deleted
 });
 
-test("LOOKING FOR reads exact backend event, reference and required rules without mutating inputs", () => {
-  const dashboard = { looking_for: fact, qualification: { state: "WATCH" }, planning: { state: null } };
+test("LOOKING FOR is a compact projection of backend setup and hierarchy facts", () => {
+  const dashboard = {
+    looking_for: fact,
+    qualification: { state: "WATCH" },
+    planning: { state: null },
+    multi_timeframe: {
+      available: true,
+      status: "evaluated",
+      decision: "awaiting_confirmation",
+      overall: "WAITING FOR CONFIRMATION",
+      counter_trend: false,
+      invalidated_if: ["a closed candle above the setup reference"],
+    },
+  };
   const before = structuredClone(dashboard);
   const model = lookingForViewModel(dashboard);
-  assert.match(model.title, /SHORT/);
-  assert.match(model.observed, /breakout was recorded/);
-  assert.match(model.observed, /81,000–\$81,100/);
-  assert.match(model.wanted, /retest/);
-  assert.match(model.invalidation, /unavailable/);
-  assert.match(model.trade, /NO/);
+  assert.equal(model.title, "Bearish breakout → retest");
+  assert.equal(model.watching, "$81,000–$81,100");
+  assert.match(model.need, /retest that holds the breakout level/);
+  assert.equal(model.invalidation, "a closed candle above the setup reference");
+  assert.equal(model.status, "WAITING FOR CONFIRMATION");
   assert.deepEqual(dashboard, before);
 });
 
@@ -72,7 +83,7 @@ test("missing or mismatched facts draw no scenario; no future coordinates or pro
   assert.equal(scenarioBand({ ...fact, reference: { band_low: "??", band_high: "81100" } }, "1h"), null);
   const missing = lookingForViewModel({ looking_for: { available: false }, qualification: { state: "NO_SETUP" } });
   assert.equal(missing.reference, null);
-  assert.match(missing.observed, /unavailable/);
+  assert.match(missing.watching, /No unique setup reference/);
   const band = scenarioBand(fact, "1h");
   assert.deepEqual(band, { low: 81000, high: 81100 });
   const handle = chart();

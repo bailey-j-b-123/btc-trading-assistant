@@ -459,6 +459,52 @@ test("WATCH renders with backend evidence and missing confirmation", async () =>
   });
 });
 
+test("compact LOOKING FOR keeps its complete backend facts behind collapsed technical details", async () => {
+  const dashboard = backendDashboard({
+    looking_for: {
+      available: true,
+      setup_id: "setup-watch-1",
+      timeframe: "1h",
+      family: "breakout_retest_continuation",
+      direction: "bearish",
+      state: "WATCH",
+      seed_event: { kind: "breakout", known_at: "2026-10-06T10:00:00Z" },
+      reference: { type: "swing_low", band_low: "81000", band_high: "81100" },
+      pending_required: [{ rule_id: "held_retest", reason: "Waiting for a held retest." }],
+      invalidation: "82000",
+    },
+    multi_timeframe: {
+      available: true,
+      status: "evaluated",
+      decision: "awaiting_confirmation",
+      overall: "WAITING FOR CONFIRMATION",
+      counter_trend: false,
+      waiting_for_text: "Waiting for: 15M acceptance of the setup reference level",
+      invalidated_if: ["a closed candle above the setup reference"],
+      invalidated_if_text: "Invalidated if: a closed candle above the setup reference",
+    },
+  });
+  const original = structuredClone(dashboard);
+  await withDashboard(dashboard, forwardPayload(), async ({ view }) => {
+    await renderDashboard(view);
+    const card = findNodes(view, (node) => (node.className || "").split(" ").includes("looking-for"))[0];
+    assert.ok(card);
+    assert.match(card.textContent, /LOOKING FOR/);
+    assert.match(card.textContent, /Bearish breakout → retest/);
+    assert.match(card.textContent, /Watching:\$81,000–\$81,100/);
+    assert.match(card.textContent, /Need:retest that holds the breakout level/);
+    assert.match(card.textContent, /Invalid if:\$82,000/);
+    assert.match(card.textContent, /Status:WAITING FOR CONFIRMATION/);
+    assert.match(card.textContent, /Scenario — not prediction/);
+    const disclosure = findNodes(card, (node) => node.tagName === "DETAILS")[0];
+    assert.ok(disclosure);
+    assert.equal(disclosure.open, false);
+    assert.match(disclosure.textContent, /pending required held_retest/);
+    assert.match(disclosure.textContent, /hierarchy waiting_for_text/);
+    assert.deepEqual(dashboard, original);
+  });
+});
+
 test("NO TRADE is rendered from NO_SETUP and its backend reason", async () => {
   const dashboard = backendDashboard({
     qualification: {
@@ -517,16 +563,40 @@ test("PLANNABLE requires the backend plan state and renders its supplied levels"
       risk_per_unit: "7",
       targets: [{ level: { value: "138" }, r_multiple: "2" }],
     },
+    multi_timeframe: {
+      available: true,
+      status: "evaluated",
+      decision: "awaiting_confirmation",
+      decision_label: "Trade ready",
+      overall: "TRADE READY",
+      counter_trend: false,
+    },
   });
+  const original = structuredClone(dashboard);
   const forward = forwardPayload();
   forward.status.current_state.as_of = "2026-10-06T11:00:00Z";
   await withDashboard(dashboard, forward, async ({ view }) => {
     await renderDashboard(view);
-    assert.match(view.textContent, /Plan ready/);
+    assert.match(view.textContent, /PLAN CALCULATED/);
+    assert.match(view.textContent, /Trade not confirmed yet/);
+    assert.match(view.textContent, /WAITING FOR CONFIRMATION/);
+    assert.doesNotMatch(view.textContent, /TRADE READY|PLAN READY|Plan ready/);
     assert.match(view.textContent, /124/);
     assert.match(view.textContent, /117/);
     assert.match(view.textContent, /138/);
     assert.match(view.textContent, /2\.00 R/);
+    assert.equal(verdictViewModel(dashboard).state, "PLAN CALCULATED");
+    const permitted = {
+      ...dashboard,
+      multi_timeframe: { available: true, status: "evaluated", decision: "plannable",
+        overall: "PLAN READY — HIERARCHY COMPLETE", counter_trend: false },
+    };
+    assert.equal(verdictViewModel(permitted).state, "PLAN READY — HIERARCHY COMPLETE");
+    assert.equal(verdictViewModel(permitted).hierarchyReady, true);
+    assert.equal(verdictViewModel({ ...permitted,
+      multi_timeframe: { ...permitted.multi_timeframe, status: "incomplete" },
+    }).state, "PLAN CALCULATED");
+    assert.deepEqual(dashboard, original);
   });
 });
 
@@ -624,7 +694,7 @@ test("repeated dashboard renders dispose old charts and replace, not stack, over
     // Clean default: only the engine plan, never the full S/R catalog.
     assert.equal(chartState.charts[0].lines.size, 3);
     const titles = [...chartState.charts[0].lines].map((line) => line.options.title);
-    assert.ok(titles.includes("protective stop"));
+    assert.ok(titles.includes("Stop / Invalidation"));
     assert.ok(!titles.some((title) => title.includes("support")));
     await renderDashboard(view);
     assert.equal(chartState.charts.length, 2);

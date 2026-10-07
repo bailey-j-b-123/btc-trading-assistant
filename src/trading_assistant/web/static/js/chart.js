@@ -218,6 +218,22 @@ export function setFormingCandle(handle, candle) {
   }]);
 }
 
+function compactLineTitle(group) {
+  const titles = [...new Set(group.map((entry) => entry.title))];
+  const priority = (title) => {
+    if (/^Zone (low|high)$/.test(title)) return 0;
+    if (["Entry", "Stop", "Invalidation"].includes(title)) return 1;
+    if (/^T\d+$/.test(title)) return 2;
+    if (/^(Support|Resistance) /.test(title)) return 3;
+    if (/^Range /.test(title)) return 4;
+    if (/^Equal /.test(title)) return 5;
+    return 6;
+  };
+  titles.sort((left, right) => priority(left) - priority(right));
+  if (titles.length <= 2) return titles.join(" / ");
+  return `${titles.slice(0, 2).join(" / ")} / ${titles.length - 2} more`;
+}
+
 function priceLine(price, { color, title, style = 2, width = 1 }) {
   return {
     price,
@@ -270,9 +286,9 @@ export function applyOverlays(handle, payload = {}) {
   const plan = safePayload.plan && safePayload.plan.state === "PLANNABLE"
     ? safePayload.plan
     : null;
-  // Group pending lines by exact price: several titles at one price become a
-  // single axis label ("support high + equal highs") instead of overlapping
-  // labels. Nothing is dropped — every level still contributes its title.
+  // Group only exact-equal prices so coincident deterministic levels do not
+  // obscure candles with overlapping axis labels. The visible title stays
+  // short; numeric values are never averaged, rounded, or moved.
   const byPrice = new Map();
 
   const add = (value, options) => {
@@ -291,7 +307,7 @@ export function applyOverlays(handle, payload = {}) {
       const first = group[0];
       const line = handle.series.createPriceLine(priceLine(Number(key), {
         color: first.color,
-        title: group.map((entry) => entry.title).join(" + "),
+        title: compactLineTitle(group),
         style: first.style,
         width: first.width,
       }));
@@ -302,22 +318,22 @@ export function applyOverlays(handle, payload = {}) {
 
   if (prefs.zones === true) {
     for (const zone of Array.isArray(overlays.zones) ? overlays.zones : []) {
-      const role = zone.role === "support" ? "support" : zone.role === "resistance" ? "resistance" : "zone";
+      const role = zone.role === "support" ? "Support" : zone.role === "resistance" ? "Resistance" : "Zone";
       add(zone.band_low, { color: OVERLAY_COLORS.zones, title: `${role} low`, style: 1 });
       add(zone.band_high, { color: OVERLAY_COLORS.zones, title: `${role} high`, style: 1 });
     }
   }
 
   if (prefs.range === true && overlays.range && typeof overlays.range === "object") {
-    add(overlays.range.range_low, { color: OVERLAY_COLORS.range, title: "range low", style: 3 });
-    add(overlays.range.range_high, { color: OVERLAY_COLORS.range, title: "range high", style: 3 });
+    add(overlays.range.range_low, { color: OVERLAY_COLORS.range, title: "Range low", style: 3 });
+    add(overlays.range.range_high, { color: OVERLAY_COLORS.range, title: "Range high", style: 3 });
   }
 
   if (prefs.equalLevels === true) {
     for (const cluster of Array.isArray(overlays.equal_levels) ? overlays.equal_levels : []) {
       add(cluster.level, {
         color: OVERLAY_COLORS.equalLevels,
-        title: cluster.type === "equal_high" ? "equal highs" : "equal lows",
+        title: cluster.type === "equal_high" ? "Equal highs" : "Equal lows",
         style: 1,
       });
     }
@@ -328,8 +344,8 @@ export function applyOverlays(handle, payload = {}) {
   const band = safePayload.scenarioBand;
   if (band && Number.isFinite(band.low) && Number.isFinite(band.high) &&
       band.low > 0 && band.high >= band.low) {
-    add(band.low, { color: OVERLAY_COLORS.reference, title: "scenario reference low · not prediction", style: 2 });
-    add(band.high, { color: OVERLAY_COLORS.reference, title: "scenario reference high · not prediction", style: 2 });
+    add(band.low, { color: OVERLAY_COLORS.reference, title: "Zone low", style: 2 });
+    add(band.high, { color: OVERLAY_COLORS.reference, title: "Zone high", style: 2 });
   }
 
   if (prefs.swings === true) {
@@ -337,7 +353,7 @@ export function applyOverlays(handle, payload = {}) {
       const value = swing.price !== undefined ? swing.price : swing.level;
       add(value, {
         color: OVERLAY_COLORS.swings,
-        title: swing.kind === "high" ? "swing high" : "swing low",
+        title: swing.kind === "high" ? "Swing high" : "Swing low",
         style: 1,
       });
     }
@@ -347,17 +363,16 @@ export function applyOverlays(handle, payload = {}) {
     const entry = plan.entry ? plan.entry.value : null;
     const stop = plan.stop ? plan.stop.value : null;
     const invalidation = plan.invalidation ? plan.invalidation.value : null;
-    add(entry, { color: OVERLAY_COLORS.entry, title: "entry", style: 0 });
-    add(stop, { color: OVERLAY_COLORS.stop, title: "protective stop", style: 0 });
+    add(entry, { color: OVERLAY_COLORS.entry, title: "Entry", style: 0 });
+    add(stop, { color: OVERLAY_COLORS.stop, title: "Stop", style: 0 });
     const invalidationPrice = finiteNumber(invalidation);
-    const stopPrice = finiteNumber(stop);
-    if (invalidationPrice !== null && invalidationPrice !== stopPrice) {
-      add(invalidationPrice, { color: OVERLAY_COLORS.invalidation, title: "invalidation", style: 2 });
+    if (invalidationPrice !== null) {
+      add(invalidationPrice, { color: OVERLAY_COLORS.invalidation, title: "Invalidation", style: 2 });
     }
     (Array.isArray(plan.targets) ? plan.targets : []).forEach((target, index) => {
       add(target.level ? target.level.value : null, {
         color: OVERLAY_COLORS.targets,
-        title: `target ${index + 1}`,
+        title: `T${index + 1}`,
         style: 0,
       });
     });

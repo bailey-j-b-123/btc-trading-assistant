@@ -2462,22 +2462,22 @@ show a known band, not a projected path or future candle. Chart timeframe
 buttons read stored chart data only; they do not rerun the engine. The hierarchy
 (4H → 1H → 15M → 5M) remains independent of chart selection.
 
-`GET /api/market/live-price` reads Kraken's public XBTUSDT last-trade ticker
-without keys, DB access or an engine dependency. It is requested separately
-after the dashboard renders (20-second browser polling; 15-second server cache;
-3-second upstream timeout). Its `fetched_at` is the **server receipt time**,
-not an exchange tick timestamp. Failed requests mark a previous quote stale;
-no quote or an invalid response shows unavailable. A valid quote older than
-45 seconds is stale. The quote never reaches candle history, structure,
-qualification, the hierarchy, planning, or forward/historical testing. No
-forming candle is drawn by the REST ticker. The chart's **separate ghost series**
-uses public Kraken WebSocket v2 `ohlc` snapshots and trade-event updates for
-BTC/USDT at 5/15/60/240 minutes. Its UTC `interval_begin` must match the
-current epoch-anchored bucket, and the last stored closed candle must be
-adjacent (at most two intervals behind). It is removed on stale/invalid data,
-disconnect or a new time boundary; it is **never promoted** to the stored
-confirmed series or database. Switching views closes the old subscription and
-opens one for the viewed interval. The strict CSP permits only
+`GET /api/market/live-price` remains available to API clients and reads
+Kraken's public XBTUSDT last-trade ticker without keys, DB access or an engine
+dependency. The normal chart UI no longer requests or displays this REST quote;
+its single live visual status belongs to the forming WebSocket feed. The endpoint
+still uses a 15-second server cache and 3-second upstream timeout. Its
+`fetched_at` is the **server receipt time**, not an exchange tick timestamp.
+The quote never reaches candle history, structure, qualification, the
+hierarchy, planning, or forward/historical testing. No forming candle is drawn
+by the REST ticker. The chart's **separate ghost series** uses public Kraken
+WebSocket v2 `ohlc` snapshots and trade-event updates for BTC/USDT at
+5/15/60/240 minutes. Its UTC `interval_begin` must match the current
+epoch-anchored bucket, and the last stored closed candle must be adjacent (at
+most two intervals behind). It is removed on stale/invalid data, disconnect or
+a new time boundary; it is **never promoted** to the stored confirmed series or
+database. Switching views closes the old subscription and opens one for the
+viewed interval. The strict CSP permits only
 `wss://ws.kraken.com` in addition to the same-origin API. Public Kraken
 connectivity is required for this optional display; it can fail while the
 stored-candle chart continues to work. OHLC updates arrive on trades, not at a fixed cadence: a quiet interval

@@ -529,8 +529,8 @@ test("switching clears the setup scenario before new data arrives", async () => 
   await withDashboard({ dashboard, forward: forwardFixture() }, async ({ view, chartState }) => {
     await renderDashboard(view);
     assert.deepEqual(drawnLines(chartState), [
-      "scenario reference low · not prediction@61900",
-      "scenario reference high · not prediction@62000",
+      "Zone low@61900",
+      "Zone high@62000",
     ]);
     click(switchButtons(view).find((button) => button.getAttribute("data-timeframe") === "5m"));
     // Synchronously after the click — before any response lands — the
@@ -558,18 +558,18 @@ test("plan levels persist across chart switches, governed by the trade plan", as
   await withDashboard({ dashboard, forward: forwardFixture() }, async ({ view, chartState }) => {
     await renderDashboard(view);
     assert.deepEqual(drawnLines(chartState), [
-      "entry@62250",
-      "protective stop@62050",
-      "target 1@62600",
+      "Entry@62250",
+      "Stop / Invalidation@62050",
+      "T1@62600",
     ]);
     click(switchButtons(view).find((button) => button.getAttribute("data-timeframe") === "5m"));
     await flush();
     // Structure belongs to 5m; the plan lines are unchanged in price and
     // title because they come from the deterministic trade plan.
     assert.deepEqual(drawnLines(chartState), [
-      "entry@62250",
-      "protective stop@62050",
-      "target 1@62600",
+      "Entry@62250",
+      "Stop / Invalidation@62050",
+      "T1@62600",
     ]);
     assert.match(viewNote(view).textContent, /plan levels from the engine plan/);
   });
@@ -868,6 +868,7 @@ test("existing dashboard behaviour still works alongside the new UI", async () =
     assert.equal(ids.get("topbar-status").textContent, "SYSTEM OK");
     assert.equal(chartState.charts.length, 1);
     assert.deepEqual(chartState.charts[0].candleData, toChartCandles(ENGINE_ROWS));
+    assert.equal(chartState.charts[0].volumeData.length, ENGINE_ROWS.length);
     // The collapsed ladder still carries the full audit trail.
     const ladder = multiTimeframeCard(dashboardFixture());
     assert.equal(ladder.tagName, "DETAILS");
@@ -878,19 +879,22 @@ test("existing dashboard behaviour still works alongside the new UI", async () =
 });
 
 
-test("stale public quote is visibly stale and never changes stored candles or chart decision", async () => {
+test("chart shows one forming-feed status and ignores the separate REST quote", async () => {
   const dashboard = dashboardFixture();
   const original = structuredClone(dashboard);
-  const stale = { status: "STALE", price: "90000", fetched_at: new Date(Date.now() - 60000).toISOString() };
-  await withDashboard({ dashboard, forward: forwardFixture(), livePrice: stale }, async ({ view, chartState, calls }) => {
+  const staleQuote = { status: "UNAVAILABLE", price: null, fetched_at: null };
+  await withDashboard({ dashboard, forward: forwardFixture(), livePrice: staleQuote }, async ({ view, chartState, calls }) => {
     await renderDashboard(view);
     await flush();
     const quote = findOne(view, (node) => (node.className || "").split(" ").includes("live-quote"));
-    assert.equal(quote.dataset.freshness, "STALE");
-    assert.match(quote.textContent, /LIVE DATA STALE/);
+    assert.equal(quote, null);
+    const forming = findOne(view, (node) => (node.className || "").split(" ").includes("forming-status"));
+    assert.ok(forming);
+    assert.match(forming.textContent, /FORMING 1H — DISPLAY ONLY/);
+    assert.doesNotMatch(view.textContent, /LIVE PRICE · LAST TRADE|LIVE DATA UNAVAILABLE/);
     assert.deepEqual(chartState.charts[0].candleData, toChartCandles(ENGINE_ROWS));
     assert.deepEqual(dashboard, original);
-    assert.equal(calls.filter((call) => call.path.startsWith("/api/market/live-price")).length, 1);
+    assert.equal(calls.filter((call) => call.path.startsWith("/api/market/live-price")).length, 0);
     assert.equal(calls.filter((call) => call.method !== "GET").length, 0);
   });
 });
@@ -904,7 +908,7 @@ test("manual S/R toggle reveals the stored structure without changing setup or h
     assert.equal(button.getAttribute("aria-pressed"), "false");
     click(button);
     assert.equal(button.getAttribute("aria-pressed"), "true");
-    assert.deepEqual(drawnLines(chartState), ["support low@61900", "support high@62000"]);
+    assert.deepEqual(drawnLines(chartState), ["Support low@61900", "Support high@62000"]);
     assert.equal(prefWrites.length, 1);
     assert.deepEqual(chartState.charts[0].candleData, toChartCandles(ENGINE_ROWS));
     assert.equal(dashboard.qualification.state, "WATCH");
@@ -974,14 +978,18 @@ test("public forming OHLC follows 5M/15M/1H/4H chart view only, never the engine
         assert.deepEqual(chartState.charts[0].candleData, original);
         const badge = findOne(view, (node) => (node.className || "").split(" ").includes("forming-status"));
         assert.match(badge.textContent, /FORMING .*DISPLAY ONLY/);
+        assert.match(badge.textContent, /KRAKEN OHLC CURRENT/);
+        assert.doesNotMatch(badge.textContent, /LIVE DATA UNAVAILABLE/);
+        assert.equal(findOne(view, (node) => (node.className || "").split(" ").includes("live-quote")), null);
         assert.equal(badge.dataset.freshness, "CURRENT");
       }
       PublicSocket.all.at(-1).close();
       assert.deepEqual(chartState.charts[0].formingData, []);
       assert.deepEqual(chartState.charts[0].candleData, toChartCandles(rows["4h"]));
       assert.deepEqual(fixture, before);
-      assert.deepEqual(drawnLines(chartState), ["entry@110", "protective stop@95", "target 1@125"]);
+      assert.deepEqual(drawnLines(chartState), ["Entry@110", "Stop / Invalidation@95", "T1@125"]);
       assert.equal(calls.filter((c) => c.path.startsWith("/api/dashboard")).length, 1);
+      assert.equal(calls.filter((c) => c.path.startsWith("/api/market/live-price")).length, 0);
       assert.equal(calls.filter((c) => c.method !== "GET").length, 0);
     });
   } finally { Date.now = originalNow; }

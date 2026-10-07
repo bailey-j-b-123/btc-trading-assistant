@@ -6,7 +6,6 @@
  */
 
 import { api } from "../api.js";
-import { mountLiveDisplay } from "../live-display.js";
 import { canShowForming, createFormingStream } from "../forming-display.js";
 import { lookingForCard, scenarioBand } from "../looking-for.js";
 import {
@@ -45,6 +44,9 @@ import {
   evidenceCategoryLabel,
   healthDetailText,
   healthLabel,
+  hierarchyAllowsReadyWording,
+  hierarchyDecisionLabel,
+  hierarchyStatusLabel,
   invalidateMetaLine,
   levelSourceText,
   liveSetupMetaLine,
@@ -202,7 +204,11 @@ function blockingRuleSentences(candidate) {
 function decisionExplanation(dashboard, candidate, plannable) {
   const qualification = dashboard?.qualification || {};
   const planning = dashboard?.planning || {};
-  if (plannable) return "A deterministic trade plan is available for this snapshot.";
+  if (plannable) {
+    return hierarchyAllowsReadyWording(dashboard?.multi_timeframe)
+      ? "The complete deterministic hierarchy supports this plan; no order is placed."
+      : "Deterministic entry, stop and target levels are calculated; trade confirmation is separate.";
+  }
   if (qualification.available !== true) {
     return "The current qualification state is unavailable from the backend.";
   }
@@ -264,11 +270,14 @@ export function verdictViewModel(dashboard, forward = null) {
     else if (qualification.state === "QUALIFIED" && dashboard?.planning?.state) plannedCount = plannable ? 1 : 0;
   }
 
+  const hierarchy = dashboard?.multi_timeframe;
+  const hierarchyReady = plannable && hierarchyAllowsReadyWording(hierarchy);
+  const hierarchyStatus = hierarchyStatusLabel(hierarchy);
   let state = "UNKNOWN";
   let tone = "unknown";
   if (plannable) {
-    state = "PLANNABLE";
-    tone = "green";
+    state = hierarchyReady ? hierarchyStatus : "PLAN CALCULATED";
+    tone = hierarchyReady ? "green" : "amber";
   } else if (qualification.available === true && qualification.state === "WATCH") {
     state = "WATCH";
     tone = "amber";
@@ -277,7 +286,7 @@ export function verdictViewModel(dashboard, forward = null) {
     state = "NO TRADE";
     tone = "neutral";
   }
-  state = verdictStateLabel(state);
+  if (!plannable) state = verdictStateLabel(state);
 
   const plan = plannable ? dashboard.plan : null;
   const direction = plan?.direction || candidate?.direction || null;
@@ -292,6 +301,15 @@ export function verdictViewModel(dashboard, forward = null) {
     qualifiedCount,
     plannedCount,
     candidate,
+    plannable,
+    hierarchyReady,
+    hierarchyStatus,
+    planStatus: plannable
+      ? hierarchyReady
+        ? "Hierarchy complete · decision support only; no order placed."
+        : "Trade not confirmed yet"
+      : null,
+    hierarchyGate: plannable ? (hierarchyReady ? "COMPLETE" : hierarchyStatus) : null,
     explanation: decisionExplanation(dashboard, candidate, plannable),
   };
 }
@@ -449,9 +467,8 @@ function chartCard(dashboard, initialPrefs) {
   });
   const toolbar = el("div", { class: "chart-toolbar", role: "group", "aria-label": "Chart timeframe and overlays" });
   const handleRef = { current: null };
-  const liveDisplay = mountLiveDisplay(symbol);
   const formingStatus = el("div", { class: "forming-status", role: "status",
-    "aria-label": "Forming candle display only", text: "FORMING — DISPLAY ONLY · LIVE DATA UNAVAILABLE" });
+    "aria-label": "Forming candle display only", text: "FORMING — DISPLAY ONLY" });
   const confirmedStatus = el("div", { class: "chart-note", text: "Last confirmed stored close: unavailable" });
   let formingStream = null;
   const viewed = {
@@ -488,7 +505,8 @@ function chartCard(dashboard, initialPrefs) {
     confirmedStatus.textContent = latest
       ? `LAST CONFIRMED ${viewedTimeframeLabel(timeframe)} CLOSE · $${latest.close.toLocaleString("en-US")} · stored candle`
       : "Last confirmed stored close: unavailable";
-    formingStatus.textContent = `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY · LIVE DATA UNAVAILABLE`;
+    formingStatus.dataset.freshness = "UNAVAILABLE";
+    formingStatus.textContent = `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY`;
     if (!handleRef.current || symbol !== "BTC/USDT" || !latest ||
         !canShowForming(timeframe, latest.time * 1000, Date.now())) return;
     // This socket is bound ONLY to the selected chart view, never the setup snapshot.
@@ -498,8 +516,8 @@ function chartCard(dashboard, initialPrefs) {
       onStatus: (status, receivedAt) => {
         formingStatus.dataset.freshness = status;
         formingStatus.textContent = status === "CURRENT"
-          ? `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY · Kraken OHLC · last update ${new Date(receivedAt).toISOString().slice(11, 19)} UTC`
-          : `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY · LIVE DATA ${status} · stored chart unchanged`;
+          ? `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY · KRAKEN OHLC CURRENT · last update ${new Date(receivedAt).toISOString().slice(11, 19)} UTC`
+          : `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY · KRAKEN OHLC ${status} · stored chart unchanged`;
       },
     });
     formingStream.start();
@@ -707,7 +725,6 @@ function chartCard(dashboard, initialPrefs) {
       el("div", {}, [headingTitle, headingMeta]),
       toolbar,
     ]),
-    liveDisplay.node,
     formingStatus,
     confirmedStatus,
     lookingForCard(dashboard),
@@ -727,7 +744,6 @@ function chartCard(dashboard, initialPrefs) {
   return {
     node: card,
     mount() {
-      liveDisplay.start();
       if (!validCandles.length) return;
       const handle = ensureChart();
       if (!handle) return;
@@ -736,7 +752,6 @@ function chartCard(dashboard, initialPrefs) {
       applyViewedOverlays();
     },
     destroy() {
-      liveDisplay.destroy();
       stopForming();
       viewed.cancelled = true;
       viewed.generation += 1;
@@ -885,7 +900,26 @@ function verdictCard(dashboard, forward) {
     "aria-label": "Current verdict",
   }, [
     el("div", { class: "verdict-kicker", text: "Current verdict" }),
-    el("div", { class: "verdict-state", dataset: { tone: model.tone }, role: "status", text: model.state }),
+    el("div", {
+      class: model.plannable ? "verdict-state verdict-state-plan" : "verdict-state",
+      dataset: { tone: model.tone },
+      role: "status",
+      text: model.state,
+    }),
+    model.planStatus
+      ? el("div", { class: "verdict-plan-status", dataset: { tone: model.tone }, text: model.planStatus })
+      : null,
+    model.hierarchyGate
+      ? el("div", {
+          class: "hierarchy-gate",
+          dataset: { tone: model.hierarchyReady ? "ready" : "waiting" },
+          role: "status",
+          "aria-label": "Multi-timeframe hierarchy gate",
+        }, [
+          el("span", { class: "hierarchy-gate-label", text: "Hierarchy gate" }),
+          el("strong", { class: "hierarchy-gate-state", text: model.hierarchyGate }),
+        ])
+      : null,
     el("div", { class: "verdict-identity" }, [
       el("span", { class: "verdict-direction", text: direction }),
       el("span", { class: "tag verdict-family", text: family }),
@@ -1733,11 +1767,8 @@ export function ladderViewModel(dashboard) {
   }
   const ladder = Array.isArray(payload.ladder) ? payload.ladder : [];
   return {
-    overall: typeof payload.overall === "string" && payload.overall ? payload.overall : "UNKNOWN",
-    decisionLabel:
-      typeof payload.decision_label === "string" && payload.decision_label
-        ? payload.decision_label
-        : "Unknown",
+    overall: hierarchyStatusLabel(payload),
+    decisionLabel: hierarchyDecisionLabel(payload),
     alignmentLabel:
       typeof payload.alignment_label === "string" && payload.alignment_label
         ? payload.alignment_label
