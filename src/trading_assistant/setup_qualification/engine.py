@@ -48,6 +48,11 @@ def _validate_available(
             raise ValueError("source candle instrument does not match frame")
         if value.timestamp + interval_for_timeframe(value.timeframe) > now:
             raise ValueError("source candle was not closed by frame as_of")
+    if isinstance(value, datetime):
+        # Datetimes nested in tuples (touch/source timestamp sequences) must
+        # meet the same no-future rule as direct dataclass fields.
+        if require_utc_datetime(value, field_name="source timestamp") > now:
+            raise ValueError("source timestamp is after frame as_of")
     if is_dataclass(value) and not isinstance(value, type):
         for field in fields(value):
             item = getattr(value, field.name)
@@ -69,6 +74,8 @@ def _validate_context_timestamps(context: TimeframeStructureAnalysis) -> None:
         or context.volatility.latest_candle_timestamp != context.window_end_timestamp
         or context.trend.as_of != context.as_of
         or context.range.as_of != context.as_of
+        or context.swings.as_of != context.as_of
+        or context.levels.as_of != context.as_of
     ):
         raise ValueError("context metrics must share their source window/as_of")
 
