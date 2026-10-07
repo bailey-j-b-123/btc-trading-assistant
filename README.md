@@ -174,6 +174,19 @@ Each page returned by CCXT is archived separately under `data/raw/<exchange>/<sy
 
 Validated closed candles are stored in SQLite via SQLAlchemy. The candle identity is `(exchange, symbol, timeframe, UTC open time)`, enforced by the database primary key. Price and volume values are parsed as `Decimal` and persisted as base-10 text rather than SQLite floating-point values. Repeated identical candles are skipped; if the exchange returns different values for a previously stored key, the update fails and the existing history is left unchanged.
 
+#### SQLite runtime configuration (one intentional configuration)
+
+`create_database_engine` (`src/trading_assistant/database/engine.py`) is the only place that configures SQLite. Every pooled connection receives the same runtime settings through a `connect` hook, so the configuration also holds for connections created after a restart or a failure:
+
+| Setting | Value | Why |
+|---|---|---|
+| `journal_mode` | `WAL` for file databases | The documented operating model runs a writer (forward runner) and readers (dashboard, Step 8/11 reports) against the same file. In SQLite's default rollback-journal mode a reader's SHARED lock blocks the writer's commit, so a single slow dashboard read can make a forward pass fail with `sqlite3.OperationalError: database is locked`. WAL decouples them: readers never block the writer and the writer never blocks readers. It is a persistent property of the database file and never rewrites rows. |
+| `busy_timeout` | `TRADING_ASSISTANT_SQLITE_BUSY_TIMEOUT_MS`, 5000 ms, capped at 60000 ms | Secondary defence for the short windows where two *writers* overlap (the runner and an explicit dashboard journal decision). It is finite and capped on purpose: a huge timeout does not repair a lock problem, it only hides it for longer. |
+| `foreign_keys` | `ON` | The journal and forward-ledger foreign keys (`ON DELETE RESTRICT`) are only enforced when the pragma is set. |
+| pooling | SQLAlchemy `QueuePool` (default), reset on return | Thread-safe for the dashboard's thread pool, and a returned connection is always reset (rolled back), so a failed pass cannot hand a connection with an open write transaction to the next caller. |
+
+Every write transaction in this codebase is a short, insert-only transaction: exchange access, market-structure analysis, qualification replay, planning, explanation and reporting all happen **outside** any open transaction (asserted by `tests/test_sqlite_reliability.py`). Expected SQLite sidecar files (`*.sqlite3-wal`, `*.sqlite3-shm`) are ignored by Git and are safe to leave in place; they are part of the database, not a backup and not a lock file to delete. A file-level copy of a writer's database must include those sidecars (or be taken while both processes are stopped, or with SQLite's own backup API) — copying only the `.sqlite3` file during a run can miss recently committed rows.
+
 ### Validation and closed candles
 
 Only candles whose full timeframe interval has ended at the service's UTC `as_of` time are eligible for historical storage. The current/forming candle is archived in the source response but excluded from the processed/database records. Validation reports malformed/missing values, duplicate or unaligned timestamps, out-of-order rows, invalid OHLC relationships, negative prices/volume, and missing/gapped candle intervals. Invalid rows fail the update before database writes. Gaps make the result `complete=False` and are logged/reported; **missing candles are never fabricated, interpolated, or presented as complete**. Previously stored history remains untouched after exchange, validation, or database conflicts/failures.
@@ -1940,9 +1953,30 @@ Two processes must be running for a complete live view:
 2. the **dashboard** (`python -m trading_assistant.web`, `http://127.0.0.1:8040`)
    — read-only presentation.
 
-If the runner is not running, the dashboard still loads, says the runner has not
-reported, and shows the last recorded state with explicit staleness — it never
-invents live data.
+Both use the same SQLite file, which is why the database runs in WAL mode with the
+documented finite busy timeout (see *SQLite runtime configuration*): a dashboard
+read can never block a ledger write, and both processes keep working while the
+other is busy. If the runner is not running, the dashboard still loads, says the
+runner has not reported, and shows the last recorded state with explicit
+staleness — it never invents live data.
+
+#### Runner failure contract
+
+* The pass is the only authority on the ledger. Lifecycle heartbeats (`STARTED`,
+  `ERROR`, `STOPPED`) are diagnostic writes: if one cannot be stored it is logged
+  with its full traceback and **never** raised in place of the real failure, so
+  the original exception is always the one the operator sees and the process exits
+  with.
+* A failed pass releases the database pool (connections only — no row is ever
+  touched) *before* the error heartbeat is written, so an error report can never
+  run on top of a half-open transaction or a connection that still holds a lock.
+  The same release happens on shutdown, so the `STOPPED` heartbeat and the process
+  exit can never queue behind a connection the last pass left behind.
+* A SQLite lock/busy failure (`database is locked`) stops the runner after a
+  single attempt instead of retrying: retrying on top of a held lock multiplies
+  blocked writes and can turn one database failure into a storm of them. The
+  original `OperationalError` is surfaced, and the next start continues from the
+  last recorded boundary exactly as before.
 
 ### Dashboard
 
@@ -2016,6 +2050,7 @@ source audit).
 | `TRADING_ASSISTANT_SYMBOL` | `BTC/USDT` | Instrument |
 | `TRADING_ASSISTANT_EXCHANGE` | `kraken` | Public-data source id |
 | `TRADING_ASSISTANT_DATABASE_URL` | `sqlite:///data/trading_assistant.sqlite3` | App database |
+| `TRADING_ASSISTANT_SQLITE_BUSY_TIMEOUT_MS` | `5000` | Finite SQLite busy timeout (max `60000`); a secondary defence, not a lock repair |
 | `TRADING_ASSISTANT_DEFAULT_TIMEFRAME` | `1h` | Base timeframe |
 | `TRADING_ASSISTANT_SUPPORTED_TIMEFRAMES` | `5m,15m,1h,4h,1d` | Accepted timeframes |
 | `TRADING_ASSISTANT_RAW_DATA_DIR` | `data/raw` | Raw exchange payloads |

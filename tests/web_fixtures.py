@@ -76,12 +76,19 @@ def watch_candles() -> tuple:
     return prefix + (bar(5, 112), bar(6, 111, high=112, low=109))
 
 
-def migrated_engine(tmp_path: Path, name: str = "web.sqlite3"):
+def migrated_engine(
+    tmp_path: Path,
+    name: str = "web.sqlite3",
+    *,
+    sqlite_busy_timeout_ms: int | None = None,
+):
+    """A real file-backed SQLite database migrated by the real Alembic chain."""
+
     url = f"sqlite:///{tmp_path / name}"
     config = Config(str(PROJECT_ROOT / "alembic.ini"))
     config.attributes["database_url"] = url
     command.upgrade(config, "head")
-    return create_database_engine(url), url
+    return create_database_engine(url, sqlite_busy_timeout_ms=sqlite_busy_timeout_ms), url
 
 
 def make_settings(database_url: str, **overrides) -> Settings:

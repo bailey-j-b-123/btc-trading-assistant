@@ -424,11 +424,19 @@ def make_harness(
     backfill_start: datetime | None = None,
     source: FakeExchange | RollingWindowExchange | None | bool = None,
     store_series: bool = True,
+    sqlite_busy_timeout_ms: int | None = None,
 ) -> Harness:
-    """Build an isolated harness: temp migrated DB, frozen clock, no network."""
+    """Build an isolated harness: temp migrated DB, frozen clock, no network.
+
+    ``sqlite_busy_timeout_ms`` overrides the documented finite busy timeout; it
+    exists so lock-contention tests can observe the timeout branch without
+    waiting the production default.
+    """
 
     tmp = Path(tempfile.mkdtemp(prefix="forward-test-"))
-    engine, database_url = migrated_engine(tmp, "forward.sqlite3")
+    engine, database_url = migrated_engine(
+        tmp, "forward.sqlite3", sqlite_busy_timeout_ms=sqlite_busy_timeout_ms
+    )
     settings = forward_settings(database_url, raw_dir=tmp / "raw")
     clock = {"t": clock_at(ledger_start or EPOCH)}
     resolved_series = series if series is not None else ()

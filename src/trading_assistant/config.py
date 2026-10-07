@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     base_asset: str = "BTC"
     quote_asset: str = "USDT"
     database_url: str = "sqlite:///data/trading_assistant.sqlite3"
+    #: Finite SQLite busy timeout in milliseconds, applied to every pooled
+    #: connection (see ``trading_assistant.database.engine``). It is a secondary
+    #: defence for the short windows where two writers overlap; the writer no
+    #: longer queues behind dashboard readers because the runtime uses WAL.
+    #: Deliberately bounded: a huge timeout hides a lock problem instead of
+    #: repairing it.
+    sqlite_busy_timeout_ms: int = Field(default=5_000, ge=0, le=60_000)
     log_level: str = "INFO"
 
     exchange: str = "kraken"
