@@ -15,6 +15,7 @@ import {
 } from "../decision.js";
 import {
   applyOverlays,
+  clearOverlays,
   createPriceChart,
   destroyPriceChart,
   OVERLAY_COLORS,
@@ -84,6 +85,7 @@ import {
 
 export { systemHealthViewModel };
 export { multiTimeframeCard };
+export { compactHierarchyStrip };
 
 let renderGeneration = 0;
 let activeChart = null;
@@ -352,14 +354,163 @@ function chartEmpty(title, detail) {
   ]);
 }
 
+// ---------------------------------------------------------------------------
+// Step 13 UI: view-only chart timeframe switching.
+//
+// The switcher below lets the operator LOOK AT the stored closed candles of
+// any hierarchy timeframe (5m / 15m / 1h / 4h). It is presentation only:
+//
+// - it only issues read-only GETs to /api/market/candles and
+//   /api/market/structure (the same stored-candle tables the engine uses),
+// - it never calls the dashboard endpoint again, never records anything, and
+//   never writes the engine timeframe preference, so the qualification,
+//   plan, hierarchy, journal, and forward-testing state cannot change,
+// - candles and structure always belong to the selected timeframe at the
+//   dashboard's own decision instant (end_time/as_of pinned to meta.as_of),
+// - overlays are cleared before every switch, so a level from the previous
+//   timeframe is never shown as though it belonged to the new one,
+// - entry/stop/target lines always come from the deterministic trade plan in
+//   the dashboard payload, never from the chart selection.
+// ---------------------------------------------------------------------------
+
+export const CHART_TIMEFRAMES = [
+  { id: "5m", label: "5M" },
+  { id: "15m", label: "15M" },
+  { id: "1h", label: "1H" },
+  { id: "4h", label: "4H" },
+];
+
+const CHART_CANDLE_LIMIT = 500;
+const ENGINE_CHART_NOTE = "Only stored market rows and backend-produced levels are drawn. Missing data is left unavailable.";
+
+function viewedTimeframeLabel(timeframe) {
+  const known = CHART_TIMEFRAMES.find((entry) => entry.id === timeframe);
+  return known ? known.label : timeframeLabel(timeframe);
+}
+
+function switcherEntries(engineTimeframe) {
+  if (CHART_TIMEFRAMES.some((entry) => entry.id === engineTimeframe)) return CHART_TIMEFRAMES;
+  // The engine timeframe is always reachable, even when it is outside the
+  // fixed hierarchy set (e.g. a 1d engine view): the switcher gains one extra
+  // button rather than stranding the operator on another timeframe.
+  return [...CHART_TIMEFRAMES, { id: engineTimeframe, label: timeframeLabel(engineTimeframe) }];
+}
+
+function emptyOverlays() {
+  return { equal_levels: [], zones: [], range: null, swings: [], setup_reference: null };
+}
+
+/**
+ * Overlays for the timeframe being viewed. The engine view keeps the exact
+ * dashboard snapshot overlays (zones, range, equal levels, setup reference).
+ * Any other timeframe uses only the structure payload fetched for THAT
+ * timeframe; equal levels and the setup reference are engine-timeframe
+ * artefacts, so they are honestly absent elsewhere rather than reused.
+ */
+export function overlaysForViewedTimeframe({ dashboard, viewedTimeframe, structure = null }) {
+  const engineTimeframe = dashboard?.meta?.timeframe;
+  if (viewedTimeframe === engineTimeframe) {
+    const overlays = dashboard?.overlays;
+    return overlays && typeof overlays === "object" ? overlays : emptyOverlays();
+  }
+  if (!structure || typeof structure !== "object" || structure.timeframe !== viewedTimeframe) {
+    return emptyOverlays();
+  }
+  return {
+    equal_levels: [],
+    zones: Array.isArray(structure.zones) ? structure.zones : [],
+    range: structure.range && typeof structure.range === "object" ? structure.range : null,
+    swings: Array.isArray(structure.swings) ? structure.swings : [],
+    setup_reference: null,
+  };
+}
+
+function chartHeadingMeta(viewedTimeframe, engineTimeframe) {
+  if (viewedTimeframe === engineTimeframe) return "Stored closed candles · deterministic overlays only";
+  const viewed = viewedTimeframeLabel(viewedTimeframe);
+  const engine = viewedTimeframeLabel(engineTimeframe);
+  return `View only — ${viewed} stored candles with ${viewed} structure · engine hierarchy unchanged · plan levels from the ${engine} engine plan`;
+}
+
 function chartCard(dashboard, initialPrefs) {
   const meta = dashboard?.meta || {};
+  const symbol = meta.symbol || "UNKNOWN";
+  const engineTimeframe = typeof meta.timeframe === "string" && meta.timeframe ? meta.timeframe : "1h";
+  const decisionAsOf = typeof meta.as_of === "string" && meta.as_of ? meta.as_of : null;
   const rows = Array.isArray(dashboard?.market?.candles) ? dashboard.market.candles : [];
   const validCandles = toChartCandles(rows);
-  const chartLabel = `${meta.symbol || "UNKNOWN"} ${timeframeLabel(meta.timeframe)} candlestick chart`;
-  const host = el("div", { class: "chart-wrap terminal-chart-wrap", "aria-label": chartLabel });
-  const toolbar = el("div", { class: "chart-toolbar", role: "group", "aria-label": "Chart overlays" });
+  const host = el("div", {
+    class: "chart-wrap terminal-chart-wrap",
+    "aria-label": `${symbol} ${viewedTimeframeLabel(engineTimeframe)} candlestick chart`,
+  });
+  const toolbar = el("div", { class: "chart-toolbar", role: "group", "aria-label": "Chart timeframe and overlays" });
   const handleRef = { current: null };
+  const viewed = {
+    timeframe: engineTimeframe,
+    generation: 0,
+    cancelled: false,
+    overlays: dashboard?.overlays && typeof dashboard.overlays === "object" ? dashboard.overlays : emptyOverlays(),
+  };
+  let emptyNode = null;
+
+  const headingTitle = el("div", { class: "chart-heading-title", text: `${symbol} · ${viewedTimeframeLabel(engineTimeframe)} chart` });
+  const headingMeta = el("div", { class: "chart-heading-meta", text: chartHeadingMeta(engineTimeframe, engineTimeframe) });
+  const viewNote = el("div", { class: "chart-note terminal-chart-note chart-view-note", text: ENGINE_CHART_NOTE });
+
+  const showChartOverlay = (node) => {
+    if (emptyNode) emptyNode.remove();
+    emptyNode = node;
+    host.append(node);
+  };
+  const removeChartOverlay = () => {
+    if (emptyNode) emptyNode.remove();
+    emptyNode = null;
+  };
+  const planForOverlays = () => (hasValidTradePlan(dashboard) ? dashboard.plan : null);
+  const applyViewedOverlays = () => {
+    if (!handleRef.current) return;
+    applyOverlays(handleRef.current, {
+      overlays: viewed.overlays || {},
+      plan: planForOverlays(),
+      prefs: loadPrefs(),
+    });
+  };
+  const ensureChart = () => {
+    if (handleRef.current || viewed.cancelled) return handleRef.current;
+    try {
+      const handle = createPriceChart(host);
+      if (!handle) {
+        showChartOverlay(chartEmpty("Chart unavailable", "The chart library did not load, so stored candles cannot be drawn. Stored data has not been replaced."));
+        return null;
+      }
+      handleRef.current = handle;
+      return handle;
+    } catch {
+      handleRef.current = null;
+      showChartOverlay(chartEmpty("Chart unavailable", "Stored data could not be rendered. No substitute candles are shown."));
+      return null;
+    }
+  };
+
+  // Timeframe switcher: which stored candles to LOOK AT. View only — the
+  // engine hierarchy below the chart never reads this selection.
+  const switcher = el("div", { class: "chart-timeframe-switch", role: "group", "aria-label": "Chart timeframe (view only)" });
+  const switchButtons = new Map();
+  for (const entry of switcherEntries(engineTimeframe)) {
+    const button = el("button", {
+      class: "tf-button",
+      type: "button",
+      "data-timeframe": entry.id,
+      "aria-pressed": String(entry.id === viewed.timeframe),
+      "aria-label": `View ${entry.label} chart (view only)`,
+      title: "View only — switching never changes the engine hierarchy, plan, or journal",
+      onclick: () => { void showTimeframe(entry.id); },
+    }, [entry.label]);
+    switchButtons.set(entry.id, button);
+    switcher.append(button);
+  }
+  toolbar.append(switcher);
+  toolbar.append(el("span", { class: "chart-toolbar-sep", "aria-hidden": "true" }));
 
   const overlayControls = [
     ["zones", "S/R levels", OVERLAY_COLORS.zones],
@@ -368,10 +519,12 @@ function chartCard(dashboard, initialPrefs) {
     ["planLevels", "Plan", OVERLAY_COLORS.entry],
     ["swings", "Swing points", OVERLAY_COLORS.swings],
   ];
+  const overlayButtons = new Map();
   for (const [key, label, color] of overlayControls) {
     const button = el("button", {
       class: "overlay-toggle",
       type: "button",
+      "data-overlay": key,
       "aria-pressed": String(initialPrefs.overlays?.[key] !== false),
       "aria-label": `${label} chart overlay`,
       style: { "--swatch": color },
@@ -380,35 +533,145 @@ function chartCard(dashboard, initialPrefs) {
         next.overlays[key] = next.overlays[key] === false;
         savePrefs(next);
         button.setAttribute("aria-pressed", String(next.overlays[key]));
-        if (handleRef.current) {
-          applyOverlays(handleRef.current, {
-            overlays: dashboard?.overlays || {},
-            plan: hasValidTradePlan(dashboard) ? dashboard.plan : null,
-            prefs: next,
-          });
-        }
+        // Toggles re-apply the overlays of the timeframe currently being
+        // viewed — never the engine overlays onto another timeframe.
+        applyViewedOverlays();
       },
     }, [el("span", { class: "swatch", "aria-hidden": "true" }), label]);
+    overlayButtons.set(key, button);
     toolbar.append(button);
+  }
+  const updateLiquidityToggle = () => {
+    const button = overlayButtons.get("equalLevels");
+    if (!button) return;
+    const engineView = viewed.timeframe === engineTimeframe;
+    button.disabled = !engineView;
+    if (engineView) button.removeAttribute("title");
+    else button.title = `Equal-level overlays are only available on the engine timeframe (${viewedTimeframeLabel(engineTimeframe)})`;
+  };
+
+  async function showTimeframe(timeframe) {
+    if (timeframe === viewed.timeframe || viewed.cancelled) return;
+    const generation = ++viewed.generation;
+    const label = viewedTimeframeLabel(timeframe);
+    viewed.timeframe = timeframe;
+    for (const [id, button] of switchButtons) button.setAttribute("aria-pressed", String(id === timeframe));
+    headingTitle.textContent = `${symbol} · ${label} chart`;
+    headingMeta.textContent = chartHeadingMeta(timeframe, engineTimeframe);
+    host.setAttribute("aria-label", `${symbol} ${label} candlestick chart (view only)`);
+    updateLiquidityToggle();
+    removeChartOverlay();
+    // No stale overlays: the previous timeframe's levels leave the chart
+    // before any new data is requested.
+    if (handleRef.current) clearOverlays(handleRef.current);
+    viewNote.textContent = `Loading stored ${label} closed candles…`;
+
+    // The engine view restores the exact dashboard snapshot (no refetch, no
+    // drift): these are the same stored rows the verdict was computed from.
+    if (timeframe === engineTimeframe) {
+      if (generation !== viewed.generation || viewed.cancelled) return;
+      viewed.overlays = dashboard?.overlays && typeof dashboard.overlays === "object"
+        ? dashboard.overlays
+        : emptyOverlays();
+      const engineValid = toChartCandles(rows);
+      if (!engineValid.length) {
+        if (handleRef.current) setCandles(handleRef.current, []);
+        showChartOverlay(chartEmpty(
+          "Candle data unavailable",
+          rows.length
+            ? "The stored candle payload contains no renderable rows. No substitute data is shown."
+            : "No stored closed candles were returned for this symbol and timeframe.",
+        ));
+        viewNote.textContent = ENGINE_CHART_NOTE;
+        return;
+      }
+      const handle = ensureChart();
+      if (!handle || generation !== viewed.generation || viewed.cancelled) return;
+      setCandles(handle, rows);
+      applyViewedOverlays();
+      viewNote.textContent = ENGINE_CHART_NOTE;
+      return;
+    }
+
+    // Any other timeframe: two read-only GETs at the dashboard's own decision
+    // instant, so the viewed chart can never run ahead of the verdict.
+    let candlesPayload = null;
+    let candlesError = null;
+    try {
+      candlesPayload = await api.candles({
+        symbol,
+        timeframe,
+        limit: CHART_CANDLE_LIMIT,
+        end_time: decisionAsOf || undefined,
+      });
+    } catch (error) {
+      candlesError = error;
+    }
+    if (generation !== viewed.generation || viewed.cancelled) return;
+    const timeframeEcho = candlesPayload?.timeframe;
+    if (candlesError || timeframeEcho !== timeframe) {
+      viewed.overlays = emptyOverlays();
+      if (handleRef.current) setCandles(handleRef.current, []);
+      const detail = candlesError
+        ? `${candlesError.message} No substitute data is shown.`
+        : `The backend returned ${timeframeEcho || "unlabelled"} data for a ${label} request; it is not shown.`;
+      showChartOverlay(chartEmpty(`${label} chart unavailable`, detail));
+      viewNote.textContent = `${label} stored candles unavailable — nothing rendered in their place.`;
+      return;
+    }
+    const fetchedRows = Array.isArray(candlesPayload.candles) ? candlesPayload.candles : [];
+    if (!toChartCandles(fetchedRows).length) {
+      viewed.overlays = emptyOverlays();
+      if (handleRef.current) setCandles(handleRef.current, []);
+      const returned = Number.isInteger(candlesPayload.returned_count) ? candlesPayload.returned_count : fetchedRows.length;
+      showChartOverlay(chartEmpty(
+        `${label} data unavailable`,
+        `No stored ${label} closed candles at this decision time (returned ${returned}). No substitute data is shown.`,
+      ));
+      viewNote.textContent = `No stored ${label} closed candles at this decision time — the chart is honestly empty.`;
+      return;
+    }
+    const handle = ensureChart();
+    if (!handle || generation !== viewed.generation || viewed.cancelled) return;
+    setCandles(handle, fetchedRows);
+
+    let structurePayload = null;
+    let structureError = null;
+    try {
+      structurePayload = await api.structure({ symbol, timeframe, as_of: decisionAsOf || undefined });
+    } catch (error) {
+      structureError = error;
+    }
+    if (generation !== viewed.generation || viewed.cancelled) return;
+    if (structureError || structurePayload?.timeframe !== timeframe) {
+      viewed.overlays = emptyOverlays();
+      applyViewedOverlays();
+      viewNote.textContent = structureError
+        ? `${label} candles shown · ${label} structure unavailable (${structureError.message}) — levels hidden, candles only.`
+        : `${label} candles shown · the backend returned ${structurePayload?.timeframe || "unlabelled"} structure for a ${label} request — levels hidden, candles only.`;
+      return;
+    }
+    viewed.overlays = overlaysForViewedTimeframe({ dashboard, viewedTimeframe: timeframe, structure: structurePayload });
+    applyViewedOverlays();
+    const zoneCount = Array.isArray(viewed.overlays.zones) ? viewed.overlays.zones.length : 0;
+    const returned = Number.isInteger(candlesPayload.returned_count) ? candlesPayload.returned_count : fetchedRows.length;
+    viewNote.textContent = `${label} stored closed candles (${returned}) · ${label} structure (${zoneCount} zone(s)${viewed.overlays.range ? " · range shown" : ""}) · plan levels from the engine plan · liquidity overlays unavailable on this view.`;
   }
 
   const card = el("section", {
     class: "card terminal-card terminal-chart-card",
-    "aria-label": `${meta.symbol || "UNKNOWN"} price chart`,
+    "aria-label": `${symbol} price chart`,
   }, [
     el("div", { class: "card-head" }, [
-      el("div", {}, [
-        el("div", { class: "chart-heading-title", text: `${meta.symbol || "UNKNOWN"} · ${timeframeLabel(meta.timeframe)}` }),
-        el("div", { class: "chart-heading-meta", text: "Stored closed candles · deterministic overlays only" }),
-      ]),
+      el("div", {}, [headingTitle, headingMeta]),
       toolbar,
     ]),
     host,
-    el("div", { class: "chart-note terminal-chart-note", text: "Only stored market rows and backend-produced levels are drawn. Missing data is left unavailable." }),
+    viewNote,
   ]);
 
   if (!validCandles.length) {
-    host.append(chartEmpty(
+    showChartOverlay(chartEmpty(
       "Candle data unavailable",
       rows.length
         ? "The stored candle payload contains no renderable rows. No substitute data is shown."
@@ -420,26 +683,14 @@ function chartCard(dashboard, initialPrefs) {
     node: card,
     mount() {
       if (!validCandles.length) return;
-      try {
-        const handle = createPriceChart(host);
-        if (!handle) {
-          host.append(chartEmpty("Chart unavailable", "The chart library did not load, so stored candles cannot be drawn. Stored data has not been replaced."));
-          return;
-        }
-        handleRef.current = handle;
-        setCandles(handle, rows);
-        applyOverlays(handle, {
-          overlays: dashboard?.overlays || {},
-          plan: hasValidTradePlan(dashboard) ? dashboard.plan : null,
-          prefs: loadPrefs(),
-        });
-      } catch {
-        if (handleRef.current) destroyPriceChart(handleRef.current);
-        handleRef.current = null;
-        clearNode(host).append(chartEmpty("Chart unavailable", "Stored data could not be rendered. No substitute candles are shown."));
-      }
+      const handle = ensureChart();
+      if (!handle) return;
+      setCandles(handle, rows);
+      applyViewedOverlays();
     },
     destroy() {
+      viewed.cancelled = true;
+      viewed.generation += 1;
       destroyPriceChart(handleRef.current);
       handleRef.current = null;
     },
@@ -1483,6 +1734,74 @@ function ladderRow(row) {
   ].filter(Boolean));
 }
 
+/**
+ * Compact hierarchy status: the same deterministic Step 13 payload the ladder
+ * renders, projected to one glanceable strip (one state per engine role plus
+ * the overall decision and what the bot is waiting for). Nothing is
+ * recomputed here: every string comes from ladderViewModel, which only reads
+ * the backend's multi_timeframe payload.
+ */
+export function compactHierarchyViewModel(dashboard) {
+  const ladder = ladderViewModel(dashboard);
+  if (!ladder) {
+    const payload = dashboard?.multi_timeframe;
+    return {
+      available: false,
+      reason: payload?.error?.message || "The multi-timeframe hierarchy is not available right now.",
+    };
+  }
+  return {
+    available: true,
+    rows: ladder.rows,
+    overall: ladder.overall,
+    decisionLabel: ladder.decisionLabel,
+    alignmentLabel: ladder.alignmentLabel,
+    counterTrend: ladder.counterTrend,
+    decisionTime: ladder.decisionTime,
+    waitingForText: ladder.waitingForText,
+  };
+}
+
+function compactHierarchyStrip(dashboard) {
+  const model = compactHierarchyViewModel(dashboard);
+  if (!model.available) {
+    return el("section", { class: "card terminal-card mtf-compact", "aria-label": "Multi-timeframe status" }, [
+      el("div", { class: "section-title-row" }, [
+        el("h2", { class: "card-title", text: "Multi-timeframe status" }),
+        el("span", { class: "card-hint", text: "engine hierarchy · read-only" }),
+      ]),
+      el("div", { class: "mtf-compact-unavailable", role: "status", text: model.reason }),
+    ]);
+  }
+  return el("section", { class: "card terminal-card mtf-compact", "aria-label": "Multi-timeframe status" }, [
+    el("div", { class: "section-title-row" }, [
+      el("h2", { class: "card-title", text: "Multi-timeframe status" }),
+      el("span", { class: "card-hint", text: "engine hierarchy · read-only" }),
+    ]),
+    el("div", { class: "mtf-compact-rows", role: "list" }, model.rows.map((row) =>
+      el("div", { class: "mtf-compact-row", role: "listitem", dataset: { tone: row.tone } }, [
+        el("div", { class: "mtf-compact-label", text: row.label }),
+        el("div", { class: "mtf-compact-state", text: row.state }),
+      ])
+    )),
+    el("div", {
+      class: "mtf-compact-overall",
+      role: "status",
+      dataset: model.counterTrend ? { tone: "warn" } : {},
+    }, [
+      el("span", { class: "mtf-compact-label", text: "OVERALL" }),
+      el("span", { class: "mtf-compact-state", text: model.overall }),
+    ]),
+    el("div", {
+      class: "mtf-compact-meta",
+      text: `${model.decisionLabel} · ${model.alignmentLabel}${model.counterTrend ? " · counter-trend setup flagged" : ""}`,
+    }),
+    model.waitingForText
+      ? el("div", { class: "mtf-compact-waiting", text: model.waitingForText })
+      : null,
+  ]);
+}
+
 function multiTimeframeCard(dashboard) {
   const model = ladderViewModel(dashboard);
   if (!model) {
@@ -1530,7 +1849,13 @@ function multiTimeframeCard(dashboard) {
       el("ul", {}, model.limitations.map((line) => el("li", { text: line }))),
     ])
   );
-  return el("section", { class: "card terminal-card", "aria-label": "Multi-timeframe ladder" }, children);
+  // The verbose ladder stays available for auditing, but collapsed: the
+  // normal trading screen answers from the compact status strip next to the
+  // chart instead. Collapsed by default; nothing inside is recomputed.
+  return el("details", { class: "card terminal-card expandable mtf-details", "aria-label": "Multi-timeframe ladder" }, [
+    el("summary", { class: "mtf-details-summary", text: `Multi-timeframe ladder — technical details · ${model.decisionLabel}` }),
+    el("div", { class: "details-body" }, children),
+  ]);
 }
 
 export async function renderDashboard(view) {
@@ -1565,7 +1890,10 @@ export async function renderDashboard(view) {
   const chart = chartCard(dashboard, prefs);
   clearNode(view).append(
     el("div", { class: "primary-layout" }, [
-      chart.node,
+      el("div", { class: "chart-stack" }, [
+        chart.node,
+        compactHierarchyStrip(dashboard),
+      ]),
       el("div", { class: "side-stack" }, [
         verdictCard(dashboard, forward),
         planCard(dashboard),
