@@ -470,6 +470,7 @@ class MarketDataService:
             excluded_open_count=report.excluded_open_count,
             gaps=report.gaps,
             raw_files=tuple(raw_files),
+            excluded_range_count=report.excluded_range_count,
         )
 
     def update_history(

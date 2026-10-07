@@ -416,7 +416,10 @@ def test_event_history_is_append_only_even_after_terminal_transitions():
 
 def test_zero_prices_are_explicitly_unsupported_not_fabricated():
     candle = replace(bar(0, 1), low=D(0))
-    with pytest.raises(ValueError, match="strictly positive OHLC"):
+    # Component #1 gate: a zero OHLC leg is rejected by the shared Step 2
+    # ingestion validation (code ``non_positive_price``) before any analysis
+    # runs, so it can never reach the engines through any path.
+    with pytest.raises(ValueError, match="non_positive_price"):
         snap((candle,))
     assert candle.low == 0
 

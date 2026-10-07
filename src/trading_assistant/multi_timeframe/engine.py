@@ -101,6 +101,8 @@ def evaluate_hierarchy(
     execution_candles: tuple[Candle, ...],
     strategy_versions: tuple[tuple[str, str], ...],
     structure_parameters: MarketStructureParameters | None = None,
+    context_missing_candle_count: int | None = None,
+    setup_window_status: str | None = None,
 ) -> HierarchySnapshot:
     """Evaluate the complete hierarchy at one decision instant.
 
@@ -108,6 +110,12 @@ def evaluate_hierarchy(
     this version evaluates; a hierarchy configuration without the confirmation
     or execution role is reserved for a future version and is rejected here
     loudly instead of being silently evaluated as a weaker system.
+
+    ``context_missing_candle_count`` / ``setup_window_status`` scope the
+    context/setup incompleteness signals to the required windows (Component #1
+    gate inputs). ``None`` preserves the legacy whole-series behaviour; the
+    hierarchy service always supplies the scoped required-window values. The
+    confirmation/execution windows are already scoped to the setup's life.
     """
 
     if hierarchy.confirmation is None or hierarchy.execution is None:
@@ -131,7 +139,11 @@ def evaluate_hierarchy(
     )
 
     # --- CONTEXT layer -------------------------------------------------------
-    context = build_context_snapshot(context_structure, boundary=context_boundary)
+    context = build_context_snapshot(
+        context_structure,
+        boundary=context_boundary,
+        missing_candle_count=context_missing_candle_count,
+    )
 
     # --- SETUP layer ----------------------------------------------------------
     selected = select_active_setup(qualification) if qualification is not None else None
@@ -146,6 +158,7 @@ def evaluate_hierarchy(
         ended=ended,
         frame=qualification_frame,
         boundary=setup_boundary,
+        window_status=setup_window_status,
     )
 
     # --- CONFIRMATION / EXECUTION windows -------------------------------------

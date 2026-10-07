@@ -251,8 +251,23 @@ def validate_ohlcv_rows(
             if invalid_relations:
                 reject(row_index, "invalid_ohlc", "; ".join(invalid_relations), timestamp)
                 row_has_error = True
-            if any(value < 0 for value in (open_price, high_price, low_price, close_price)):
-                reject(row_index, "negative_price", "OHLC prices must not be negative", timestamp)
+            non_positive = [
+                name
+                for name, value in (
+                    ("open", open_price),
+                    ("high", high_price),
+                    ("low", low_price),
+                    ("close", close_price),
+                )
+                if value <= 0
+            ]
+            if non_positive:
+                reject(
+                    row_index,
+                    "non_positive_price",
+                    f"OHLC prices must be positive ({', '.join(non_positive)} <= 0)",
+                    timestamp,
+                )
                 row_has_error = True
             if volume < 0:
                 reject(row_index, "negative_volume", "volume must not be negative", timestamp)
