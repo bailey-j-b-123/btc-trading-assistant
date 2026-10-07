@@ -22,6 +22,11 @@ import time
 from collections.abc import Callable
 from datetime import datetime
 
+from trading_assistant.database.engine import (
+    describe_sqlite_configuration,
+    is_sqlite_lock_error,
+)
+from trading_assistant.forward_testing.models import ForwardHeartbeat
 from trading_assistant.forward_testing.parameters import (
     HeartbeatStatus,
     RunnerSettings,
@@ -93,12 +98,28 @@ class ForwardRunner:
 
         Each pass is independent and idempotent, so a restart, a crash, or a
         second runner process can only ever re-record identical rows.
+
+        Failure handling contract (both directions matter):
+
+        * the pass is the only authority on the ledger: a heartbeat write is
+          diagnostic metadata and must never replace, hide, or outlive the
+          exception a pass raised;
+        * a failed pass releases the database before anything else is written,
+          so an error message can never be produced by a transaction the failed
+          pass left behind;
+        * a SQLite lock/busy failure stops the runner immediately instead of
+          retrying: retrying on top of a held lock only multiplies blocked
+          writes (each waiting the whole busy timeout) and can turn one database
+          failure into a storm of them.
         """
 
         _, resolved_symbol, resolved_timeframe = self.service.resolve_instrument(
             symbol=symbol, timeframe=timeframe
         )
-        self.service.record_runner_event(
+        # Diagnostic only: a heartbeat that cannot be written must not stop the
+        # runner before it has attempted the ledger work it exists to do, and it
+        # must never mask the error that the pass itself will report.
+        self._record_lifecycle_event(
             status=HeartbeatStatus.STARTED,
             detail=(
                 "forward runner started: closed-candle polling only, public market "
@@ -106,8 +127,8 @@ class ForwardRunner:
             ),
             symbol=resolved_symbol,
             timeframe=resolved_timeframe,
-            runner_id=self.runner_id,
         )
+        self._log_database_runtime()
         logger.info(
             "Forward runner started",
             extra={
@@ -153,7 +174,12 @@ class ForwardRunner:
                 except Exception as exc:  # noqa: BLE001 - reported as a heartbeat
                     consecutive_errors += 1
                     logger.exception("Forward runner pass failed: %s", exc)
-                    self.service.record_runner_event(
+                    # Release whatever the failed pass left open *before* writing
+                    # anything: the error report must never run on top of a
+                    # half-open write transaction or a connection that still
+                    # holds a SQLite lock.
+                    self._release_database(after=exc)
+                    self._record_lifecycle_event(
                         status=HeartbeatStatus.ERROR,
                         detail=(
                             f"forward runner pass failed ({type(exc).__name__}); no "
@@ -163,10 +189,25 @@ class ForwardRunner:
                         timeframe=resolved_timeframe,
                         last_error=str(exc),
                         error_type=type(exc).__name__,
-                        runner_id=self.runner_id,
                     )
+                    locked = is_sqlite_lock_error(exc)
+                    if locked:
+                        logger.error(
+                            "Forward runner stopping after a SQLite lock failure; "
+                            "another connection holds a lock on the database and "
+                            "retrying would only add more blocked writes",
+                            extra={
+                                "fields": {
+                                    "exchange": self.service.settings.exchange,
+                                    "symbol": resolved_symbol,
+                                    "timeframe": resolved_timeframe,
+                                    "error_type": type(exc).__name__,
+                                }
+                            },
+                        )
                     if (
                         once
+                        or locked
                         or consecutive_errors >= self.settings.stop_after_errors
                     ):
                         raise
@@ -176,15 +217,119 @@ class ForwardRunner:
         except KeyboardInterrupt:
             self.request_stop()
         finally:
-            self.service.record_runner_event(
+            # Close pooled connections on the way out so the STOPPED heartbeat -
+            # and the process itself - never queues behind a connection the last
+            # pass left behind. This releases connections only; no stored row is
+            # ever touched.
+            self._release_database(after=None)
+            self._record_lifecycle_event(
                 status=HeartbeatStatus.STOPPED,
                 detail="forward runner stopped cleanly; recorded history is intact",
                 symbol=resolved_symbol,
                 timeframe=resolved_timeframe,
-                runner_id=self.runner_id,
             )
             logger.info("Forward runner stopped")
         return last_result
+
+    # ------------------------------------------------------------------
+    # Failure and lifecycle helpers
+    # ------------------------------------------------------------------
+
+    def _record_lifecycle_event(
+        self,
+        *,
+        status: HeartbeatStatus,
+        detail: str,
+        symbol: str,
+        timeframe: str,
+        last_error: str | None = None,
+        error_type: str | None = None,
+    ) -> ForwardHeartbeat | None:
+        """Record one lifecycle heartbeat without ever raising.
+
+        A heartbeat is diagnostic: it records that the runner started, failed, or
+        stopped. It is therefore never allowed to raise - a database failure
+        while reporting a database failure would replace the original root
+        exception with a second, less informative one and could turn a single
+        lock failure into repeated ones. The returned value is ``None`` exactly
+        when the heartbeat could not be stored, which is logged with its full
+        traceback so the failure stays visible.
+        """
+
+        try:
+            return self.service.record_runner_event(
+                status=status,
+                detail=detail,
+                symbol=symbol,
+                timeframe=timeframe,
+                last_error=last_error,
+                error_type=error_type,
+                runner_id=self.runner_id,
+            )
+        except Exception as exc:  # noqa: BLE001 - diagnostic write, never fatal
+            logger.error(
+                "Forward runner could not record a %s heartbeat (%s: %s); the "
+                "ledger result/exception of the pass is unaffected and no "
+                "heartbeat failure is raised in its place",
+                status.value,
+                type(exc).__name__,
+                exc,
+                extra={
+                    "fields": {
+                        "heartbeat_status": status.value,
+                        "error_type": type(exc).__name__,
+                        "original_error": last_error,
+                    }
+                },
+                exc_info=True,
+            )
+            return None
+
+    def _release_database(self, *, after: BaseException | None) -> None:
+        """Close pooled database connections; never touches stored rows.
+
+        Called after a failed pass (with the exception for logging) and on
+        shutdown. Releasing the pool is what guarantees a failed pass cannot
+        hand a connection with an open transaction - or a held SQLite lock - to
+        the next write attempt.
+        """
+
+        try:
+            self.service.release_database_connections()
+        except Exception as exc:  # noqa: BLE001 - cleanup must not mask a failure
+            logger.error(
+                "Forward runner could not release pooled database connections "
+                "(%s: %s)",
+                type(exc).__name__,
+                exc,
+                extra={
+                    "fields": {
+                        "error_type": type(exc).__name__,
+                        "original_error": None if after is None else str(after),
+                    }
+                },
+                exc_info=True,
+            )
+
+    def _log_database_runtime(self) -> None:
+        """Log the effective SQLite runtime configuration once per run."""
+
+        try:
+            configuration = describe_sqlite_configuration(self.service.engine)
+        except Exception as exc:  # noqa: BLE001 - diagnostics must not stop the run
+            logger.warning(
+                "Forward runner could not read the database runtime configuration "
+                "(%s: %s)",
+                type(exc).__name__,
+                exc,
+            )
+            return
+        if not configuration:
+            return
+        logger.info(
+            "Forward runner database runtime",
+            extra={"fields": dict(configuration)},
+        )
 
     def _wait_for_next_check(self, timeframe: str) -> None:
         """Sleep until the next close boundary, capped by the poll interval."""

@@ -40,6 +40,7 @@ from sqlalchemy.engine import Engine
 from trading_assistant.ai_explanation import ExplanationService
 from trading_assistant.ai_explanation.parameters import EXPLANATION_RULES_VERSION
 from trading_assistant.config import Settings, get_settings
+from trading_assistant.database.engine import is_memory_database
 from trading_assistant.forward_testing.errors import (
     ForwardConflict,
     ForwardDataUnavailable,
@@ -914,6 +915,30 @@ class ForwardTestService:
             market_data_json=canonical_json({"refreshed": False, "reason": "lifecycle"}),
             runner_id=runner_id,
         )
+
+    def release_database_connections(self) -> None:
+        """Close pooled SQLite connections without touching a single stored row.
+
+        Every repository in this service opens and closes its own session, so a
+        pass that raises has already rolled back and returned its connection.
+        This method is the belt-and-braces half of that guarantee: it drops the
+        engine's pool so a later write (the error heartbeat, the shutdown
+        heartbeat, the next pass) cannot reuse a connection that somehow still
+        holds an open transaction or a SQLite lock. ``Engine.dispose()`` never
+        deletes, rewrites, or migrates data - it closes connections only - and
+        the engine stays usable: the next statement opens a fresh connection
+        that carries the documented SQLite runtime configuration.
+
+        It is deliberately called only from the runner's failure and shutdown
+        paths, never on the success path, so normal passes pay nothing for it.
+        """
+
+        if is_memory_database(self.engine):
+            # An in-memory database exists only inside its own connections:
+            # closing them would discard the schema and every stored row, so it
+            # is never released. (The runner's real database is always a file.)
+            return
+        self.engine.dispose()
 
     # ------------------------------------------------------------------
     # Instrument resolution
