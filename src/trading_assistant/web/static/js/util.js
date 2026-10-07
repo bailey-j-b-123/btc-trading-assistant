@@ -106,15 +106,16 @@ export function openModal(contentNode, { onBackdrop = () => {} } = {}) {
 }
 
 /** Tiny reactive-ish localStorage preferences store (presentation only). */
-const PREFS_KEY = "ta.presentation.v1";
+const PREFS_KEY = "ta.presentation.v1"; // preserve symbol/timeframe while migrating chart-only defaults
 
 export const DEFAULT_PREFS = Object.freeze({
   preferredSymbol: "",
   preferredTimeframe: "",
+  chartDefaultsVersion: 2,
   overlays: Object.freeze({
-    zones: true,
-    range: true,
-    equalLevels: true,
+    zones: false,
+    range: false,
+    equalLevels: false,
     planLevels: true,
     swings: false,
   }),
@@ -129,7 +130,10 @@ export function loadPrefs() {
     return {
       ...structuredClone(DEFAULT_PREFS),
       ...parsed,
-      overlays: { ...DEFAULT_PREFS.overlays, ...(parsed.overlays || {}) },
+      chartDefaultsVersion: 2,
+      overlays: parsed.chartDefaultsVersion === 2
+        ? { ...DEFAULT_PREFS.overlays, ...(parsed.overlays || {}) }
+        : { ...DEFAULT_PREFS.overlays, planLevels: parsed.overlays?.planLevels !== false },
     };
   } catch {
     return structuredClone(DEFAULT_PREFS);

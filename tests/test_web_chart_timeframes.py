@@ -139,6 +139,7 @@ def test_market_endpoints_expose_no_state_changing_method(client):
     assert {str(route.path) for route in market_routes} == {
         "/api/market/candles",
         "/api/market/structure",
+        "/api/market/live-price",
     }
     for route in market_routes:
         assert set(route.methods or set()) <= {"GET", "HEAD", "OPTIONS"}, route.path

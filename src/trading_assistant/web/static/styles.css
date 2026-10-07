@@ -823,6 +823,20 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .overlay-toggle[aria-pressed="true"] { border-color: var(--border-strong); background: var(--panel-2); color: var(--text-dim); }
 .overlay-toggle .swatch { width: 7px; height: 7px; border-radius: 50%; background: var(--swatch, var(--blue)); }
 .terminal-chart-wrap { height: 530px; margin-top: 8px; }
+.live-quote { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; }
+.forming-status { margin-top: 8px; font-size: 11px; font-weight: 700; letter-spacing: .035em; color: var(--blue); }
+.forming-status[data-freshness="STALE"],
+.forming-status[data-freshness="UNAVAILABLE"] { color: var(--amber); }
+.live-quote-value { font-size: 19px; font-variant-numeric: tabular-nums; color: var(--text); }
+.live-quote[data-freshness="STALE"] .live-quote-value,
+.live-quote[data-freshness="UNAVAILABLE"] .forming-status { margin-top: 8px; font-size: 11px; font-weight: 700; letter-spacing: .035em; color: var(--blue); }
+.forming-status[data-freshness="STALE"],
+.forming-status[data-freshness="UNAVAILABLE"] { color: var(--amber); }
+.live-quote-value { color: var(--amber); }
+.looking-for { display: grid; gap: 5px; padding: 12px; margin-top: 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; color: var(--text-dim); }
+.looking-for strong { font-size: 15px; color: var(--text); }
+.looking-for b { color: var(--text); }
+
 .chart-empty {
   background: linear-gradient(180deg, rgba(255,255,255,.018), rgba(255,255,255,.004)), var(--bg-elevated);
   border: 1px solid var(--border);

@@ -2422,8 +2422,8 @@ desktop and 360px widths and confirm the chart draws.
 
 ### Information gaps (what the system cannot tell you)
 
-- No live or intrabar price: only confirmed closed candles are ever
-  analysed, by design.
+- Live public Kraken ticker prices are **display only**; only stored confirmed
+  closed candles are ever analysed. A separate ghost forming candle is display only.
 - No win rate, expectancy, drawdown, or realised P&L: only denominated
   outcome observations and raw/friction-adjusted observational R, by design.
 - A fresh forward ledger starts empty: the N≥30 reporting floor needs
@@ -2446,3 +2446,43 @@ scripts, text-only rendering (`innerHTML` is banned and contract-tested),
 and JSON error envelopes. The app remains local-first: expose beyond
 localhost only behind real authentication and TLS, per the Step 12
 deployment note.
+
+### Chart display boundary (Fix #1)
+
+The default chart shows stored closed candles/volume, the unique active setup's
+known reference band (if resolvable), and valid Step 6 plan levels (if any).
+S/R, range, liquidity and swing diagnostics are still calculated and can be
+turned on individually. An existing browser preference keeps its preferred
+symbol and engine timeframe, but resets the old diagnostic overlay defaults
+once; subsequent chart toggle choices persist. The Looking for card projects
+the setup family, direction, observed seed event, pending required rules, known reference
+and available plan invalidation from the same dashboard snapshot. Multiple
+WATCH candidates have **no chosen scenario**. The dashed reference boundaries
+show a known band, not a projected path or future candle. Chart timeframe
+buttons read stored chart data only; they do not rerun the engine. The hierarchy
+(4H → 1H → 15M → 5M) remains independent of chart selection.
+
+`GET /api/market/live-price` reads Kraken's public XBTUSDT last-trade ticker
+without keys, DB access or an engine dependency. It is requested separately
+after the dashboard renders (20-second browser polling; 15-second server cache;
+3-second upstream timeout). Its `fetched_at` is the **server receipt time**,
+not an exchange tick timestamp. Failed requests mark a previous quote stale;
+no quote or an invalid response shows unavailable. A valid quote older than
+45 seconds is stale. The quote never reaches candle history, structure,
+qualification, the hierarchy, planning, or forward/historical testing. No
+forming candle is drawn by the REST ticker. The chart's **separate ghost series**
+uses public Kraken WebSocket v2 `ohlc` snapshots and trade-event updates for
+BTC/USDT at 5/15/60/240 minutes. Its UTC `interval_begin` must match the
+current epoch-anchored bucket, and the last stored closed candle must be
+adjacent (at most two intervals behind). It is removed on stale/invalid data,
+disconnect or a new time boundary; it is **never promoted** to the stored
+confirmed series or database. Switching views closes the old subscription and
+opens one for the viewed interval. The strict CSP permits only
+`wss://ws.kraken.com` in addition to the same-origin API. Public Kraken
+connectivity is required for this optional display; it can fail while the
+stored-candle chart continues to work. OHLC updates arrive on trades, not at a fixed cadence: a quiet interval
+remains unchanged and becomes stale after 45 seconds without a trade update.
+A resting market at the same price cannot be distinguished from an exchange
+ticker frozen upstream without an exchange-side tick timestamp. A refresh is
+still required to acquire a newly stored confirmed candle; the ghost is never
+used as a substitute while ingestion catches up.

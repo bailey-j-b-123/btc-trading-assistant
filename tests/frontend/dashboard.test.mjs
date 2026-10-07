@@ -378,7 +378,7 @@ function chartLibraryState() {
   }
   const library = {
     createChart: () => {
-      const record = { removed: false, candleData: [], volumeData: [], lines: new Set() };
+      const record = { removed: false, candleData: [], formingData: [], volumeData: [], lines: new Set() };
       const series = {
         setData: (rows) => { record.candleData = rows; },
         createPriceLine: (options) => {
@@ -388,10 +388,12 @@ function chartLibraryState() {
         },
         removePriceLine: (line) => record.lines.delete(line),
       };
+      const forming = { setData: (rows) => { record.formingData = rows; } };
+      let candleSeriesCount = 0;
       const volume = { setData: (rows) => { record.volumeData = rows; } };
       charts.push(record);
       return {
-        addCandlestickSeries: () => series,
+        addCandlestickSeries: () => candleSeriesCount++ === 0 ? series : forming,
         addHistogramSeries: () => volume,
         priceScale: () => ({ applyOptions: () => {} }),
         resize: () => {},
@@ -619,16 +621,16 @@ test("repeated dashboard renders dispose old charts and replace, not stack, over
   await withDashboard(dashboard, forward, async ({ view, chartState }) => {
     await renderDashboard(view);
     assert.equal(chartState.charts.length, 1);
-    // S/R bounds plus entry, stop, target — but the zone low and the stop
-    // share one price, so they merge into a single axis label.
-    assert.equal(chartState.charts[0].lines.size, 4);
+    // Clean default: only the engine plan, never the full S/R catalog.
+    assert.equal(chartState.charts[0].lines.size, 3);
     const titles = [...chartState.charts[0].lines].map((line) => line.options.title);
-    assert.ok(titles.some((title) => title.includes("support low") && title.includes("protective stop")));
+    assert.ok(titles.includes("protective stop"));
+    assert.ok(!titles.some((title) => title.includes("support")));
     await renderDashboard(view);
     assert.equal(chartState.charts.length, 2);
     assert.equal(chartState.charts[0].removed, true);
     assert.equal(chartState.charts[0].lines.size, 0);
-    assert.equal(chartState.charts[1].lines.size, 4);
+    assert.equal(chartState.charts[1].lines.size, 3);
     assert.equal(chartState.charts.filter((chart) => !chart.removed).length, 1);
   });
 });
