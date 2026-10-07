@@ -175,7 +175,9 @@ def test_stale_feed_cannot_produce_a_fresh_conclusion() -> None:
     assert all(
         item.as_of == QUALIFYING_BOUNDARY for item in harness.observations()
     )
-    assert len(harness.plans()) == 2
+    # One unresolved paper trade per instrument: the labelled series qualifies
+    # two setups at this close and only the first is paper-traded.
+    assert len(harness.plans()) == 1
     status = harness.service.status()
     assert status["market_data"]["data_health"] == DataHealth.STALE.value
     assert status["market_data"]["staleness_intervals"] >= 5
@@ -381,11 +383,14 @@ def test_a_setup_that_stays_plannable_creates_exactly_one_paper_plan() -> None:
     harness = make_harness(series=series, ledger_start=QUALIFYING_BOUNDARY)
     harness.advance_to(QUALIFYING_BOUNDARY)
     harness.run(refresh_market_data=False)
-    assert len(harness.plans()) == 2
+    # The series qualifies two setups at this close; the second is refused a
+    # second paper trade by the one-active-paper-trade policy and stays a
+    # monitored observation instead.
+    assert len(harness.plans()) == 1
     harness.advance_to(QUALIFYING_BOUNDARY + INTERVAL)
     second = harness.run(refresh_market_data=False)
     assert second.paper_plans_created == 0
-    assert len(harness.plans()) == 2
+    assert len(harness.plans()) == 1
     # The later observation still points at the frozen plan it belongs to.
     later = [item for item in harness.observations() if item.as_of > QUALIFYING_BOUNDARY]
     assert later
@@ -475,7 +480,7 @@ def test_cold_start_bootstraps_public_closed_candles_without_a_backfill_start() 
     assert len(cycles) == 1
     assert cycles[0].status is CycleStatus.COMPLETE
     assert cycles[0].as_of == QUALIFYING_BOUNDARY
-    assert len(harness.plans()) == 2
+    assert len(harness.plans()) == 1  # one active paper trade, at most
 
 
 @pytest.mark.parametrize(
@@ -739,7 +744,7 @@ def test_qualified_without_a_plannable_plan_creates_no_paper_trade() -> None:
 def test_plannable_creates_a_paper_observation_and_never_claims_a_fill() -> None:
     harness = harness_with_a_paper_plan()
     plans = plans_with_levels(harness)
-    assert len(plans) == 2
+    assert len(plans) == 1
     for plan in plans:
         assert plan.risk_per_unit == LONG_ENTRY - LONG_STOP
         assert plan.invalidation == LONG_STOP
@@ -797,7 +802,7 @@ def test_entry_not_reached_is_unresolved_until_the_horizon_completes() -> None:
     assert outcome.observation.entry_reached is False
     plan = harness.plans()[0]
     reported = harness.service.status()["unresolved_paper_plan_count"]
-    assert reported == 2  # the interim verdict is not a settled outcome
+    assert reported == 1  # the interim verdict is not a settled outcome
     assert outcome.observed_through == plan.plan_as_of
     # After the full horizon with no entry touch, it settles as not reached.
     harness.step(
@@ -831,7 +836,7 @@ def test_reaching_the_proposed_target_is_recorded_and_excluded_from_raw_r() -> N
     assert outcome.observation.targets_reached == (0,)
     report = harness.report()
     # TARGETS_REACHED *is* eligible: raw R uses the furthest reached target.
-    assert report.metrics.raw_observational_r.sample_size == 2
+    assert report.metrics.raw_observational_r.sample_size == 1
 
 
 def test_stop_after_an_ordered_entry_is_stopped() -> None:
@@ -865,7 +870,7 @@ def test_stop_after_targets_is_reported_and_excluded_from_raw_r() -> None:
     excluded = {
         item.value: item.count for item in report.metrics.raw_observational_r.excluded
     }
-    assert excluded.get("STOPPED_AFTER_TARGETS_NO_PARTIAL_EXIT_POLICY") == 2
+    assert excluded.get("STOPPED_AFTER_TARGETS_NO_PARTIAL_EXIT_POLICY") == 1
     assert report.metrics.raw_observational_r.sample_size == 0
 
 
@@ -886,7 +891,7 @@ def test_same_candle_entry_and_exit_is_ambiguous_never_favourable() -> None:
         assert outcome.observation.ambiguous is True
         assert outcome.observation.targets_reached == ()
     report = harness.report()
-    assert report.metrics.ambiguous_count == 2
+    assert report.metrics.ambiguous_count == 1
     assert any("ambiguous" in warning for warning in report.warnings)
 
 
@@ -911,8 +916,8 @@ def test_incomplete_data_in_the_window_is_recorded_as_incomplete() -> None:
 def test_unresolved_paper_plans_are_always_visible() -> None:
     harness = harness_with_a_paper_plan()
     status = harness.service.status()
-    assert status["unresolved_paper_plan_count"] == 2
-    assert len(status["unresolved_paper_plan_ids"]) == 2
+    assert status["unresolved_paper_plan_count"] == 1
+    assert len(status["unresolved_paper_plan_ids"]) == 1
     payload = harness.service.observations_payload(limit=10)
     assert payload["label"] == "PAPER OBSERVATION — NO REAL ORDER"
     assert payload["paper_plans"]
@@ -938,7 +943,7 @@ def test_short_side_is_tracked_with_the_same_semantics() -> None:
     short_series = mirrored(labelled_series())
     harness = make_harness(series=short_series, ledger_start=QUALIFYING_BOUNDARY)
     harness.advance_to(QUALIFYING_BOUNDARY)
-    assert harness.run(refresh_market_data=False).paper_plans_created == 2
+    assert harness.run(refresh_market_data=False).paper_plans_created == 1
     plans = harness.plans()
     assert all(plan.direction == "bearish" for plan in plans)
     entry = plans[0].entry
@@ -953,7 +958,7 @@ def test_short_side_is_tracked_with_the_same_semantics() -> None:
     } == {OutcomeStatus.OPEN_AT_CUTOFF.value}
     harness.step((bar(22, target + D("1"), high=entry + D("1"), low=target - D("1")),), refresh_market_data=False)
     statuses = latest_statuses(harness)
-    assert statuses == [OutcomeStatus.TARGETS_REACHED.value, OutcomeStatus.TARGETS_REACHED.value]
+    assert statuses == [OutcomeStatus.TARGETS_REACHED.value]
 
 
 def test_two_families_are_recorded_and_reported_separately() -> None:

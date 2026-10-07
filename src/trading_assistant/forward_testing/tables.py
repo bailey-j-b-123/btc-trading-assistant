@@ -199,12 +199,19 @@ class ForwardObservationRow(Base):
             name="ck_forward_observations_plan_id",
         ),
         CheckConstraint(
-            "plan_state <> 'PLANNABLE' OR paper_plan_id IS NOT NULL",
-            name="ck_forward_observations_plannable_is_paper",
+            "paper_plan_id IS NULL OR plan_state = 'PLANNABLE'",
+            name="ck_forward_observations_paper_requires_plannable",
         ),
         CheckConstraint(
             "paper_plan_id IS NULL OR setup_state = 'QUALIFIED'",
             name="ck_forward_observations_paper_requires_qualified",
+        ),
+        # A recorded no-trade reason means exactly that: no paper trade was
+        # created for this observation (a second candidate while one trade is
+        # active, or a missed opportunity).
+        CheckConstraint(
+            "no_trade_reason IS NULL OR paper_plan_id IS NULL",
+            name="ck_forward_observations_no_trade_reason_no_paper",
         ),
         Index(
             "ix_forward_observations_instrument_time",
@@ -270,6 +277,7 @@ class ForwardObservationRow(Base):
         String(64), nullable=True
     )
     paper_plan_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    no_trade_reason: Mapped[str | None] = mapped_column(Text(), nullable=True)
     data_health: Mapped[str] = mapped_column(String(16), nullable=False)
     missing_candle_count: Mapped[int] = mapped_column(Integer(), nullable=False)
     market_trend: Mapped[str] = mapped_column(String(32), nullable=False)

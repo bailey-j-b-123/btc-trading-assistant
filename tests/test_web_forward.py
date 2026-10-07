@@ -61,11 +61,13 @@ def empty_client(tmp_path):
 
 @pytest.fixture
 def seeded_client(tmp_path):
-    """A real forward ledger: one qualifying close and its two paper plans."""
+    """A real forward ledger: one qualifying close and its one active paper plan."""
 
     harness = make_harness(series=labelled_series(), ledger_start=QUALIFYING_BOUNDARY)
     harness.advance_to(QUALIFYING_BOUNDARY)
-    assert harness.run(refresh_market_data=False).paper_plans_created == 2
+    # The second plannable setup at this close is refused a paper trade by the
+    # one-active-paper-trade policy.
+    assert harness.run(refresh_market_data=False).paper_plans_created == 1
     harness.step((bar_after_entry(),), refresh_market_data=False)
     client = _client(
         harness.engine,
@@ -246,7 +248,16 @@ def test_seeded_forward_view_shows_paper_observations_not_trades(seeded_client) 
         assert item["observation_id"]
 
     plans = body["observations"]["paper_plans"]
-    assert len(plans) == 2
+    # One unresolved paper trade at a time: the second plannable setup at this
+    # close is exposed as a refusal carrying its deterministic no-trade reason.
+    assert len(plans) == 1
+    refused = [
+        item
+        for item in observations
+        if item["plan_state"] == "PLANNABLE" and item["paper_plan_id"] is None
+    ]
+    assert refused
+    assert all(item["no_trade_reason"] for item in refused)
     for plan in plans:
         assert plan["plan_json"]
         assert plan["setup_id"]
@@ -263,12 +274,12 @@ def test_seeded_forward_view_shows_paper_observations_not_trades(seeded_client) 
 
     status = body["status"]
     assert status["sample"]["cycles"] >= 1
-    assert status["sample"]["paper_plans"] == 2
+    assert status["sample"]["paper_plans"] == 1
     assert status["current_state"]["available"] is True
     assert body["friction_from_recorded_plans"] is True
 
     report = body["report"]
-    assert report["metrics"]["paper_plan_count"] == 2
+    assert report["metrics"]["paper_plan_count"] == 1
     assert report["metrics"]["distinct_boundaries"] >= 1
     assert report["friction_fingerprint"]
     assert report["metrics"]["unresolved_rate"]["denominator"] >= 0
@@ -290,7 +301,7 @@ def test_comparison_endpoint_separates_historical_and_forward(seeded_client) -> 
     assert comparison["historical"]["available"] is True
     assert comparison["forward"]["available"] is True
     assert comparison["historical"]["metrics"]["paper_plan_count"] >= 1
-    assert comparison["forward"]["metrics"]["paper_plan_count"] == 2
+    assert comparison["forward"]["metrics"]["paper_plan_count"] == 1
     assert comparison["version_comparability_note"]
 
     rows = comparison["rows"]
@@ -326,4 +337,4 @@ def test_forward_view_reports_staleness_honestly(seeded_client) -> None:
     if market["data_health"] == "STALE":
         assert market["staleness_intervals"] >= 1
         assert "STALE" in body["status"]["runner"]["status"] or body["status"]["runner"]
-    assert harness.service.status()["sample"]["paper_plans"] == 2
+    assert harness.service.status()["sample"]["paper_plans"] == 1

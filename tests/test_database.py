@@ -78,7 +78,7 @@ def test_explicit_alembic_upgrade_preserves_existing_rows_and_tracks_revision(tm
     migrated_engine.dispose()
 
     assert stored_value == "keep"
-    assert revision == "0005_multi_timeframe_hierarchy"
+    assert revision == "0006_forward_no_trade_reason"
     assert table_names == {
         "alembic_version",
         "ohlcv_candles",
@@ -129,7 +129,7 @@ def test_forward_migration_is_additive_and_never_drops_recorded_observations(tmp
 
     # The forward ledger's and hierarchy ledger's tables exist alongside the
     # Step 2 archive.
-    assert revision == "0005_multi_timeframe_hierarchy"
+    assert revision == "0006_forward_no_trade_reason"
     assert FORWARD_TABLES <= table_names
     assert HIERARCHY_TABLES <= table_names
     assert "ohlcv_candles" in table_names

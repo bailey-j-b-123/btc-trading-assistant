@@ -104,6 +104,14 @@ class ForwardObservation:
     the exact Step 6 plan projection as canonical JSON, so the record proves
     what the deterministic engine knew at that close even after later code or
     configuration changes. ``paper_plan_id`` is set only for a PLANNABLE plan.
+
+    ``no_trade_reason`` is the deterministic explanation for the two cases where
+    a monitored candidate deliberately produced no paper trade: the instrument
+    already has one unresolved (active) paper trade, or the candidate was
+    plannable earlier and is still valid but its decision-time reward-to-risk
+    has deteriorated below the mandatory floor, so no remaining genuine
+    structural target reaches 1R (MISSED). It is ``None`` whenever a paper plan was
+    created, already existed, or the candidate was simply not plannable.
     """
 
     observation_id: str
@@ -144,6 +152,7 @@ class ForwardObservation:
     plan_config_fingerprint: str | None
     planning_rules_version: str | None
     paper_plan_id: str | None
+    no_trade_reason: str | None
     data_health: DataHealth
     missing_candle_count: int
     market_trend: str

@@ -28,13 +28,36 @@ from trading_assistant.market_structure.numeric import as_decimal, require_int
 from trading_assistant.market_structure.snapshot import to_jsonable
 
 #: Version of the forward ledger contract (identity + stored fields).
-FORWARD_LEDGER_RULES_VERSION = "forward-ledger-v1"
+#:
+#: v2 adds the deterministic no-trade reasons: at most one unresolved paper
+#: trade exists per instrument at a time (a second plannable setup is recorded
+#: with a reason instead of a paper plan), and a monitored setup that was
+#: plannable earlier but whose decision-time entry no longer reaches the
+#: mandatory reward-to-risk floor is recorded as MISSED. A v1 ledger allowed
+#: concurrent paper plans, so the cohorts must never be merged silently.
+FORWARD_LEDGER_RULES_VERSION = "forward-ledger-v2"
 
 #: Version of the closed-candle forward runner/cycle contract.
 FORWARD_RUNNER_RULES_VERSION = "forward-runner-v1"
 
 #: Version of the forward evaluation controls (horizon, catch-up, sample floor).
 FORWARD_PARAMETERS_VERSION = "forward-parameters-v1"
+
+#: Recorded on a candidate observation when its PLANNABLE Step 6 plan is refused
+#: because the instrument already has one unresolved (active) paper trade: the
+#: candidate is still monitored, but no second paper trade is created.
+PAPER_TRADE_ACTIVE_REASON = "NO TRADE — BTC paper trade already active."
+
+#: Recorded on a candidate observation that was genuinely plannable earlier, is
+#: still a valid (QUALIFIED, not invalidated) opportunity, and is not being
+#: paper-traded, but whose decision-time reward-to-risk has deteriorated below
+#: the mandatory 1R floor: at the price actually available now, no remaining
+#: genuine structural target reaches 1R. The
+#: opportunity is gone; nothing is chased, no old entry is reused, no stop is
+#: squeezed, and no target is invented.
+MISSED_OPPORTUNITY_REASON = (
+    "MISSED — price moved before execution; remaining reward-to-risk is below 1R."
+)
 
 
 def fingerprint(*parts: object) -> str:
@@ -349,6 +372,8 @@ __all__ = [
     "FORWARD_LEDGER_RULES_VERSION",
     "FORWARD_PARAMETERS_VERSION",
     "FORWARD_RUNNER_RULES_VERSION",
+    "MISSED_OPPORTUNITY_REASON",
+    "PAPER_TRADE_ACTIVE_REASON",
     "CycleStatus",
     "DataHealth",
     "ForwardParameters",

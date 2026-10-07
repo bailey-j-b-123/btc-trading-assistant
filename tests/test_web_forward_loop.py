@@ -45,9 +45,14 @@ def test_recorded_close_agrees_across_runner_dashboard_and_forward():
         # Same deterministic verdict on both endpoints.
         assert current["setup_state"] == dashboard["qualification"]["state"]
         assert dashboard["qualification"]["state"] == "QUALIFIED"
-        # Runner result, ledger counts, and API counts agree.
+        # Runner result, ledger counts, and API counts agree. Two candidates
+        # are plannable at this close, but at most one may be paper-traded: the
+        # ledger holds one paper plan and the second candidate is a recorded
+        # refusal, so the plannable count and the plan count legitimately differ.
         planned = current["plan_state_counts"].get("PLANNABLE", 0)
-        assert planned == result.paper_plans_created == 2
+        assert planned == 2
+        assert result.paper_plans_created == 1
+        assert forward["status"]["sample"]["paper_plans"] == 1
         assert (
             forward["status"]["sample"]["pending_catch_up_boundaries"] == 0
         )

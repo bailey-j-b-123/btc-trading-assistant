@@ -394,7 +394,25 @@ The Step 1 foundation revision is unchanged. The Step 2 OHLCV migration adds onl
 
 **Step 7 adds revision `0003_journal`**, which is strictly additive: four append-only journal tables plus their indexes and SQLite `UPDATE`/`DELETE` guard triggers, with no change to `ohlcv_candles` or any existing row. Its downgrade refuses to run while journal rows exist and otherwise drops only the (empty) journal tables; the candle archive is never dropped or rewritten.
 
-**Step 12 adds revision `0004_forward_testing`**, also strictly additive: five forward ledger tables (`forward_cycles`, `forward_observations`, `forward_paper_plans`, `forward_paper_outcomes`, `forward_runner_heartbeats`) plus indexes and SQLite `UPDATE`/`DELETE` guard triggers. The forward ledger is a new, separate store: it never reads or writes the Step 7 journal tables and never rewrites `ohlcv_candles`. `0004_forward_testing` is the current head, so `alembic upgrade head` takes an existing Step 7/11 database to the forward schema without touching stored market data or recorded decisions. Its downgrade refuses to run while forward rows exist and otherwise drops only the (empty) forward tables.
+**Step 12 adds revision `0004_forward_testing`**, also strictly additive: five forward ledger tables (`forward_cycles`, `forward_observations`, `forward_paper_plans`, `forward_paper_outcomes`, `forward_runner_heartbeats`) plus indexes and SQLite `UPDATE`/`DELETE` guard triggers. The forward ledger is a new, separate store: it never reads or writes the Step 7 journal tables and never rewrites `ohlcv_candles`. `alembic upgrade head` takes an existing Step 7/11 database to the forward schema without touching stored market data or recorded decisions (later revisions are listed with their steps below; the current head of the whole chain is `0006_forward_no_trade_reason`). Its downgrade refuses to run while forward rows exist and otherwise drops only the (empty) forward tables.
+
+**Step 12's rules revision `0006_forward_no_trade_reason`** adds the nullable
+`forward_observations.no_trade_reason` column and replaces the old
+`ck_forward_observations_plannable_is_paper` check (every `PLANNABLE` row had to
+carry a paper plan) with the policy that is now correct: a paper plan still
+requires a `PLANNABLE` plan (`ck_forward_observations_paper_requires_plannable`),
+and a recorded reason never coexists with a paper plan
+(`ck_forward_observations_no_trade_reason_no_paper`). SQLite cannot drop a check
+constraint in place, so this revision rebuilds `forward_observations` in batch
+mode with every existing row copied verbatim (foreign-key enforcement is
+switched off for the rebuild window only, because SQLite would otherwise refuse
+the implicit delete of the referencing `forward_paper_plans` rows, and a scoped
+`PRAGMA foreign_key_check` proves afterwards that no paper plan was orphaned),
+then recreates the append-only `UPDATE`/`DELETE` triggers. Its downgrade refuses
+to run while any reason is recorded and otherwise restores the previous column
+set and constraint, again recreating the triggers.
+The forward ledger rules version is `forward-ledger-v2`: a v1 ledger allowed
+concurrent paper plans, so the recorded cohorts are never merged silently.
 
 ## Tests
 
@@ -1033,7 +1051,7 @@ Fifteen named rules run in a fixed order — the mandatory `minimum_r_multiple` 
 
 ### Configuration and identity
 
-`PlanningParameters` is a frozen, validated container (exact type/range checks on load; `ValueError` with stable message substrings, consistent with Steps 3–5): `stop_buffer_mode` (`none` default | `atr` | `percentage`), `stop_buffer_atr_multiple` (1, `> 0`), `stop_buffer_percentage` (0.1%, `> 0`, `< 100`), `max_structural_targets` (2, 1–10), `include_equal_levels_as_targets` (true), `min_r_multiple` (1, mandatory and never below the exported `MINIMUM_R_MULTIPLE_FLOOR` of 1; a stricter value such as 2 is allowed), `preferred_r_multiple` (1.5, `>= min_r_multiple`; classification only), and no entry-mode knob at all: the entry policy is fixed to the decision-time close. Its deterministic `config_fingerprint` (a SHA-256 over the canonical JSON projection, version-prefixed with `trade-planning-v2`) is recorded on every plan alongside the consumed snapshot's Step 5 fingerprint, so any configuration change is visible on previously planned setups. Changing any planning input — as_of, setup state, evidence, or config — deterministically changes the plan.
+`PlanningParameters` is a frozen, validated container (exact type/range checks on load; `ValueError` with stable message substrings, consistent with Steps 3–5): `stop_buffer_mode` (`none` default | `atr` | `percentage`), `stop_buffer_atr_multiple` (1, `> 0`), `stop_buffer_percentage` (0.1%, `> 0`, `< 100`), `max_structural_targets` (2, 1–10), `include_equal_levels_as_targets` (true), `min_r_multiple` (1, mandatory and never below the exported `MINIMUM_R_MULTIPLE_FLOOR` of 1; a stricter value such as 2 is allowed), `preferred_r_multiple` (1.5, `>= 1`; classification only, independent of the floor), and no entry-mode knob at all: the entry policy is fixed to the decision-time close. Its deterministic `config_fingerprint` (a SHA-256 over the canonical JSON projection, version-prefixed with `trade-planning-v2`) is recorded on every plan alongside the consumed snapshot's Step 5 fingerprint, so any configuration change is visible on previously planned setups. Changing any planning input — as_of, setup state, evidence, or config — deterministically changes the plan.
 
 `TradePlanResult` is fully immutable (frozen dataclasses like Steps 3–5; attempts to replace plan fields, targets, or rule records raise `FrozenInstanceError`, and tampering with a `to_json_dict()` projection can never write back). The source snapshot, frame, and every consumed event are returned unmodified (proven by full JSON projections). Plan identity is the canonical `sha256` fingerprint over the *plan content*: same setup + same `as_of` + same config + same evidence ⇒ the same stable plan id and identical numbers (reproducible for backtesting later); different setup, side, mode, buffer, or config ⇒ different fingerprint. The Step 5 `setup_created_at` recorded on the plan is the seed event's confirmation time; the planning cutoff is recorded separately as `as_of`. `to_json_dict()` is the complete public representation: state, reasons, every level with its full traceability record (level id, value, source id/type, timeframe, observed/confirmed timestamps, source value, transformation), targets, risk/reward/R, rule outcomes, and both fingerprints.
 
@@ -1820,6 +1838,8 @@ Each observation is immutable and carries:
   produced it;
 * the Step 6 plan id/state and, in a frozen paper plan, entry, stop,
   invalidation, targets, risk per unit and R multiples;
+* the deterministic **no-trade reason** when a monitored candidate deliberately
+  produced no paper trade (at most one active paper trade, or MISSED below);
 * the Step 9 explanation fingerprint;
 * data-health/freshness verdict and detail;
 * the current paper outcome and its version chain, ambiguity/incomplete flags;
@@ -1835,6 +1855,46 @@ observed window is only re-checked when it was recorded as incomplete.
 A paper observation is created **only** when the unchanged Step 6 result is
 `PLANNABLE`. `NO_SETUP`, `WATCH`, and `QUALIFIED`-but-`NO_PLAN` closes are
 recorded with their evidence but never produce a paper plan.
+
+**At most one unresolved paper trade per instrument (one BTC paper trade).** The
+ledger tracks a paper trade until its latest outcome version can no longer change
+(stopped, targets reached, ambiguous, or an observation horizon that has fully
+elapsed without the entry). While one is unresolved, a second genuinely
+`PLANNABLE` candidate at the same close is **still monitored and recorded in
+full** — its exact Step 6 plan, levels and R are written — but no second paper
+trade is created, and the observation carries one deterministic reason:
+
+```text
+NO TRADE — BTC paper trade already active.
+```
+
+The frozen paper trade is never rewritten, replaced, or hidden by a refusal: the
+candidate's own later observations keep pointing at nothing while the active
+trade's rows stay exactly as recorded. Once the active trade settles, a later
+valid candidate is paper-traded normally, and the one-unresolved-trade rule is
+re-checked against the ledger on every close (nothing is remembered in memory
+across passes).
+
+**MISSED is a recorded reason, not a new state.** The setup and plan vocabulary
+is unchanged (`NO_SETUP`/`WATCH`/`QUALIFIED` and `PLANNABLE`/`NO_PLAN`/`INVALID`
+plus the existing machine-readable reason codes). A candidate is recorded as
+
+```text
+MISSED — price moved before execution; remaining reward-to-risk is below 1R.
+```
+
+only when all of these hold at a close: it is still `QUALIFIED` (not
+invalidated, not failed, not expired); Step 6 refused it for exactly the
+mandatory reward-to-risk floor (`minimum_r_multiple_not_met`) because the
+decision-time reward-to-risk has deteriorated below the floor — at the price
+actually available now, no remaining genuine structural target reaches 1R; it
+has no frozen paper trade of its own; and an earlier close for
+that same setup instance recorded a `PLANNABLE` (>= 1R) plan. A setup that is
+already paper-traded is never called missed — its trajectory belongs to that
+paper plan's outcome versions (`ENTRY_NOT_REACHED`, `INVALIDATED_BEFORE_ENTRY`,
+`STOPPED`, ...). Nothing is chased: no earlier entry is reused, no stop is
+squeezed, and no target is invented — the reason only names the refusal Step 6
+already produced, and no paper trade is created for a missed opportunity.
 
 Paper tracking is observational and level-based, using the existing Step 7
 outcome semantics over subsequent **closed** candles only:
@@ -1911,7 +1971,7 @@ logic.
 Everything runs locally; there is no Docker, cloud service, queue, or scheduler.
 
 ```bash
-alembic upgrade head                                   # additive: 0003_journal -> 0004_forward_testing
+alembic upgrade head                                   # additive: 0003_journal -> 0004 -> 0005 -> 0006
 
 # process the closes that are already pending, then exit (safe first run)
 python -m trading_assistant.forward_testing run --once
@@ -2224,7 +2284,7 @@ fingerprint of the evaluation content (including the hierarchy fingerprint), so:
 ### Running the hierarchy runner
 
 ```bash
-alembic upgrade head                                   # additive: 0004 -> 0005_multi_timeframe_hierarchy
+alembic upgrade head                                   # additive through 0005; 0006 rebuilds forward_observations
 
 # one pass over closed 5M boundaries (safe, explicit, easy to inspect)
 python -m trading_assistant.multi_timeframe run --once

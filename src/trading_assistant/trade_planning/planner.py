@@ -107,6 +107,13 @@ INVALID_CODES = frozenset(
     }
 )
 
+#: Reason code recorded when no genuine structural target reaches the mandatory
+#: reward-to-risk floor. This is a refusal (NO_PLAN), never an invalid plan, and
+#: it is public because downstream layers recognise exactly this refusal (the
+#: decision-time entry has moved away from the opportunity) rather than matching
+#: free text.
+MINIMUM_R_MULTIPLE_NOT_MET = "minimum_r_multiple_not_met"
+
 #: Exact planning rules in evaluation order. ``minimum_r_multiple`` is a base
 #: rule: the mandatory reward-to-risk floor is always evaluated.
 BASE_RULES = (
@@ -881,7 +888,7 @@ def _apply_minimum_r(context: _PlanContext) -> None:
     context.targets = tuple(kept)
     if not kept:
         context.fail(
-            "minimum_r_multiple_not_met",
+            MINIMUM_R_MULTIPLE_NOT_MET,
             "minimum_r_multiple",
             f"no genuine structural target reaches the mandatory "
             f"minimum_r_multiple {decimal_text(threshold)}; per-target "

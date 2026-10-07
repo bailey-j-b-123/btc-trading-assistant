@@ -45,12 +45,17 @@ HORIZON = 20
 
 
 def harness_with_a_paper_plan() -> Harness:
-    """A ledger holding one qualifying close and its two live paper plans."""
+    """A ledger holding one qualifying close and its one active paper plan.
+
+    The labelled series qualifies two setups at that close; the one-active-
+    paper-trade policy paper-trades the first and records the second as a
+    refused observation, so every rate denominator below is one plan.
+    """
 
     harness = make_harness(series=labelled_series(), ledger_start=QUALIFYING_BOUNDARY)
     harness.advance_to(QUALIFYING_BOUNDARY)
     result = harness.run(refresh_market_data=False)
-    assert result.paper_plans_created == 2
+    assert result.paper_plans_created == 1
     return harness
 
 
@@ -93,7 +98,7 @@ def test_forward_report_counts_match_the_ledger_and_state_denominators() -> None
     assert report.timeframe == TIMEFRAME
     assert report.metrics.total_cycles == len(snapshot.cycles)
     assert report.metrics.distinct_boundaries == len(snapshot.cycles)
-    assert report.metrics.paper_plan_count == len(harness.plans()) == 2
+    assert report.metrics.paper_plan_count == len(harness.plans()) == 1
     assert report.metrics.distinct_setup_ids == len(
         {item.setup_id for item in harness.observations()}
     )
@@ -123,8 +128,8 @@ def test_forward_report_keeps_raw_and_friction_adjusted_r_separate() -> None:
         friction=friction,
     )
 
-    assert raw.metrics.raw_observational_r.sample_size == 2
-    assert adjusted.metrics.raw_observational_r.sample_size == 2
+    assert raw.metrics.raw_observational_r.sample_size == 1
+    assert adjusted.metrics.raw_observational_r.sample_size == 1
     # Costs can only ever worsen the hypothesis; they never invent profit.
     assert (
         adjusted.metrics.friction_adjusted_hypothetical_r.average
@@ -171,11 +176,11 @@ def test_forward_report_withholds_percentages_below_the_sample_floor() -> None:
     harness = harness_with_a_resolved_target()
     strict = harness.report(parameters=ForwardParameters(minimum_sample_size=50))
 
-    assert strict.metrics.paper_plan_count == 2  # counts are never hidden
+    assert strict.metrics.paper_plan_count == 1  # counts are never hidden
     assert strict.metrics.entry_reached_rate.percentage is None
     assert strict.metrics.entry_reached_rate.status.value == "INSUFFICIENT_DATA"
     assert strict.metrics.entry_reached_rate.numerator >= 0
-    assert strict.metrics.entry_reached_rate.denominator == 2
+    assert strict.metrics.entry_reached_rate.denominator == 1
     assert any(
         warning.startswith("insufficient_paper_observation_sample")
         for warning in strict.warnings
@@ -192,17 +197,17 @@ def test_forward_report_never_hides_ambiguous_incomplete_or_open_observations() 
     report = harness.report(parameters=ForwardParameters(minimum_sample_size=1))
     statuses = {item.value: item.count for item in report.metrics.outcome_status_counts}
     assert statuses
-    assert report.metrics.paper_plan_count == 2
+    assert report.metrics.paper_plan_count == 1
     # Every plan keeps exactly one recorded outcome status; nothing is dropped.
-    assert sum(statuses.values()) == 2
-    assert report.metrics.paper_plans_with_outcome == 2
+    assert sum(statuses.values()) == 1
+    assert report.metrics.paper_plans_with_outcome == 1
     assert report.metrics.ambiguous_count >= 1
 
     payload = report.to_json_dict()
     assert payload["metrics"]["outcome_status_counts"]
-    assert payload["metrics"]["ambiguous_rate"]["denominator"] == 2
-    assert payload["metrics"]["incomplete_rate"]["denominator"] == 2
-    assert payload["metrics"]["unresolved_rate"]["denominator"] == 2
+    assert payload["metrics"]["ambiguous_rate"]["denominator"] == 1
+    assert payload["metrics"]["incomplete_rate"]["denominator"] == 1
+    assert payload["metrics"]["unresolved_rate"]["denominator"] == 1
 
     # Breakdowns reuse the same contract and keep their own denominators.
     dimensions = {breakdown.dimension for breakdown in report.breakdowns}
@@ -302,7 +307,7 @@ def test_comparison_labels_both_sides_and_keeps_both_denominators() -> None:
     assert comparison.historical.available is True
     assert comparison.forward.available is True
     assert comparison.historical.sample_size == comparison.historical.metrics.paper_plan_count
-    assert comparison.forward.sample_size == comparison.forward.metrics.paper_plan_count == 2
+    assert comparison.forward.sample_size == comparison.forward.metrics.paper_plan_count == 1
     assert comparison.rows
     for row in comparison.rows:
         assert row.metric
@@ -374,7 +379,7 @@ def test_comparison_without_a_historical_report_is_explicitly_unavailable() -> N
     assert comparison.historical.label == "HISTORICAL VALIDATION"
     assert comparison.strategy_versions_match is None
     assert comparison.forward.available is True
-    assert comparison.forward.sample_size == 2
+    assert comparison.forward.sample_size == 1
     assert comparison.rows
     for row in comparison.rows:
         assert row.comparable is None

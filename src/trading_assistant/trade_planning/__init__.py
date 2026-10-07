@@ -28,6 +28,7 @@ from trading_assistant.trade_planning.parameters import (
 from trading_assistant.trade_planning.planner import (
     BASE_RULES,
     INVALID_CODES,
+    MINIMUM_R_MULTIPLE_NOT_MET,
     plan_trade,
 )
 
@@ -35,6 +36,7 @@ __all__ = [
     "BASE_RULES",
     "INVALID_CODES",
     "MINIMUM_R_MULTIPLE_FLOOR",
+    "MINIMUM_R_MULTIPLE_NOT_MET",
     "PLANNING_RULES_VERSION",
     "UNKNOWN_LEVEL",
     "PlanState",

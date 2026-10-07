@@ -304,7 +304,7 @@ def test_forward_pass_survives_a_dashboard_reader_holding_a_read_transaction() -
             )
             assert result is not None
             assert result.status is HeartbeatStatus.PROCESSED
-            assert result.paper_plans_created == 2
+            assert result.paper_plans_created == 1
 
         # The run recorded its lifecycle and its ledger rows *while* the reader
         # held the database read.
@@ -316,7 +316,7 @@ def test_forward_pass_survives_a_dashboard_reader_holding_a_read_transaction() -
         assert statuses[-1] == HeartbeatStatus.STOPPED.value
         assert len(_rows(harness.engine, ForwardCycleRow)) == 1
         assert len(_rows(harness.engine, ForwardObservationRow)) == 6
-        assert len(_rows(harness.engine, ForwardPaperPlanRow)) == 2
+        assert len(_rows(harness.engine, ForwardPaperPlanRow)) == 1
 
         # The reader's own view stays valid and consistent afterwards.
         with _HeldReadTransaction(harness.engine) as reader:
@@ -340,7 +340,7 @@ def test_forward_pass_survives_a_dashboard_request_in_flight() -> None:
                 timeframe=TIMEFRAME,
                 refresh_market_data=False,
             )
-            assert result.paper_plans_created == 2
+            assert result.paper_plans_created == 1
 
             forward = client.get("/api/forward").json()
             assert forward["status"]["sample"]["cycles"] == result.cycles_recorded
@@ -405,7 +405,7 @@ def test_dashboard_reads_and_forward_writer_coexist_without_locking() -> None:
             refresh_market_data=False,
         )
         assert first.status is HeartbeatStatus.PROCESSED
-        assert first.paper_plans_created == 2
+        assert first.paper_plans_created == 1
 
         # A repeated pass while the reader still holds its transaction finds
         # nothing new and records nothing new.
@@ -438,7 +438,7 @@ def test_dashboard_reads_and_forward_writer_coexist_without_locking() -> None:
     try:
         assert len(_rows(engine, ForwardCycleRow)) == 1
         assert len(_rows(engine, ForwardObservationRow)) == 6
-        assert len(_rows(engine, ForwardPaperPlanRow)) == 2
+        assert len(_rows(engine, ForwardPaperPlanRow)) == 1
 
         # A restart (fresh engine and repositories over the same file) is
         # idempotent: the same rows, never more.
@@ -448,7 +448,7 @@ def test_dashboard_reads_and_forward_writer_coexist_without_locking() -> None:
             arguments = {"exchange": EXCHANGE, "symbol": SYMBOL, "timeframe": TIMEFRAME}
             assert len(restarted.cycles(**arguments)) == 1
             assert len(restarted.observations(**arguments)) == 6
-            assert len(restarted.paper_plans(**arguments)) == 2
+            assert len(restarted.paper_plans(**arguments)) == 1
         finally:
             restarted_engine.dispose()
     finally:
@@ -517,7 +517,7 @@ def test_analysis_and_exchange_access_never_run_inside_an_open_transaction(
         runner_id="transaction-lifetime",
     )
     assert result.status is HeartbeatStatus.PROCESSED
-    assert result.paper_plans_created == 2
+    assert result.paper_plans_created == 1
 
     # Every slow stage ran with no connection checked out, i.e. with no open
     # write transaction and nothing holding a SQLite lock.
@@ -592,7 +592,7 @@ def test_failed_write_transaction_is_rolled_back_released_and_recovered(
     assert recovered.status is HeartbeatStatus.PROCESSED
     assert len(_rows(engine, ForwardCycleRow)) == 1
     assert len(_rows(engine, ForwardObservationRow)) == 6
-    assert len(_rows(engine, ForwardPaperPlanRow)) == 2
+    assert len(_rows(engine, ForwardPaperPlanRow)) == 1
 
     # 4. Repeating the pass creates no duplicate cycle/observation/plan row.
     again = run_single_pass(
@@ -605,7 +605,7 @@ def test_failed_write_transaction_is_rolled_back_released_and_recovered(
     assert again.observations_recorded == 0
     assert len(_rows(engine, ForwardCycleRow)) == 1
     assert len(_rows(engine, ForwardObservationRow)) == 6
-    assert len(_rows(engine, ForwardPaperPlanRow)) == 2
+    assert len(_rows(engine, ForwardPaperPlanRow)) == 1
     engine.dispose()
 
 
