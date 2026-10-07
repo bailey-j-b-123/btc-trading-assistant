@@ -29,6 +29,10 @@ from trading_assistant.market_structure.numeric import (
 #: Reason reported when the requested rolling window is not fully available.
 INSUFFICIENT_CANDLES = "insufficient_candles"
 
+#: Reason reported when the reference window exists but its average is zero,
+#: so the relative-volume ratio is undefined (reported as ``None``).
+ZERO_REFERENCE_VOLUME = "zero_reference_volume"
+
 #: Documented definition of the relative-volume ratio.
 RELATIVE_VOLUME_BASIS = "latest_volume_over_prior_period_average"
 
@@ -112,12 +116,25 @@ def calculate_volume(
     relative: Decimal | None = None
     if len(volumes) >= required:
         reference_average = mean(volumes[-required:-1])
-        relative = quantize_derived(divide(current_volume, reference_average))
+        # Zero volume is valid Step 2 data, so an all-zero reference window is
+        # reported explicitly instead of raising: the ratio is undefined, the
+        # zero reference itself stays visible.
+        relative = (
+            None
+            if reference_average == 0
+            else quantize_derived(divide(current_volume, reference_average))
+        )
 
     sufficient = len(ordered) >= required
+    if not sufficient:
+        reason: str | None = INSUFFICIENT_CANDLES
+    elif reference_average == 0:
+        reason = ZERO_REFERENCE_VOLUME
+    else:
+        reason = None
     return VolumeContext(
         sufficient=sufficient,
-        reason=None if sufficient else INSUFFICIENT_CANDLES,
+        reason=reason,
         period=resolved.period,
         relative_volume_basis=RELATIVE_VOLUME_BASIS,
         candle_count=len(ordered),
