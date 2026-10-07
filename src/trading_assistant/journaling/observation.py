@@ -150,6 +150,16 @@ def observe_outcome(
         )
         if not is_timeframe_aligned(candle_ms, timeframe):
             raise ValueError("every candle timestamp must align to the timeframe")
+        # Touch semantics read only high/low, so an inverted or non-finite
+        # range would silently corrupt the terminal state; refuse it instead.
+        for name in ("low", "high"):
+            price = getattr(candle, name)
+            if not isinstance(price, Decimal):
+                raise TypeError(f"candle {name} must be a Decimal")
+            if not price.is_finite():
+                raise ValueError(f"candle {name} must be finite")
+        if candle.high < candle.low:
+            raise ValueError("candle high must not be below candle low")
         if not start_ms <= candle_ms <= end_ms:
             raise ValueError(
                 "every candle must lie inside the observation window "
