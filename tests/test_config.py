@@ -14,6 +14,7 @@ _SETTINGS_ENV_VARS = (
     "TRADING_ASSISTANT_RAW_DATA_DIR",
     "TRADING_ASSISTANT_MARKET_DATA_PAGE_LIMIT",
     "TRADING_ASSISTANT_MARKET_DATA_MAX_PAGES",
+    "TRADING_ASSISTANT_EXCHANGE_TIMEOUT_MS",
 )
 
 
@@ -32,6 +33,7 @@ def test_settings_use_documented_defaults(monkeypatch):
     assert settings.default_timeframe == "1h"
     assert settings.supported_timeframes == ("5m", "15m", "1h", "4h", "1d")
     assert settings.raw_data_dir == Path("data/raw")
+    assert settings.exchange_timeout_ms == 10_000
 
 
 def test_instrument_storage_and_market_data_can_be_configured_from_environment(monkeypatch, tmp_path):

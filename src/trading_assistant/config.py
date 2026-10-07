@@ -5,6 +5,25 @@ from pathlib import Path
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+#: Finite default timeout for public exchange (CCXT) requests, in milliseconds.
+#: CCXT expresses ``timeout`` in milliseconds and applies it to every individual
+#: socket operation (connect/read) of one request. 10 seconds matches CCXT's own
+#: default: healthy Kraken public endpoints answer in well under two seconds, so
+#: this leaves roughly an order of magnitude of headroom (no false failures
+#: under normal latency) while making a hung connect/read fail fast instead of
+#: blocking a forward pass. It deliberately cannot bound DNS resolution - see
+#: ``trading_assistant.market_data.exchange``, which adds a watchdog for that.
+DEFAULT_EXCHANGE_TIMEOUT_MS = 10_000
+
+#: Lower bound for the exchange timeout. Below one second a healthy-but-slow
+#: request would false-fail, so smaller values are rejected rather than clamped.
+MIN_EXCHANGE_TIMEOUT_MS = 1_000
+
+#: Upper bound for the exchange timeout. A larger value only hides a hang for
+#: longer (the same philosophy as the SQLite busy-timeout cap), so it is
+#: rejected rather than clamped.
+MAX_EXCHANGE_TIMEOUT_MS = 60_000
+
 
 class Settings(BaseSettings):
     """Application settings; every field can be overridden via environment."""
@@ -35,6 +54,18 @@ class Settings(BaseSettings):
     raw_data_dir: Path = Path("data/raw")
     market_data_page_limit: int = Field(default=720, gt=0)
     market_data_max_pages: int = Field(default=10_000, gt=0)
+    #: Finite, project-controlled timeout for public exchange (CCXT) requests,
+    #: in milliseconds (CCXT timeout semantics: milliseconds, applied by CCXT to
+    #: every individual socket connect/read of a request). It covers Kraken
+    #: public market-data requests - both ``load_markets`` and ``fetch_ohlcv``,
+    #: which share the same exchange instance - and never requires API
+    #: credentials. It bounds each socket operation; DNS resolution is bounded
+    #: separately by the watchdog in ``market_data.exchange``.
+    exchange_timeout_ms: int = Field(
+        default=DEFAULT_EXCHANGE_TIMEOUT_MS,
+        ge=MIN_EXCHANGE_TIMEOUT_MS,
+        le=MAX_EXCHANGE_TIMEOUT_MS,
+    )
 
     @model_validator(mode="after")
     def validate_market_data_settings(self) -> "Settings":
