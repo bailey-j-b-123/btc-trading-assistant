@@ -104,8 +104,20 @@ def build_setup_snapshot(
     ended: SetupResult | None,
     frame: QualificationFrame | None,
     boundary: TimeframeBoundary,
+    window_status: str | None = None,
 ) -> SetupLayerSnapshot:
-    """Project one Step 5 qualification snapshot into the setup layer."""
+    """Project one Step 5 qualification snapshot into the setup layer.
+
+    ``window_status`` scopes the layer's incompleteness signal to the required
+    setup window (Component #1 gate input): ``"evaluated"`` when the required
+    setup-window candles are complete, ``"incomplete"`` when required setup
+    candles are missing. ``None`` preserves the legacy behaviour of mirroring
+    the Step 5 snapshot status (which spans the whole stored series); the
+    hierarchy service always supplies the scoped required-window status.
+    """
+
+    if window_status is not None and window_status not in ("evaluated", "incomplete"):
+        raise ValueError('window_status must be "evaluated", "incomplete", or None')
 
     timeframe = boundary.timeframe
     if snapshot is None:
@@ -181,6 +193,12 @@ def build_setup_snapshot(
             if invalidation_evidence:
                 invalidation = "; ".join(invalidation_evidence)
 
+    effective_status = snapshot.status if window_status is None else window_status
+    incomplete_reason = (
+        "the required setup-window candles are incomplete"
+        if window_status is not None
+        else "the Step 5 snapshot reports an incomplete source window"
+    )
     return SetupLayerSnapshot(
         timeframe=timeframe,
         decision_time=boundary.decision_time,
@@ -190,14 +208,10 @@ def build_setup_snapshot(
         reason=(
             "stored setup candles stop before the expected closed candle"
             if boundary.stale
-            else (
-                "the Step 5 snapshot reports an incomplete source window"
-                if snapshot.status == "incomplete"
-                else None
-            )
+            else (incomplete_reason if effective_status == "incomplete" else None)
         ),
         state=snapshot.state,
-        snapshot_status=snapshot.status,
+        snapshot_status=effective_status,
         snapshot_id=_snapshot_id(snapshot),
         rules_version=snapshot.rules_version,
         config_fingerprint=snapshot.config_fingerprint,

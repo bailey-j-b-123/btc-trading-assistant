@@ -27,6 +27,7 @@ data and the recorded versions.
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -77,6 +78,11 @@ from trading_assistant.journaling import (
 )
 from trading_assistant.journaling.types import OutcomeStatus
 from trading_assistant.market_data.errors import is_transient_network_error
+from trading_assistant.market_data.integrity import (
+    RequiredWindowAssessment,
+    assess_required_window,
+    required_trailing_depth,
+)
 from trading_assistant.market_data.repository import CandleRepository
 from trading_assistant.market_data.service import MarketDataService
 from trading_assistant.market_data.timeframes import (
@@ -314,6 +320,25 @@ class ForwardTestService:
             target_boundary=target_boundary,
             now=instant,
         )
+        depth = required_trailing_depth(
+            structure=self.structure_parameters,
+            pattern=self.pattern_parameters,
+            qualification=self.qualification_parameters,
+        )
+        scoped_window = self.candles.get_candles(
+            exchange=exchange,
+            symbol=resolved_symbol,
+            timeframe=resolved_timeframe,
+            end_time=target_boundary - interval,
+        )
+        required_window = assess_required_window(
+            scoped_window.candles,
+            exchange=exchange,
+            symbol=resolved_symbol,
+            timeframe=resolved_timeframe,
+            decision_time=target_boundary,
+            depth=depth,
+        )
         paper_plans = self.ledger.paper_plans(
             exchange=exchange, symbol=resolved_symbol, timeframe=resolved_timeframe
         )
@@ -362,6 +387,7 @@ class ForwardTestService:
                 "data_health_detail": detail,
                 "staleness_intervals": staleness,
                 "missing_candle_count": missing,
+                "required_window": required_window.to_json_dict(),
                 "closed_candle_policy": (
                     "Only candles whose full interval had closed are ever analysed. "
                     "An unfinished candle is never used."
@@ -605,6 +631,7 @@ class ForwardTestService:
                         "inserted_count": update.inserted_count,
                         "already_present_count": update.already_present_count,
                         "excluded_open_count": update.excluded_open_count,
+                        "excluded_range_count": update.excluded_range_count,
                         "rejected_count": update.rejected_count,
                         "missing_candle_count": update.missing_candle_count,
                         "range_start": update.range_start,
@@ -718,14 +745,25 @@ class ForwardTestService:
         to_process = opens[: self.parameters.max_catch_up_candles]
         remaining = len(opens) - len(to_process)
 
-        candle_window = self.candles.get_candles(
-            exchange=exchange,
-            symbol=resolved_symbol,
-            timeframe=resolved_timeframe,
-            end_time=target_boundary - interval,
+        required_depth = required_trailing_depth(
+            structure=self.structure_parameters,
+            pattern=self.pattern_parameters,
+            qualification=self.qualification_parameters,
         )
-        stored_opens = tuple(candle.timestamp for candle in candle_window.candles)
-        candles_by_open = {candle.timestamp: candle for candle in candle_window.candles}
+
+        def _load_window() -> tuple[tuple[Candle, ...], tuple[datetime, ...]]:
+            window = self.candles.get_candles(
+                exchange=exchange,
+                symbol=resolved_symbol,
+                timeframe=resolved_timeframe,
+                end_time=target_boundary - interval,
+            )
+            return window.candles, tuple(
+                candle.timestamp for candle in window.candles
+            )
+
+        stored_candles, stored_opens = _load_window()
+        candles_by_open = {candle.timestamp: candle for candle in stored_candles}
         latest_stored = stored_opens[-1] if stored_opens else None
 
         if not stored_opens:
@@ -770,6 +808,31 @@ class ForwardTestService:
                 market_data_error_transient=market_error_transient,
                 heartbeat=heartbeat,
             )
+
+        # Best-effort bounded refill of required-window holes before any replay
+        # work: the normal refresh only advances forward, so a hole inside the
+        # pass span would otherwise block planning until it ages out. One
+        # coalesced re-request through the unchanged Step 2 path; any failure
+        # leaves stored history untouched and the gate records incomplete.
+        if refresh_market_data and market_error is None:
+            backfill_summary = self._backfill_pass_span(
+                symbol=resolved_symbol,
+                timeframe=resolved_timeframe,
+                interval=interval,
+                to_process=to_process,
+                depth=required_depth,
+                stored_candles=stored_candles,
+                as_of=instant,
+            )
+            payload = json.loads(market_data_json)
+            payload["backfill"] = backfill_summary
+            market_data_json = canonical_json(payload)
+            if backfill_summary.get("refilled"):
+                stored_candles, stored_opens = _load_window()
+                candles_by_open = {
+                    candle.timestamp: candle for candle in stored_candles
+                }
+                latest_stored = stored_opens[-1] if stored_opens else None
 
         # One bounded replay for the whole pass: candidates live at the first
         # pending close were seeded within the replay window, and the ledger
@@ -823,6 +886,14 @@ class ForwardTestService:
         last_health = DataHealth.UNKNOWN
         for open_time in to_process:
             boundary = open_time + interval
+            assessment = assess_required_window(
+                stored_candles,
+                exchange=exchange,
+                symbol=resolved_symbol,
+                timeframe=resolved_timeframe,
+                decision_time=boundary,
+                depth=required_depth,
+            )
             context = self._boundary_context(
                 exchange=exchange,
                 symbol=resolved_symbol,
@@ -835,6 +906,7 @@ class ForwardTestService:
                 candle=candles_by_open.get(open_time),
                 candles_known=bisect_left(stored_opens, boundary),
                 latest_stored=latest_stored,
+                assessment=assessment,
             )
             last_health = context.data_health
             (
@@ -1148,6 +1220,96 @@ class ForwardTestService:
         assert last_error is not None  # unreachable: the loop re-raises
         raise last_error
 
+    def _backfill_pass_span(
+        self,
+        *,
+        symbol: str,
+        timeframe: str,
+        interval,
+        to_process: Sequence[datetime],
+        depth: int,
+        stored_candles: tuple[Candle, ...],
+        as_of: datetime,
+    ) -> dict[str, Any]:
+        """Best-effort bounded refill of pass-span required-window holes.
+
+        The normal refresh only advances forward, so a hole inside the pass
+        span (a sparse exchange page, a partially failed download) would
+        otherwise block planning until it ages out of the required window. All
+        missing opens across this pass's per-boundary required windows are
+        coalesced into one span and re-requested exactly once through the
+        unchanged Step 2 download path (closed candles only, idempotent for
+        already-stored rows): any failure is reported here and the pass
+        proceeds over stored data, with still-missing boundaries recorded
+        INCOMPLETE instead. Backfill can only restore completeness, never
+        invent it — ``refilled`` is true only when the store verifiably
+        changed.
+        """
+
+        try:
+            missing: set[datetime] = set()
+            for open_time in to_process:
+                assessment = assess_required_window(
+                    stored_candles,
+                    exchange=self.settings.exchange,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    decision_time=open_time + interval,
+                    depth=depth,
+                )
+                missing.update(assessment.missing_opens)
+            if not missing:
+                return {"attempted": False, "reason": "pass_span_complete"}
+            service = self._market_data_service()
+            update = service.download_history(
+                start_time=min(missing),
+                end_time=max(missing),
+                symbol=symbol,
+                timeframe=timeframe,
+                as_of=as_of,
+            )
+            refilled = update.inserted_count > 0
+            logger.info(
+                "Forward runner backfilled the pass span",
+                extra={
+                    "fields": {
+                        "stage": "BACKFILL",
+                        "exchange": self.settings.exchange,
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "missing_opens": str(len(missing)),
+                        "inserted_count": str(update.inserted_count),
+                    }
+                },
+            )
+            return {
+                "attempted": True,
+                "missing_opens": len(missing),
+                "inserted_count": update.inserted_count,
+                "rejected_count": update.rejected_count,
+                "excluded_range_count": update.excluded_range_count,
+                "refilled": refilled,
+            }
+        except Exception as exc:  # noqa: BLE001 - best effort; the gate judges
+            logger.warning(
+                "Forward runner could not backfill the pass span",
+                extra={
+                    "fields": {
+                        "stage": "BACKFILL",
+                        "exchange": self.settings.exchange,
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "error_type": type(exc).__name__,
+                    }
+                },
+            )
+            return {
+                "attempted": True,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+                "refilled": False,
+            }
+
     # ------------------------------------------------------------------
     # Pending boundaries
     # ------------------------------------------------------------------
@@ -1331,6 +1493,7 @@ class ForwardTestService:
         candle: Candle | None,
         candles_known: int,
         latest_stored: datetime | None,
+        assessment: RequiredWindowAssessment,
     ) -> _BoundaryContext:
         interval = interval_for_timeframe(timeframe)
         expected_open = boundary - interval
@@ -1346,6 +1509,24 @@ class ForwardTestService:
                 f"stored candles stop {staleness} interval(s) before this "
                 f"boundary's own candle"
             )
+        elif not assessment.complete:
+            # Component #1 gate: holes inside THIS boundary's required window
+            # (not ancient history, not newer closes) withhold planning via the
+            # unchanged INCOMPLETE mechanism — including on catch-up passes,
+            # which previously skipped the completeness check entirely. The
+            # exact missing boundaries are recorded, never inferred.
+            staleness = 0
+            health = DataHealth.INCOMPLETE
+            catch_up = (
+                "catch-up pass over an earlier closed candle; "
+                if boundary < target_boundary
+                else ""
+            )
+            detail = (
+                f"{catch_up}the required {timeframe} window is missing "
+                f"{assessment.missing_count} expected candle(s): "
+                f"{assessment.missing_summary()}"
+            )
         elif boundary < target_boundary:
             staleness = 0
             health = DataHealth.HISTORICAL
@@ -1355,24 +1536,9 @@ class ForwardTestService:
             )
         else:
             staleness = 0
-            completeness = None if frame is None else frame.patterns.completeness
-            if completeness is not None and not completeness.complete:
-                health = DataHealth.INCOMPLETE
-                detail = (
-                    "the analysed window is missing expected candles "
-                    f"({completeness.missing_candle_count} missing)"
-                )
-            elif snapshot is not None and snapshot.status == "incomplete":
-                health = DataHealth.INCOMPLETE
-                detail = "the Step 5 snapshot reports an incomplete source window"
-            else:
-                health = DataHealth.CURRENT
-                detail = "the analysed closed-candle window is complete"
-        missing = (
-            0
-            if frame is None
-            else frame.patterns.completeness.missing_candle_count
-        )
+            health = DataHealth.CURRENT
+            detail = "the analysed closed-candle window is complete"
+        missing = assessment.missing_count
         structure_fingerprint = (
             None
             if frame is None
@@ -1655,13 +1821,11 @@ class ForwardTestService:
             market_data_json=market_data_json,
             notes=tuple(notes),
         )
-        stored, created = self.ledger.insert_cycle(cycle)
-        for observation in recorded_items:
-            self.ledger.insert_observation(observation)
-        for frozen in pending_plans:
-            if frozen is None:
-                continue
-            stored_plan, plan_created = self.ledger.insert_paper_plan(frozen)
+        frozen_plans = [frozen for frozen in pending_plans if frozen is not None]
+        stored, created, _, stored_plans = self.ledger.insert_cycle_bundle(
+            cycle, recorded_items, frozen_plans
+        )
+        for frozen, (stored_plan, plan_created) in zip(frozen_plans, stored_plans):
             if stored_plan.paper_plan_id != frozen.paper_plan_id:
                 raise ForwardConflict(
                     "a different paper plan id is already stored for setup "

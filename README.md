@@ -189,7 +189,11 @@ Every write transaction in this codebase is a short, insert-only transaction: ex
 
 ### Validation and closed candles
 
-Only candles whose full timeframe interval has ended at the service's UTC `as_of` time are eligible for historical storage. The current/forming candle is archived in the source response but excluded from the processed/database records. Validation reports malformed/missing values, duplicate or unaligned timestamps, out-of-order rows, invalid OHLC relationships, negative prices/volume, and missing/gapped candle intervals. Invalid rows fail the update before database writes. Gaps make the result `complete=False` and are logged/reported; **missing candles are never fabricated, interpolated, or presented as complete**. Previously stored history remains untouched after exchange, validation, or database conflicts/failures.
+Only candles whose full timeframe interval has ended at the service's UTC `as_of` time are eligible for historical storage. The current/forming candle is archived in the source response but excluded from the processed/database records. Validation reports malformed/missing values, duplicate or unaligned timestamps, out-of-order rows, invalid OHLC relationships, non-positive OHLC prices (`non_positive_price`; zero is rejected, not just negative), negative volume, and missing/gapped candle intervals. Invalid rows fail the update before database writes. Rows outside the requested range (routine for cursor-less rolling-window endpoints) are excluded and counted as `excluded_range_count` so received/accepted stays exactly reconcilable. Gaps make the result `complete=False` and are logged/reported; **missing candles are never fabricated, interpolated, or presented as complete**. Previously stored history remains untouched after exchange, validation, or database conflicts/failures.
+
+### Required-window gate
+
+Every decision consumes a trailing window of closed candles ending at its decision boundary. The required depth is derived from the live parameters (`replay_span + max(structural_span, pattern_span)`, 131 closes by default) in `market_data/integrity.py`. Only a hole *inside* that window blocks: planning is withheld and no decision is accepted, with the exact missing boundaries recorded. A hole older than the window neither blocks nor hides — it stays visible in whole-series gap diagnostics. Runners re-request holed spans once through the unchanged download path before judging; backfill can only restore stored candles, never invent them.
 
 Configure structured JSON-lines logging with:
 

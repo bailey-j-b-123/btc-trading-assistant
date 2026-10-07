@@ -30,6 +30,7 @@ from trading_assistant.database.engine import (
     is_sqlite_lock_error,
 )
 from trading_assistant.forward_testing.parameters import RunnerSettings
+from trading_assistant.multi_timeframe.errors import MultiTimeframeError
 from trading_assistant.multi_timeframe.service import (
     MultiTimeframeRunResult,
     MultiTimeframeService,
@@ -146,10 +147,59 @@ class MultiTimeframeRunner:
                 self._wait_for_next_check()
                 continue
             last_result = result
-            self._consecutive_errors = 0
+            # Step 12 failure contract, matched here: a completed pass that
+            # recorded a transient market-data failure never counts toward
+            # stop_after_errors (an outage must not kill the runner), while a
+            # completed pass that recorded a non-transient failure does — a
+            # permanent configuration error must stop loudly, not spin forever
+            # re-attempting doomed network calls. A pass with any recorded
+            # market-data error waits the normal cadence before retrying.
+            if result.market_data_error is None:
+                self._consecutive_errors = 0
+            elif result.market_data_error_transient:
+                logger.warning(
+                    "Multi-timeframe runner pass completed with a transient "
+                    "market-data failure; only already-stored closed candles "
+                    "were evaluated",
+                    extra={
+                        "fields": {
+                            "runner_id": self.runner_id,
+                            "error_type": result.market_data_error_type,
+                        }
+                    },
+                )
+            else:
+                self._consecutive_errors += 1
+                logger.error(
+                    "Multi-timeframe runner pass completed with a non-transient "
+                    "market-data failure (%s); counted toward stop_after_errors "
+                    "(%d/%d)",
+                    result.market_data_error_type,
+                    self._consecutive_errors,
+                    self.settings.stop_after_errors,
+                    extra={
+                        "fields": {
+                            "runner_id": self.runner_id,
+                            "error_type": result.market_data_error_type,
+                            "consecutive_errors": self._consecutive_errors,
+                        }
+                    },
+                )
+                if self._consecutive_errors >= self.settings.stop_after_errors:
+                    raise MultiTimeframeError(
+                        f"multi-timeframe runner stopping after "
+                        f"{self._consecutive_errors} consecutive non-transient "
+                        f"market-data failures (stop_after_errors="
+                        f"{self.settings.stop_after_errors}); last recorded "
+                        f"error: {result.market_data_error_type}: "
+                        f"{result.market_data_error}"
+                    )
             if once:
                 return result
-            if result.status is RunnerStatus.IDLE:
+            if (
+                result.status is RunnerStatus.IDLE
+                or result.market_data_error is not None
+            ):
                 self._wait_for_next_check()
         return last_result
 

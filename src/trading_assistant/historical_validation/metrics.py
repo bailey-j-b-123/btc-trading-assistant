@@ -159,9 +159,18 @@ def terminal_endpoint(observation: OutcomeObservation) -> Decimal | None:
 def directional_r(observation: OutcomeObservation, endpoint: Decimal) -> Decimal:
     """Unit-neutral R of one endpoint relative to the proposed entry and risk."""
 
+    direction = observation.direction
+    if direction not in ("bullish", "bearish"):
+        raise ValueError(
+            f"outcome {observation.id} has invalid direction {direction!r}"
+        )
+    if observation.risk_per_unit <= 0:
+        raise ValueError(
+            f"outcome {observation.id} has non-positive risk_per_unit"
+        )
     move = (
         endpoint - observation.entry_level
-        if observation.direction == "bullish"
+        if direction == "bullish"
         else observation.entry_level - endpoint
     )
     return quantize_derived(move / observation.risk_per_unit)

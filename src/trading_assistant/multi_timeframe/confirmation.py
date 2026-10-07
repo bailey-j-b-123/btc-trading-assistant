@@ -136,6 +136,17 @@ def evaluate_confirmation(
             (),
         )
 
+    if setup.direction not in ("bullish", "bearish"):
+        raise ValueError(
+            f"cannot evaluate confirmation for setup direction "
+            f"{setup.direction!r}; the setup layer must state bullish or bearish"
+        )
+    if setup.created_at is None:
+        raise ValueError(
+            "cannot evaluate confirmation without the instant the setup became "
+            "known; the confirmation window starts at setup creation"
+        )
+
     validate_window(
         candles,
         timeframe=timeframe,

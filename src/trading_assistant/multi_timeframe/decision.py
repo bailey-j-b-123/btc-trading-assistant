@@ -232,7 +232,22 @@ def gate_decision(
             tuple(invalidated_if),
         )
 
-    # Confirmation is CONFIRMING.
+    # Only an explicit CONFIRMING confirmation may proceed toward completion.
+    # NOT_APPLICABLE (no evaluation happened) and any future state stay below
+    # PLANNABLE instead of being silently assumed to confirm.
+    if confirmation.state is not ConfirmationState.CONFIRMING:
+        reasons.append("confirmation_not_confirming")
+        waiting_for.append(
+            f"{confirmation.timeframe} confirmation of the setup idea"
+        )
+        return (
+            HierarchyDecision.AWAITING_CONFIRMATION,
+            tuple(dict.fromkeys(reasons)),
+            "evaluated",
+            counter_trend,
+            tuple(waiting_for),
+            tuple(invalidated_if),
+        )
     if alignment is HierarchyAlignment.COUNTER_TREND:
         # An ordinary setup opposing established 4H directional structure
         # must NOT reach PLANNABLE merely because the lower layers produced

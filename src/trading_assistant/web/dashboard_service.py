@@ -14,11 +14,17 @@ from datetime import datetime
 
 from trading_assistant.journaling.parameters import normalize_note
 from trading_assistant.journaling.types import DecisionState
+from trading_assistant.market_data.integrity import (
+    RequiredWindowAssessment,
+    assess_required_window,
+    required_trailing_depth,
+)
 from trading_assistant.market_data.timeframes import (
     latest_closed_candle_open_time,
     require_utc_datetime,
 )
 from trading_assistant.market_structure.candles import interval_for_timeframe
+from trading_assistant.market_structure.parameters import MarketStructureParameters
 from trading_assistant.market_structure.snapshot import to_jsonable
 from trading_assistant.pattern_liquidity.events import (
     Breakout,
@@ -26,6 +32,7 @@ from trading_assistant.pattern_liquidity.events import (
     Retest,
     Sweep,
 )
+from trading_assistant.pattern_liquidity.parameters import PatternLiquidityParameters
 from trading_assistant.market_structure.trend import TrendDirection
 from trading_assistant.multi_timeframe import (
     HIERARCHY_LIMITATIONS,
@@ -142,6 +149,25 @@ class DashboardService:
         frames: tuple[QualificationFrame, ...] = qualification.get("_frames", ())
         selected: SetupResult | None = qualification.get("_selected_setup")
 
+        # Component #1 gate: the dashboard may describe the evidence state,
+        # but no plan is produced and no decision is accepted when the
+        # required window at this exact close is incomplete — mirroring the
+        # forward runner's planning-withheld verdict for the same instant.
+        required_window = self._required_window(
+            exchange=exchange,
+            symbol=resolved_symbol,
+            timeframe=resolved_timeframe,
+            as_of=resolved_as_of,
+        )
+        window_gate: str | None = None
+        if not required_window.complete:
+            window_gate = (
+                f"planning withheld: the required {resolved_timeframe} window "
+                f"is missing {required_window.missing_count} expected "
+                f"candle(s): {required_window.missing_summary()} — the stored "
+                "history is incomplete at this close, so no plan is produced "
+                "and no decision is accepted"
+            )
         plan: TradePlanResult | None = None
         planning_payload: dict[str, object] = {
             "state": None,
@@ -149,7 +175,12 @@ class DashboardService:
             "missing_inputs": [],
             "state_detail": None,
         }
-        if selected is not None and snapshot is not None and frame is not None:
+        if (
+            selected is not None
+            and snapshot is not None
+            and frame is not None
+            and window_gate is None
+        ):
             plan = plan_trade(snapshot=snapshot, frame=frame, setup_id=selected.id)
             planning_payload = {
                 "state": plan.state.value,
@@ -157,9 +188,16 @@ class DashboardService:
                 "missing_inputs": list(plan.missing_inputs),
                 "state_detail": plan.state_detail,
             }
+        if window_gate is not None:
+            planning_payload = {
+                "state": None,
+                "reasons": [window_gate],
+                "missing_inputs": [],
+                "state_detail": window_gate,
+            }
 
         journal_payload = self._journal_status(
-            snapshot=snapshot, selected=selected, plan=plan
+            snapshot=snapshot, selected=selected, plan=plan, gate=window_gate
         )
         # Step 13: evaluate the multi-timeframe hierarchy once, at this same
         # decision instant, and feed the identical snapshot to the ladder
@@ -312,6 +350,34 @@ class DashboardService:
             "completeness": to_jsonable(snapshot.completeness),
         }
 
+    def _required_window(
+        self,
+        *,
+        exchange: str,
+        symbol: str,
+        timeframe: str,
+        as_of: datetime,
+    ) -> RequiredWindowAssessment:
+        expected_latest_closed = latest_closed_candle_open_time(as_of, timeframe)
+        result = self.state.candles.get_candles(
+            exchange=exchange,
+            symbol=symbol,
+            timeframe=timeframe,
+            end_time=expected_latest_closed,
+        )
+        return assess_required_window(
+            result.candles,
+            exchange=exchange,
+            symbol=symbol,
+            timeframe=timeframe,
+            decision_time=as_of,
+            depth=required_trailing_depth(
+                structure=MarketStructureParameters(),
+                pattern=PatternLiquidityParameters(),
+                qualification=QualificationParameters(),
+            ),
+        )
+
     def decide_current(
         self,
         *,
@@ -358,6 +424,21 @@ class DashboardService:
                 "proposal_not_decidable",
                 f"setup state is {selected.state.value}; only QUALIFIED proposals "
                 "can receive a decision",
+            )
+        required_window = self._required_window(
+            exchange=state.settings.exchange,
+            symbol=resolved_symbol,
+            timeframe=resolved_timeframe,
+            as_of=resolved_as_of,
+        )
+        if not required_window.complete:
+            raise DashboardError(
+                "proposal_not_decidable",
+                f"planning withheld: the required {resolved_timeframe} window "
+                f"is missing {required_window.missing_count} expected "
+                f"candle(s): {required_window.missing_summary()} — the stored "
+                "history is incomplete at this close, so no plan is produced "
+                "and no decision is accepted",
             )
         plan = plan_trade(snapshot=snapshot, frame=frame, setup_id=setup_id)
         if plan.state is not PlanState.PLANNABLE:
@@ -569,6 +650,12 @@ class DashboardService:
             "gaps": to_jsonable(result.gaps),
             "complete": result.complete,
             "missing_candle_count": result.missing_candle_count,
+            "required_window": self._required_window(
+                exchange=exchange,
+                symbol=symbol,
+                timeframe=timeframe,
+                as_of=as_of,
+            ).to_json_dict(),
         }
 
     def _qualification(
@@ -662,6 +749,7 @@ class DashboardService:
         snapshot: QualificationSnapshot | None,
         selected: SetupResult | None,
         plan: TradePlanResult | None,
+        gate: str | None = None,
     ) -> dict[str, object]:
         if snapshot is None or selected is None:
             can_decide = False
@@ -695,7 +783,9 @@ class DashboardService:
             disabled_reason = None
         else:
             can_decide = False
-            if plan is None:
+            if gate is not None:
+                disabled_reason = gate
+            elif plan is None:
                 disabled_reason = (
                     "The planner produced no result for this setup; there is no "
                     "proposed plan to accept, reject, or skip."

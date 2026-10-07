@@ -78,6 +78,11 @@ def build_explanation_context(
 
     if not isinstance(snapshot, QualificationSnapshot):
         raise ContextBuildError("snapshot must be a Step 5 QualificationSnapshot")
+    if snapshot.as_of is None:
+        raise ContextBuildError(
+            "snapshot.as_of must be set; an explanation without an as-of "
+            "instant cannot apply its cutoff guards"
+        )
     for name, value in (
         ("frame", (frame, QualificationFrame)),
         ("plan", (plan, TradePlanResult)),
@@ -172,6 +177,12 @@ def build_explanation_context(
             raise ContextBuildError(
                 f"outcome instrument {outcome_instrument} does not match "
                 f"snapshot instrument {instrument}"
+            )
+        if latest_outcome.observed_through > snapshot.as_of:
+            raise ContextBuildError(
+                f"outcome observed_through {latest_outcome.observed_through} is "
+                f"after the explanation as_of {snapshot.as_of}; observations "
+                "beyond the explanation cutoff are future data"
             )
 
     if statistics_report is not None:

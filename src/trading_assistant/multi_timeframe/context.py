@@ -49,17 +49,33 @@ def build_context_snapshot(
     structure: MarketStructureSnapshot | None,
     *,
     boundary: TimeframeBoundary,
+    missing_candle_count: int | None = None,
 ) -> ContextLayerSnapshot:
     """Project one Step 3 structure snapshot into the context layer.
 
     ``structure`` is the existing market-structure snapshot for the context
     timeframe at the decision instant (already bounded to the latest candle
     closed by that instant). ``None`` means the engine had no usable window.
+
+    ``missing_candle_count`` scopes the layer's incompleteness signal to the
+    required context window (Component #1 gate input): when provided it
+    replaces the whole-series missing count. ``None`` preserves the legacy
+    whole-series behaviour for direct callers; the hierarchy service always
+    supplies the scoped required-window count.
     """
+
+    if missing_candle_count is not None and (
+        isinstance(missing_candle_count, bool)
+        or not isinstance(missing_candle_count, int)
+        or missing_candle_count < 0
+    ):
+        raise ValueError("missing_candle_count must be an integer >= 0 or None")
 
     timeframe = boundary.timeframe
     evidence: list[LayerEvidence] = []
+    scoped = missing_candle_count is not None
     if structure is None or structure.analysis.candle_count == 0:
+        legacy_missing = 0 if structure is None else structure.missing_candle_count
         return ContextLayerSnapshot(
             timeframe=timeframe,
             decision_time=boundary.decision_time,
@@ -85,7 +101,7 @@ def build_context_snapshot(
             latest_close=None,
             candle_count=0,
             missing_candle_count=(
-                0 if structure is None else structure.missing_candle_count
+                missing_candle_count if scoped else legacy_missing
             ),
             stale=boundary.stale,
             evidence=(
@@ -189,14 +205,18 @@ def build_context_snapshot(
                 observed_at=boundary.decision_time,
             )
         )
-    if not structure.completeness.complete:
+    effective_missing = missing_candle_count if scoped else structure.missing_candle_count
+    window_incomplete = (effective_missing > 0) if scoped else (
+        not structure.completeness.complete
+    )
+    if window_incomplete:
         evidence.append(
             LayerEvidence(
                 category="availability",
                 status=EvidenceStatus.OPPOSING,
                 reason=(
                     f"the context candle window is incomplete "
-                    f"({structure.missing_candle_count} missing candle(s))"
+                    f"({effective_missing} missing candle(s))"
                 ),
                 timeframe=timeframe,
                 observed_at=boundary.decision_time,
@@ -212,11 +232,7 @@ def build_context_snapshot(
         reason=(
             "stored context candles stop before the expected closed candle"
             if boundary.stale
-            else (
-                "the context candle window is incomplete"
-                if not structure.completeness.complete
-                else None
-            )
+            else ("the context candle window is incomplete" if window_incomplete else None)
         ),
         regime=regime,
         trend_direction=trend.direction.value,
@@ -234,7 +250,7 @@ def build_context_snapshot(
         ),
         latest_close=latest_close,
         candle_count=analysis.candle_count,
-        missing_candle_count=structure.missing_candle_count,
+        missing_candle_count=effective_missing,
         stale=boundary.stale,
         evidence=tuple(evidence),
     )

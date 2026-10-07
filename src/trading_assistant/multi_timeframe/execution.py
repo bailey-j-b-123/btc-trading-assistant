@@ -142,6 +142,17 @@ def evaluate_execution(
             f"the setup ended ({setup.terminal_reason}); execution timing is moot",
         )
 
+    if setup.direction not in ("bullish", "bearish"):
+        raise ValueError(
+            f"cannot evaluate execution for setup direction "
+            f"{setup.direction!r}; the setup layer must state bullish or bearish"
+        )
+    if setup.created_at is None:
+        raise ValueError(
+            "cannot evaluate execution without the instant the setup became "
+            "known; the execution window starts at setup creation"
+        )
+
     # --- window validation (no lookahead, no pre-setup data) ----------------
     for candle in candles:
         if candle.timeframe != timeframe:

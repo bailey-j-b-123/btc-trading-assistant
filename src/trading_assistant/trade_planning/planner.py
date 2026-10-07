@@ -411,7 +411,9 @@ def _plan_from_evidence(
         return
 
     # Rule 8: resolve the entry level from the configured entry rule.
-    entry_value = _resolve_entry(context, patterns, setup, seed, confirmation, interval)
+    entry_value = _resolve_entry(
+        context, patterns, setup, seed, confirmation, interval, as_of=as_of
+    )
     if entry_value is None:
         return
 
@@ -561,12 +563,25 @@ def _resolve_entry(
     seed: Breakout | FailedBreakout | Sweep,
     confirmation: Breakout | Retest | None,
     interval: timedelta,
+    *,
+    as_of: datetime,
 ) -> Decimal | None:
     if context.parameters.entry_mode is EntryMode.PLAN_CLOSE:
         value, source_id, observed, confirmed = plan_close_level(
             patterns.structure.volatility, patterns.timeframe, interval
         )
         source_type = "step3_volatility_latest_close"
+        # Anti-lookahead: the entry anchor itself must have been known at the
+        # planning instant. A contradiction outranks a missing input, so this
+        # check precedes the missing-close gap below.
+        if observed is not None and observed + interval > as_of:
+            context.fail(
+                "future_evidence_used",
+                "entry_level_available",
+                f"plan-close candle opened {observed} closes {observed + interval} "
+                f"> as_of {as_of}; the entry anchor was not yet known",
+            )
+            return None
         if not isinstance(value, Decimal):
             context.gap(
                 "missing_plan_close",
@@ -945,11 +960,23 @@ def _future_violations(
         close_time = candle.timestamp + interval
         if close_time > as_of:
             problems.append(f"seed candle closes {close_time} > as_of {as_of}")
-    if confirmation is not None and confirmation.known_at > as_of:
-        problems.append(
-            f"confirmation {confirmation.id} known_at {confirmation.known_at} "
-            f"> as_of {as_of}"
-        )
+    if confirmation is not None:
+        if confirmation.known_at > as_of:
+            problems.append(
+                f"confirmation {confirmation.id} known_at {confirmation.known_at} "
+                f"> as_of {as_of}"
+            )
+        conf_candle = getattr(confirmation, "candle", None)
+        if (
+            conf_candle is not None
+            and getattr(conf_candle, "timestamp", None) is not None
+        ):
+            conf_close_time = conf_candle.timestamp + interval
+            if conf_close_time > as_of:
+                problems.append(
+                    f"confirmation {confirmation.id} candle closes {conf_close_time} "
+                    f"> as_of {as_of}"
+                )
     reference = reference_for(seed)
     if not is_available_at(reference.known_at, as_of):
         problems.append(

@@ -39,7 +39,9 @@ def evaluate_alignment(
 
     if not context.available or context.regime is ContextRegime.UNKNOWN:
         return HierarchyAlignment.UNKNOWN
-    if not setup.has_active_setup or setup.direction is None:
+    if not setup.has_active_setup or setup.direction not in ("bullish", "bearish"):
+        # An unrecognized direction states no relationship: UNKNOWN blocks
+        # completion instead of being silently read as bearish.
         return HierarchyAlignment.UNKNOWN
     if context.regime is ContextRegime.TRANSITION:
         return HierarchyAlignment.CONFLICTING

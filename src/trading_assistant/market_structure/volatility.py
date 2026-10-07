@@ -91,8 +91,7 @@ def wilder_average(values: tuple[Decimal, ...], *, period: int) -> Decimal:
     later value updates it as ``previous + (value - previous) / period``.
     """
 
-    if period < 1:
-        raise ValueError("period must be an integer >= 1")
+    require_int(period, name="period", minimum=1)
     if len(values) < period:
         raise ValueError("wilder_average requires at least `period` values")
     smoothed = mean(list(values[:period]))

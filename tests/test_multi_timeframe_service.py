@@ -1021,9 +1021,9 @@ def test_explanation_context_and_renderer_include_the_hierarchy(aligned_engine):
     result = explanations.explain(context)
     narrative = "\n".join(section.text for section in result.sections)
     assert "Multi-timeframe hierarchy" in narrative
-    assert "4H context" in narrative
-    assert "15M confirmation" in narrative
-    assert "5M execution" in narrative
+    assert "4h context" in narrative
+    assert "15m confirmation" in narrative
+    assert "5m execution" in narrative
     assert "Waiting for:" in narrative
     assert "Invalidated if:" in narrative
 

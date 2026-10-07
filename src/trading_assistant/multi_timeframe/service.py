@@ -33,8 +33,16 @@ from sqlalchemy.engine import Engine
 
 from trading_assistant.ai_explanation.parameters import EXPLANATION_RULES_VERSION
 from trading_assistant.config import Settings, get_settings
-from trading_assistant.database.engine import is_memory_database
+from trading_assistant.database.engine import (
+    is_memory_database,
+    is_sqlite_lock_error,
+)
+from trading_assistant.market_data.errors import is_transient_network_error
 from trading_assistant.forward_testing.parameters import RunnerSettings
+from trading_assistant.market_data.integrity import (
+    assess_required_window,
+    required_trailing_depth,
+)
 from trading_assistant.market_data.repository import CandleRepository
 from trading_assistant.market_data.service import MarketDataService
 from trading_assistant.market_data.timeframes import (
@@ -112,6 +120,7 @@ class MultiTimeframeRunResult:
     market_data_json: str
     market_data_error: str | None
     market_data_error_type: str | None
+    market_data_error_transient: bool = False
 
     def to_json_dict(self) -> dict[str, Any]:
         from trading_assistant.market_structure.snapshot import to_jsonable
@@ -177,6 +186,12 @@ class MultiTimeframeService:
             raise ValueError("max_catch_up_boundaries must be between 1 and 100000")
         self.max_catch_up_boundaries = max_catch_up_boundaries
         self._sleep = time.sleep
+        if self.hierarchy.confirmation is None or self.hierarchy.execution is None:
+            raise ValueError(
+                "the hierarchy evaluation engine implements the four-layer "
+                "contract (context, setup, confirmation, execution); this "
+                "hierarchy lacks a confirmation or execution timeframe"
+            )
         for timeframe in self.hierarchy.timeframes:
             if timeframe not in self.settings.supported_timeframes:
                 raise ValueError(
@@ -292,6 +307,34 @@ class MultiTimeframeService:
             else ()
         )
 
+        # Component #1 gate inputs: the context/setup incompleteness signals
+        # are scoped to the required windows (trailing closes the decision can
+        # depend on), so a hole older than the required window neither blocks
+        # the decision nor hides: it stays visible in whole-series diagnostics
+        # while the gate judges only the required span. The gate policy itself
+        # (never complete on incomplete/stale required data) is unchanged.
+        depth = required_trailing_depth(
+            structure=self.structure_parameters,
+            pattern=self.pattern_parameters,
+            qualification=self.qualification_parameters,
+        )
+        context_assessment = assess_required_window(
+            candles_by_timeframe[hierarchy.context.timeframe],
+            exchange=exchange,
+            symbol=resolved_symbol,
+            timeframe=hierarchy.context.timeframe,
+            decision_time=instant,
+            depth=depth,
+        )
+        setup_assessment = assess_required_window(
+            candles_by_timeframe[hierarchy.setup.timeframe],
+            exchange=exchange,
+            symbol=resolved_symbol,
+            timeframe=hierarchy.setup.timeframe,
+            decision_time=setup_boundary.candle_close_time,
+            depth=depth,
+        )
+
         return evaluate_hierarchy(
             hierarchy=hierarchy,
             exchange=exchange,
@@ -305,6 +348,10 @@ class MultiTimeframeService:
             execution_candles=execution_candles,
             strategy_versions=self._strategy_versions(qualification),
             structure_parameters=self.structure_parameters,
+            context_missing_candle_count=context_assessment.missing_count,
+            setup_window_status=(
+                "evaluated" if setup_assessment.complete else "incomplete"
+            ),
         )
 
     def ladder_payload(
@@ -366,6 +413,11 @@ class MultiTimeframeService:
             symbol=resolved_symbol,
             target_boundary=target_boundary,
         )
+        depth = required_trailing_depth(
+            structure=self.structure_parameters,
+            pattern=self.pattern_parameters,
+            qualification=self.qualification_parameters,
+        )
         health: dict[str, Any] = {}
         for timeframe in self.hierarchy.timeframes:
             expected_open = latest_closed_candle_open_time(instant, timeframe)
@@ -382,6 +434,20 @@ class MultiTimeframeService:
                 )
             else:
                 state, detail = "CURRENT", "the latest expected closed candle is stored"
+            stored = self.candles.get_candles(
+                exchange=exchange,
+                symbol=resolved_symbol,
+                timeframe=timeframe,
+                end_time=expected_open,
+            )
+            assessment = assess_required_window(
+                stored.candles,
+                exchange=exchange,
+                symbol=resolved_symbol,
+                timeframe=timeframe,
+                decision_time=instant,
+                depth=depth,
+            )
             health[timeframe] = {
                 "data_health": state,
                 "data_health_detail": detail,
@@ -389,6 +455,7 @@ class MultiTimeframeService:
                     None if latest_stored is None else latest_stored
                 ),
                 "expected_latest_closed_candle_open": expected_open,
+                "required_window": assessment.to_json_dict(),
             }
         return {
             "exchange": exchange,
@@ -461,9 +528,10 @@ class MultiTimeframeService:
         )
         market_error: str | None = None
         market_error_type: str | None = None
+        market_error_transient = False
         if refresh_market_data:
             try:
-                updates = self._refresh_market_data(
+                updates, backfills = self._refresh_market_data(
                     symbol=resolved_symbol, as_of=instant
                 )
                 market_data_json = canonical_json(
@@ -476,22 +544,33 @@ class MultiTimeframeService:
                                 "inserted_count": update.inserted_count,
                                 "already_present_count": update.already_present_count,
                                 "excluded_open_count": update.excluded_open_count,
+                                "excluded_range_count": update.excluded_range_count,
                                 "rejected_count": update.rejected_count,
                                 "missing_candle_count": update.missing_candle_count,
                                 "complete": update.complete,
+                                "backfill": backfills[timeframe],
                             }
                             for timeframe, update in updates.items()
                         },
                     }
                 )
             except Exception as exc:  # noqa: BLE001 - reported, never hidden
+                if is_sqlite_lock_error(exc):
+                    # Step 12 PR #22 semantics, matched here: a SQLite lock
+                    # failure is never swallowed to be retried on a later
+                    # pass - retrying on top of a held lock only multiplies
+                    # blocked writes - so it propagates and the runner stops
+                    # immediately instead of entering a retry storm.
+                    raise
                 market_error = f"{type(exc).__name__}: {exc}"
                 market_error_type = type(exc).__name__
+                market_error_transient = is_transient_network_error(exc)
                 market_data_json = canonical_json(
                     {
                         "refreshed": False,
                         "error_type": type(exc).__name__,
                         "error": str(exc),
+                        "transient": market_error_transient,
                         "note": (
                             "public market data could not be refreshed; only "
                             "already-stored closed candles may be evaluated"
@@ -534,6 +613,7 @@ class MultiTimeframeService:
                 market_data_json=market_data_json,
                 market_data_error=market_error,
                 market_data_error_type=market_error_type,
+                market_data_error_transient=market_error_transient,
             )
 
         opens = self._pending_opens(
@@ -566,6 +646,7 @@ class MultiTimeframeService:
                 market_data_json=market_data_json,
                 market_data_error=market_error,
                 market_data_error_type=market_error_type,
+                market_data_error_transient=market_error_transient,
             )
 
         processed: list[datetime] = []
@@ -610,6 +691,7 @@ class MultiTimeframeService:
             market_data_json=market_data_json,
             market_data_error=market_error,
             market_data_error_type=market_error_type,
+            market_data_error_transient=market_error_transient,
         )
 
     def release_database_connections(self) -> None:
@@ -675,22 +757,139 @@ class MultiTimeframeService:
 
     def _refresh_market_data(
         self, *, symbol: str, as_of: datetime
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Refresh every hierarchy timeframe through ONE market-data service.
 
         The same correctly managed client (metadata before Decimal mode,
         closed-candle filtering, aligned pagination, rolling-window handling,
         raw archiving, idempotent storage) safely supplies all timeframes;
         there is never a second exchange client per timeframe.
+
+        Returns ``(updates, backfills)``: the per-timeframe Step 2 results
+        plus the per-timeframe best-effort required-window backfill summaries.
         """
 
         service = self._market_data_service()
+        depth = required_trailing_depth(
+            structure=self.structure_parameters,
+            pattern=self.pattern_parameters,
+            qualification=self.qualification_parameters,
+        )
         updates: dict[str, Any] = {}
+        backfills: dict[str, Any] = {}
         for timeframe in self.hierarchy.timeframes:
             updates[timeframe] = self._refresh_timeframe(
                 service, symbol=symbol, timeframe=timeframe, as_of=as_of
             )
-        return updates
+            backfills[timeframe] = self._backfill_required_window(
+                service, symbol=symbol, timeframe=timeframe, as_of=as_of, depth=depth
+            )
+        return updates, backfills
+
+    def _backfill_required_window(
+        self,
+        service: MarketDataService,
+        *,
+        symbol: str,
+        timeframe: str,
+        as_of: datetime,
+        depth: int,
+    ) -> dict[str, Any]:
+        """Best-effort bounded refill of required-window holes (one span, once).
+
+        The normal refresh only advances forward from the latest stored candle,
+        so a hole *inside* the required window (a sparse exchange page, a
+        partially failed download) would otherwise block completion until it
+        ages out. When holes are detected, the required span is re-requested
+        exactly once through the unchanged Step 2 download path (closed candles
+        only, idempotent for already-stored rows, never fabricated). Any
+        failure is reported here and the evaluation proceeds over stored data:
+        backfill can only restore completeness, never invent it, and it never
+        fails the pass — the gate records the window incomplete instead.
+        """
+
+        try:
+            end_open = latest_closed_candle_open_time(as_of, timeframe)
+            stored = self.candles.get_candles(
+                exchange=self.settings.exchange,
+                symbol=symbol,
+                timeframe=timeframe,
+                end_time=end_open,
+            )
+            before = assess_required_window(
+                stored.candles,
+                exchange=self.settings.exchange,
+                symbol=symbol,
+                timeframe=timeframe,
+                decision_time=as_of,
+                depth=depth,
+            )
+            if before.complete or before.effective_start is None:
+                return {
+                    "attempted": False,
+                    "reason": "required_window_complete",
+                    "missing_before": before.missing_count,
+                }
+            update = service.download_history(
+                start_time=before.effective_start,
+                end_time=before.window_end,
+                symbol=symbol,
+                timeframe=timeframe,
+                as_of=as_of,
+            )
+            after_stored = self.candles.get_candles(
+                exchange=self.settings.exchange,
+                symbol=symbol,
+                timeframe=timeframe,
+                end_time=end_open,
+            )
+            after = assess_required_window(
+                after_stored.candles,
+                exchange=self.settings.exchange,
+                symbol=symbol,
+                timeframe=timeframe,
+                decision_time=as_of,
+                depth=depth,
+            )
+            filled = before.missing_count - after.missing_count
+            logger.info(
+                "Multi-timeframe runner backfilled the required window",
+                extra={
+                    "fields": {
+                        "exchange": self.settings.exchange,
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "missing_before": str(before.missing_count),
+                        "missing_after": str(after.missing_count),
+                        "inserted_count": str(update.inserted_count),
+                    }
+                },
+            )
+            return {
+                "attempted": True,
+                "missing_before": before.missing_count,
+                "missing_after": after.missing_count,
+                "filled_count": max(filled, 0),
+                "inserted_count": update.inserted_count,
+                "complete": after.complete,
+            }
+        except Exception as exc:  # noqa: BLE001 - best effort; the gate judges
+            logger.warning(
+                "Multi-timeframe runner could not backfill the required window",
+                extra={
+                    "fields": {
+                        "exchange": self.settings.exchange,
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "error_type": type(exc).__name__,
+                    }
+                },
+            )
+            return {
+                "attempted": True,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
 
     def _refresh_timeframe(
         self, service: MarketDataService, *, symbol: str, timeframe: str, as_of: datetime

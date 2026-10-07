@@ -221,6 +221,9 @@ def get_forward_comparison(
         forward=forward,
         historical=historical,
         generated_at=state.now(),
+        # Both sides are computed above with this same floor; the recomputed
+        # historical status-share rates must be judged against it too.
+        historical_minimum_sample_size=minimum_sample_size,
     )
     return {
         "step": 12,

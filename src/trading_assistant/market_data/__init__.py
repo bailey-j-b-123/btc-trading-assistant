@@ -9,6 +9,12 @@ from trading_assistant.market_data.errors import (
     RawDataWriteError,
     is_transient_network_error,
 )
+from trading_assistant.market_data.integrity import (
+    RequiredWindowAssessment,
+    assess_required_window,
+    required_trailing_depth,
+    required_window,
+)
 from trading_assistant.market_data.service import (
     MarketDataService,
     create_market_data_service,
@@ -42,8 +48,12 @@ __all__ = [
     "MarketDataUpdateResult",
     "PaginationError",
     "RawDataWriteError",
+    "RequiredWindowAssessment",
+    "assess_required_window",
     "create_market_data_service",
     "is_transient_network_error",
     "parse_ohlcv_row",
+    "required_trailing_depth",
+    "required_window",
     "validate_ohlcv_rows",
 ]
