@@ -120,6 +120,8 @@ class ValidationConfig:
     friction: FrictionAssumptions = FrictionAssumptions()
 
     def __post_init__(self) -> None:
+        if self.split is not None and not isinstance(self.split, ChronologicalSplit):
+            raise TypeError("split must be ChronologicalSplit or None")
         fraction = as_decimal(
             self.out_of_sample_fraction, name="out_of_sample_fraction"
         )
