@@ -105,6 +105,16 @@ def explain_hierarchy(snapshot: HierarchySnapshot) -> dict[str, object]:
     )
 
     sentences = [context_sentence, setup_sentence, confirmation_sentence, execution_sentence]
+    if (
+        snapshot.status == "incomplete"
+        and snapshot.decision is not HierarchyDecision.NO_SETUP
+    ):
+        sentences.append(
+            "The recorded evaluation is incomplete: required market data is "
+            "missing or stale, so the hierarchy waits for complete/current "
+            "data instead of presenting a trade-ready conclusion. Nothing is "
+            "inferred about what the missing candles probably contained."
+        )
     if snapshot.counter_trend:
         sentences.append(
             f"This setup runs counter to the {context_tf} structure; it is "

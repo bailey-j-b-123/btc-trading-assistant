@@ -123,6 +123,8 @@ def context_layer(
     available: bool = True,
     timeframe: str = "4h",
     decision_time: datetime = EPOCH,
+    missing_candle_count: int = 0,
+    stale: bool = False,
 ) -> ContextLayerSnapshot:
     return ContextLayerSnapshot(
         timeframe=timeframe,
@@ -143,8 +145,8 @@ def context_layer(
         nearest_resistance_band_high=Decimal("112"),
         latest_close=Decimal("105"),
         candle_count=36,
-        missing_candle_count=0,
-        stale=False,
+        missing_candle_count=missing_candle_count,
+        stale=stale,
         evidence=(),
     )
 
@@ -162,6 +164,7 @@ def setup_layer(
     available: bool = True,
     timeframe: str = "1h",
     decision_time: datetime = EPOCH,
+    snapshot_status: str = "evaluated",
 ) -> SetupLayerSnapshot:
     return SetupLayerSnapshot(
         timeframe=timeframe,
@@ -171,7 +174,7 @@ def setup_layer(
         available=available,
         reason=None,
         state=None,
-        snapshot_status="evaluated",
+        snapshot_status=snapshot_status,
         snapshot_id="snap-1",
         rules_version="setup-qualification-v1",
         config_fingerprint="fp",
@@ -729,6 +732,11 @@ def _gate(
     confirmation_state=ConfirmationState.CONFIRMING,
     execution_state=ExecutionState.WAITING,
     decision_time=EPOCH + 6 * HOUR,
+    context_kwargs=None,
+    confirmation_stale=False,
+    confirmation_missing=0,
+    execution_stale=False,
+    execution_missing=0,
 ):
     from trading_assistant.multi_timeframe.models import (
         ConfirmationLayerSnapshot,
@@ -736,7 +744,9 @@ def _gate(
     )
 
     setup = setup_layer(**(setup_kwargs or {}), decision_time=decision_time)
-    context = context_layer(regime=context_regime, decision_time=decision_time)
+    context = context_layer(
+        regime=context_regime, decision_time=decision_time, **(context_kwargs or {})
+    )
     confirmation = ConfirmationLayerSnapshot(
         timeframe="15m",
         decision_time=decision_time,
@@ -747,8 +757,8 @@ def _gate(
         window_start=EPOCH,
         window_end=decision_time - timedelta(minutes=15),
         candle_count=4,
-        missing_candle_count=0,
-        stale=False,
+        missing_candle_count=confirmation_missing,
+        stale=confirmation_stale,
         evidence=(),
     )
     execution = ExecutionLayerSnapshot(
@@ -761,8 +771,8 @@ def _gate(
         window_start=EPOCH,
         window_end=decision_time - timedelta(minutes=5),
         candle_count=12,
-        missing_candle_count=0,
-        stale=False,
+        missing_candle_count=execution_missing,
+        stale=execution_stale,
         armed_at=None,
         trigger_at=None,
         entry_zone_low=Decimal("100"),
@@ -884,6 +894,171 @@ def test_gating_conflicting_and_unknown_alignment_never_plannable():
         )
         assert decision is not HierarchyDecision.PLANNABLE
         assert any("alignment_not_plannable" in reason for reason in reasons)
+
+
+def test_gating_missing_confirmation_candles_block_plannable():
+    """CONFIRMING 15m evidence + missing 15m candle(s) cannot complete."""
+
+    decision, reasons, status, counter_trend, waiting_for, _ = _gate(
+        confirmation_missing=2,
+        execution_state=ExecutionState.TRIGGERED,
+    )
+    assert decision is HierarchyDecision.AWAITING_CONFIRMATION
+    assert decision is not HierarchyDecision.PLANNABLE
+    assert status == "incomplete"
+    assert "confirmation_window_incomplete" in reasons
+    assert any("2 missing closed 15m candle(s)" in item for item in waiting_for)
+    assert counter_trend is False
+
+
+def test_gating_missing_execution_candles_block_plannable():
+    """CONFIRMING 15m + ARMED/TRIGGERED 5m + missing 5m candle(s) cannot complete."""
+
+    for execution_state in (ExecutionState.ARMED, ExecutionState.TRIGGERED):
+        decision, reasons, status, _, waiting_for, _ = _gate(
+            execution_missing=3,
+            execution_state=execution_state,
+        )
+        assert decision is HierarchyDecision.AWAITING_EXECUTION
+        assert decision is not HierarchyDecision.PLANNABLE
+        assert status == "incomplete"
+        assert "execution_window_incomplete" in reasons
+        assert any("3 missing closed 5m candle(s)" in item for item in waiting_for)
+
+
+def test_gating_stale_confirmation_data_blocks_plannable():
+    """Stale 15m data (expected latest closed candle not stored) cannot complete."""
+
+    decision, reasons, status, _, waiting_for, _ = _gate(
+        confirmation_stale=True,
+        execution_state=ExecutionState.TRIGGERED,
+    )
+    assert decision is HierarchyDecision.AWAITING_CONFIRMATION
+    assert decision is not HierarchyDecision.PLANNABLE
+    assert status == "incomplete"
+    assert "confirmation_data_stale" in reasons
+    assert any("latest closed 15m confirmation candle" in item for item in waiting_for)
+
+
+def test_gating_stale_execution_data_blocks_plannable():
+    """Stale 5m data (expected latest closed candle not stored) cannot complete."""
+
+    decision, reasons, status, _, waiting_for, _ = _gate(
+        execution_stale=True,
+        execution_state=ExecutionState.ARMED,
+    )
+    assert decision is HierarchyDecision.AWAITING_EXECUTION
+    assert decision is not HierarchyDecision.PLANNABLE
+    assert status == "incomplete"
+    assert "execution_data_stale" in reasons
+    assert any("latest closed 5m execution candle" in item for item in waiting_for)
+
+
+def test_gating_stale_or_incomplete_context_and_setup_data_block_plannable():
+    """Stale/missing required 4H context or 1H setup data cannot complete either."""
+
+    decision, reasons, status, _, waiting_for, _ = _gate(
+        context_kwargs={"stale": True},
+        execution_state=ExecutionState.TRIGGERED,
+    )
+    assert decision is not HierarchyDecision.PLANNABLE
+    assert status == "incomplete"
+    assert "context_data_stale" in reasons
+
+    decision, reasons, status, _, waiting_for, _ = _gate(
+        context_kwargs={"missing_candle_count": 2},
+        execution_state=ExecutionState.TRIGGERED,
+    )
+    assert decision is not HierarchyDecision.PLANNABLE
+    assert status == "incomplete"
+    assert "context_window_incomplete" in reasons
+
+    decision, reasons, status, _, waiting_for, _ = _gate(
+        setup_kwargs={"snapshot_status": "incomplete"},
+        execution_state=ExecutionState.TRIGGERED,
+    )
+    assert decision is not HierarchyDecision.PLANNABLE
+    assert status == "incomplete"
+    assert "setup_window_incomplete" in reasons
+
+
+def test_gating_complete_data_still_allows_plannable():
+    """With complete, current data at every layer the aligned hierarchy completes."""
+
+    decision, reasons, status, counter_trend, waiting_for, _ = _gate(
+        execution_state=ExecutionState.TRIGGERED,
+    )
+    assert decision is HierarchyDecision.PLANNABLE
+    assert status == "evaluated"
+    assert waiting_for == ()
+    assert counter_trend is False
+    assert "hierarchy_complete" in reasons
+
+
+def test_data_quality_block_is_visible_in_snapshot_ladder_and_explanation():
+    """The exact missing/stale-data reason stays visible everywhere."""
+
+    from trading_assistant.multi_timeframe.ladder import ladder_payload
+
+    snapshot = _snapshot(
+        context_kwargs={"regime": ContextRegime.BULLISH_STRUCTURE},
+        setup_kwargs={"direction": "bullish"},
+    )
+    # Re-gate the snapshot's layers with a missing 15m candle to emulate the
+    # data-quality block, then rebuild the snapshot decision fields.
+    from trading_assistant.multi_timeframe.decision import gate_decision
+
+    decision, reasons, status, counter_trend, waiting_for, invalidated_if = gate_decision(
+        context=snapshot.context,
+        setup=snapshot.setup,
+        confirmation=_confirmation_with_missing(snapshot),
+        execution=snapshot.execution,
+        alignment=snapshot.alignment,
+    )
+    assert decision is HierarchyDecision.AWAITING_CONFIRMATION
+    assert status == "incomplete"
+    assert "confirmation_window_incomplete" in reasons
+
+    blocked = HierarchySnapshot(
+        hierarchy=snapshot.hierarchy,
+        exchange=snapshot.exchange,
+        symbol=snapshot.symbol,
+        decision_time=snapshot.decision_time,
+        boundary=snapshot.boundary,
+        context=snapshot.context,
+        setup=snapshot.setup,
+        confirmation=_confirmation_with_missing(snapshot),
+        execution=snapshot.execution,
+        alignment=snapshot.alignment,
+        counter_trend=counter_trend,
+        decision=decision,
+        status=status,
+        reasons=reasons,
+        strategy_versions=snapshot.strategy_versions,
+        waiting_for=waiting_for,
+        invalidated_if=invalidated_if,
+    )
+    payload = ladder_payload(blocked)
+    assert payload["overall"] == "WAITING FOR COMPLETE MARKET DATA"
+    assert payload["status"] == "incomplete"
+    assert any("missing closed 15m candle(s)" in item for item in payload["waiting_for"])
+
+    explanation = explain_hierarchy(blocked)
+    assert any(
+        "incomplete" in s and "complete/current data" in s
+        for s in explanation["sentences"]
+    )
+
+
+def _confirmation_with_missing(snapshot):
+    """The snapshot's confirmation layer with one expected candle missing."""
+
+    from dataclasses import replace
+
+    return replace(
+        snapshot.confirmation,
+        missing_candle_count=snapshot.confirmation.missing_candle_count + 1,
+    )
 
 
 def test_gating_invalidated():

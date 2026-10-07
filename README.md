@@ -2149,19 +2149,34 @@ The context/setup relationship is one explicit enum: `ALIGNED`,
 There is no silent 4H override.
 
 The final gate is strictly hierarchical — `PLANNABLE` requires the *complete*
-hierarchy (evaluated context + QUALIFIED setup + CONFIRMING confirmation +
-ARMED/TRIGGERED execution + a permitting alignment: `ALIGNED`, or `NEUTRAL`
-range context). A 5M trigger alone never produces `PLANNABLE`, and an ordinary
-setup opposing established 4H bullish/bearish structure never produces
-`PLANNABLE` either: lower timeframes refine, they never override the 4H
-structure, so a counter-trend setup stays at `AWAITING_CONFIRMATION` with the
-block recorded explicitly (`counter_trend_blocked_below_plannable`) and shown
-on the dashboard and in the explanation. A counter-trend trade may only become
-eligible in the future if there is explicit, deterministic evidence that the
-higher-timeframe structure has failed/transitioned AND a specifically defined
-reversal setup satisfies that policy; no such reversal policy exists in the
-deterministic system yet. The overall decision vocabulary: `NO_SETUP`, `WATCH`,
-`AWAITING_CONFIRMATION`, `AWAITING_EXECUTION`, `PLANNABLE`, `INVALIDATED`.
+hierarchy on *complete, current* data (evaluated context + QUALIFIED setup +
+CONFIRMING confirmation + ARMED/TRIGGERED execution + a permitting alignment:
+`ALIGNED`, or `NEUTRAL` range context + no stale or missing required market
+data at any layer). A 5M trigger alone never produces `PLANNABLE`, and an
+ordinary setup opposing established 4H bullish/bearish structure never
+produces `PLANNABLE` either: lower timeframes refine, they never override the
+4H structure, so a counter-trend setup stays at `AWAITING_CONFIRMATION` with
+the block recorded explicitly (`counter_trend_blocked_below_plannable`) and
+shown on the dashboard and in the explanation. A counter-trend trade may only
+become eligible in the future if there is explicit, deterministic evidence
+that the higher-timeframe structure has failed/transitioned AND a specifically
+defined reversal setup satisfies that policy; no such reversal policy exists
+in the deterministic system yet.
+
+**Incomplete or stale required market data never produces `PLANNABLE`.** If
+the 15m confirmation window or the 5m execution window is stale (the expected
+latest closed candle is not stored) or has missing expected candles, a subset
+of the available candles never silently substitutes for the complete required
+sequence: no candle is fabricated and nothing is inferred about what missing
+candles probably contained. The evaluation is recorded as `incomplete` with
+the exact data-quality reason (`confirmation_data_stale`,
+`confirmation_window_incomplete`, `execution_data_stale`,
+`execution_window_incomplete`, or the context/setup equivalents), the
+decision stays at `AWAITING_CONFIRMATION`/`AWAITING_EXECUTION`, the dashboard
+shows `WAITING FOR COMPLETE MARKET DATA`, and the runner retries the boundary
+once the complete closed-candle sequence is genuinely available. The overall
+decision vocabulary: `NO_SETUP`, `WATCH`, `AWAITING_CONFIRMATION`,
+`AWAITING_EXECUTION`, `PLANNABLE`, `INVALIDATED`.
 When context or setup data is unavailable the evaluation is recorded as
 `incomplete` with an explicit reason — a missing candle never becomes a trading
 conclusion.

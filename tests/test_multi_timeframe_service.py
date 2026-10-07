@@ -343,6 +343,227 @@ def test_service_scenario_plannable_when_execution_triggers(tmp_path):
     assert snapshot.reasons == ("hierarchy_complete",)
 
 
+def _plannable_scenario():
+    return scenario_candles(
+        band_low=BAND_LOW,
+        band_high=BAND_HIGH,
+        closes_15m=("120", "119", "118", "117.5"),
+        closes_5m=(
+            "123", "122", "121", "120", "119", "118",
+            "117.5", "117", "117.2", "117.5", "117.8", "118",
+        ),
+    )
+
+
+def _insert_with_series_gaps(
+    engine, *, aligned=True, scenario=None, drop_15m_open=None, drop_5m_open=None,
+    truncate_15m_after=None, truncate_5m_after=None,
+):
+    """Insert the fixture with a controlled 15m/5m data-quality gap."""
+
+    series = dict(hierarchy_candles(aligned=aligned, scenario=scenario))
+    if drop_15m_open is not None:
+        series["15m"] = tuple(
+            c for c in series["15m"] if c.timestamp != drop_15m_open
+        )
+    if truncate_15m_after is not None:
+        series["15m"] = tuple(
+            c for c in series["15m"] if c.timestamp <= truncate_15m_after
+        )
+    if drop_5m_open is not None:
+        series["5m"] = tuple(
+            c for c in series["5m"] if c.timestamp != drop_5m_open
+        )
+    if truncate_5m_after is not None:
+        series["5m"] = tuple(
+            c for c in series["5m"] if c.timestamp <= truncate_5m_after
+        )
+    insert_hierarchy(engine, series)
+    return series
+
+
+def test_service_missing_15m_candle_blocks_plannable(tmp_path):
+    """CONFIRMING 15m + TRIGGERED 5m + a missing 15m candle: not PLANNABLE."""
+
+    engine, _url = migrated_engine(tmp_path, "hierarchy.sqlite3")
+    _insert_with_series_gaps(
+        engine,
+        scenario=_plannable_scenario(),
+        drop_15m_open=EPOCH + 18 * HOUR,
+    )
+    service = make_service(engine)
+    snapshot = service.evaluate(decision_time=SCENARIO_DECISION_TIME)
+    # The lower layers genuinely completed on the available candles...
+    assert snapshot.setup.setup_state == "QUALIFIED"
+    assert snapshot.confirmation.state.value == "confirming"
+    assert snapshot.confirmation.missing_candle_count == 1
+    assert snapshot.execution.state.value == "triggered"
+    # ...but the incomplete required data blocks completion.
+    assert snapshot.decision.value == "awaiting_confirmation"
+    assert snapshot.decision.value != "plannable"
+    assert snapshot.status == "incomplete"
+    assert "confirmation_window_incomplete" in snapshot.reasons
+    assert any(
+        "missing closed 15m candle(s)" in item for item in snapshot.waiting_for
+    )
+
+
+def test_service_missing_5m_candle_blocks_plannable(tmp_path):
+    """CONFIRMING 15m + TRIGGERED 5m + a missing 5m candle: not PLANNABLE."""
+
+    engine, _url = migrated_engine(tmp_path, "hierarchy.sqlite3")
+    _insert_with_series_gaps(
+        engine,
+        scenario=_plannable_scenario(),
+        drop_5m_open=EPOCH + 18 * HOUR + timedelta(minutes=5),
+    )
+    service = make_service(engine)
+    snapshot = service.evaluate(decision_time=SCENARIO_DECISION_TIME)
+    assert snapshot.confirmation.state.value == "confirming"
+    assert snapshot.confirmation.missing_candle_count == 0
+    assert snapshot.execution.state.value == "triggered"
+    assert snapshot.execution.missing_candle_count == 1
+    assert snapshot.decision.value == "awaiting_execution"
+    assert snapshot.decision.value != "plannable"
+    assert snapshot.status == "incomplete"
+    assert "execution_window_incomplete" in snapshot.reasons
+    assert any(
+        "missing closed 5m candle(s)" in item for item in snapshot.waiting_for
+    )
+
+
+def test_service_stale_15m_data_blocks_plannable(tmp_path):
+    """Stale 15m data (expected latest closed candle not stored): not PLANNABLE."""
+
+    engine, _url = migrated_engine(tmp_path, "hierarchy.sqlite3")
+    _insert_with_series_gaps(
+        engine,
+        scenario=_plannable_scenario(),
+        truncate_15m_after=EPOCH + 21 * HOUR + timedelta(minutes=15),
+    )
+    service = make_service(engine)
+    snapshot = service.evaluate(decision_time=SCENARIO_DECISION_TIME)
+    assert snapshot.confirmation.state.value == "confirming"
+    assert snapshot.confirmation.stale is True
+    assert snapshot.execution.state.value == "triggered"
+    assert snapshot.decision.value == "awaiting_confirmation"
+    assert snapshot.decision.value != "plannable"
+    assert snapshot.status == "incomplete"
+    assert "confirmation_data_stale" in snapshot.reasons
+    assert any(
+        "latest closed 15m confirmation candle" in item
+        for item in snapshot.waiting_for
+    )
+
+
+def test_service_stale_5m_data_blocks_plannable(tmp_path):
+    """Stale 5m data (expected latest closed candle not stored): not PLANNABLE."""
+
+    engine, _url = migrated_engine(tmp_path, "hierarchy.sqlite3")
+    _insert_with_series_gaps(
+        engine,
+        scenario=_plannable_scenario(),
+        truncate_5m_after=EPOCH + 21 * HOUR + timedelta(minutes=50),
+    )
+    service = make_service(engine)
+    snapshot = service.evaluate(decision_time=SCENARIO_DECISION_TIME)
+    assert snapshot.confirmation.state.value == "confirming"
+    assert snapshot.confirmation.stale is False
+    assert snapshot.execution.state.value == "triggered"
+    assert snapshot.execution.stale is True
+    assert snapshot.decision.value == "awaiting_execution"
+    assert snapshot.decision.value != "plannable"
+    assert snapshot.status == "incomplete"
+    assert "execution_data_stale" in snapshot.reasons
+    assert any(
+        "latest closed 5m execution candle" in item for item in snapshot.waiting_for
+    )
+
+
+def test_service_recovers_to_plannable_once_data_is_complete(tmp_path):
+    """Blocked on incomplete data, then PLANNABLE once the candle exists.
+
+    The blocked evaluation is recorded as its own immutable row; the recovered
+    evaluation is a new row; the old row is never rewritten.
+    """
+
+    engine, _url = migrated_engine(tmp_path, "hierarchy.sqlite3")
+    scenario = _plannable_scenario()
+    dropped_open = EPOCH + 18 * HOUR
+    _insert_with_series_gaps(
+        engine, scenario=scenario, drop_15m_open=dropped_open
+    )
+    service = make_service(engine)
+
+    blocked = service.evaluate(decision_time=SCENARIO_DECISION_TIME)
+    assert blocked.decision.value == "awaiting_confirmation"
+    assert blocked.status == "incomplete"
+    blocked_observation, created_blocked = service.record(
+        blocked, recorded_at=SCENARIO_DECISION_TIME
+    )
+    assert created_blocked is True
+
+    # The missing closed candle becomes genuinely available.
+    from trading_assistant.market_data.repository import CandleRepository
+
+    missing_candle = next(
+        c for c in hierarchy_candles(scenario=scenario)["15m"] if c.timestamp == dropped_open
+    )
+    CandleRepository(engine).insert_unchanged_or_new((missing_candle,))
+
+    recovered = service.evaluate(decision_time=SCENARIO_DECISION_TIME)
+    assert recovered.decision.value == "plannable"
+    assert recovered.status == "evaluated"
+    assert recovered.confirmation.missing_candle_count == 0
+    recovered_observation, created_recovered = service.record(
+        recovered, recorded_at=SCENARIO_DECISION_TIME
+    )
+    assert created_recovered is True
+
+    observations = service.ledger.observations(exchange=EXCHANGE, symbol=SYMBOL)
+    assert len(observations) == 2
+    by_id = {row.observation_id: row for row in observations}
+    assert by_id[blocked_observation.observation_id].status == "incomplete"
+    assert "confirmation_window_incomplete" in json.loads(
+        by_id[blocked_observation.observation_id].reasons_json
+    )
+    assert by_id[recovered_observation.observation_id].status == "evaluated"
+    assert by_id[recovered_observation.observation_id].decision == "plannable"
+    # The blocked record is byte-for-byte what it was.
+    assert by_id[blocked_observation.observation_id].snapshot_json == (
+        blocked_observation.snapshot_json
+    )
+
+
+def test_service_data_quality_block_visible_in_ladder_and_explanation(tmp_path):
+    from trading_assistant.multi_timeframe.explanation import explain_hierarchy
+    from trading_assistant.multi_timeframe.ladder import ladder_payload
+
+    engine, _url = migrated_engine(tmp_path, "hierarchy.sqlite3")
+    _insert_with_series_gaps(
+        engine,
+        scenario=_plannable_scenario(),
+        drop_15m_open=EPOCH + 18 * HOUR,
+    )
+    service = make_service(engine)
+    snapshot = service.evaluate(decision_time=SCENARIO_DECISION_TIME)
+
+    payload = ladder_payload(snapshot)
+    assert payload["overall"] == "WAITING FOR COMPLETE MARKET DATA"
+    assert payload["status"] == "incomplete"
+    assert payload["decision"] == "awaiting_confirmation"
+    assert any(
+        "missing closed 15m candle(s)" in item for item in payload["waiting_for"]
+    )
+
+    explanation = explain_hierarchy(snapshot)
+    assert any(
+        "incomplete" in s and "complete/current data" in s
+        for s in explanation["sentences"]
+    )
+    assert explanation["waiting_for_text"].startswith("Waiting for:")
+
+
 def test_service_scenario_execution_invalidated(tmp_path):
     engine, _url = migrated_engine(tmp_path, "hierarchy.sqlite3")
     scenario = scenario_candles(

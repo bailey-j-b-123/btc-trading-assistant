@@ -407,6 +407,14 @@ class LocalTemplateRenderer(ExplanationRenderer):
                 else "."
             )
         )
+        status = facts.text("ctx.multi_timeframe.status", unknown="evaluated")
+        if status == "incomplete" and decision != "no_setup":
+            lines.append(
+                "The recorded hierarchy evaluation is incomplete: required "
+                "market data is missing or stale, so the hierarchy is waiting "
+                "for complete/current data rather than presenting a "
+                "trade-ready conclusion."
+            )
         context = hierarchy["context"]
         context_tf = facts.text("ctx.multi_timeframe.context.timeframe")
         if context["available"] is False:

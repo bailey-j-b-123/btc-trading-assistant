@@ -115,6 +115,13 @@ def ladder_payload(snapshot: HierarchySnapshot) -> dict[str, Any]:
     overall = overall_phrase(snapshot.decision)
     if snapshot.counter_trend and snapshot.decision is not HierarchyDecision.PLANNABLE:
         overall = "COUNTER-TREND SETUP — BLOCKED BELOW PLANNABLE"
+    elif (
+        snapshot.status == "incomplete"
+        and snapshot.decision is not HierarchyDecision.NO_SETUP
+    ):
+        # Incomplete/stale required market data: the hierarchy is waiting
+        # for complete/current data, not presenting a trade-ready conclusion.
+        overall = "WAITING FOR COMPLETE MARKET DATA"
     return {
         "available": True,
         "hierarchy": snapshot.hierarchy.to_json_dict(),

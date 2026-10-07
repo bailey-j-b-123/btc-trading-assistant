@@ -3,12 +3,16 @@
 The gate is strictly hierarchical. A lower timeframe can never create a trade,
 upgrade a setup, or overwrite the context:
 
-* ``PLANNABLE`` requires the COMPLETE hierarchy: an evaluated context, a
-  QUALIFIED setup, a CONFIRMING confirmation, an ARMED or TRIGGERED execution,
-  and an alignment that permits completion (ALIGNED, or NEUTRAL range
-  context). A 5M trigger alone never produces PLANNABLE, and an ordinary
-  COUNTER_TREND setup never produces PLANNABLE: lower timeframes refine, they
-  never override established 4H directional structure.
+* ``PLANNABLE`` requires the COMPLETE hierarchy on COMPLETE, CURRENT data:
+  an evaluated context, a QUALIFIED setup, a CONFIRMING confirmation, an
+  ARMED or TRIGGERED execution, an alignment that permits completion
+  (ALIGNED, or NEUTRAL range context), and no stale or missing required
+  market data at any layer. A 5M trigger alone never produces PLANNABLE, an
+  ordinary COUNTER_TREND setup never produces PLANNABLE, and incomplete or
+  stale required market data never produces PLANNABLE: lower timeframes
+  refine, they never override established 4H directional structure, and a
+  subset of available candles never substitutes for the complete required
+  sequence.
 * ``WATCH`` — a setup exists but is not QUALIFIED yet; lower layers cannot
   upgrade it.
 * ``AWAITING_CONFIRMATION`` — the setup is QUALIFIED but the confirmation layer
@@ -73,8 +77,12 @@ def gate_decision(
         incomplete = True
     if context.stale:
         reasons.append("context_data_stale")
+    if context.missing_candle_count:
+        reasons.append("context_window_incomplete")
     if setup.stale:
         reasons.append("setup_data_stale")
+    if setup.snapshot_status == "incomplete":
+        reasons.append("setup_window_incomplete")
     if confirmation.stale:
         reasons.append("confirmation_data_stale")
     if execution.stale:
@@ -265,6 +273,31 @@ def gate_decision(
             tuple(invalidated_if),
         )
 
+    # --- required-data quality gate ------------------------------------------
+    # INCOMPLETE OR STALE REQUIRED MARKET DATA MUST NEVER PRODUCE PLANNABLE
+    # (or any completion): a subset of available candles never silently
+    # substitutes for the complete required confirmation/execution sequence,
+    # and no missing candle is ever fabricated or inferred. The evaluation is
+    # recorded as incomplete — the hierarchy is waiting for complete/current
+    # data — and the exact data-quality problem stays visible in the reasons
+    # and the waiting-for items. Once the complete closed-candle sequence is
+    # genuinely available, normal deterministic evaluation may proceed (the
+    # runner retries boundaries recorded as incomplete).
+    data_reasons, data_waiting, data_decision = _data_quality_issues(
+        context, setup, confirmation, execution
+    )
+    if data_decision is not None:
+        reasons.extend(data_reasons)
+        waiting_for.extend(data_waiting)
+        return (
+            data_decision,
+            tuple(dict.fromkeys(reasons)),
+            "incomplete",
+            counter_trend,
+            tuple(dict.fromkeys(waiting_for)),
+            tuple(invalidated_if),
+        )
+
     if execution.state in (ExecutionState.ARMED, ExecutionState.TRIGGERED):
         reasons.append("hierarchy_complete")
         return (
@@ -301,6 +334,95 @@ def gate_decision(
         tuple(waiting_for),
         tuple(invalidated_if),
     )
+
+
+def _data_quality_issues(
+    context: ContextLayerSnapshot,
+    setup: SetupLayerSnapshot,
+    confirmation: ConfirmationLayerSnapshot,
+    execution: ExecutionLayerSnapshot,
+) -> tuple[tuple[str, ...], tuple[str, ...], HierarchyDecision | None]:
+    """Assess required-market-data quality for the completion path.
+
+    Returns ``(reason_codes, waiting_for_items, blocking_decision)``. The
+    blocking decision is ``AWAITING_CONFIRMATION`` when the context, setup or
+    confirmation data is stale/incomplete, ``AWAITING_EXECUTION`` when only the
+    execution data is, and ``None`` when every required layer rests on
+    complete, current closed candles. A subset of available candles never
+    substitutes for the complete required sequence, and nothing is inferred
+    about what missing candles probably contained.
+    """
+
+    reasons: list[str] = []
+    waiting: list[str] = []
+    confirmation_side = False
+    execution_side = False
+
+    if context.stale:
+        reasons.append("context_data_stale")
+        waiting.append(
+            f"the latest closed {context.timeframe} context candle "
+            f"(stored {context.timeframe} data is stale)"
+        )
+        confirmation_side = True
+    elif context.missing_candle_count:
+        reasons.append("context_window_incomplete")
+        waiting.append(
+            f"{context.missing_candle_count} missing closed "
+            f"{context.timeframe} context candle(s)"
+        )
+        confirmation_side = True
+
+    if setup.stale:
+        reasons.append("setup_data_stale")
+        waiting.append(
+            f"the latest closed {setup.timeframe} setup candle "
+            f"(stored {setup.timeframe} data is stale)"
+        )
+        confirmation_side = True
+    elif setup.snapshot_status == "incomplete":
+        reasons.append("setup_window_incomplete")
+        waiting.append(
+            f"complete closed {setup.timeframe} setup-window candles "
+            "(the Step 5 snapshot reports an incomplete source window)"
+        )
+        confirmation_side = True
+
+    if confirmation.stale:
+        reasons.append("confirmation_data_stale")
+        waiting.append(
+            f"the latest closed {confirmation.timeframe} confirmation candle "
+            f"(stored {confirmation.timeframe} data is stale)"
+        )
+        confirmation_side = True
+    elif confirmation.missing_candle_count:
+        reasons.append("confirmation_window_incomplete")
+        waiting.append(
+            f"{confirmation.missing_candle_count} missing closed "
+            f"{confirmation.timeframe} candle(s) inside the confirmation window"
+        )
+        confirmation_side = True
+
+    if execution.stale:
+        reasons.append("execution_data_stale")
+        waiting.append(
+            f"the latest closed {execution.timeframe} execution candle "
+            f"(stored {execution.timeframe} data is stale)"
+        )
+        execution_side = True
+    elif execution.missing_candle_count:
+        reasons.append("execution_window_incomplete")
+        waiting.append(
+            f"{execution.missing_candle_count} missing closed "
+            f"{execution.timeframe} candle(s) inside the execution window"
+        )
+        execution_side = True
+
+    if confirmation_side:
+        return tuple(reasons), tuple(waiting), HierarchyDecision.AWAITING_CONFIRMATION
+    if execution_side:
+        return tuple(reasons), tuple(waiting), HierarchyDecision.AWAITING_EXECUTION
+    return tuple(reasons), tuple(waiting), None
 
 
 __all__ = ["gate_decision"]
