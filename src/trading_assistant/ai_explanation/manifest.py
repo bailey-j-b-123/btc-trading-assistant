@@ -167,6 +167,165 @@ _FACT_LABELS: dict[str, str] = {
     "ctx.statistics.report.version_policy": "Step 8 version policy",
     "ctx.statistics.config.minimum_sample_size": "Step 8 minimum sample size",
     "ctx.statistics.config.rules_version": "Step 8 config rules version",
+    "ctx.multi_timeframe.exchange": "Step 13 hierarchy exchange",
+    "ctx.multi_timeframe.symbol": "Step 13 hierarchy symbol",
+    "ctx.multi_timeframe.decision_time": "Step 13 hierarchy decision instant",
+    "ctx.multi_timeframe.status": "Step 13 hierarchy evaluation status",
+    "ctx.multi_timeframe.decision": "Step 13 overall hierarchy decision",
+    "ctx.multi_timeframe.alignment": "Step 13 hierarchy alignment",
+    "ctx.multi_timeframe.counter_trend": "Step 13 counter-trend flag",
+    "ctx.multi_timeframe.rules_version": "Step 13 hierarchy rules version",
+    "ctx.multi_timeframe.hierarchy_fingerprint": "Step 13 hierarchy fingerprint",
+    "ctx.multi_timeframe.reasons[*]": "Step 13 hierarchy reason",
+    "ctx.multi_timeframe.waiting_for[*]": "Step 13 hierarchy waiting-for item",
+    "ctx.multi_timeframe.invalidated_if[*]": "Step 13 hierarchy invalidated-if item",
+    "ctx.multi_timeframe.strategy_versions[*].name": "Step 13 strategy version name",
+    "ctx.multi_timeframe.strategy_versions[*].version": (
+        "Step 13 strategy version value"
+    ),
+    "ctx.multi_timeframe.hierarchy.timeframes[*]": "Step 13 hierarchy timeframe",
+    "ctx.multi_timeframe.hierarchy.steps[*].role": "Step 13 hierarchy step role",
+    "ctx.multi_timeframe.hierarchy.steps[*].timeframe": (
+        "Step 13 hierarchy step timeframe"
+    ),
+    "ctx.multi_timeframe.hierarchy.rules_version": (
+        "Step 13 hierarchy configuration rules version"
+    ),
+    "ctx.multi_timeframe.hierarchy.fingerprint": (
+        "Step 13 hierarchy configuration fingerprint"
+    ),
+    "ctx.multi_timeframe.context.timeframe": "Step 13 context timeframe",
+    "ctx.multi_timeframe.context.available": "Step 13 context availability",
+    "ctx.multi_timeframe.context.regime": "Step 13 context regime",
+    "ctx.multi_timeframe.context.trend_direction": "Step 13 context trend direction",
+    "ctx.multi_timeframe.context.trend_reason": "Step 13 context trend reason",
+    "ctx.multi_timeframe.context.confirmed_swing_count": (
+        "Step 13 context confirmed swing count"
+    ),
+    "ctx.multi_timeframe.context.active_range_low": "Step 13 context range low",
+    "ctx.multi_timeframe.context.active_range_high": "Step 13 context range high",
+    "ctx.multi_timeframe.context.latest_close": "Step 13 context latest close",
+    "ctx.multi_timeframe.context.candle_count": "Step 13 context candle count",
+    "ctx.multi_timeframe.context.stale": "Step 13 context staleness flag",
+    "ctx.multi_timeframe.context.reason": "Step 13 context reason",
+    "ctx.multi_timeframe.context.evidence[*].category": (
+        "Step 13 context evidence category"
+    ),
+    "ctx.multi_timeframe.context.evidence[*].status": (
+        "Step 13 context evidence status"
+    ),
+    "ctx.multi_timeframe.context.evidence[*].reason": (
+        "Step 13 context evidence reason"
+    ),
+    "ctx.multi_timeframe.context.evidence[*].timeframe": (
+        "Step 13 context evidence timeframe"
+    ),
+    "ctx.multi_timeframe.setup.timeframe": "Step 13 setup timeframe",
+    "ctx.multi_timeframe.setup.available": "Step 13 setup availability",
+    "ctx.multi_timeframe.setup.state": "Step 13 aggregate setup state",
+    "ctx.multi_timeframe.setup.snapshot_status": "Step 13 setup snapshot status",
+    "ctx.multi_timeframe.setup.snapshot_id": "Step 13 setup snapshot id",
+    "ctx.multi_timeframe.setup.rules_version": "Step 13 setup rules version",
+    "ctx.multi_timeframe.setup.config_fingerprint": (
+        "Step 13 setup configuration fingerprint"
+    ),
+    "ctx.multi_timeframe.setup.setup_id": "Step 13 active setup id",
+    "ctx.multi_timeframe.setup.family": "Step 13 active setup family",
+    "ctx.multi_timeframe.setup.direction": "Step 13 active setup direction",
+    "ctx.multi_timeframe.setup.setup_state": "Step 13 active setup state",
+    "ctx.multi_timeframe.setup.created_at": "Step 13 setup creation instant",
+    "ctx.multi_timeframe.setup.terminal_reason": "Step 13 setup terminal reason",
+    "ctx.multi_timeframe.setup.ended_at": "Step 13 setup ended instant",
+    "ctx.multi_timeframe.setup.reference_id": "Step 13 setup reference id",
+    "ctx.multi_timeframe.setup.reference_band_low": (
+        "Step 13 setup reference band low"
+    ),
+    "ctx.multi_timeframe.setup.reference_band_high": (
+        "Step 13 setup reference band high"
+    ),
+    "ctx.multi_timeframe.setup.supporting_rules[*]": (
+        "Step 13 setup supporting rule id"
+    ),
+    "ctx.multi_timeframe.setup.opposing_rules[*]": "Step 13 setup opposing rule id",
+    "ctx.multi_timeframe.setup.pending_rules[*]": "Step 13 setup pending rule id",
+    "ctx.multi_timeframe.setup.invalidation": "Step 13 setup invalidation",
+    "ctx.multi_timeframe.setup.next_required[*]": (
+        "Step 13 setup next required item"
+    ),
+    "ctx.multi_timeframe.setup.candidate_count": "Step 13 setup candidate count",
+    "ctx.multi_timeframe.setup.stale": "Step 13 setup staleness flag",
+    "ctx.multi_timeframe.setup.reason": "Step 13 setup reason",
+    "ctx.multi_timeframe.confirmation.timeframe": "Step 13 confirmation timeframe",
+    "ctx.multi_timeframe.confirmation.state": "Step 13 confirmation state",
+    "ctx.multi_timeframe.confirmation.reason": "Step 13 confirmation reason",
+    "ctx.multi_timeframe.confirmation.window_start": (
+        "Step 13 confirmation window start"
+    ),
+    "ctx.multi_timeframe.confirmation.window_end": (
+        "Step 13 confirmation window end"
+    ),
+    "ctx.multi_timeframe.confirmation.candle_count": (
+        "Step 13 confirmation candle count"
+    ),
+    "ctx.multi_timeframe.confirmation.missing_candle_count": (
+        "Step 13 confirmation missing candle count"
+    ),
+    "ctx.multi_timeframe.confirmation.stale": "Step 13 confirmation staleness flag",
+    "ctx.multi_timeframe.confirmation.evidence[*].category": (
+        "Step 13 confirmation evidence category"
+    ),
+    "ctx.multi_timeframe.confirmation.evidence[*].status": (
+        "Step 13 confirmation evidence status"
+    ),
+    "ctx.multi_timeframe.confirmation.evidence[*].reason": (
+        "Step 13 confirmation evidence reason"
+    ),
+    "ctx.multi_timeframe.confirmation.evidence[*].timeframe": (
+        "Step 13 confirmation evidence timeframe"
+    ),
+    "ctx.multi_timeframe.execution.timeframe": "Step 13 execution timeframe",
+    "ctx.multi_timeframe.execution.state": "Step 13 execution state",
+    "ctx.multi_timeframe.execution.reason": "Step 13 execution reason",
+    "ctx.multi_timeframe.execution.window_start": (
+        "Step 13 execution window start"
+    ),
+    "ctx.multi_timeframe.execution.window_end": "Step 13 execution window end",
+    "ctx.multi_timeframe.execution.candle_count": "Step 13 execution candle count",
+    "ctx.multi_timeframe.execution.missing_candle_count": (
+        "Step 13 execution missing candle count"
+    ),
+    "ctx.multi_timeframe.execution.stale": "Step 13 execution staleness flag",
+    "ctx.multi_timeframe.execution.armed_at": "Step 13 execution armed instant",
+    "ctx.multi_timeframe.execution.trigger_at": "Step 13 execution trigger instant",
+    "ctx.multi_timeframe.execution.entry_zone_low": "Step 13 entry zone low",
+    "ctx.multi_timeframe.execution.entry_zone_high": "Step 13 entry zone high",
+    "ctx.multi_timeframe.execution.latest_close": "Step 13 execution latest close",
+    "ctx.multi_timeframe.execution.evidence[*].category": (
+        "Step 13 execution evidence category"
+    ),
+    "ctx.multi_timeframe.execution.evidence[*].status": (
+        "Step 13 execution evidence status"
+    ),
+    "ctx.multi_timeframe.execution.evidence[*].reason": (
+        "Step 13 execution evidence reason"
+    ),
+    "ctx.multi_timeframe.execution.evidence[*].timeframe": (
+        "Step 13 execution evidence timeframe"
+    ),
+    "ctx.multi_timeframe.boundary.boundaries[*].timeframe": (
+        "Step 13 boundary timeframe"
+    ),
+    "ctx.multi_timeframe.boundary.boundaries[*].role": "Step 13 boundary role",
+    "ctx.multi_timeframe.boundary.boundaries[*].candle_open_time": (
+        "Step 13 boundary candle open instant"
+    ),
+    "ctx.multi_timeframe.boundary.boundaries[*].candle_close_time": (
+        "Step 13 boundary candle close instant"
+    ),
+    "ctx.multi_timeframe.boundary.boundaries[*].candle_known": (
+        "Step 13 boundary candle-known flag"
+    ),
+    "ctx.multi_timeframe.boundary.boundaries[*].stale": "Step 13 boundary stale flag",
     "ctx.limitations[*]": "context limitation",
 }
 

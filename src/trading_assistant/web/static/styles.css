@@ -994,3 +994,60 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 @media (prefers-reduced-motion: reduce) {
   .details-disclosure summary::before { transition: none; }
 }
+
+/* ----------------------------------------------------------------------- */
+/* Step 13: multi-timeframe ladder (4H context → 1H setup → 15M confirmation */
+/* → 5M execution → overall). Compact card; no dashboard redesign.          */
+/* ----------------------------------------------------------------------- */
+
+.mtf-ladder { display: flex; flex-direction: column; gap: 0; margin-top: 4px; }
+.mtf-step {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  padding: 10px 12px;
+}
+.mtf-step-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.mtf-step-label { font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+.mtf-step-state { font-size: 13px; font-weight: 650; color: var(--text-dim); text-align: right; }
+.mtf-step-detail { margin-top: 4px; font-size: 12.5px; color: var(--text-muted); line-height: 1.45; }
+.mtf-step-boundary { margin-top: 3px; font-size: 11px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.mtf-step.mtf-tone-good { border-color: rgba(47, 191, 127, 0.45); }
+.mtf-step.mtf-tone-good .mtf-step-state { color: var(--green); }
+.mtf-step.mtf-tone-warn { border-color: rgba(232, 163, 61, 0.45); }
+.mtf-step.mtf-tone-warn .mtf-step-state { color: var(--amber); }
+.mtf-step.mtf-tone-bad { border-color: rgba(224, 86, 91, 0.5); }
+.mtf-step.mtf-tone-bad .mtf-step-state { color: var(--red); }
+.mtf-arrow {
+  text-align: center; color: var(--text-faint); font-size: 13px;
+  line-height: 1; padding: 3px 0; user-select: none;
+}
+.mtf-overall {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  margin-top: 10px; padding: 10px 12px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+}
+.mtf-overall-label { font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em; color: var(--text-muted); }
+.mtf-overall-state { font-size: 13.5px; font-weight: 700; color: var(--text-dim); letter-spacing: 0.04em; }
+.mtf-overall-meta { font-size: 11.5px; color: var(--text-faint); }
+.mtf-overall.mtf-warn { border-color: rgba(232, 163, 61, 0.5); }
+.mtf-overall.mtf-warn .mtf-overall-state { color: var(--amber); }
+.mtf-note {
+  margin-top: 8px; font-size: 12.5px; color: var(--text-muted);
+  border-left: 2px solid var(--border-strong); padding-left: 10px; line-height: 1.45;
+}
+.mtf-note-warn { border-left-color: var(--amber); color: var(--text-dim); }
+.mtf-unavailable { margin: 0; font-size: 13px; color: var(--text-muted); font-style: italic; }
+.mtf-limitations { margin-top: 10px; }
+.mtf-limitations summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--text-faint); list-style: none; }
+.mtf-limitations summary::-webkit-details-marker { display: none; }
+.mtf-limitations summary::before { content: "▸"; margin-right: 6px; }
+.mtf-limitations[open] summary::before { transform: rotate(90deg); display: inline-block; }
+.mtf-limitations ul { margin: 8px 0 0; padding-left: 18px; font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+
+@media (max-width: 720px) {
+  .mtf-step-head { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .mtf-step-state { text-align: left; }
+  .mtf-overall { flex-direction: column; align-items: flex-start; gap: 3px; }
+}

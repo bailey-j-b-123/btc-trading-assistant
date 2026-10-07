@@ -1,0 +1,282 @@
+"""Final decision gating: one deterministic overall state for the hierarchy.
+
+The gate is strictly hierarchical. A lower timeframe can never create a trade,
+upgrade a setup, or overwrite the context:
+
+* ``PLANNABLE`` requires the COMPLETE hierarchy: an evaluated context, a
+  QUALIFIED setup, a CONFIRMING confirmation, an ARMED or TRIGGERED execution,
+  and an alignment that permits completion (ALIGNED, NEUTRAL, or an explicitly
+  flagged COUNTER_TREND). A 5M trigger alone never produces PLANNABLE.
+* ``WATCH`` — a setup exists but is not QUALIFIED yet; lower layers cannot
+  upgrade it.
+* ``AWAITING_CONFIRMATION`` — the setup is QUALIFIED but the confirmation layer
+  has not confirmed (WAITING or CONTRADICTING), or the alignment cannot
+  support a complete decision (CONFLICTING / UNKNOWN context).
+* ``AWAITING_EXECUTION`` — the setup is QUALIFIED and CONFIRMING, but the
+  execution layer has not reached ARMED/TRIGGERED.
+* ``INVALIDATED`` — the setup ended, or a lower layer invalidated the idea.
+* ``NO_SETUP`` — the hierarchy evaluated completely and no setup is active.
+
+When the context or setup layer itself is unavailable, the evaluation is
+recorded as ``incomplete`` with an explicit reason: a missing candle never
+becomes a trading conclusion.
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from trading_assistant.multi_timeframe.models import (
+    PLANNABLE_ALIGNMENTS,
+    ConfirmationLayerSnapshot,
+    ConfirmationState,
+    ContextLayerSnapshot,
+    ExecutionLayerSnapshot,
+    ExecutionState,
+    HierarchyAlignment,
+    HierarchyDecision,
+    SetupLayerSnapshot,
+)
+
+
+def gate_decision(
+    *,
+    context: ContextLayerSnapshot,
+    setup: SetupLayerSnapshot,
+    confirmation: ConfirmationLayerSnapshot,
+    execution: ExecutionLayerSnapshot,
+    alignment: HierarchyAlignment,
+) -> tuple[
+    HierarchyDecision,
+    tuple[str, ...],
+    Literal["evaluated", "incomplete"],
+    bool,
+    tuple[str, ...],
+    tuple[str, ...],
+]:
+    """Return ``(decision, reasons, status, counter_trend, waiting_for, invalidated_if)``."""
+
+    reasons: list[str] = []
+    waiting_for: list[str] = []
+    invalidated_if: list[str] = []
+    counter_trend = alignment is HierarchyAlignment.COUNTER_TREND
+
+    # --- layer availability --------------------------------------------------
+    incomplete = False
+    if not context.available:
+        reasons.append("context_layer_unavailable")
+        incomplete = True
+    if not setup.available:
+        reasons.append("setup_layer_unavailable")
+        incomplete = True
+    if context.stale:
+        reasons.append("context_data_stale")
+    if setup.stale:
+        reasons.append("setup_data_stale")
+    if confirmation.stale:
+        reasons.append("confirmation_data_stale")
+    if execution.stale:
+        reasons.append("execution_data_stale")
+    if confirmation.missing_candle_count:
+        reasons.append("confirmation_window_incomplete")
+    if execution.missing_candle_count:
+        reasons.append("execution_window_incomplete")
+
+    # --- invalidation sources -------------------------------------------------
+    if setup.invalidation:
+        invalidated_if.append(f"the deterministic setup invalidation: {setup.invalidation}")
+    if setup.reference_band_low is not None and setup.reference_band_high is not None:
+        band = f"{setup.reference_band_low}–{setup.reference_band_high}"
+        if setup.direction == "bullish":
+            invalidated_if.append(
+                f"a closed lower-timeframe candle closing below the setup "
+                f"reference level {band}"
+            )
+        elif setup.direction == "bearish":
+            invalidated_if.append(
+                f"a closed lower-timeframe candle closing above the setup "
+                f"reference level {band}"
+            )
+    if execution.state is ExecutionState.INVALIDATED:
+        invalidated_if.append(execution.reason)
+    if confirmation.state is ConfirmationState.INVALIDATED:
+        invalidated_if.append(confirmation.reason)
+
+    # --- the gate -------------------------------------------------------------
+    if incomplete:
+        return (
+            HierarchyDecision.NO_SETUP,
+            tuple(dict.fromkeys(reasons)),
+            "incomplete",
+            counter_trend,
+            (
+                "stored closed candles for the context and setup timeframes "
+                "at the decision time",
+            ),
+            tuple(invalidated_if),
+        )
+
+    if not setup.has_active_setup:
+        if setup.is_terminal:
+            reasons.append(f"setup_terminal:{setup.terminal_reason}")
+            return (
+                HierarchyDecision.INVALIDATED,
+                tuple(dict.fromkeys(reasons)),
+                "evaluated",
+                counter_trend,
+                (),
+                tuple(invalidated_if),
+            )
+        reasons.append("no_active_setup_on_the_setup_timeframe")
+        return (
+            HierarchyDecision.NO_SETUP,
+            tuple(dict.fromkeys(reasons)),
+            "evaluated",
+            counter_trend,
+            (
+                "a fresh setup seed on the setup timeframe (breakout, failed "
+                "breakout, or liquidity sweep)",
+            ),
+            tuple(invalidated_if),
+        )
+
+    if not setup.is_qualified:
+        # WATCH: the setup exists but its own rules are not satisfied. Lower
+        # timeframes can never upgrade it, whatever they show.
+        reasons.append(f"setup_state:{setup.setup_state}")
+        if setup.next_required:
+            waiting_for.extend(setup.next_required)
+            reasons.append("setup_rules_pending")
+        if setup.opposing_rules:
+            reasons.append("setup_rules_opposing:" + ",".join(setup.opposing_rules))
+        return (
+            HierarchyDecision.WATCH,
+            tuple(dict.fromkeys(reasons)),
+            "evaluated",
+            counter_trend,
+            tuple(dict.fromkeys(waiting_for)),
+            tuple(invalidated_if),
+        )
+
+    # QUALIFIED setup: the lower layers may now refine, never create.
+    # An execution-layer invalidation (the setup's level lost on a closed
+    # lower-timeframe candle) ends the idea outright, even when the
+    # confirmation layer only reports a disagreement: both layers observed the
+    # same lost level on closed candles.
+    if execution.state is ExecutionState.INVALIDATED:
+        reasons.append("execution_invalidated")
+        return (
+            HierarchyDecision.INVALIDATED,
+            tuple(dict.fromkeys(reasons)),
+            "evaluated",
+            counter_trend,
+            (),
+            tuple(invalidated_if),
+        )
+    if confirmation.state is ConfirmationState.INVALIDATED:
+        reasons.append("confirmation_invalidated")
+        return (
+            HierarchyDecision.INVALIDATED,
+            tuple(dict.fromkeys(reasons)),
+            "evaluated",
+            counter_trend,
+            (),
+            tuple(invalidated_if),
+        )
+    if confirmation.state is ConfirmationState.CONTRADICTING:
+        reasons.append("confirmation_contradicting")
+        waiting_for.append(
+            f"{confirmation.timeframe} price action to stop contradicting the "
+            "setup (the reference level must hold on closed candles)"
+        )
+        return (
+            HierarchyDecision.AWAITING_CONFIRMATION,
+            tuple(dict.fromkeys(reasons)),
+            "evaluated",
+            counter_trend,
+            tuple(waiting_for),
+            tuple(invalidated_if),
+        )
+    if confirmation.state is ConfirmationState.WAITING:
+        reasons.append("confirmation_waiting")
+        if setup.direction == "bullish":
+            waiting_for.append(
+                f"{confirmation.timeframe} acceptance of the setup's reference "
+                "level (a closed candle beyond the band, level held)"
+            )
+        elif setup.direction == "bearish":
+            waiting_for.append(
+                f"{confirmation.timeframe} acceptance of the setup's reference "
+                "level (a closed candle beyond the band, level held)"
+            )
+        else:
+            waiting_for.append(
+                f"{confirmation.timeframe} confirmation of the setup idea"
+            )
+        return (
+            HierarchyDecision.AWAITING_CONFIRMATION,
+            tuple(dict.fromkeys(reasons)),
+            "evaluated",
+            counter_trend,
+            tuple(waiting_for),
+            tuple(invalidated_if),
+        )
+
+    # Confirmation is CONFIRMING.
+    if alignment not in PLANNABLE_ALIGNMENTS:
+        reasons.append(f"alignment_not_plannable:{alignment.value}")
+        waiting_for.append(
+            f"the {context.timeframe} context to resolve into a regime that "
+            "can support a complete decision (currently "
+            f"{alignment.value})"
+        )
+        return (
+            HierarchyDecision.AWAITING_CONFIRMATION,
+            tuple(dict.fromkeys(reasons)),
+            "evaluated",
+            counter_trend,
+            tuple(waiting_for),
+            tuple(invalidated_if),
+        )
+
+    if execution.state in (ExecutionState.ARMED, ExecutionState.TRIGGERED):
+        reasons.append("hierarchy_complete")
+        if counter_trend:
+            reasons.append("counter_trend_setup_flagged")
+        return (
+            HierarchyDecision.PLANNABLE,
+            tuple(dict.fromkeys(reasons)),
+            "evaluated",
+            counter_trend,
+            (),
+            tuple(invalidated_if),
+        )
+    if execution.state is ExecutionState.WAITING:
+        reasons.append("execution_waiting")
+        waiting_for.append(
+            f"{execution.timeframe} price to reach the entry zone (the setup's "
+            "reference band) and hold the setup's level"
+        )
+        return (
+            HierarchyDecision.AWAITING_EXECUTION,
+            tuple(dict.fromkeys(reasons)),
+            "evaluated",
+            counter_trend,
+            tuple(waiting_for),
+            tuple(invalidated_if),
+        )
+    # NOT_ARMED with a confirming confirmation cannot happen (the execution
+    # layer evaluates whenever its prerequisites are met); stay honest.
+    reasons.append("execution_not_armed")
+    waiting_for.append(execution.reason)
+    return (
+        HierarchyDecision.AWAITING_EXECUTION,
+        tuple(dict.fromkeys(reasons)),
+        "evaluated",
+        counter_trend,
+        tuple(waiting_for),
+        tuple(invalidated_if),
+    )
+
+
+__all__ = ["gate_decision"]

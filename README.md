@@ -2069,6 +2069,166 @@ deliberately ships no secrets or credentials.
 **Paper trading and historical performance do not establish future
 profitability.**
 
+## Step 13 — deterministic multi-timeframe hierarchy (4H context → 1H setup → 15M confirmation → 5M execution)
+
+Step 13 upgrades the assistant from essentially single-timeframe decision-making
+into **one deterministic hierarchical decision system**. Four versioned
+timeframe roles form a ladder (BTC defaults: 4h / 1h / 15m / 5m, exactly):
+
+```
+4H CONTEXT        — where we are (market regime / major structure)
+1H SETUP          — what we may trade (the primary opportunity)
+15M CONFIRMATION  — whether the 1H idea is confirming
+5M EXECUTION      — when the entry may be ready (timing refinement only)
+─────────────────────────────────────────────────────────────
+OVERALL           — one deterministic decision for the whole hierarchy
+```
+
+**Lower timeframes refine higher-timeframe information; they never override
+it.** A 5M pattern can never create a trade without a valid 1H parent setup and
+an evaluated 4H context, and a lower timeframe can never silently overwrite the
+4H interpretation — a counter-trend setup is always explicitly flagged, never
+hidden. No qualification threshold is weakened anywhere: the existing Steps 3–6
+remain the only authority on structure, setups and plans, and this layer adds no
+new indicator and no new threshold.
+
+### Hard boundaries
+
+* **Strict closed-candle semantics at every layer.** An unfinished candle is
+  never used, never approximated, and never substituted. At a decision time
+  `T`, a candle is knowable iff `open + interval <= T` — so at 10:00 UTC the
+  4H candle 08:00–12:00 is *not* known, and at 12:00 UTC it *is*. Every
+  evaluation persists the exact latest closed candle open time per timeframe, so
+  the information known at each decision is reproducible later.
+* **Versioned roles, not hard-coded strings.** The hierarchy is a validated
+  configuration model (`TimeframeHierarchy` with `TimeframeRole` steps and a
+  `rules_version`); changing it changes the recorded identity, never silently
+  reinterprets old decisions.
+* **Decision support only.** No orders, no keys, no exchange authentication, no
+  balances, no positions, no leverage, no sizing, no autonomous trading, no
+  parameter optimisation. `PLANNABLE` means the complete deterministic
+  hierarchy agreed — never that an order exists.
+
+### The four layers (each derived only from existing engines)
+
+* **4H CONTEXT** reuses the existing market-structure engine (Step 3) and
+  projects its snapshot into one explicit regime: `BULLISH_STRUCTURE`,
+  `BEARISH_STRUCTURE`, `RANGE`, `TRANSITION` (genuinely uncertain structure) or
+  `UNKNOWN` (no usable window). Swing count, active range, nearest
+  support/resistance bands and the latest close are carried through.
+* **1H SETUP** is the existing Step 5 setup-qualification engine, unchanged —
+  the same replay, rules and thresholds. It exposes the active setup's
+  family/direction/status, the relevant reference level, supporting/opposing
+  evidence, invalidation, and what must happen next. The active setup is the
+  earliest QUALIFIED one, else the earliest WATCH one — exactly the dashboard's
+  rule.
+* **15M CONFIRMATION** evaluates *only the active 1H setup*, using only 15M
+  candles that opened at or after the instant the setup became known and that
+  had fully closed by the decision time. States: `NOT_APPLICABLE` (no active
+  setup), `WAITING`, `CONFIRMING` (acceptance of the setup's reference level,
+  level held), `CONTRADICTING` (the level lost on closed candles — including
+  false-breakout behaviour), `INVALIDATED`. Evidence reuses existing engines:
+  level acceptance/rejection, local 15M structure alignment (Step 3 trend on
+  the window) and relative volume.
+* **5M EXECUTION** is entry refinement *around the setup's own reference band*,
+  and only after the 4H context was evaluated, a 1H setup is active and the
+  confirmation is `CONFIRMING`. States: `NOT_ARMED` (a prerequisite is missing —
+  a 5M pattern alone can never arm it), `WAITING` (price has not reached the
+  entry zone), `ARMED` (price entered the zone and holds the level),
+  `TRIGGERED` (a closed candle through the far side of the zone), `INVALIDATED`
+  (the level lost on a closed 5M candle). TRIGGERED means "the deterministic
+  entry-timing condition is met" — never "an order exists".
+
+### Conflict handling and final gating
+
+The context/setup relationship is one explicit enum: `ALIGNED`,
+`COUNTER_TREND` (allowed, always flagged), `NEUTRAL` (range context),
+`CONFLICTING` (transition structure), `UNKNOWN`. There is no silent 4H override.
+
+The final gate is strictly hierarchical — `PLANNABLE` requires the *complete*
+hierarchy (evaluated context + QUALIFIED setup + CONFIRMING confirmation +
+ARMED/TRIGGERED execution + a permitting alignment). A 5M trigger alone never
+produces `PLANNABLE`. The overall decision vocabulary: `NO_SETUP`, `WATCH`,
+`AWAITING_CONFIRMATION`, `AWAITING_EXECUTION`, `PLANNABLE`, `INVALIDATED`.
+When context or setup data is unavailable the evaluation is recorded as
+`incomplete` with an explicit reason — a missing candle never becomes a trading
+conclusion.
+
+### The immutable forward ledger
+
+Every evaluation is recorded once in the new append-only table
+`forward_hierarchy_observations` (migration `0005_multi_timeframe_hierarchy`,
+purely additive with SQLite immutability triggers; the downgrade refuses while
+rows exist). Each row carries the decision timestamp, the strategy/rules/hierarchy
+versions, the per-layer snapshots and closed-candle boundaries, the alignment
+state, the final decision and the evidence. The row identity is a deterministic
+fingerprint of the evaluation content (including the hierarchy fingerprint), so:
+
+* restarting the runner at the same market boundary never duplicates an
+  observation;
+* a different hierarchy configuration never collides with older rows;
+* a boundary recorded as `incomplete` is retried when data arrives, and the
+  recovered conclusion is recorded as its own row — the earlier row is never
+  rewritten;
+* all previously recorded history (Steps 2, 7 and 12) remains valid and readable.
+
+### Data acquisition, dashboard and explanation
+
+* **Acquisition** extends the existing public Kraken path: one managed
+  market-data service refreshes 4h/1h/15m/5m through a single client
+  (`update_history_all` / `download_history_all`), preserving metadata-before-
+  Decimal ordering, closed-candle filtering, pagination/backfill, rolling-window
+  handling, duplicate safety, raw archiving and idempotent storage.
+* **Dashboard** adds one compact **MULTI-TIMEFRAME LADDER** card (4H CONTEXT →
+  1H SETUP → 15M CONFIRMATION → 5M EXECUTION → OVERALL) in plain English — no
+  internal enum names, no redesign, no scenario-arrow chart visualisation.
+* **Explanation** (Step 9) is hierarchy-aware: the deterministic renderer adds
+  grounded ladder sentences, the counter-trend flag, and the waiting-for /
+  invalidated-if lines — only from the recorded snapshot, never inventing facts.
+* **Replay** (`replay_hierarchy`) re-evaluates past boundaries with only the
+  candles closed by each boundary — for correctness, lookahead detection,
+  falsification and failure discovery, never for P&L optimisation or parameter
+  mining.
+
+### Running the hierarchy runner
+
+```bash
+alembic upgrade head                                   # additive: 0004 -> 0005_multi_timeframe_hierarchy
+
+# one pass over closed 5M boundaries (safe, explicit, easy to inspect)
+python -m trading_assistant.multi_timeframe run --once
+
+# continuous closed-candle polling until Ctrl-C / SIGTERM
+python -m trading_assistant.multi_timeframe run
+
+# recorded hierarchy state and per-timeframe market-data health
+python -m trading_assistant.multi_timeframe status
+
+# replay a historical range (no lookahead; audit only)
+python -m trading_assistant.multi_timeframe replay --start 2024-01-01T00:00:00Z --end 2024-01-02T00:00:00Z
+```
+
+The runner keeps the Step 12 failure contract: a failed pass releases the
+database pool before anything else is written, a SQLite lock/busy failure stops
+the runner after a single attempt instead of retrying into a storm, and the
+original exception is always the one the operator sees. The dashboard and the
+hierarchy runner share the same WAL file database without locking (the PR #22
+SQLite regression suite covers this for the hierarchy runner explicitly).
+
+### Step 13 limits
+
+* Decision support only: no order was placed, no fill happened, and no money
+  exists anywhere in this system. `PLANNABLE` is not advice and not an execution.
+* Only fully closed candles are analysed at every layer; an unfinished candle is
+  never used.
+* Lower timeframes refine the setup layer; they never create a trade on their
+  own and never overwrite the higher-timeframe context.
+* Missing or stale market data is reported and never filled in with a guess.
+* Hierarchy observations are separated by the exact recorded
+  hierarchy/config version fingerprints that produced them.
+* Paper trading and historical performance do not establish future
+  profitability.
+
 ## Operations runbook (forward-first daily operation)
 
 This section is the operator-facing consolidation of the audit: every

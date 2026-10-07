@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
@@ -30,6 +30,7 @@ from trading_assistant.market_data.timeframes import (
     timeframe_to_milliseconds,
 )
 from trading_assistant.market_data.types import (
+    Candle,
     CandleQueryResult,
     MarketDataUpdateResult,
 )
@@ -592,6 +593,123 @@ class MarketDataService:
                 f"timeframe {timeframe!r} is not in configured supported_timeframes"
             )
         timeframe_to_milliseconds(timeframe)
+
+    # ------------------------------------------------------------------
+    # Multi-timeframe helpers (Step 13 hierarchy acquisition)
+    # ------------------------------------------------------------------
+
+    def update_history_all(
+        self,
+        *,
+        symbol: str | None = None,
+        timeframes: Iterable[str],
+        as_of: datetime | None = None,
+    ) -> dict[str, MarketDataUpdateResult]:
+        """Refresh stored history for SEVERAL timeframes through ONE source.
+
+        Every timeframe is updated by this same service instance — one
+        correctly managed client (metadata before Decimal mode, closed-candle
+        filtering, aligned pagination, rolling-window handling, raw
+        archiving, idempotent storage) safely supplies all timeframes; there
+        is never a second exchange client per timeframe. Timeframes are
+        processed in the given order; a duplicate timeframe is an error, not
+        a silent double fetch.
+        """
+
+        resolved_timeframes = _validated_timeframes(timeframes)
+        resolved_symbol = self.settings.symbol if symbol is None else symbol
+        resolved_as_of = (
+            require_utc_datetime(as_of, field_name="as_of")
+            if as_of is not None
+            else self._clock()
+        )
+        results: dict[str, MarketDataUpdateResult] = {}
+        for timeframe in resolved_timeframes:
+            self._validate_instrument_and_timeframe(resolved_symbol, timeframe)
+            results[timeframe] = self.update_history(
+                symbol=resolved_symbol, timeframe=timeframe, as_of=resolved_as_of
+            )
+        return results
+
+    def download_history_all(
+        self,
+        *,
+        start_time: datetime,
+        end_time: datetime | None = None,
+        symbol: str | None = None,
+        timeframes: Iterable[str],
+        as_of: datetime | None = None,
+    ) -> dict[str, MarketDataUpdateResult]:
+        """Backfill SEVERAL timeframes through ONE source (one client total)."""
+
+        resolved_timeframes = _validated_timeframes(timeframes)
+        resolved_symbol = self.settings.symbol if symbol is None else symbol
+        resolved_as_of = (
+            require_utc_datetime(as_of, field_name="as_of")
+            if as_of is not None
+            else self._clock()
+        )
+        results: dict[str, MarketDataUpdateResult] = {}
+        for timeframe in resolved_timeframes:
+            self._validate_instrument_and_timeframe(resolved_symbol, timeframe)
+            results[timeframe] = self.download_history(
+                start_time=start_time,
+                end_time=end_time,
+                symbol=resolved_symbol,
+                timeframe=timeframe,
+                as_of=resolved_as_of,
+            )
+        return results
+
+    def closed_candles_through(
+        self,
+        *,
+        timeframe: str,
+        as_of: datetime,
+        exchange: str | None = None,
+        symbol: str | None = None,
+        start_time: datetime | None = None,
+    ) -> tuple[Candle, ...]:
+        """Stored candles fully closed by ``as_of``, ordered oldest → newest.
+
+        The upper bound is the latest candle open whose full interval closes at
+        or before ``as_of``: an unfinished candle is never returned, whatever
+        the exchange returned while it was still forming.
+        """
+
+        resolved_timeframe = (
+            self.settings.default_timeframe if timeframe is None else timeframe
+        )
+        if resolved_timeframe not in self.settings.supported_timeframes:
+            raise ValueError(
+                f"timeframe {resolved_timeframe!r} is not in configured supported_timeframes"
+            )
+        as_of_utc = require_utc_datetime(as_of, field_name="as_of")
+        latest_closed_open = latest_closed_candle_open_time(as_of_utc, resolved_timeframe)
+        result = self.get_candles(
+            exchange=exchange,
+            symbol=symbol,
+            timeframe=resolved_timeframe,
+            start_time=start_time,
+            end_time=latest_closed_open,
+        )
+        return result.candles
+
+
+def _validated_timeframes(timeframes: Iterable[str]) -> tuple[str, ...]:
+    """Validate a multi-timeframe list: non-empty, unique, preserves order."""
+
+    resolved = tuple(timeframes)
+    if not resolved:
+        raise ValueError("timeframes must contain at least one timeframe")
+    seen: set[str] = set()
+    for timeframe in resolved:
+        if not isinstance(timeframe, str) or not timeframe.strip():
+            raise ValueError("every timeframe must be a non-empty string")
+        if timeframe in seen:
+            raise ValueError(f"duplicate timeframe {timeframe!r} in timeframes")
+        seen.add(timeframe)
+    return resolved
 
 
 def create_market_data_service(

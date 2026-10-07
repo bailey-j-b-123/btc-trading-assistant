@@ -10,6 +10,7 @@ never writes anywhere, never accepts a setup, and never executes anything.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from trading_assistant.ai_explanation.context import build_explanation_context
 from trading_assistant.ai_explanation.errors import GroundingViolation
@@ -38,6 +39,11 @@ from trading_assistant.setup_qualification.models import (
     QualificationFrame,
     QualificationSnapshot,
 )
+
+if TYPE_CHECKING:
+    # Typing-only: Step 9 stays a leaf layer and never imports the Step 13
+    # package at module load (the context builder imports it lazily).
+    from trading_assistant.multi_timeframe.models import HierarchySnapshot
 from trading_assistant.statistics.config import StatisticsConfig
 from trading_assistant.statistics.models import StatisticsReport
 from trading_assistant.trade_planning.models import TradePlanResult
@@ -64,8 +70,14 @@ class ExplanationService:
         latest_outcome: OutcomeObservation | None = None,
         statistics_report: StatisticsReport | None = None,
         statistics_config: StatisticsConfig | None = None,
+        hierarchy: "HierarchySnapshot | None" = None,
     ) -> ExplanationContext:
-        """Build the canonical, fingerprinted fact context for one explanation."""
+        """Build the canonical, fingerprinted fact context for one explanation.
+
+        ``hierarchy`` is the optional Step 13 multi-timeframe snapshot; when
+        supplied it is copied verbatim into the payload so the explanation can
+        cover the 4H/1H/15M/5M ladder alongside the Steps 3-8 sections.
+        """
 
         return build_explanation_context(
             snapshot=snapshot,
@@ -77,6 +89,7 @@ class ExplanationService:
             latest_outcome=latest_outcome,
             statistics_report=statistics_report,
             statistics_config=statistics_config,
+            hierarchy=hierarchy,
         )
 
     def explain(
