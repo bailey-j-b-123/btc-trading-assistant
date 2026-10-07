@@ -103,48 +103,95 @@ class ForwardLedgerRepository:
         unique per candle close.
         """
 
-        values = _cycle_values(cycle)
         with self._sessions.begin() as session:
-            session.execute(
-                sqlite_insert(ForwardCycleRow)
-                .values(**values)
-                .on_conflict_do_nothing(index_elements=["cycle_id"])
+            return self._insert_cycle(session, cycle)
+
+    def insert_cycle_bundle(
+        self,
+        cycle: ForwardCycle,
+        observations: tuple[ForwardObservation, ...] | list[ForwardObservation],
+        plans: tuple[PaperPlan, ...] | list[PaperPlan],
+    ) -> tuple[
+        ForwardCycle,
+        bool,
+        tuple[tuple[ForwardObservation, bool], ...],
+        tuple[tuple[PaperPlan, bool], ...],
+    ]:
+        """Insert one boundary's cycle, observations, and plans atomically.
+
+        The runner skips already-complete cycles, so a cycle row committed
+        without its candidate evidence could never be repaired: the boundary
+        would stay permanently recorded while its observations and paper
+        plan were silently missing. One transaction makes the boundary
+        all-or-nothing; a failure anywhere rolls every row of the boundary
+        back, and the next pass re-records identical rows.
+        """
+
+        with self._sessions.begin() as session:
+            stored_cycle, cycle_created = self._insert_cycle(session, cycle)
+            stored_observations = tuple(
+                self._insert_observation(session, observation)
+                for observation in observations
             )
-            row = session.get(ForwardCycleRow, cycle.cycle_id)
-            if row is None:
-                raise ForwardError(f"forward cycle {cycle.cycle_id} was not stored")
-            _verify_unchanged(
-                row,
-                values,
-                fields=_CYCLE_IDENTITY_FIELDS,
-                what=f"forward cycle {cycle.cycle_id}",
+            stored_plans = tuple(
+                self._insert_paper_plan(session, plan) for plan in plans
             )
-            return _cycle_from_row(row), row.recorded_at == cycle.recorded_at
+            return stored_cycle, cycle_created, stored_observations, stored_plans
+
+    def _insert_cycle(
+        self, session: Session, cycle: ForwardCycle
+    ) -> tuple[ForwardCycle, bool]:
+        values = _cycle_values(cycle)
+        result = session.execute(
+            sqlite_insert(ForwardCycleRow)
+            .values(**values)
+            .on_conflict_do_nothing(index_elements=["cycle_id"])
+        )
+        # ``rowcount`` is the write itself reporting whether the row landed:
+        # comparing ``recorded_at`` instead would misreport a re-recorded row
+        # as created whenever two passes share one clock instant.
+        created = result.rowcount == 1
+        row = session.get(ForwardCycleRow, cycle.cycle_id)
+        if row is None:
+            raise ForwardError(f"forward cycle {cycle.cycle_id} was not stored")
+        _verify_unchanged(
+            row,
+            values,
+            fields=_CYCLE_IDENTITY_FIELDS,
+            what=f"forward cycle {cycle.cycle_id}",
+        )
+        return _cycle_from_row(row), created
 
     def insert_observation(
         self, observation: ForwardObservation
     ) -> tuple[ForwardObservation, bool]:
         """Insert one candidate observation, or return the identical stored one."""
 
-        values = _observation_values(observation)
         with self._sessions.begin() as session:
-            session.execute(
-                sqlite_insert(ForwardObservationRow)
-                .values(**values)
-                .on_conflict_do_nothing(index_elements=["observation_id"])
+            return self._insert_observation(session, observation)
+
+    def _insert_observation(
+        self, session: Session, observation: ForwardObservation
+    ) -> tuple[ForwardObservation, bool]:
+        values = _observation_values(observation)
+        result = session.execute(
+            sqlite_insert(ForwardObservationRow)
+            .values(**values)
+            .on_conflict_do_nothing(index_elements=["observation_id"])
+        )
+        created = result.rowcount == 1
+        row = session.get(ForwardObservationRow, observation.observation_id)
+        if row is None:
+            raise ForwardError(
+                f"forward observation {observation.observation_id} was not stored"
             )
-            row = session.get(ForwardObservationRow, observation.observation_id)
-            if row is None:
-                raise ForwardError(
-                    f"forward observation {observation.observation_id} was not stored"
-                )
-            _verify_unchanged(
-                row,
-                values,
-                fields=_OBSERVATION_IDENTITY_FIELDS,
-                what=f"forward observation {observation.observation_id}",
-            )
-            return _observation_from_row(row), row.recorded_at == observation.recorded_at
+        _verify_unchanged(
+            row,
+            values,
+            fields=_OBSERVATION_IDENTITY_FIELDS,
+            what=f"forward observation {observation.observation_id}",
+        )
+        return _observation_from_row(row), created
 
     def insert_paper_plan(self, plan: PaperPlan) -> tuple[PaperPlan, bool]:
         """Insert the frozen paper plan for a setup, or return the stored one.
@@ -155,39 +202,45 @@ class ForwardLedgerRepository:
         counted once and cannot inflate entry/target rates.
         """
 
-        values = _paper_plan_values(plan)
         with self._sessions.begin() as session:
-            session.execute(
-                sqlite_insert(ForwardPaperPlanRow)
-                .values(**values)
-                .on_conflict_do_nothing(index_elements=["paper_plan_id"])
+            return self._insert_paper_plan(session, plan)
+
+    def _insert_paper_plan(
+        self, session: Session, plan: PaperPlan
+    ) -> tuple[PaperPlan, bool]:
+        values = _paper_plan_values(plan)
+        insert_result = session.execute(
+            sqlite_insert(ForwardPaperPlanRow)
+            .values(**values)
+            .on_conflict_do_nothing(index_elements=["paper_plan_id"])
+        )
+        plan_inserted = insert_result.rowcount == 1
+        existing_for_setup = session.scalars(
+            select(ForwardPaperPlanRow).where(
+                ForwardPaperPlanRow.exchange == plan.exchange,
+                ForwardPaperPlanRow.symbol == plan.symbol,
+                ForwardPaperPlanRow.timeframe == plan.timeframe,
+                ForwardPaperPlanRow.setup_id == plan.setup_id,
             )
-            existing_for_setup = session.scalars(
-                select(ForwardPaperPlanRow).where(
-                    ForwardPaperPlanRow.exchange == plan.exchange,
-                    ForwardPaperPlanRow.symbol == plan.symbol,
-                    ForwardPaperPlanRow.timeframe == plan.timeframe,
-                    ForwardPaperPlanRow.setup_id == plan.setup_id,
-                )
-            ).first()
-            if existing_for_setup is None:
-                raise ForwardError(
-                    f"paper plan for setup {plan.setup_id} was not stored"
-                )
-            if existing_for_setup.paper_plan_id != plan.paper_plan_id:
-                # A second, later plan for the same setup instance is never
-                # created: the first PLANNABLE projection is the frozen one.
-                return _paper_plan_from_row(existing_for_setup), False
-            row = session.get(ForwardPaperPlanRow, plan.paper_plan_id)
-            if row is None:
-                raise ForwardError(f"paper plan {plan.paper_plan_id} was not stored")
-            _verify_unchanged(
-                row,
-                values,
-                fields=_PAPER_PLAN_IDENTITY_FIELDS,
-                what=f"paper plan {plan.paper_plan_id}",
+        ).first()
+        if existing_for_setup is None:
+            raise ForwardError(
+                f"paper plan for setup {plan.setup_id} was not stored"
             )
-            return _paper_plan_from_row(row), row.recorded_at == plan.recorded_at
+        if existing_for_setup.paper_plan_id != plan.paper_plan_id:
+            # A second, later plan for the same setup instance is never
+            # created: the first PLANNABLE projection is the frozen one.
+            return _paper_plan_from_row(existing_for_setup), False
+        row = session.get(ForwardPaperPlanRow, plan.paper_plan_id)
+        if row is None:
+            raise ForwardError(f"paper plan {plan.paper_plan_id} was not stored")
+        _verify_unchanged(
+            row,
+            values,
+            fields=_PAPER_PLAN_IDENTITY_FIELDS,
+            what=f"paper plan {plan.paper_plan_id}",
+        )
+        return _paper_plan_from_row(row), plan_inserted
 
     def append_outcome(self, outcome: PaperOutcome) -> tuple[PaperOutcome, bool]:
         """Append one outcome version, or return the identical stored one."""

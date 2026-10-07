@@ -1821,13 +1821,11 @@ class ForwardTestService:
             market_data_json=market_data_json,
             notes=tuple(notes),
         )
-        stored, created = self.ledger.insert_cycle(cycle)
-        for observation in recorded_items:
-            self.ledger.insert_observation(observation)
-        for frozen in pending_plans:
-            if frozen is None:
-                continue
-            stored_plan, plan_created = self.ledger.insert_paper_plan(frozen)
+        frozen_plans = [frozen for frozen in pending_plans if frozen is not None]
+        stored, created, _, stored_plans = self.ledger.insert_cycle_bundle(
+            cycle, recorded_items, frozen_plans
+        )
+        for frozen, (stored_plan, plan_created) in zip(frozen_plans, stored_plans):
             if stored_plan.paper_plan_id != frozen.paper_plan_id:
                 raise ForwardConflict(
                     "a different paper plan id is already stored for setup "

@@ -33,7 +33,11 @@ from sqlalchemy.engine import Engine
 
 from trading_assistant.ai_explanation.parameters import EXPLANATION_RULES_VERSION
 from trading_assistant.config import Settings, get_settings
-from trading_assistant.database.engine import is_memory_database
+from trading_assistant.database.engine import (
+    is_memory_database,
+    is_sqlite_lock_error,
+)
+from trading_assistant.market_data.errors import is_transient_network_error
 from trading_assistant.forward_testing.parameters import RunnerSettings
 from trading_assistant.market_data.integrity import (
     assess_required_window,
@@ -116,6 +120,7 @@ class MultiTimeframeRunResult:
     market_data_json: str
     market_data_error: str | None
     market_data_error_type: str | None
+    market_data_error_transient: bool = False
 
     def to_json_dict(self) -> dict[str, Any]:
         from trading_assistant.market_structure.snapshot import to_jsonable
@@ -181,6 +186,12 @@ class MultiTimeframeService:
             raise ValueError("max_catch_up_boundaries must be between 1 and 100000")
         self.max_catch_up_boundaries = max_catch_up_boundaries
         self._sleep = time.sleep
+        if self.hierarchy.confirmation is None or self.hierarchy.execution is None:
+            raise ValueError(
+                "the hierarchy evaluation engine implements the four-layer "
+                "contract (context, setup, confirmation, execution); this "
+                "hierarchy lacks a confirmation or execution timeframe"
+            )
         for timeframe in self.hierarchy.timeframes:
             if timeframe not in self.settings.supported_timeframes:
                 raise ValueError(
@@ -517,6 +528,7 @@ class MultiTimeframeService:
         )
         market_error: str | None = None
         market_error_type: str | None = None
+        market_error_transient = False
         if refresh_market_data:
             try:
                 updates, backfills = self._refresh_market_data(
@@ -543,13 +555,22 @@ class MultiTimeframeService:
                     }
                 )
             except Exception as exc:  # noqa: BLE001 - reported, never hidden
+                if is_sqlite_lock_error(exc):
+                    # Step 12 PR #22 semantics, matched here: a SQLite lock
+                    # failure is never swallowed to be retried on a later
+                    # pass - retrying on top of a held lock only multiplies
+                    # blocked writes - so it propagates and the runner stops
+                    # immediately instead of entering a retry storm.
+                    raise
                 market_error = f"{type(exc).__name__}: {exc}"
                 market_error_type = type(exc).__name__
+                market_error_transient = is_transient_network_error(exc)
                 market_data_json = canonical_json(
                     {
                         "refreshed": False,
                         "error_type": type(exc).__name__,
                         "error": str(exc),
+                        "transient": market_error_transient,
                         "note": (
                             "public market data could not be refreshed; only "
                             "already-stored closed candles may be evaluated"
@@ -592,6 +613,7 @@ class MultiTimeframeService:
                 market_data_json=market_data_json,
                 market_data_error=market_error,
                 market_data_error_type=market_error_type,
+                market_data_error_transient=market_error_transient,
             )
 
         opens = self._pending_opens(
@@ -624,6 +646,7 @@ class MultiTimeframeService:
                 market_data_json=market_data_json,
                 market_data_error=market_error,
                 market_data_error_type=market_error_type,
+                market_data_error_transient=market_error_transient,
             )
 
         processed: list[datetime] = []
@@ -668,6 +691,7 @@ class MultiTimeframeService:
             market_data_json=market_data_json,
             market_data_error=market_error,
             market_data_error_type=market_error_type,
+            market_data_error_transient=market_error_transient,
         )
 
     def release_database_connections(self) -> None:

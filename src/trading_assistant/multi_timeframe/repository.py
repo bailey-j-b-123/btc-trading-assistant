@@ -170,11 +170,16 @@ class HierarchyLedgerRepository:
 
         values = _values(observation)
         with self._sessions.begin() as session:
-            session.execute(
+            insert_result = session.execute(
                 sqlite_insert(ForwardHierarchyObservationRow)
                 .values(**values)
                 .on_conflict_do_nothing(index_elements=["observation_id"])
             )
+            # ``rowcount`` is the write itself reporting whether the row
+            # landed: comparing ``recorded_at`` instead would misreport a
+            # re-recorded row as created whenever two passes share one clock
+            # instant.
+            created = insert_result.rowcount == 1
             row = session.get(ForwardHierarchyObservationRow, observation.observation_id)
             if row is None:
                 raise MultiTimeframeError(
@@ -185,7 +190,7 @@ class HierarchyLedgerRepository:
                 values,
                 what=f"hierarchy observation {observation.observation_id}",
             )
-            return _from_row(row), row.recorded_at == observation.recorded_at
+            return _from_row(row), created
 
     # ------------------------------------------------------------------
     # Reads (SELECT only)

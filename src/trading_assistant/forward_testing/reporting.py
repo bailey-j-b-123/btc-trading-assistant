@@ -23,8 +23,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
+from itertools import groupby
 from decimal import Decimal
 from statistics import median
+
+from trading_assistant.market_structure.numeric import require_int
 
 from trading_assistant.forward_testing.models import (
     ComparisonRow,
@@ -561,19 +564,28 @@ def _volatility_labels(
 
     labels: dict[str, str] = {}
     history: list[Decimal] = []
-    for observation in observations:
-        value = observation.atr_percent_of_price
-        if value is None:
-            labels[observation.observation_id] = _VOLATILITY_UNAVAILABLE
-        elif len(history) < VOLATILITY_WARMUP_OBSERVATIONS:
-            labels[observation.observation_id] = _INSUFFICIENT_VOLATILITY
-        else:
-            middle = median(history)
-            labels[observation.observation_id] = (
-                _HIGHER_VOLATILITY if value > middle else _LOWER_VOLATILITY
-            )
-        if value is not None:
-            history.append(value)
+    # Observations share one close: siblings at the same close are labelled
+    # against the pre-close history together, and only join the history once
+    # the whole close is labelled. A same-close value can therefore never move
+    # the median its own close is judged against.
+    for _, group in groupby(observations, key=lambda item: item.as_of):
+        batch = list(group)
+        for observation in batch:
+            value = observation.atr_percent_of_price
+            if value is None:
+                labels[observation.observation_id] = _VOLATILITY_UNAVAILABLE
+            elif len(history) < VOLATILITY_WARMUP_OBSERVATIONS:
+                labels[observation.observation_id] = _INSUFFICIENT_VOLATILITY
+            else:
+                middle = median(history)
+                labels[observation.observation_id] = (
+                    _HIGHER_VOLATILITY if value > middle else _LOWER_VOLATILITY
+                )
+        history.extend(
+            observation.atr_percent_of_price
+            for observation in batch
+            if observation.atr_percent_of_price is not None
+        )
     return labels
 
 
@@ -611,6 +623,14 @@ def _warnings(
         warnings.append(
             f"combined_metrics_withheld_multiple_version_fingerprints:{len(ledger.version_fingerprints)}"
         )
+        if ledger.paper_plans:
+            # The per-dimension breakdowns below still describe the whole
+            # ledger, so when versions are separated they span rule sets whose
+            # results are never combined elsewhere. Stated, never silent.
+            warnings.append(
+                "breakdowns_span_multiple_version_fingerprints:"
+                f"{len(ledger.version_fingerprints)}"
+            )
     if metrics.paper_plan_count < parameters.minimum_sample_size:
         warnings.append(
             f"insufficient_paper_observation_sample:{metrics.paper_plan_count}/"
@@ -670,6 +690,7 @@ def build_forward_comparison(
     historical: ValidationReport | None,
     generated_at: datetime,
     limitations: Sequence[str] = FORWARD_REPORT_LIMITATIONS,
+    historical_minimum_sample_size: int | None = None,
 ) -> ForwardComparison:
     """Side-by-side HISTORICAL VALIDATION vs LIVE FORWARD PAPER OBSERVATIONS.
 
@@ -678,7 +699,24 @@ def build_forward_comparison(
     distinct paper plans, so denominators differ by construction and every row
     carries both. Where an upstream rule version differs, the comparison is
     flagged as not comparable instead of being quietly presented as one result.
+
+    ``historical_minimum_sample_size`` is the Step 11 reporting floor the
+    historical side was computed with. The status-share rates recomputed here
+    (entry-not-reached, ambiguous, incomplete, unresolved) are judged against
+    it, so a small historical sample can never show SUFFICIENT next to a
+    forward side judged against its own floor. ``None`` preserves the legacy
+    floor of 1; callers that know the Step 11 floor must pass it.
     """
+
+    if historical_minimum_sample_size is None:
+        historical_floor = 1
+    else:
+        historical_floor = require_int(
+            historical_minimum_sample_size,
+            name="historical_minimum_sample_size",
+            minimum=1,
+            maximum=1_000_000,
+        )
 
     # When recorded cycles span incompatible version fingerprints the combined
     # forward metrics are withheld, so the side is reported as unavailable rather
@@ -721,7 +759,9 @@ def build_forward_comparison(
             "the historical side is unavailable, so versions could not be compared"
         )
     else:
-        historical_metrics = _historical_metrics(historical)
+        historical_metrics = _historical_metrics(
+            historical, minimum_sample_size=historical_floor
+        )
         historical_side = ComparisonSide(
             label="HISTORICAL VALIDATION",
             disclaimer=(
@@ -771,7 +811,9 @@ def build_forward_comparison(
     )
 
 
-def _historical_metrics(report: ValidationReport) -> ForwardCohortMetrics:
+def _historical_metrics(
+    report: ValidationReport, *, minimum_sample_size: int
+) -> ForwardCohortMetrics:
     """Map a Step 11 cohort onto the shared forward metric contract."""
 
     cohort = report.out_of_sample or report.development
@@ -797,17 +839,19 @@ def _historical_metrics(report: ValidationReport) -> ForwardCohortMetrics:
         outcome_status_counts=metrics.outcome_status_counts,
         entry_reached_rate=metrics.entry_reached_rate,
         entry_not_reached_rate=_historical_status_rate(
-            metrics.outcome_status_counts, "ENTRY_NOT_REACHED"
+            metrics.outcome_status_counts,
+            "ENTRY_NOT_REACHED",
+            minimum_sample_size,
         ),
         stopped_rate=metrics.stop_rate_after_ordered_entry,
         ambiguous_rate=_historical_status_rate(
-            metrics.outcome_status_counts, "AMBIGUOUS"
+            metrics.outcome_status_counts, "AMBIGUOUS", minimum_sample_size
         ),
         incomplete_rate=_historical_status_rate(
-            metrics.outcome_status_counts, "INCOMPLETE_DATA"
+            metrics.outcome_status_counts, "INCOMPLETE_DATA", minimum_sample_size
         ),
         unresolved_rate=_historical_status_rate(
-            metrics.outcome_status_counts, "OPEN_AT_CUTOFF"
+            metrics.outcome_status_counts, "OPEN_AT_CUTOFF", minimum_sample_size
         ),
         target_hit_rates=metrics.target_hit_rates,
         raw_observational_r=metrics.raw_observational_r,
@@ -816,7 +860,7 @@ def _historical_metrics(report: ValidationReport) -> ForwardCohortMetrics:
 
 
 def _historical_status_rate(
-    status_counts: Sequence[ValueCount], status: str
+    status_counts: Sequence[ValueCount], status: str, minimum_sample_size: int
 ) -> RateMetric:
     """A denominated rate computed from a historical cohort's status counts."""
 
@@ -829,13 +873,13 @@ def _historical_status_rate(
         denominator,
         f"historical replay records ending {status} / replay records with an "
         "outcome status",
-        1,
+        minimum_sample_size,
     )
 
 
 def _versions_match(
     forward: ForwardReport, historical: ValidationReport
-) -> tuple[bool, str]:
+) -> tuple[bool | None, str]:
     """Compare only the upstream rule versions the two sides share.
 
     Parameter fingerprints are not comparable: each step fingerprints its own
