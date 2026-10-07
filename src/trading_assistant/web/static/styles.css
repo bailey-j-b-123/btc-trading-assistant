@@ -1051,3 +1051,85 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   .mtf-step-state { text-align: left; }
   .mtf-overall { flex-direction: column; align-items: flex-start; gap: 3px; }
 }
+
+/* ----------------------------------------------------------------------- */
+/* Step 13 UI: view-only chart timeframe switching + compact hierarchy      */
+/* status. Additive only: the engine hierarchy, verdict, and plan styles    */
+/* above are untouched.                                                    */
+/* ----------------------------------------------------------------------- */
+
+.chart-stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+.chart-timeframe-switch { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
+.tf-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  min-width: 44px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tf-button:hover { border-color: var(--border-strong); color: var(--text-dim); }
+.tf-button[aria-pressed="true"] {
+  border-color: var(--blue);
+  background: var(--blue-dim);
+  color: var(--text);
+}
+.chart-toolbar-sep { width: 1px; height: 20px; background: var(--border-strong); flex: none; }
+.overlay-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
+.chart-view-note { overflow-wrap: anywhere; }
+
+.mtf-compact { margin: 0; }
+.mtf-compact-rows { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.mtf-compact-row {
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(255,255,255,.014);
+}
+.mtf-compact-label { color: var(--text-faint); font-size: 9px; font-weight: 700; letter-spacing: .07em; white-space: nowrap; }
+.mtf-compact-state { margin-top: 3px; color: var(--text); font-size: 12.5px; font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; }
+.mtf-compact-row[data-tone="good"] .mtf-compact-state { color: var(--green); }
+.mtf-compact-row[data-tone="warn"] .mtf-compact-state { color: var(--amber); }
+.mtf-compact-row[data-tone="bad"] .mtf-compact-state { color: var(--red); }
+.mtf-compact-overall {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  margin-top: 8px; padding: 9px 10px;
+  border: 1px solid var(--border-strong); border-radius: 7px;
+  background: var(--bg-elevated);
+}
+.mtf-compact-overall .mtf-compact-state { margin-top: 0; font-size: 13px; letter-spacing: 0.02em; }
+.mtf-compact-overall[data-tone="warn"] { border-color: rgba(232, 163, 61, 0.5); }
+.mtf-compact-overall[data-tone="warn"] .mtf-compact-state { color: var(--amber); }
+.mtf-compact-meta { margin-top: 6px; color: var(--text-faint); font-size: 10px; }
+.mtf-compact-waiting {
+  margin-top: 5px; padding-left: 8px;
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-dim); font-size: 11px; line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.mtf-compact-unavailable { color: var(--text-muted); font-size: 12px; font-style: italic; }
+
+.mtf-details { margin-top: 0; }
+.mtf-details-summary { overflow-wrap: anywhere; }
+
+@media (max-width: 1040px) {
+  .mtf-compact-rows { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 520px) {
+  .chart-stack { gap: 11px; }
+  .mtf-compact-rows { grid-template-columns: minmax(0, 1fr); }
+  .tf-button { min-height: 40px; min-width: 52px; }
+}

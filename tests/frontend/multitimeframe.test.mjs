@@ -240,9 +240,17 @@ test("ladderViewModel flags a counter-trend hierarchy explicitly", () => {
 
 test("multiTimeframeCard renders the ladder with arrows and the overall row", () => {
   const card = withDom(() => multiTimeframeCard(ladderDashboard()));
-  assert.equal(card.tagName, "SECTION");
+  // The verbose ladder is de-emphasised into a collapsed technical-details
+  // disclosure; the full audit content stays in the DOM.
+  assert.equal(card.tagName, "DETAILS");
   assert.equal(card.getAttribute("aria-label"), "Multi-timeframe ladder");
+  assert.equal(card.open, false);
   const text = card.textContent;
+  const summaries = findNodes(card, (node) => node.tagName === "SUMMARY");
+  assert.ok(summaries.length >= 1);
+  assert.ok(summaries[0].textContent.includes("Multi-timeframe ladder"));
+  assert.ok(summaries[0].textContent.includes("technical details"));
+  assert.ok(summaries[0].textContent.includes("Waiting for confirmation"));
   for (const expected of [
     "Multi-timeframe ladder",
     "4H CONTEXT",
