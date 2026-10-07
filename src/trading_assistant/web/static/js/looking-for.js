@@ -1,13 +1,19 @@
-/** Read-only projection of the backend's one active setup. No strategy logic. */
-import { familyLabel } from "./format.js";
-import { translateRule } from "./plain.js";
+/** Read-only compact projection of backend setup and hierarchy facts. */
+import { directionLabel, displayPrice } from "./format.js";
+import { hierarchyStatusLabel, translateRule } from "./plain.js";
 import { el } from "./util.js";
 
-const EVENTS = {
-  breakout: "A breakout was recorded",
-  failed_breakout: "A failed breakout was recorded",
-  sweep: "A liquidity sweep was recorded",
-  retest: "A retest was recorded",
+const FAMILY_SUMMARIES = {
+  breakout_retest_continuation: "breakout → retest",
+  failed_breakout_sweep_reversal: "failed breakout → sweep",
+  range_rejection_reversal: "range rejection",
+};
+
+const EVENT_SUMMARIES = {
+  breakout: "breakout",
+  failed_breakout: "failed breakout",
+  sweep: "liquidity sweep",
+  retest: "retest",
 };
 
 export function scenarioBand(lookingFor, viewedTimeframe) {
@@ -22,51 +28,119 @@ export function scenarioBand(lookingFor, viewedTimeframe) {
   return { low, high }; // only known band bounds; no future time or price path
 }
 
+function setupTitle(fact) {
+  const direction = fact.direction === "bullish" || fact.direction === "bearish"
+    ? directionLabel(fact.direction)
+    : "Unknown direction";
+  const summary = FAMILY_SUMMARIES[fact.family] || EVENT_SUMMARIES[fact.seed_event?.kind] || "active setup";
+  return `${direction} ${summary}`;
+}
+
+function compactRuleSentence(rule, direction) {
+  const sentence = translateRule({
+    rule_id: rule?.rule_id,
+    reason: rule?.reason,
+    outcome: "pending",
+    required: true,
+  }, { direction }).sentence;
+  return sentence
+    .replace(/^Still needs a /i, "")
+    .replace(/^Still needs /i, "")
+    .replace(/^Waiting for /i, "")
+    .replace(/[.!?]+$/, "");
+}
+
+function priceText(value) {
+  const display = displayPrice(value).display;
+  return display === "UNKNOWN" ? display : `$${display}`;
+}
+
 export function lookingForViewModel(dashboard) {
   const fact = dashboard?.looking_for;
+  const status = hierarchyStatusLabel(dashboard?.multi_timeframe);
   if (fact?.available !== true) return {
     title: "No single active scenario",
-    observed: fact?.reason || "Setup information unavailable.",
-    wanted: "Unknown — wait for a deterministic setup.",
-    invalidation: "Unknown",
-    trade: "NO — no proposal from this scenario",
-    timeframe: dashboard?.meta?.timeframe || "Unknown",
+    watching: "No unique setup reference",
+    need: "Await a deterministic setup",
+    invalidation: "Not specified",
+    status,
     reference: null,
   };
+
   const band = scenarioBand(fact, fact.timeframe);
+  const ref = fact.reference;
   const pending = Array.isArray(fact.pending_required) ? fact.pending_required : [];
-  const wanted = pending.length
-    ? pending.map((rule) => translateRule({ rule_id: rule.rule_id, reason: rule.reason,
-      outcome: "pending", required: true }, { direction: fact.direction }).sentence).join(" ")
-    : "No required rule currently pending; check qualification and hierarchy.";
-  const event = EVENTS[fact.seed_event?.kind] || "Seed event details unavailable";
   return {
-    title: `${familyLabel(fact.family)} · ${fact.direction === "bullish" ? "LONG" : fact.direction === "bearish" ? "SHORT" : "direction unknown"}`,
-    observed: `${event}. ${band ? `Watching reference $${band.low.toLocaleString("en-US")}–$${band.high.toLocaleString("en-US")}.` : "Reference level unavailable."}`,
-    wanted,
+    title: setupTitle(fact),
+    watching: band ? `${priceText(ref.band_low)}–${priceText(ref.band_high)}` : "Reference unavailable",
+    need: pending.length
+      ? compactRuleSentence(pending[0], fact.direction)
+      : "No pending required check",
     invalidation: fact.invalidation != null && Number.isFinite(Number(fact.invalidation))
-      ? `Planned invalidation: $${fact.invalidation}` : "Price invalidation level unavailable; consult setup lifecycle evidence.",
-    // A deterministic proposal is not an executed position or a trading order.
-    trade: dashboard?.qualification?.state === "QUALIFIED" && dashboard?.planning?.state === "PLANNABLE" &&
-      dashboard?.plan?.state === "PLANNABLE" && dashboard.plan.setup_id === fact.setup_id
-      ? "Plan available — not an order; check engine hierarchy" : "NO — watching / no plannable proposal",
-    timeframe: fact.timeframe,
+      ? priceText(fact.invalidation)
+      : (Array.isArray(dashboard?.multi_timeframe?.invalidated_if) &&
+          typeof dashboard.multi_timeframe.invalidated_if[0] === "string"
+        ? dashboard.multi_timeframe.invalidated_if[0]
+        : "Not specified"),
+    status,
     reference: band,
   };
 }
 
+function technicalRows(dashboard) {
+  const rows = [];
+  const fact = dashboard?.looking_for;
+  if (fact && typeof fact === "object") {
+    rows.push(`available: ${String(fact.available === true)}`);
+    if (fact.reason) rows.push(`reason: ${fact.reason}`);
+    for (const key of ["setup_id", "timeframe", "family", "direction", "state", "invalidation"]) {
+      if (fact[key] !== undefined && fact[key] !== null) rows.push(`${key}: ${fact[key]}`);
+    }
+    if (fact.seed_event) {
+      rows.push(`seed event: ${fact.seed_event.kind || "unknown"} · known at ${fact.seed_event.known_at || "unknown"}`);
+    }
+    if (fact.reference && typeof fact.reference === "object") {
+      rows.push(`reference: ${fact.reference.type || "unknown"} · low ${fact.reference.band_low ?? "unknown"} · high ${fact.reference.band_high ?? "unknown"}`);
+    }
+    for (const pending of Array.isArray(fact.pending_required) ? fact.pending_required : []) {
+      rows.push(`pending required ${pending?.rule_id || "rule"}: ${pending?.reason || "reason unavailable"}`);
+    }
+  }
+
+  const hierarchy = dashboard?.multi_timeframe;
+  if (hierarchy && typeof hierarchy === "object") {
+    for (const key of ["decision", "status", "waiting_for_text", "invalidated_if_text"]) {
+      if (hierarchy[key] !== undefined && hierarchy[key] !== null) rows.push(`hierarchy ${key}: ${hierarchy[key]}`);
+    }
+  }
+  return rows;
+}
+
 export function lookingForCard(dashboard) {
   const model = lookingForViewModel(dashboard);
-  const hierarchyWait = dashboard?.multi_timeframe?.available === true
-    ? dashboard.multi_timeframe.waiting_for_text || "No additional hierarchy wait reported."
-    : "Hierarchy confirmation unavailable.";
+  const technical = technicalRows(dashboard);
+  const disclosure = technical.length
+    ? el("details", { class: "looking-for-details" }, [
+        el("summary", { text: "Technical details" }),
+        el("div", { class: "looking-for-technical" }, technical.map((row) =>
+          el("div", { class: "chart-note mono", text: row })
+        )),
+      ])
+    : null;
+
+  const row = (label, value, className = "") => el("div", { class: `looking-for-row ${className}`.trim() }, [
+    el("b", { text: `${label}:` }),
+    el("span", { class: "looking-for-value", text: value }),
+  ]);
+
   return el("section", { class: "looking-for", "aria-label": "Looking for" }, [
-    el("div", { class: "verdict-kicker", text: `LOOKING FOR · SETUP SNAPSHOT ${model.timeframe} · chart view independent · Scenario — not prediction` }),
-    el("strong", { text: model.title }),
-    el("div", { text: model.observed }),
-    el("div", {}, [el("b", { text: "WANTED: " }), model.wanted]),
-    el("div", {}, [el("b", { text: "HIERARCHY: " }), hierarchyWait]),
-    el("div", {}, [el("b", { text: "INVALIDATED IF: " }), model.invalidation]),
-    el("div", {}, [el("b", { text: "TRADE NOW: " }), model.trade]),
+    el("div", { class: "looking-for-kicker", text: "LOOKING FOR" }),
+    el("strong", { class: "looking-for-title", text: model.title }),
+    row("Watching", model.watching),
+    row("Need", model.need),
+    row("Invalid if", model.invalidation),
+    row("Status", model.status, "looking-for-status"),
+    el("div", { class: "looking-for-disclaimer", text: "Scenario — not prediction" }),
+    disclosure,
   ]);
 }

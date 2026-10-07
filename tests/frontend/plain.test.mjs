@@ -12,6 +12,9 @@ import {
   evidenceCategoryLabel,
   healthDetailText,
   healthLabel,
+  hierarchyAllowsReadyWording,
+  hierarchyDecisionLabel,
+  hierarchyStatusLabel,
   humanizeToken,
   invalidateMetaLine,
   isCleanSentence,
@@ -54,10 +57,33 @@ test("state labels translate every setup and verdict state", () => {
   assert.equal(setupStateLabel("WATCH"), "Watching");
   assert.equal(setupStateLabel("QUALIFIED"), "Qualified");
   assert.equal(setupStateLabel("NO_SETUP"), "No setup");
-  assert.equal(verdictStateLabel("PLANNABLE"), "Plan ready");
+  assert.equal(verdictStateLabel("PLANNABLE"), "Plan calculated");
   assert.equal(verdictStateLabel("WATCH"), "Watching");
   assert.equal(verdictStateLabel("NO TRADE"), "No trade");
   assert.equal(verdictStateLabel("UNKNOWN"), "Unknown");
+});
+
+test("hierarchy readiness wording requires the evaluated backend PLANNABLE state", () => {
+  const waiting = { available: true, status: "evaluated", decision: "awaiting_confirmation",
+    overall: "WAITING FOR CONFIRMATION" };
+  assert.equal(hierarchyAllowsReadyWording(waiting), false);
+  assert.equal(hierarchyStatusLabel(waiting), "WAITING FOR CONFIRMATION");
+  assert.equal(hierarchyStatusLabel({ ...waiting, overall: "TRADE READY" }), "WAITING FOR CONFIRMATION");
+  assert.equal(hierarchyStatusLabel({ ...waiting, overall: "TRADE CLEARED" }), "WAITING FOR CONFIRMATION");
+  assert.equal(hierarchyDecisionLabel({ ...waiting, decision_label: "Trade ready" }), "Waiting for lower-timeframe confirmation");
+  assert.equal(hierarchyAllowsReadyWording({ ...waiting, decision: "awaiting_execution" }), false);
+  assert.equal(hierarchyStatusLabel({ ...waiting, decision: "awaiting_execution" }), "WAITING FOR ENTRY TIMING");
+  assert.equal(hierarchyAllowsReadyWording({ ...waiting, status: "incomplete", decision: "plannable" }), false);
+  assert.equal(hierarchyStatusLabel({ ...waiting, status: "incomplete", decision: "plannable" }), "WAITING FOR COMPLETE MARKET DATA");
+  assert.equal(hierarchyAllowsReadyWording({ ...waiting, counter_trend: true }), false);
+  assert.equal(hierarchyStatusLabel({ ...waiting, counter_trend: true }), "COUNTER-TREND BLOCKED BELOW PLANNABLE");
+  assert.equal(hierarchyAllowsReadyWording({ ...waiting, decision: "plannable" }), true);
+  assert.equal(hierarchyStatusLabel({ ...waiting, decision: "plannable" }), "PLAN READY — HIERARCHY COMPLETE");
+  assert.equal(hierarchyAllowsReadyWording({ ...waiting, decision: "plannable", counter_trend: true }), false);
+  assert.equal(hierarchyStatusLabel({ ...waiting, decision: "plannable", counter_trend: true }), "COUNTER-TREND BLOCKED BELOW PLANNABLE");
+  assert.equal(hierarchyDecisionLabel({ ...waiting, decision: "plannable",
+    decision_label: "Plan ready — hierarchy complete" }), "Plan ready — hierarchy complete");
+  assert.equal(hierarchyAllowsReadyWording({ available: false, status: "evaluated", decision: "plannable" }), false);
 });
 
 test("snapshot and terminal reasons become sentences", () => {

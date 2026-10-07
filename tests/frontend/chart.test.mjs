@@ -112,24 +112,46 @@ test("applyOverlays draws only levels present in the payload", () => {
   const handle = mockHandle();
   applyOverlays(handle, PAYLOAD);
   const labels = titles(handle);
-  assert.ok(labels.includes("entry"));
-  assert.ok(labels.includes("protective stop"));
-  assert.ok(!labels.includes("invalidation")); // same level as stop: no duplicate line
-  assert.ok(labels.includes("target 1"));
-  assert.ok(!labels.includes("target 2")); // null target level -> never drawn
-  assert.equal(labels.filter((title) => title === "support low").length, 1);
-  assert.equal(labels.filter((title) => title === "range high").length, 1);
+  assert.ok(labels.includes("Entry"));
+  assert.ok(labels.includes("Stop / Invalidation")); // exact shared price, one concise axis label
+  assert.ok(labels.includes("T1"));
+  assert.ok(!labels.includes("T2")); // null target level -> never drawn
+  assert.equal(labels.filter((title) => title === "Support low").length, 1);
+  assert.equal(labels.filter((title) => title === "Range high").length, 1);
   assert.equal(handle.lines.size, EXPECTED_LINES);
   // Deterministic values: the exact payload numbers reach the library untouched.
   assert.deepEqual(drawn(handle), [
-    "support low@99",
-    "support high@101",
-    "range low@98",
-    "range high@103",
-    "equal highs@102.5",
-    "entry@124",
-    "protective stop@117",
-    "target 1@138",
+    "Support low@99",
+    "Support high@101",
+    "Range low@98",
+    "Range high@103",
+    "Equal highs@102.5",
+    "Entry@124",
+    "Stop / Invalidation@117",
+    "T1@138",
+  ]);
+});
+
+test("short chart labels preserve exact numeric levels and compact collocated labels", () => {
+  const handle = mockHandle();
+  applyOverlays(handle, {
+    overlays: {},
+    scenarioBand: { low: 100.25, high: 117 },
+    plan: {
+      state: "PLANNABLE",
+      entry: { value: "124.50" },
+      stop: { value: "117" },
+      invalidation: { value: "117" },
+      targets: [{ level: { value: "130.75" } }, { level: { value: "135" } }],
+    },
+    prefs: { overlays: { planLevels: true } },
+  });
+  assert.deepEqual(drawn(handle), [
+    "Zone low@100.25",
+    "Zone high / Stop / 1 more@117",
+    "Entry@124.5",
+    "T1@130.75",
+    "T2@135",
   ]);
 });
 
@@ -199,7 +221,7 @@ test("confirmed swing overlays remain optional and use only returned levels", ()
     plan: null,
     prefs: { overlays: { swings: true } },
   });
-  assert.deepEqual(drawn(handle), ["swing high@105"]);
+  assert.deepEqual(drawn(handle), ["Swing high@105"]);
 });
 
 test("the chart accepts the real market-candles API envelope", () => {

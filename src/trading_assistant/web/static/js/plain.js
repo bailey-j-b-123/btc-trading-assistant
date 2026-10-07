@@ -67,12 +67,82 @@ export function setupStateLabel(state) {
   return humanizeToken(state);
 }
 
-/** Big verdict chip words (Level 1). */
+/** Big verdict chip words (Level 1), without implying hierarchy confirmation. */
 export function verdictStateLabel(state) {
-  if (state === "PLANNABLE") return "Plan ready";
+  if (state === "PLANNABLE") return "Plan calculated";
   if (state === "WATCH") return "Watching";
   if (state === "NO TRADE") return "No trade";
   return humanizeToken(state);
+}
+
+const HIERARCHY_STATUS_LABELS = {
+  no_setup: "NO TRADE YET",
+  watch: "WATCHING A SETUP",
+  awaiting_confirmation: "WAITING FOR CONFIRMATION",
+  awaiting_execution: "WAITING FOR ENTRY TIMING",
+  plannable: "PLAN READY — HIERARCHY COMPLETE",
+  invalidated: "SETUP INVALIDATED",
+};
+
+const HIERARCHY_DECISION_LABELS = {
+  no_setup: "No trade yet",
+  watch: "Watching a setup",
+  awaiting_confirmation: "Waiting for lower-timeframe confirmation",
+  awaiting_execution: "Waiting for entry timing",
+  plannable: "Plan ready — hierarchy complete",
+  invalidated: "Setup invalidated",
+};
+
+function containsReadinessWording(value) {
+  return typeof value === "string" &&
+    /\b(?:plan|trade|execution|entry|setup)(?:\s+|-)(?:is\s+)?(?:ready|confirmed|approved|cleared|permitted|actionable)\b|\b(?:ready|confirmed|approved|cleared|permitted|actionable)\s+to\s+trade\b/i.test(value);
+}
+
+/**
+ * Presentation-only permission for readiness wording. The full, available
+ * Step 13 snapshot must explicitly be evaluated as PLANNABLE; Step 6's
+ * PLANNABLE plan state alone only means its levels were calculated.
+ */
+export function hierarchyAllowsReadyWording(payload) {
+  return payload?.available === true && payload?.status === "evaluated" &&
+    payload?.decision === "plannable" && payload?.counter_trend !== true;
+}
+
+/** Short display translation of existing Step 13 payload states. */
+export function hierarchyStatusLabel(payload) {
+  if (payload?.available !== true) return "HIERARCHY UNAVAILABLE";
+  if (payload.status === "incomplete") return "WAITING FOR COMPLETE MARKET DATA";
+  if (payload.counter_trend === true) return "COUNTER-TREND BLOCKED BELOW PLANNABLE";
+  if (payload.decision === "plannable") {
+    return hierarchyAllowsReadyWording(payload)
+      ? HIERARCHY_STATUS_LABELS.plannable
+      : "HIERARCHY NOT CLEARED";
+  }
+  const overall = typeof payload.overall === "string" ? payload.overall.trim() : "";
+  if (containsReadinessWording(overall) || Object.values(HIERARCHY_STATUS_LABELS).includes(overall)) {
+    return HIERARCHY_STATUS_LABELS[payload.decision] || "HIERARCHY STATUS UNKNOWN";
+  }
+  if (overall) return overall;
+  return HIERARCHY_STATUS_LABELS[payload.decision] || "HIERARCHY STATUS UNKNOWN";
+}
+
+/** Keep backend wording except when it conflicts with the authoritative decision state. */
+export function hierarchyDecisionLabel(payload) {
+  if (payload?.available !== true) return "Hierarchy unavailable";
+  if (payload.status === "incomplete") return "Waiting for complete market data";
+  const backendLabel = typeof payload.decision_label === "string" ? payload.decision_label.trim() : "";
+  const knownLabels = Object.values(HIERARCHY_DECISION_LABELS);
+  if (payload.decision === "plannable") {
+    if (!hierarchyAllowsReadyWording(payload)) return "Hierarchy not cleared";
+    return containsReadinessWording(backendLabel) || knownLabels.includes(backendLabel)
+      ? HIERARCHY_DECISION_LABELS.plannable
+      : backendLabel || HIERARCHY_DECISION_LABELS.plannable;
+  }
+  if (containsReadinessWording(backendLabel) || knownLabels.includes(backendLabel)) {
+    return HIERARCHY_DECISION_LABELS[payload.decision] || "Hierarchy status unknown";
+  }
+  if (backendLabel) return backendLabel;
+  return HIERARCHY_DECISION_LABELS[payload.decision] || "Hierarchy status unknown";
 }
 
 /** Snapshot-level reasons from QualificationSnapshot.reasons. */
