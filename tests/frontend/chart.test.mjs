@@ -260,7 +260,7 @@ test("chart data refreshes replace overlay handles and chart disposal releases r
   globalThis.window = {
     LightweightCharts: {
       createChart: (_container, _options) => {
-        const record = { removed: false, candles: [], volume: [], lines: new Set(), resizeCount: 0 };
+        const record = { removed: false, candles: [], forming: [], volume: [], formingVolume: [], lines: new Set(), resizeCount: 0 };
         const series = {
           setData: (data) => { record.candles = data; },
           createPriceLine: (options) => {
@@ -270,10 +270,14 @@ test("chart data refreshes replace overlay handles and chart disposal releases r
           },
           removePriceLine: (line) => record.lines.delete(line),
         };
+        const formingSeries = { setData: (data) => { record.forming = data; } };
         const volume = { setData: (data) => { record.volume = data; } };
+        const formingVolume = { setData: (data) => { record.formingVolume = data; } };
+        let candleSeriesCount = 0;
+        let histogramCount = 0;
         const chart = {
-          addCandlestickSeries: () => series,
-          addHistogramSeries: () => volume,
+          addCandlestickSeries: () => candleSeriesCount++ === 0 ? series : formingSeries,
+          addHistogramSeries: () => histogramCount++ === 0 ? volume : formingVolume,
           priceScale: () => ({ applyOptions: () => {} }),
           resize: () => { record.resizeCount += 1; },
           remove: () => { record.removed = true; },
@@ -339,16 +343,21 @@ function withChartGlobals(library, observerClass, run) {
 function stubLibrary(records) {
   return {
     createChart: (_container, options) => {
-      const record = { options, candles: [], volume: [], resizedTo: [], removed: false };
+      const record = { options, candles: [], forming: [], volume: [], formingVolume: [], resizedTo: [], removed: false };
       const series = {
         setData: (data) => { record.candles = data; },
         createPriceLine: (lineOptions) => ({ lineOptions }),
         removePriceLine: () => {},
       };
+      const formingSeries = { setData: (data) => { record.forming = data; } };
+      let candleSeriesCount = 0;
+      let histogramCount = 0;
       records.push(record);
       return {
-        addCandlestickSeries: () => series,
-        addHistogramSeries: () => ({ setData: (data) => { record.volume = data; } }),
+        addCandlestickSeries: () => candleSeriesCount++ === 0 ? series : formingSeries,
+        addHistogramSeries: () => histogramCount++ === 0
+          ? { setData: (data) => { record.volume = data; } }
+          : { setData: (data) => { record.formingVolume = data; } },
         priceScale: () => ({ applyOptions: () => {} }),
         resize: (width, height) => { record.resizedTo.push([width, height]); },
         remove: () => { record.removed = true; },

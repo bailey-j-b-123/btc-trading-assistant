@@ -101,6 +101,7 @@ export function createPriceChart(container, { height } = {}) {
   let series;
   let formingSeries;
   let volume;
+  let formingVolume;
   try {
     chart = library.createChart(container, {
       width: initialWidth,
@@ -143,6 +144,16 @@ export function createPriceChart(container, { height } = {}) {
     volume = chart.addHistogramSeries({
       priceFormat: { type: "volume" },
       priceScaleId: "volume",
+      lastValueVisible: false,
+      priceLineVisible: false,
+    });
+    // A separate histogram series keeps forming trade volume explicitly
+    // display-only; it is never merged into the stored confirmed volume rows.
+    formingVolume = chart.addHistogramSeries({
+      priceFormat: { type: "volume" },
+      priceScaleId: "volume",
+      lastValueVisible: false,
+      priceLineVisible: false,
     });
     chart.priceScale("volume").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
   } catch (error) {
@@ -155,6 +166,8 @@ export function createPriceChart(container, { height } = {}) {
     series,
     formingSeries,
     volume,
+    formingVolume,
+    formingTime: null,
     container,
     priceLineHandles: [],
     resizeObserver: null,
@@ -186,7 +199,7 @@ export function createPriceChart(container, { height } = {}) {
   return handle;
 }
 
-export function setCandles(handle, payload) {
+export function setCandles(handle, payload, { fit = true } = {}) {
   if (!handle || handle.destroyed) return;
   const rows = rowsFromPayload(payload);
   const candles = toChartCandles(rows);
@@ -203,19 +216,47 @@ export function setCandles(handle, payload) {
     });
   }
   if (handle.volume && typeof handle.volume.setData === "function") handle.volume.setData(volumeRows);
+  if (handle.formingVolume && typeof handle.formingVolume.setData === "function") handle.formingVolume.setData([]);
+  if (handle.formingSeries && typeof handle.formingSeries.setData === "function") handle.formingSeries.setData([]);
+  handle.formingTime = null;
+  if (fit) fitPriceChart(handle);
 }
 
-/** Temporary, explicitly unconfirmed overlay. Never touches handle.series or volume. */
+/** Temporary, explicitly unconfirmed overlay. Never touches confirmed candle or volume data. */
 export function setFormingCandle(handle, candle) {
   if (!handle || handle.destroyed || !handle.formingSeries) return;
-  if (candle === null) { handle.formingSeries.setData([]); return; }
+  if (candle === null) {
+    handle.formingSeries.setData([]);
+    handle.formingVolume?.setData?.([]);
+    handle.formingTime = null;
+    return;
+  }
   if (!Number.isSafeInteger(candle.time) || candle.time <= 0 ||
       [candle.open, candle.high, candle.low, candle.close].some((v) => !Number.isFinite(v) || v <= 0) ||
       candle.high < candle.low || candle.open < candle.low || candle.open > candle.high ||
       candle.close < candle.low || candle.close > candle.high) return;
-  handle.formingSeries.setData([{
-    time: candle.time, open: candle.open, high: candle.high, low: candle.low, close: candle.close,
-  }]);
+  if (handle.formingTime !== null && handle.formingTime !== candle.time) {
+    // Never leave the just-closed temporary bar behind at a UTC boundary.
+    handle.formingSeries.setData([]);
+    handle.formingVolume?.setData?.([]);
+  }
+  const bar = { time: candle.time, open: candle.open, high: candle.high, low: candle.low, close: candle.close };
+  handle.formingSeries.setData([bar]);
+  if (handle.formingVolume && typeof handle.formingVolume.setData === "function") {
+    const value = Number(candle.volume);
+    handle.formingVolume.setData(Number.isFinite(value) && value >= 0 ? [{
+      time: candle.time,
+      value,
+      color: candle.close >= candle.open ? "rgba(47,191,127,0.72)" : "rgba(224,86,91,0.72)",
+    }] : []);
+  }
+  handle.formingTime = candle.time;
+}
+
+/** Show all stored rows and the real-time forming timestamp on the same time axis. */
+export function fitPriceChart(handle) {
+  if (!handle || handle.destroyed) return;
+  try { handle.chart?.timeScale?.()?.fitContent?.(); } catch { /* vendor API may be unavailable in test or older bundles */ }
 }
 
 function compactLineTitle(group) {

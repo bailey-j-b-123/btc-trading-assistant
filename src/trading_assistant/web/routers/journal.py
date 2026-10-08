@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/journal", tags=["journal"])
 
 def _query_service(request: Request) -> JournalQueryService:
     state = request.app.state.services
-    return JournalQueryService(state.engine, state.journal.repository)
+    return JournalQueryService(state.engine, state.journal.repository, state.candles)
 
 
 @router.get("/records")

@@ -5,10 +5,23 @@
  */
 
 import { api } from "../api.js";
+import { applyOverlays, createPriceChart, destroyPriceChart, fitPriceChart, setCandles } from "../chart.js";
 import { directionLabel, displayOrUnknown, familyLabel, formatDate, formatTime, formatUtc, shortId } from "../format.js";
 import { clearNode, el, emptyState, errorState, loadPrefs, openModal, savePrefs, spinner, toast } from "../util.js";
 
 const FILTER_KEY = "ta.journal.filters.v1";
+let journalRenderGeneration = 0;
+let activeJournalCharts = [];
+
+function releaseJournalCharts() {
+  for (const chart of activeJournalCharts) destroyPriceChart(chart);
+  activeJournalCharts = [];
+}
+
+export function disposeJournal() {
+  journalRenderGeneration += 1;
+  releaseJournalCharts();
+}
 
 const DEFAULT_FILTERS = {
   symbol: "",
@@ -40,6 +53,8 @@ function persistFilters(filters) {
 
 export async function renderJournal(view, { journalId = null, offset = 0 } = {}) {
   if (journalId) return renderJournalDetail(view, journalId);
+  disposeJournal();
+  const generation = journalRenderGeneration;
   clearNode(view).append(spinner("Reading journal…"));
 
   const filters = loadFilters();
@@ -52,9 +67,11 @@ export async function renderJournal(view, { journalId = null, offset = 0 } = {})
   try {
     listing = await api.journalList(params);
   } catch (error) {
+    if (generation !== journalRenderGeneration) return;
     clearNode(view).append(errorState(error.message));
     return;
   }
+  if (generation !== journalRenderGeneration) return;
 
   clearNode(view);
   view.append(
@@ -237,15 +254,20 @@ function pagination(listing, offset) {
 /* --------------------------------------------------------------------- */
 
 async function renderJournalDetail(view, journalId) {
+  releaseJournalCharts();
+  const generation = ++journalRenderGeneration;
   clearNode(view).append(spinner("Loading immutable record…"));
   let detail;
   try {
     detail = await api.journalDetail(journalId);
   } catch (error) {
+    if (generation !== journalRenderGeneration) return;
     clearNode(view).append(errorState(error.message));
     return;
   }
+  if (generation !== journalRenderGeneration) return;
   const record = detail.record;
+  const snapshots = marketSnapshotsSection(detail);
   clearNode(view);
 
   view.append(
@@ -270,8 +292,104 @@ async function renderJournalDetail(view, journalId) {
     planSection(detail),
     decisionSection(detail),
     outcomeSection(detail),
+    snapshots.node,
     snapshotSection(detail),
   );
+  if (generation === journalRenderGeneration) mountMarketSnapshotCharts(snapshots.charts, detail, generation);
+}
+
+function marketSnapshotsSection(detail) {
+  const snapshots = detail.market_snapshots;
+  if (!snapshots || snapshots.available !== true) {
+    return {
+      node: el("div", { class: "card", "aria-label": "Journal market snapshots" }, [
+        el("h3", { class: "card-title", text: "Stored market snapshots" }),
+        emptyState("Market snapshot unavailable", snapshots?.unavailable_reason || "No stored-candle snapshot was returned."),
+      ]),
+      charts: [],
+    };
+  }
+  const charts = [];
+  const windowCard = (label, window) => {
+    const heading = `${label} · ${snapshots.timeframe || detail.record.timeframe}`;
+    if (!window || window.available !== true) {
+      return el("div", { class: "card journal-market-window" }, [
+        el("h4", { class: "card-title", text: heading }),
+        emptyState(label === "AFTER" ? "No recorded after window" : "No before window", "Only stored closed candles are shown."),
+      ]);
+    }
+    const host = el("div", { class: "chart-wrap journal-market-chart", "aria-label": `${heading} stored candlestick chart` });
+    const times = label === "AFTER" && window.observed_through
+      ? `Observed through ${formatUtc(window.observed_through)}`
+      : `Through ${formatUtc(window.end_time)}`;
+    const missing = Number.isInteger(window.missing_candle_count) ? window.missing_candle_count : null;
+    const completeness = window.complete === true
+      ? "No missing candle slots reported in this bounded window."
+      : missing !== null
+        ? `${missing} missing candle slot(s) in this bounded window; no values are filled.`
+        : "Stored window is incomplete; missing count is unavailable.";
+    const chartNote = window.returned_count
+      ? `${window.returned_count} stored closed candle(s) · ${times} · ${completeness}${window.truncated ? " · showing the latest bounded segment" : ""}`
+      : `No stored closed candles in this bounded window · ${times} · ${completeness}`;
+    charts.push({ host, window, label, generation: journalRenderGeneration });
+    return el("div", { class: "card journal-market-window" }, [
+      el("div", { class: "section-title-row" }, [
+        el("h4", { class: "card-title", text: heading }),
+        el("span", { class: "card-hint", text: label === "BEFORE" ? "at recorded setup boundary" : "cut off at recorded observation" }),
+      ]),
+      host,
+      el("div", { class: "chart-note journal-window-note", text: chartNote }),
+    ]);
+  };
+  const afterWindow = snapshots.after;
+  return {
+    node: el("section", { class: "card journal-market-snapshots", "aria-label": "Before and after stored market snapshots" }, [
+      el("div", { class: "card-head" }, [
+        el("h3", { class: "card-title", text: "Stored market snapshots" }),
+        el("span", { class: "card-hint", text: "Read-only · closed candles · no replay or hindsight beyond the recorded cutoff" }),
+      ]),
+      el("div", { class: "immutable-note", text: snapshots.note || "Snapshots come from stored closed candles only; missing rows are not reconstructed." }),
+      el("div", { class: "journal-market-grid" }, [
+        windowCard("BEFORE", snapshots.before),
+        afterWindow
+          ? windowCard("AFTER", afterWindow)
+          : el("div", { class: "card journal-market-window" }, [
+              el("div", { class: "section-title-row" }, [
+                el("h4", { class: "card-title", text: `AFTER · ${snapshots.timeframe || detail.record.timeframe}` }),
+                el("span", { class: "card-hint", text: "not observed yet" }),
+              ]),
+              emptyState("No recorded after window", "No after-candles are shown until an outcome observation supplies an observed_through cutoff, even if later candles now exist in storage."),
+            ]),
+      ]),
+      el("div", { class: "chart-note", text: "Plan lines, when present, are the immutable recorded proposal only — not fills, orders, or executed trades." }),
+    ]),
+    charts,
+  };
+}
+
+function mountMarketSnapshotCharts(charts, detail, generation) {
+  for (const item of charts) {
+    if (generation !== journalRenderGeneration || item.generation !== generation) return;
+    try {
+      const handle = createPriceChart(item.host, { height: 300 });
+      if (!handle) {
+        item.host.append(emptyState("Chart unavailable", "The chart library did not load; stored snapshot data remains unchanged."));
+        continue;
+      }
+      activeJournalCharts.push(handle);
+      setCandles(handle, item.window.candles || []);
+      if (detail.plan?.state === "PLANNABLE") {
+        applyOverlays(handle, {
+          overlays: {},
+          plan: detail.plan,
+          prefs: { overlays: { planLevels: true } },
+        });
+      }
+      fitPriceChart(handle);
+    } catch (error) {
+      item.host.append(errorState(`Stored snapshot chart could not be rendered: ${error.message}`));
+    }
+  }
 }
 
 function planSection(detail) {

@@ -5,7 +5,7 @@
 
 import { refreshTopbar } from "./topbar.js";
 import { disposeDashboard, renderDashboard } from "./views/dashboard.js";
-import { renderJournal } from "./views/journal.js";
+import { disposeJournal, renderJournal } from "./views/journal.js";
 import { renderLive } from "./views/live.js";
 import { renderSettings } from "./views/settings.js";
 import { renderStatistics } from "./views/statistics.js";
@@ -45,6 +45,7 @@ function render() {
   if (!view) return;
 
   disposeDashboard();
+  disposeJournal();
   view.className = "view";
   document.title = `Trading Assistant — ${TITLES[name] || TITLES.dashboard}`;
   if (name !== "dashboard") refreshTopbar();

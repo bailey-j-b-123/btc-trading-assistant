@@ -6,7 +6,8 @@
  */
 
 import { api } from "../api.js";
-import { canShowForming, createFormingStream } from "../forming-display.js";
+import { canShowForming, createFormingStream, currentBucketMs, FORMING_INTERVALS } from "../forming-display.js";
+import { brainStatusViewModel } from "../brain-status.js";
 import { lookingForCard, scenarioBand } from "../looking-for.js";
 import {
   buildDecisionRequest,
@@ -377,7 +378,7 @@ export const CHART_TIMEFRAMES = [
 ];
 
 const CHART_CANDLE_LIMIT = 500;
-const ENGINE_CHART_NOTE = "Confirmed history is stored closed candles only. Any ghost forming candle is public Kraken data, display only; it is never confirmed here.";
+const ENGINE_CHART_NOTE = "Confirmed history is stored closed candles only. The separate forming candle and volume come from Kraken's real public trades/OHLC and are display-only; they never enter BRAIN, journal, or forward-testing inputs.";
 
 function viewedTimeframeLabel(timeframe) {
   const known = CHART_TIMEFRAMES.find((entry) => entry.id === timeframe);
@@ -422,13 +423,50 @@ export function overlaysForViewedTimeframe({ dashboard, viewedTimeframe, structu
 }
 
 function chartHeadingMeta(viewedTimeframe, engineTimeframe) {
-  if (viewedTimeframe === engineTimeframe) return "Stored closed candles · separate display-only forming candle when available";
+  if (viewedTimeframe === engineTimeframe) return "Stored closed candles · live Kraken forming candle is a separate display-only series";
   const viewed = viewedTimeframeLabel(viewedTimeframe);
   const engine = viewedTimeframeLabel(engineTimeframe);
   return `View only — ${viewed} stored candles with ${viewed} structure · engine hierarchy unchanged · plan levels from the ${engine} engine plan`;
 }
 
-function chartCard(dashboard, initialPrefs) {
+function candleHistoryStatus(timeframe, rows, payload = {}) {
+  const candles = toChartCandles(rows);
+  const latest = candles.at(-1);
+  const interval = (FORMING_INTERVALS[timeframe] || 0) * 60000;
+  const currentOpen = currentBucketMs(timeframe, Date.now());
+  if (!latest || !interval || currentOpen === null) {
+    return "STORED CLOSED HISTORY · no confirmed closed candle is available for this timeframe.";
+  }
+  const expectedLatest = currentOpen - interval;
+  const latestOpen = latest.time * 1000;
+  const missingTail = latestOpen < expectedLatest
+    ? Math.max(0, Math.floor((expectedLatest - latestOpen) / interval))
+    : 0;
+  let candleGaps = 0;
+  for (let index = 1; index < candles.length; index += 1) {
+    const delta = candles[index].time - candles[index - 1].time;
+    if (delta > interval / 1000) candleGaps += Math.max(0, Math.round(delta / (interval / 1000)) - 1);
+  }
+  const reportedGaps = (Array.isArray(payload.gaps) ? payload.gaps : []).reduce((sum, gap) => {
+    const count = Number(gap?.missing_count ?? gap?.missing_candle_count ?? gap?.intervals_missing);
+    return Number.isFinite(count) && count > 0 ? sum + Math.floor(count) : sum;
+  }, 0);
+  const knownMissing = Math.max(missingTail + candleGaps, reportedGaps,
+    Number.isInteger(payload.missing_candle_count) ? payload.missing_candle_count : 0);
+  const complete = payload.complete ?? payload.market?.complete;
+  const quality = knownMissing > 0 || complete === false
+    ? "GAP / STALE · live forming candle remains separate"
+    : "CURRENT · confirmed history only";
+  const closeTime = new Date(latestOpen + interval).toISOString();
+  const gapText = knownMissing > 0
+    ? ` · ${knownMissing} known missing interval(s)`
+    : complete === false
+      ? " · backend reports incomplete history (gap count unavailable)"
+      : "";
+  return `STORED CLOSED HISTORY ${quality} · latest $${latest.close.toLocaleString("en-US")} closed ${formatUtc(closeTime)}${gapText}`;
+}
+
+function chartCard(dashboard, initialPrefs, brainModel) {
   const meta = dashboard?.meta || {};
   const symbol = meta.symbol || "UNKNOWN";
   const engineTimeframe = typeof meta.timeframe === "string" && meta.timeframe ? meta.timeframe : "1h";
@@ -441,14 +479,34 @@ function chartCard(dashboard, initialPrefs) {
   });
   const toolbar = el("div", { class: "chart-toolbar", role: "group", "aria-label": "Chart timeframe and overlays" });
   const handleRef = { current: null };
-  const formingStatus = el("div", { class: "forming-status", role: "status",
-    "aria-label": "Forming candle display only", text: "FORMING — DISPLAY ONLY" });
-  const confirmedStatus = el("div", { class: "chart-note", text: "Last confirmed stored close: unavailable" });
+  const streamBadge = el("span", { class: "stream-state-badge", dataset: { status: "CONNECTING" }, text: "CONNECTING" });
+  const formingCaption = el("span", { class: "forming-caption", text: `FORMING ${viewedTimeframeLabel(engineTimeframe)} · DISPLAY ONLY` });
+  const livePriceValue = el("strong", { class: "live-price-value", text: "—" });
+  const livePriceTime = el("span", { class: "live-price-time", text: "Awaiting Kraken trade" });
+  const streamDetail = el("span", { class: "live-stream-detail", text: "Opening Kraken public trade + OHLC channels…" });
+  const formingStatus = el("div", { class: "forming-status live-market-strip", dataset: { freshness: "CONNECTING" },
+    "aria-label": "Live Kraken BTC/USDT price and display-only forming candle" }, [
+    el("div", { class: "live-status-line" }, [
+      streamBadge,
+      formingCaption,
+    ]),
+    el("div", { class: "live-price-line" }, [
+      el("span", { class: "live-price-symbol", text: "BTC/USDT" }),
+      livePriceValue,
+      el("span", { class: "live-price-caption", text: "last Kraken trade · USDT" }),
+    ]),
+    livePriceTime,
+    streamDetail,
+  ]);
+  const formingOhlc = el("div", { class: "forming-ohlc chart-note", text: "Waiting for the current-bucket Kraken OHLC baseline…" });
+  const confirmedStatus = el("div", { class: "chart-note confirmed-history-status", text: "STORED CLOSED HISTORY · unavailable" });
   let formingStream = null;
   const viewed = {
     timeframe: engineTimeframe,
     generation: 0,
     cancelled: false,
+    overlaySnapshotFresh: true,
+    dataAsOf: decisionAsOf,
     overlays: dashboard?.overlays && typeof dashboard.overlays === "object" ? dashboard.overlays : emptyOverlays(),
   };
   let emptyNode = null;
@@ -466,42 +524,129 @@ function chartCard(dashboard, initialPrefs) {
     if (emptyNode) emptyNode.remove();
     emptyNode = null;
   };
-  const planForOverlays = () => (hasValidTradePlan(dashboard) ? dashboard.plan : null);
+  const planForOverlays = () => (
+    brainModel?.currentDecisionAvailable && viewed.overlaySnapshotFresh &&
+    timeMatches(viewed.dataAsOf, decisionAsOf) && hasValidTradePlan(dashboard)
+      ? dashboard.plan
+      : null
+  );
   function stopForming() {
     formingStream?.stop();
     formingStream = null;
     setFormingCandle(handleRef.current, null);
   }
-  function startForming(timeframe, storedRows) {
+  function updateFormingText(timeframe, candle) {
+    const label = viewedTimeframeLabel(timeframe);
+    if (!candle) {
+      formingOhlc.textContent = `FORMING ${label} · waiting for a current-bucket Kraken OHLC baseline · display only`;
+      return;
+    }
+    const price = (value) => `$${Number(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const volume = Number(candle.volume);
+    const volumeText = Number.isFinite(volume)
+      ? `${volume.toLocaleString("en-US", { maximumFractionDigits: 8 })} BTC`
+      : "volume unavailable";
+    formingOhlc.textContent = `FORMING ${label} · display only · O ${price(candle.open)} · H ${price(candle.high)} · L ${price(candle.low)} · C ${price(candle.close)} · V ${volumeText} · ${candle.trades ?? "?"} trades`;
+    formingOhlc.title = `Exact Kraken OHLCV: O ${candle.open}, H ${candle.high}, L ${candle.low}, C ${candle.close}, V ${candle.volume ?? "unknown"}`;
+  }
+  function startForming(timeframe, initialRows, historyPayload = {}) {
     stopForming();
-    const confirmed = toChartCandles(storedRows);
-    const latest = confirmed.at(-1);
-    confirmedStatus.textContent = latest
-      ? `LAST CONFIRMED ${viewedTimeframeLabel(timeframe)} CLOSE · $${latest.close.toLocaleString("en-US")} · stored candle`
-      : "Last confirmed stored close: unavailable";
-    formingStatus.dataset.freshness = "UNAVAILABLE";
-    formingStatus.textContent = `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY`;
-    if (!handleRef.current || symbol !== "BTC/USDT" || !latest ||
-        !canShowForming(timeframe, latest.time * 1000, Date.now())) return;
-    // This socket is bound ONLY to the selected chart view, never the setup snapshot.
+    let storedRows = Array.isArray(initialRows) ? initialRows : [];
+    const label = viewedTimeframeLabel(timeframe);
+    formingStatus.dataset.freshness = "CONNECTING";
+    streamBadge.dataset.status = "CONNECTING";
+    streamBadge.textContent = "CONNECTING";
+    formingCaption.textContent = `FORMING ${label} · DISPLAY ONLY`;
+    confirmedStatus.textContent = candleHistoryStatus(timeframe, storedRows, historyPayload);
+    updateFormingText(timeframe, null);
+    if (!handleRef.current || symbol !== "BTC/USDT" || !FORMING_INTERVALS[timeframe]) {
+      const reason = symbol !== "BTC/USDT"
+        ? `Live Kraken trade stream is configured for BTC/USDT; ${symbol} is not connected.`
+        : `No live stream is configured for ${label}.`;
+      streamBadge.dataset.status = "DISCONNECTED";
+      streamBadge.textContent = "DISCONNECTED";
+      formingStatus.dataset.freshness = "DISCONNECTED";
+      streamDetail.textContent = reason;
+      return;
+    }
+    const streamGeneration = viewed.generation;
     formingStream = createFormingStream({
-      timeframe, confirmedOpenMs: latest.time * 1000,
-      onCandle: (candle) => setFormingCandle(handleRef.current, candle),
-      onStatus: (status, receivedAt) => {
-        formingStatus.dataset.freshness = status;
-        formingStatus.textContent = status === "CURRENT"
-          ? `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY · KRAKEN OHLC CURRENT · last update ${new Date(receivedAt).toISOString().slice(11, 19)} UTC`
-          : `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY · KRAKEN OHLC ${status} · stored chart unchanged`;
+      timeframe,
+      onPrice: (tick) => {
+        if (viewed.cancelled || streamGeneration !== viewed.generation) return;
+        const exact = String(tick.price);
+        livePriceValue.textContent = `$${tick.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        livePriceValue.title = `Exact Kraken trade price ${exact} · trade ID ${tick.tradeId}`;
+        livePriceTime.textContent = `Last trade ${formatUtc(tick.timestamp, { withSeconds: true })}`;
+      },
+      onCandle: (candle) => {
+        if (viewed.cancelled || streamGeneration !== viewed.generation) return;
+        const latest = toChartCandles(storedRows).at(-1);
+        const latestOpenMs = latest ? latest.time * 1000 : null;
+        if (!candle) {
+          setFormingCandle(handleRef.current, null);
+          updateFormingText(timeframe, null);
+          return;
+        }
+        if (!canShowForming(timeframe, latestOpenMs, Date.now())) {
+          setFormingCandle(handleRef.current, null);
+          formingOhlc.textContent = `FORMING ${label} hidden · stored history already contains this or a later candle; no duplicate is drawn.`;
+          return;
+        }
+        removeChartOverlay();
+        setFormingCandle(handleRef.current, candle);
+        updateFormingText(timeframe, candle);
+      },
+      onStatus: (nextStatus, info = {}) => {
+        if (viewed.cancelled || streamGeneration !== viewed.generation) return;
+        formingStatus.dataset.freshness = nextStatus;
+        streamBadge.dataset.status = nextStatus;
+        streamBadge.textContent = nextStatus;
+        streamDetail.textContent = info.reason || "Kraken stream status unavailable.";
+        streamDetail.title = info.reason || "";
+        if (info.lastTradeAt && livePriceTime.textContent === "Awaiting Kraken trade") {
+          livePriceTime.textContent = `Last trade ${formatUtc(info.lastTradeAt, { withSeconds: true })}`;
+        }
+      },
+      onRollover: ({ bucketOpenMs }) => {
+        if (viewed.cancelled || streamGeneration !== viewed.generation) return;
+        // Boundary-triggered read only: this refreshes stored closed history
+        // once per selected interval. It is not a live-price polling loop.
+        const bucketGeneration = viewed.generation;
+        api.candles({ symbol, timeframe, limit: CHART_CANDLE_LIMIT }).then((payload) => {
+          if (viewed.cancelled || bucketGeneration !== viewed.generation || viewed.timeframe !== timeframe) return;
+          if (payload?.timeframe !== timeframe || !Array.isArray(payload.candles)) {
+            throw new Error("The stored-candle response did not match the selected timeframe.");
+          }
+          storedRows = payload.candles;
+          viewed.dataAsOf = payload.as_of || null;
+          if (handleRef.current) setCandles(handleRef.current, storedRows, { fit: false });
+          confirmedStatus.textContent = candleHistoryStatus(timeframe, storedRows, payload);
+          viewed.overlays = emptyOverlays();
+          viewed.overlaySnapshotFresh = false;
+          if (handleRef.current) clearOverlays(handleRef.current);
+          viewNote.textContent = `${label} stored closed history refreshed at ${formatUtc(new Date(bucketOpenMs).toISOString())}. Structure/plan overlays are hidden until their source snapshot matches this boundary.`;
+          if (!toChartCandles(storedRows).length) {
+            showChartOverlay(chartEmpty(`${label} stored history unavailable`, "No confirmed closed candles were returned at the rollover. A real Kraken forming bar may still appear separately."));
+          }
+        }).catch((error) => {
+          if (viewed.cancelled || bucketGeneration !== viewed.generation) return;
+          confirmedStatus.textContent = `STORED CLOSED HISTORY · rollover refresh failed (${error.message}); previous confirmed rows were left unchanged.`;
+        });
       },
     });
     formingStream.start();
   }
   const applyViewedOverlays = () => {
     if (!handleRef.current) return;
+    const overlays = viewed.overlaySnapshotFresh ? viewed.overlays || {} : emptyOverlays();
     applyOverlays(handleRef.current, {
-      overlays: viewed.overlays || {},
+      overlays,
       plan: planForOverlays(),
-      scenarioBand: scenarioBand(dashboard?.looking_for, viewed.timeframe),
+      scenarioBand: viewed.overlaySnapshotFresh && brainModel?.currentDecisionAvailable &&
+        timeMatches(viewed.dataAsOf, decisionAsOf)
+        ? scenarioBand(dashboard?.looking_for, viewed.timeframe)
+        : null,
       prefs: loadPrefs(),
     });
   };
@@ -584,6 +729,8 @@ function chartCard(dashboard, initialPrefs) {
     if (timeframe === viewed.timeframe || viewed.cancelled) return;
     const generation = ++viewed.generation;
     const label = viewedTimeframeLabel(timeframe);
+    const mayRestoreLoadedOverlays = viewed.overlaySnapshotFresh;
+    viewed.overlaySnapshotFresh = false;
     viewed.timeframe = timeframe;
     for (const [id, button] of switchButtons) button.setAttribute("aria-pressed", String(id === timeframe));
     headingTitle.textContent = `${symbol} · ${label} chart`;
@@ -604,29 +751,29 @@ function chartCard(dashboard, initialPrefs) {
       viewed.overlays = dashboard?.overlays && typeof dashboard.overlays === "object"
         ? dashboard.overlays
         : emptyOverlays();
-      const engineValid = toChartCandles(rows);
-      if (!engineValid.length) {
-        if (handleRef.current) setCandles(handleRef.current, []);
-        showChartOverlay(chartEmpty(
-          "Candle data unavailable",
-          rows.length
-            ? "The stored candle payload contains no renderable rows. No substitute data is shown."
-            : "No stored closed candles were returned for this symbol and timeframe.",
-        ));
-        viewNote.textContent = ENGINE_CHART_NOTE;
-        return;
-      }
+      viewed.dataAsOf = decisionAsOf;
+      viewed.overlaySnapshotFresh = mayRestoreLoadedOverlays;
       const handle = ensureChart();
       if (!handle || generation !== viewed.generation || viewed.cancelled) return;
       setCandles(handle, rows);
-      startForming(timeframe, rows);
+      confirmedStatus.textContent = candleHistoryStatus(timeframe, rows, dashboard?.market || {});
+      if (!toChartCandles(rows).length) {
+        showChartOverlay(chartEmpty(
+          "No stored closed candles",
+          rows.length
+            ? "The stored payload contains no renderable rows. A separate real Kraken candle may appear when available."
+            : "No confirmed closed candles were returned. No substitute history is shown.",
+        ));
+      }
+      startForming(timeframe, rows, dashboard?.market || {});
       applyViewedOverlays();
       viewNote.textContent = ENGINE_CHART_NOTE;
       return;
     }
 
-    // Any other timeframe: two read-only GETs at the dashboard's own decision
-    // instant, so the viewed chart can never run ahead of the verdict.
+    // Other timeframes are a display-only view of the latest stored closed
+    // candles. Their read-only market view never feeds the dashboard verdict,
+    // qualification, plan, or forward-testing runner.
     let candlesPayload = null;
     let candlesError = null;
     try {
@@ -634,7 +781,6 @@ function chartCard(dashboard, initialPrefs) {
         symbol,
         timeframe,
         limit: CHART_CANDLE_LIMIT,
-        end_time: decisionAsOf || undefined,
       });
     } catch (error) {
       candlesError = error;
@@ -643,35 +789,43 @@ function chartCard(dashboard, initialPrefs) {
     const timeframeEcho = candlesPayload?.timeframe;
     if (candlesError || timeframeEcho !== timeframe) {
       viewed.overlays = emptyOverlays();
-      if (handleRef.current) setCandles(handleRef.current, []);
+      viewed.overlaySnapshotFresh = false;
+      viewed.dataAsOf = null;
+      const handle = ensureChart();
+      if (handle) {
+        setCandles(handle, []);
+        startForming(timeframe, [], {});
+      }
       const detail = candlesError
-        ? `${candlesError.message} No substitute data is shown.`
-        : `The backend returned ${timeframeEcho || "unlabelled"} data for a ${label} request; it is not shown.`;
-      showChartOverlay(chartEmpty(`${label} chart unavailable`, detail));
-      viewNote.textContent = `${label} stored candles unavailable — nothing rendered in their place.`;
+        ? `${candlesError.message} No substitute stored data is shown; the independent Kraken stream may still provide a real forming bar.`
+        : `The backend returned ${timeframeEcho || "unlabelled"} data for a ${label} request; it is not shown. The separate Kraken stream remains view-only.`;
+      showChartOverlay(chartEmpty(`${label} stored history unavailable`, detail));
+      viewNote.textContent = `${label} confirmed history is unavailable; no substitute candles are rendered.`;
       return;
     }
     const fetchedRows = Array.isArray(candlesPayload.candles) ? candlesPayload.candles : [];
-    if (!toChartCandles(fetchedRows).length) {
-      viewed.overlays = emptyOverlays();
-      if (handleRef.current) setCandles(handleRef.current, []);
-      const returned = Number.isInteger(candlesPayload.returned_count) ? candlesPayload.returned_count : fetchedRows.length;
-      showChartOverlay(chartEmpty(
-        `${label} data unavailable`,
-        `No stored ${label} closed candles at this decision time (returned ${returned}). No substitute data is shown.`,
-      ));
-      viewNote.textContent = `No stored ${label} closed candles at this decision time — the chart is honestly empty.`;
-      return;
-    }
     const handle = ensureChart();
     if (!handle || generation !== viewed.generation || viewed.cancelled) return;
+    viewed.dataAsOf = candlesPayload.as_of || null;
     setCandles(handle, fetchedRows);
-    startForming(timeframe, fetchedRows);
+    confirmedStatus.textContent = candleHistoryStatus(timeframe, fetchedRows, candlesPayload);
+    startForming(timeframe, fetchedRows, candlesPayload);
+    if (!toChartCandles(fetchedRows).length) {
+      viewed.overlays = emptyOverlays();
+      viewed.overlaySnapshotFresh = false;
+      const returned = Number.isInteger(candlesPayload.returned_count) ? candlesPayload.returned_count : fetchedRows.length;
+      showChartOverlay(chartEmpty(
+        `${label} stored history unavailable`,
+        `No stored ${label} closed candles were returned (count ${returned}). A real Kraken forming candle may still appear separately.`,
+      ));
+      viewNote.textContent = `No stored ${label} closed candles are available — no history is invented or substituted.`;
+      return;
+    }
 
     let structurePayload = null;
     let structureError = null;
     try {
-      structurePayload = await api.structure({ symbol, timeframe, as_of: decisionAsOf || undefined });
+      structurePayload = await api.structure({ symbol, timeframe, as_of: candlesPayload.as_of || undefined });
     } catch (error) {
       structureError = error;
     }
@@ -685,6 +839,7 @@ function chartCard(dashboard, initialPrefs) {
       return;
     }
     viewed.overlays = overlaysForViewedTimeframe({ dashboard, viewedTimeframe: timeframe, structure: structurePayload });
+    viewed.overlaySnapshotFresh = true;
     applyViewedOverlays();
     const zoneCount = Array.isArray(viewed.overlays.zones) ? viewed.overlays.zones.length : 0;
     const returned = Number.isInteger(candlesPayload.returned_count) ? candlesPayload.returned_count : fetchedRows.length;
@@ -700,8 +855,11 @@ function chartCard(dashboard, initialPrefs) {
       toolbar,
     ]),
     formingStatus,
+    formingOhlc,
     confirmedStatus,
-    lookingForCard(dashboard),
+    brainModel?.currentDecisionAvailable
+      ? lookingForCard(dashboard)
+      : el("div", { class: "chart-note brain-scenario-unavailable", role: "status", text: `Current BRAIN scenario is not shown: ${brainModel?.reason || "no matching persisted cycle"}` }),
     host,
     viewNote,
   ]);
@@ -718,11 +876,11 @@ function chartCard(dashboard, initialPrefs) {
   return {
     node: card,
     mount() {
-      if (!validCandles.length) return;
       const handle = ensureChart();
       if (!handle) return;
       setCandles(handle, rows);
-      startForming(engineTimeframe, rows);
+      confirmedStatus.textContent = candleHistoryStatus(engineTimeframe, rows, dashboard?.market || {});
+      startForming(engineTimeframe, rows, dashboard?.market || {});
       applyViewedOverlays();
     },
     destroy() {
@@ -972,6 +1130,142 @@ function planCard(dashboard) {
   ]);
 }
 
+function persistedWaitingRules(observation) {
+  const rules = (Array.isArray(observation?.rules) ? observation.rules : [])
+    .filter((rule) => rule?.required !== false && rule?.outcome === "pending");
+  if (rules.length) return rules;
+  return (Array.isArray(observation?.pendingRules) ? observation.pendingRules : [])
+    .filter((ruleId) => typeof ruleId === "string" && ruleId.trim())
+    .map((ruleId) => ({ rule_id: ruleId, outcome: "pending", required: true }));
+}
+
+function persistedPlanRecord(observation) {
+  const plan = observation?.plan;
+  if (observation?.planState !== "PLANNABLE" || plan?.state !== "PLANNABLE") {
+    return observation?.planState
+      ? el("div", { class: "brain-plan-unavailable", text: `Recorded plan state: ${planStateLabel(observation.planState)}${plan?.state_detail ? ` · ${plan.state_detail}` : ""}` })
+      : null;
+  }
+  const targets = Array.isArray(plan.targets) ? plan.targets : [];
+  const targetText = targets.map((target, index) => {
+    const value = target?.level?.value;
+    return isMissing(value) ? null : `T${index + 1} ${displayRounded(value, 2).display}`;
+  }).filter(Boolean);
+  return el("div", { class: "brain-plan-record" }, [
+    el("div", { class: "brain-detail-label", text: "Plan from this recorded close · paper only" }),
+    el("div", { class: "plan-levels brain-plan-levels" }, [
+      planLevel("Entry", plan.entry?.value, "green"),
+      planLevel("Stop", plan.stop?.value, "red"),
+      planLevel("Invalidation", plan.invalidation?.value, "amber"),
+    ]),
+    el("div", { class: "brain-recorded-targets", text: targetText.length
+      ? `Structural targets: ${targetText.join(" · ")}`
+      : "No structural target levels were recorded." }),
+  ]);
+}
+
+function persistedObservationCard(observation) {
+  const heading = `${familyLabel(observation.family)} · ${directionLabel(observation.direction)}`;
+  const pending = persistedWaitingRules(observation);
+  const children = [
+    el("div", { class: "brain-observation-heading" }, [
+      el("strong", { text: heading }),
+      el("span", { class: "tag", text: setupStateLabel(observation.state) }),
+    ]),
+  ];
+  if (pending.length) {
+    children.push(el("div", { class: "brain-waiting-record" }, [
+      el("span", { class: "brain-detail-label", text: "Recorded waiting state" }),
+      el("ul", {}, pending.map((rule) => el("li", { text: translateRule(rule, { direction: observation.direction }).sentence }))),
+    ]));
+  } else if (observation.state === "WATCH" || observation.state === "QUALIFIED") {
+    children.push(el("div", { class: "brain-waiting-record", text: "No pending required rule is recorded on this observation." }));
+  }
+  if (observation.noTradeReason) {
+    children.push(el("div", { class: "brain-no-trade-reason" }, [
+      el("span", { class: "brain-detail-label", text: "Recorded no-paper-plan reason" }),
+      el("span", { text: observation.noTradeReason }),
+    ]));
+  }
+  const plan = persistedPlanRecord(observation);
+  if (plan) children.push(plan);
+  return el("div", { class: "brain-observation-record" }, children);
+}
+
+function brainStatusCard(model) {
+  const badgeTone = model.cycleCurrent ? "good" : model.statusLabel === "STOPPED" ? "warn" : "neutral";
+  const cycleTime = model.cycleAsOf ? formatUtc(model.cycleAsOf) : "no cycle recorded";
+  const counts = Object.entries(model.setupStateCounts || {})
+    .filter(([, count]) => Number.isInteger(count) && count >= 0)
+    .map(([state, count]) => `${setupStateLabel(state)} ${count}`);
+  const children = [
+    el("div", { class: "section-title-row" }, [
+      el("h2", { class: "card-title", text: "BRAIN status" }),
+      el("span", { class: "brain-state-badge", dataset: { tone: badgeTone }, role: "status", text: model.statusLabel }),
+    ]),
+    el("div", { class: "brain-runner-state" }, [
+      el("span", { class: "brain-detail-label", text: "Runner" }),
+      el("strong", { text: model.runnerStatus }),
+      model.runner?.recorded_at ? el("span", { class: "mono", text: `heartbeat ${formatUtc(model.runner.recorded_at)}` }) : null,
+    ]),
+    el("div", { class: "brain-cycle-meta", text: `Latest persisted cycle: ${cycleTime} · ${model.cycleStatus || "no cycle status"} · snapshot ${model.snapshotState ? setupStateLabel(model.snapshotState) : "UNKNOWN"}` }),
+    el("div", { class: model.currentDecisionAvailable ? "brain-current-note" : "brain-not-current", role: "note", text: model.currentDecisionAvailable
+      ? "The current verdict/setup/plan panels match this completed persisted cycle and confirmed closed-candle boundary."
+      : model.reason }),
+  ];
+  if (counts.length) {
+    children.push(el("div", { class: "brain-state-counts", text: `Recorded setup counts · ${counts.join(" · ")}` }));
+  }
+  if (model.explanation) {
+    children.push(el("div", { class: "brain-persisted-explanation" }, [
+      el("span", { class: "brain-detail-label", text: "Persisted BRAIN explanation" }),
+      el("span", { text: model.explanation }),
+    ]));
+  } else if (model.cycle) {
+    children.push(el("div", { class: "brain-persisted-explanation", text: "No persisted explanation headline is available for this cycle." }));
+  }
+
+  if (model.activeSetups.length === 1) {
+    children.push(persistedObservationCard(model.activeSetups[0]));
+  } else if (model.activeSetups.length > 1) {
+    children.push(el("div", { class: "brain-not-current", text: `${model.activeSetups.length} WATCH/QUALIFIED setups are recorded at the latest cycle; this display does not select one.` }));
+    children.push(...model.activeSetups.slice(0, 3).map(persistedObservationCard));
+  } else if (model.observations.length) {
+    children.push(el("div", { class: "brain-observation-record" }, [
+      el("div", { class: "brain-detail-label", text: "Latest recorded setup observation" }),
+      el("div", { text: `${familyLabel(model.observations[0].family)} · ${directionLabel(model.observations[0].direction)} · ${setupStateLabel(model.observations[0].state)}` }),
+      persistedObservationCard(model.observations[0]),
+    ]));
+  } else if (model.cycle) {
+    const note = model.snapshotState === "NO_SETUP"
+      ? "The persisted snapshot state is NO_SETUP; there is no setup observation row for this cycle."
+      : "No setup observation rows are associated with this cycle; an empty row list is not treated as a no-setup conclusion.";
+    children.push(el("div", { class: "brain-observation-record", text: note }));
+  }
+
+  if (model.observations.length > 1) {
+    const visible = model.activeSetups.length > 1 ? model.activeSetups.slice(0, 3) : model.observations.slice(0, 1);
+    const visibleIds = new Set(visible.map((row) => row.id));
+    const remaining = model.observations.filter((row) => !visibleIds.has(row.id));
+    if (remaining.length) {
+      children.push(el("details", { class: "brain-recorded-details" }, [
+        el("summary", { text: `Other setup observations from this cycle (${remaining.length})` }),
+        ...remaining.map(persistedObservationCard),
+      ]));
+    }
+  }
+  if (model.cycle?.observation_count > model.observations.length) {
+    children.push(el("div", { class: "chart-note", text: `The API returned ${model.observations.length} of ${model.cycle.observation_count} cycle observation rows; additional rows are outside its response limit.` }));
+  }
+  if (model.notes.length) {
+    children.push(el("details", { class: "brain-recorded-details" }, [
+      el("summary", { text: `Recorded cycle notes (${model.notes.length})` }),
+      el("ul", {}, model.notes.map((note) => el("li", { text: String(note) }))),
+    ]));
+  }
+  return el("section", { class: "card terminal-card brain-status-card", "aria-label": "Persisted BRAIN status" }, children);
+}
+
 function roundedRMultiple(value) {
   if (isMissing(value)) return el("span", { text: "R/R UNKNOWN" });
   const { display, raw } = displayRounded(value, 2);
@@ -1174,7 +1468,14 @@ function marketNowCard(dashboard) {
   ]);
 }
 
-function explanationCard(dashboard) {
+function explanationCard(dashboard, brainModel) {
+  if (!brainModel?.currentDecisionAvailable) {
+    return el("section", { class: "card terminal-card", "aria-label": "Current explanation unavailable" }, [
+      el("div", { class: "section-title-row" }, [el("h2", { class: "card-title", text: "Current explanation" })]),
+      el("div", { class: "brain-not-current", role: "status", text: `No fresh BRAIN explanation is shown: ${brainModel?.reason || "no matching persisted cycle"}` }),
+      el("div", { class: "chart-note", text: "The last persisted BRAIN headline, when present, is shown in the BRAIN status card." }),
+    ]);
+  }
   const explanation = dashboard?.explanation;
   const sections = Array.isArray(explanation?.sections) ? explanation.sections : [];
   const limitations = Array.isArray(explanation?.limitations) ? explanation.limitations : [];
@@ -1184,7 +1485,7 @@ function explanationCard(dashboard) {
   const summaryLine = explanation && typeof explanation === "object" && explanation.available !== false
     ? `Technical record · ${meta.symbol || "UNKNOWN"} · ${timeframeLabel(meta.timeframe)} · ${setupStateLabel(dashboard?.qualification?.state)}`
     : "Grounded explanation";
-  const body = [];
+  const body = [el("div", { class: "chart-note", text: "Read-only dashboard explanation for the exact stored close. The persisted BRAIN headline is displayed separately in the BRAIN status card." })];
   if (scenarioText(explanation?.headline)) {
     body.push(el("div", { class: "chart-note", text: `Backend headline: ${explanation.headline.trim()}` }));
   }
@@ -1623,6 +1924,16 @@ function compactHierarchyStrip(dashboard) {
   ]);
 }
 
+function hierarchyNotCurrentCard(label, model) {
+  return el("section", { class: "card terminal-card mtf-compact", "aria-label": label }, [
+    el("div", { class: "section-title-row" }, [
+      el("h2", { class: "card-title", text: label }),
+      el("span", { class: "card-hint", text: "not a persisted current BRAIN cycle" }),
+    ]),
+    el("div", { class: "mtf-compact-unavailable", role: "status", text: `Current hierarchy is withheld: ${model?.reason || "no matching completed BRAIN cycle"}` }),
+  ]);
+}
+
 function multiTimeframeCard(dashboard) {
   const model = ladderViewModel(dashboard);
   if (!model) {
@@ -1693,7 +2004,11 @@ export async function renderDashboard(view) {
       symbol: prefs.preferredSymbol || undefined,
       timeframe: prefs.preferredTimeframe || undefined,
     }),
-    api.forward({ limit: 8 }),
+    api.forward({
+      limit: 50,
+      symbol: prefs.preferredSymbol || undefined,
+      timeframe: prefs.preferredTimeframe || undefined,
+    }),
   ]);
   if (generation !== renderGeneration) return;
 
@@ -1706,28 +2021,33 @@ export async function renderDashboard(view) {
 
   const dashboard = dashboardResult.value || {};
   const forward = forwardResult.status === "fulfilled" ? forwardResult.value : null;
+  const brainModel = brainStatusViewModel(dashboard, forward);
   updateTopbar(dashboard, forward);
 
-  const chart = chartCard(dashboard, prefs);
+  const chart = chartCard(dashboard, prefs, brainModel);
+  const hierarchySummary = brainModel.currentDecisionAvailable
+    ? compactHierarchyStrip(dashboard)
+    : hierarchyNotCurrentCard("Multi-timeframe status", brainModel);
+  const sideCards = brainModel.currentDecisionAvailable
+    ? [brainStatusCard(brainModel), verdictCard(dashboard, forward), botWatchingCard(dashboard), planCard(dashboard)]
+    : [brainStatusCard(brainModel)];
   clearNode(view).append(
     el("div", { class: "primary-layout" }, [
       el("div", { class: "chart-stack" }, [
         chart.node,
-        compactHierarchyStrip(dashboard),
+        hierarchySummary,
       ]),
-      // Fix #2: the side stack answers "what is the bot focused on" at a
-      // glance — verdict (overall state) → Bot is watching (the one primary
-      // setup + grouped others) → Trade plan (exact levels).
-      el("div", { class: "side-stack" }, [
-        verdictCard(dashboard, forward),
-        botWatchingCard(dashboard),
-        planCard(dashboard),
-      ]),
+      // Current verdict/setup/plan cards are shown only when they match the
+      // latest completed persisted BRAIN cycle at this exact closed boundary.
+      // When stopped or stale, the BRAIN card shows recorded facts instead.
+      el("div", { class: "side-stack" }, sideCards),
     ]),
-    multiTimeframeCard(dashboard),
+    brainModel.currentDecisionAvailable
+      ? multiTimeframeCard(dashboard)
+      : hierarchyNotCurrentCard("Multi-timeframe ladder", brainModel),
     el("div", { class: "tertiary-grid" }, [
       marketNowCard(dashboard),
-      explanationCard(dashboard),
+      explanationCard(dashboard, brainModel),
     ]),
     el("div", { class: "secondary-grid" }, [
       recentDecisionsCard(forward),
