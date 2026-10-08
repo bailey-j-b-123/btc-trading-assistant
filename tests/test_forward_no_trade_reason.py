@@ -60,7 +60,7 @@ from trading_assistant.forward_testing import (
     PAPER_TRADE_ACTIVE_REASON,
     HeartbeatStatus,
 )
-from trading_assistant.forward_testing.models import paper_outcome_is_settled
+from trading_assistant.forward_testing.models import paper_trade_occupies_slot
 from trading_assistant.forward_testing.repository import (
     ForwardLedgerRepository,
     _cycle_values,
@@ -170,20 +170,33 @@ def test_a_refused_candidate_never_overwrites_the_active_trade() -> None:
 
 
 def test_a_later_valid_trade_is_recorded_once_the_first_settles() -> None:
-    # The first candle after the qualifying close stops the first paper trade's
-    # trajectory (its outcome can no longer change); the setups stay valid.
-    series = labelled_series() + (bar(21, 124, low=116), bar(22, 124, low=123))
+    # Ordered entry, then a later stop: a clean STOPPED trajectory releases
+    # the slot immediately. Same-candle entry+stop is AMBIGUOUS and occupies
+    # until the horizon (covered separately); bar(21, 124, low=116) is that
+    # trap because the fixture default high is close+1.
+    series = labelled_series() + (
+        bar(21, 126, low=123),
+        bar(22, 124, high=125, low=116),
+        bar(23, 124, low=123),
+    )
     harness = seeded_harness(series)
     first = harness.plans()[0]
     assert harness.service.status()["unresolved_paper_plan_count"] == 1
 
     harness.advance_to(QUALIFYING_BOUNDARY + INTERVAL)
     harness.run(refresh_market_data=False)
+    assert harness.latest_outcomes()[0].observation.status.value == "OPEN_AT_CUTOFF"
+    assert harness.service.status()["unresolved_paper_plan_count"] == 1
+    assert len(harness.plans()) == 1
+
+    harness.advance_to(QUALIFYING_BOUNDARY + 2 * INTERVAL)
+    harness.run(refresh_market_data=False)
+    assert harness.latest_outcomes()[0].observation.status.value == "STOPPED"
     assert harness.service.status()["unresolved_paper_plan_count"] == 0
     assert len(harness.plans()) == 1
 
     # With no active trade left, a later valid candidate may be paper-traded.
-    harness.advance_to(QUALIFYING_BOUNDARY + 2 * INTERVAL)
+    harness.advance_to(QUALIFYING_BOUNDARY + 3 * INTERVAL)
     result = harness.run(refresh_market_data=False)
     assert result.paper_plans_created == 1
     plans = harness.plans()
@@ -326,12 +339,15 @@ def unresolved_across_timeframes(service):
             exchange=EXCHANGE, symbol=SYMBOL, timeframe=None
         )
     }
-    return [
-        plan
-        for plan in plans
-        if plan.paper_plan_id not in latest
-        or not paper_outcome_is_settled(latest[plan.paper_plan_id], plan)
-    ]
+    occupying = []
+    for plan in plans:
+        cycle = service.ledger.latest_cycle(
+            exchange=EXCHANGE, symbol=SYMBOL, timeframe=plan.timeframe
+        )
+        now = cycle.as_of if cycle is not None else service._clock()
+        if paper_trade_occupies_slot(latest.get(plan.paper_plan_id), plan, now=now):
+            occupying.append(plan)
+    return occupying
 
 
 @pytest.mark.parametrize(
@@ -377,12 +393,17 @@ def test_a_paper_trade_on_another_timeframe_blocks_a_new_one(first, second) -> N
 def test_a_settled_trade_on_another_timeframe_frees_the_instrument() -> None:
     """Settlement anywhere releases the instrument for later valid candidates."""
 
-    # A 1H trade, stopped out by the next closed candle.
+    # A 1H trade: ordered entry, then a later stop. Same-candle entry+stop
+    # (bar(21, 124, low=116)) is AMBIGUOUS and occupies until the horizon.
     harness, _ = harness_on(TIMEFRAME)
     first_result = harness.run(timeframe=TIMEFRAME, refresh_market_data=False)
     assert first_result.paper_plans_created == 1
-    stopped = harness.step((bar(21, 124, low=116),), refresh_market_data=False)
+    harness.step((bar(21, 126, low=123),), refresh_market_data=False)
+    stopped = harness.step(
+        (bar(22, 120, high=126, low=116),), refresh_market_data=False
+    )
     assert stopped.status is HeartbeatStatus.PROCESSED
+    assert harness.latest_outcomes()[0].observation.status.value == "STOPPED"
     assert len(unresolved_across_timeframes(harness.service)) == 0
 
     # A later 15M candidate may now be paper-traded: the settled 1H trade does
@@ -408,7 +429,8 @@ def test_the_repository_can_answer_the_instrument_wide_question() -> None:
 
     harness, _ = harness_on(TIMEFRAME)
     harness.run(timeframe=TIMEFRAME, refresh_market_data=False)
-    harness.step((bar(21, 124, low=116),), refresh_market_data=False)
+    harness.step((bar(21, 126, low=123),), refresh_market_data=False)
+    harness.step((bar(22, 120, high=126, low=116),), refresh_market_data=False)
     service, _, _ = pass_on(harness, OTHER_TIMEFRAME)
     ledger = service.ledger
 

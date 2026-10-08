@@ -294,13 +294,30 @@ def _outcome_for(
 
 
 def _known_entry(outcome: PaperOutcome) -> bool:
-    """Whether the entry-touch state of one paper observation is known yet."""
+    """Whether the entry-touch state of one paper observation is known yet.
+
+    Same-candle ``AMBIGUOUS`` stays in the denominator so the plan is not
+    hidden; it is not a confirmed ordered fill (see ``_confirmed_ordered_entry``).
+    """
 
     observation = outcome.observation
     return observation.entry_reached or observation.status in {
         OutcomeStatus.ENTRY_NOT_REACHED,
         OutcomeStatus.INVALIDATED_BEFORE_ENTRY,
     }
+
+
+def _confirmed_ordered_entry(outcome: PaperOutcome) -> bool:
+    """Whether the proposed entry is a confirmed ordered fill.
+
+    Same-candle ``AMBIGUOUS`` sets ``entry_reached=True`` with
+    ``entry_ordered=False``. That touch must not inflate ``entry_reached_rate``.
+    """
+
+    observation = outcome.observation
+    if observation.status is OutcomeStatus.AMBIGUOUS or observation.ambiguous:
+        return False
+    return bool(observation.entry_ordered)
 
 
 def _metrics(
@@ -335,11 +352,13 @@ def _metrics(
     entry_denominator = len(known_entry)
     entry_rate = rate(
         "entry_reached_rate",
-        sum(outcome.observation.entry_reached for outcome in known_entry),
+        sum(_confirmed_ordered_entry(outcome) for outcome in known_entry),
         entry_denominator,
-        "paper observations whose proposed entry was touched so far / paper "
-        "observations with a known entry-touch state so far (a still-open "
-        "observation can change until its horizon completes)",
+        "paper observations whose proposed entry was confirmed as an ordered "
+        "fill (same-candle AMBIGUOUS and unordered touches are excluded from "
+        "the numerator) / paper observations with a known entry-touch state "
+        "so far (a still-open observation can change until its horizon "
+        "completes)",
         parameters.minimum_sample_size,
     )
     entry_not_reached_rate = rate(

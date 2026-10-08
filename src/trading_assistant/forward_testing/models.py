@@ -107,7 +107,7 @@ class ForwardObservation:
 
     ``no_trade_reason`` is the deterministic explanation for the two cases where
     a monitored candidate deliberately produced no paper trade: the instrument
-    already has one unresolved (active) paper trade, or the candidate was
+    already has one occupying (active) paper trade, or the candidate was
     plannable earlier and is still valid but its decision-time reward-to-risk
     has deteriorated below the mandatory floor, so no remaining genuine
     structural target reaches 1R (MISSED). It is ``None`` whenever a paper plan was
@@ -284,6 +284,11 @@ def paper_outcome_is_settled(outcome: PaperOutcome, plan: PaperPlan) -> bool:
     forward tracking keeps observing instead of freezing a premature verdict.
     ``AMBIGUOUS``, ``INCOMPLETE_DATA`` and ``OPEN_AT_CUTOFF`` are never
     reinterpreted as a favourable result.
+
+    Settlement is not slot occupancy. ``AMBIGUOUS`` is settled (do not
+    re-observe, do not convert it into a win/loss/confirmed fill) but still
+    occupies the one-active paper-trade slot until the original horizon
+    elapses; see ``paper_trade_occupies_slot``.
     """
 
     status = outcome.observation.status
@@ -296,6 +301,40 @@ def paper_outcome_is_settled(outcome: PaperOutcome, plan: PaperPlan) -> bool:
         )
         return outcome.observation.observed_through >= horizon_last_open
     return False
+
+
+def paper_trade_occupies_slot(
+    outcome: PaperOutcome | None,
+    plan: PaperPlan,
+    *,
+    now: datetime,
+) -> bool:
+    """Whether this paper plan still holds the one-active instrument slot.
+
+    Settlement and occupancy are separate:
+
+    * ``paper_outcome_is_settled`` asks whether the trajectory can still
+      change. ``AMBIGUOUS`` is settled — never re-observed, never a win.
+    * Occupancy is the one-active-paper-trade policy. An ``AMBIGUOUS`` plan
+      keeps the slot until the original observation horizon has elapsed.
+      Horizon expiry is judged against ``now`` (the close being processed)
+      because outcome tracking stops at the ambiguity, so a frozen
+      ``observed_through`` would otherwise lock the slot forever.
+
+    A clean terminal trajectory (stopped, targets reached, invalidated
+    before entry, stopped after targets) releases the slot immediately.
+    Horizon expiry also releases it, without converting the stored outcome.
+    """
+
+    interval = interval_for_timeframe(plan.timeframe)
+    horizon_last_close = plan.plan_as_of + interval * plan.observation_horizon_candles
+    if now > horizon_last_close:
+        return False
+    if outcome is None:
+        return True
+    if outcome.observation.status is OutcomeStatus.AMBIGUOUS:
+        return True
+    return not paper_outcome_is_settled(outcome, plan)
 
 
 @dataclass(frozen=True, slots=True)
@@ -503,6 +542,7 @@ __all__ = [
     "PaperOutcome",
     "PaperPlan",
     "paper_outcome_is_settled",
+    "paper_trade_occupies_slot",
     "ComparisonRow",
     "ComparisonSide",
 ]

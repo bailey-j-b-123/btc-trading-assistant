@@ -35,7 +35,13 @@ from trading_assistant.market_structure.snapshot import to_jsonable
 #: plannable earlier but whose decision-time entry no longer reaches the
 #: mandatory reward-to-risk floor is recorded as MISSED. A v1 ledger allowed
 #: concurrent paper plans, so the cohorts must never be merged silently.
-FORWARD_LEDGER_RULES_VERSION = "forward-ledger-v2"
+#:
+#: v3 splits slot occupancy from scored settlement. ``AMBIGUOUS`` remains a
+#: terminal unscored outcome (never re-observed, never a win/loss/confirmed
+#: fill) but keeps occupying the one-active paper-trade slot until the original
+#: observation horizon elapses. v2 treated ``AMBIGUOUS`` as freeing the
+#: instrument immediately, so v2 and v3 cohorts must never be merged silently.
+FORWARD_LEDGER_RULES_VERSION = "forward-ledger-v3"
 
 #: Version of the closed-candle forward runner/cycle contract.
 FORWARD_RUNNER_RULES_VERSION = "forward-runner-v1"
@@ -44,9 +50,10 @@ FORWARD_RUNNER_RULES_VERSION = "forward-runner-v1"
 FORWARD_PARAMETERS_VERSION = "forward-parameters-v1"
 
 #: Recorded on a candidate observation when its PLANNABLE Step 6 plan is refused
-#: because the instrument already has one unresolved (active) paper trade on some
+#: because the instrument already has one occupying (active) paper trade on some
 #: timeframe — the guard is instrument-wide, never per-timeframe: the candidate
-#: is still monitored, but no second paper trade is created.
+#: is still monitored, but no second paper trade is created. An ``AMBIGUOUS``
+#: paper trade occupies the slot until its original observation horizon elapses.
 PAPER_TRADE_ACTIVE_REASON = "NO TRADE — BTC paper trade already active."
 
 #: Recorded on a candidate observation that was genuinely plannable earlier, is
