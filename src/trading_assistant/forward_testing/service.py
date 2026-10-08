@@ -11,11 +11,12 @@ and nothing more:
    existing Step 6 planner;
 4. build the Step 9 explanation from those deterministic facts and record its
    fingerprints;
-5. append the immutable forward observation and, when the Step 6 result is
+   5. append the immutable forward observation and, when the Step 6 result is
    PLANNABLE, the frozen paper plan — or, when a paper trade is deliberately
-   not created, the deterministic no-trade reason: at most one unresolved
+   not created, the deterministic no-trade reason: at most one occupying
    paper trade exists per instrument at a time **on any timeframe** (one BTC
-   trade, whether it was recorded on 5M, 15M or 1H), and a monitored setup that
+   trade, whether it was recorded on 5M, 15M or 1H; ``AMBIGUOUS`` occupies
+   until the original horizon elapses), and a monitored setup that
    was plannable earlier but whose decision-time entry no longer reaches the
    mandatory reward-to-risk floor is recorded as MISSED;
 6. append new outcome versions for earlier paper plans using the newly closed
@@ -61,6 +62,7 @@ from trading_assistant.forward_testing.models import (
     PaperOutcome,
     PaperPlan,
     paper_outcome_is_settled,
+    paper_trade_occupies_slot,
 )
 from trading_assistant.forward_testing.parameters import (
     FORWARD_LEDGER_RULES_VERSION,
@@ -133,7 +135,10 @@ logger = logging.getLogger(__name__)
 
 # See ``models.paper_outcome_is_settled``: ``ENTRY_NOT_REACHED`` only settles once
 # the configured horizon has been fully observed, so forward tracking keeps
-# observing instead of freezing a premature verdict.
+# observing instead of freezing a premature verdict. ``AMBIGUOUS`` is settled
+# for outcome tracking (never re-observed, never a win) but still occupies the
+# one-active slot until the original horizon elapses; see
+# ``models.paper_trade_occupies_slot``.
 
 
 @dataclass(frozen=True, slots=True)
@@ -361,11 +366,14 @@ class ForwardTestService:
         unresolved = tuple(
             plan
             for plan in paper_plans
-            if plan.paper_plan_id not in latest_outcomes
-            or not paper_outcome_is_settled(latest_outcomes[plan.paper_plan_id], plan)
+            if paper_trade_occupies_slot(
+                latest_outcomes.get(plan.paper_plan_id), plan, now=target_boundary
+            )
         )
         current_paper_plan = self._current_paper_plan(
-            plans=paper_plans, latest_outcomes=latest_outcomes
+            plans=paper_plans,
+            latest_outcomes=latest_outcomes,
+            now=target_boundary,
         )
         pending = self._pending_boundaries(
             exchange=exchange,
@@ -1723,10 +1731,11 @@ class ForwardTestService:
         if status is CycleStatus.COMPLETE:
             assert frame is not None and snapshot is not None
             snapshot_id = snapshot_identity(snapshot)
-            # One unresolved paper trade per instrument, at most. ``None`` until
+            # One occupying paper trade per instrument, at most. ``None`` until
             # the ledger is consulted, so a close that proposes no plan at all
-            # never pays for the query; once this cycle freezes a plan, every
-            # later candidate at the same close is refused a second one.
+            # never pays for the query; once this cycle freezes a plan — or
+            # reuses an occupying paper-plan id — every later candidate at the
+            # same close is refused a second one.
             paper_trade_active: bool | None = None
             for setup in snapshot.setups:
                 if not self._should_record_setup(
@@ -1742,11 +1751,14 @@ class ForwardTestService:
                 )
                 if plan is not None and plan.state is PlanState.PLANNABLE:
                     if paper_trade_active is None:
-                        # The policy is instrument-wide: an unresolved paper
+                        # The policy is instrument-wide: an occupying paper
                         # trade on *any* timeframe (5M, 15M, 1H, ...) of this
                         # symbol blocks a new one here.
                         paper_trade_active = self._paper_trade_is_active(
-                            exchange=exchange, symbol=symbol
+                            exchange=exchange,
+                            symbol=symbol,
+                            now=boundary,
+                            timeframe=timeframe,
                         )
                     allow_new_paper_trade = not paper_trade_active
                 else:
@@ -1769,6 +1781,18 @@ class ForwardTestService:
                 )
                 if frozen_plan is not None:
                     paper_trade_active = True
+                elif observation.paper_plan_id is not None:
+                    # A reused paper-plan id must not bypass the same-cycle
+                    # one-active lock. Occupancy (not mere existence) decides:
+                    # a settled STOPPED plan no longer holds the slot, so a
+                    # later candidate at this close may take it.
+                    if paper_trade_active is not True:
+                        paper_trade_active = self._paper_trade_is_active(
+                            exchange=exchange,
+                            symbol=symbol,
+                            now=boundary,
+                            timeframe=timeframe,
+                        )
                 recorded_items.append(observation)
                 pending_plans.append(frozen_plan)
                 if setup.state not in (SetupState.WATCH, SetupState.QUALIFIED):
@@ -2088,7 +2112,7 @@ class ForwardTestService:
         setup that stays plannable for many candles keeps exactly one paper plan.
 
         ``allow_new_paper_trade`` is the instrument-wide one-active-paper-trade
-        policy: when *any* timeframe of the instrument already has an unresolved
+        policy: when *any* timeframe of the instrument already has an occupying
         paper trade, a *new* plan is refused and ``(None, None)`` is returned,
         which the caller records as the deterministic no-trade reason. A setup
         that already owns a frozen plan is always answered with that plan id, so
@@ -2335,22 +2359,40 @@ class ForwardTestService:
             (min(floors) if floors else None),
         )
 
-    def _paper_trade_is_active(self, *, exchange: str, symbol: str) -> bool:
-        """Whether the instrument already has one unresolved paper trade.
+    def _occupancy_as_of(
+        self, plan: PaperPlan, *, now: datetime, timeframe: str
+    ) -> datetime:
+        """The close used to judge this plan's horizon, on its own timeframe.
+
+        ``now`` is the close being processed on ``timeframe``. A 1H close must
+        not expire a 15M plan's horizon; each plan is judged against a close
+        of its own timeframe.
+        """
+
+        if plan.timeframe == timeframe:
+            return now
+        latest = self.ledger.latest_cycle(
+            exchange=plan.exchange, symbol=plan.symbol, timeframe=plan.timeframe
+        )
+        return latest.as_of if latest is not None else plan.plan_as_of
+
+    def _paper_trade_is_active(
+        self, *, exchange: str, symbol: str, now: datetime, timeframe: str
+    ) -> bool:
+        """Whether the instrument already has one occupying paper trade.
 
         The question is instrument-wide, deliberately **not** scoped to the
         timeframe being processed: one BTC paper trade means one trade, so a
         plan recorded on 5M blocks a new one on 15M or 1H (and the reverse)
-        until it settles. Both ledger reads therefore ask for every stored
-        timeframe of this exchange/symbol.
+        until it releases the slot. Both ledger reads therefore ask for every
+        stored timeframe of this exchange/symbol.
 
-        A paper trade is active until its latest recorded outcome version is
-        settled — exactly the ``unresolved`` definition the status payload
-        reports — so a plan with no outcome yet is active, and a plan whose
-        trajectory can no longer change (stopped, targets reached, ambiguous,
-        or an observation horizon that has fully passed without the entry) is
-        not. Each plan is judged against its own timeframe's interval. The
-        ledger is the only authority: nothing here is remembered across passes.
+        Occupancy is not scored settlement. A plan with no outcome yet is
+        active; a clean terminal trajectory (stopped, targets reached,
+        invalidated before entry) is not; ``AMBIGUOUS`` stays active until the
+        original observation horizon has elapsed on **that plan's** timeframe.
+        The ledger is the only authority: nothing here is remembered across
+        passes.
         """
 
         plans = self.ledger.paper_plans(
@@ -2363,8 +2405,11 @@ class ForwardTestService:
             )
         }
         return any(
-            plan.paper_plan_id not in latest
-            or not paper_outcome_is_settled(latest[plan.paper_plan_id], plan)
+            paper_trade_occupies_slot(
+                latest.get(plan.paper_plan_id),
+                plan,
+                now=self._occupancy_as_of(plan, now=now, timeframe=timeframe),
+            )
             for plan in plans
         )
 
@@ -2418,17 +2463,22 @@ class ForwardTestService:
         return MISSED_OPPORTUNITY_REASON
 
     def _current_paper_plan(
-        self, *, plans: Sequence[PaperPlan], latest_outcomes
+        self,
+        *,
+        plans: Sequence[PaperPlan],
+        latest_outcomes,
+        now: datetime,
     ) -> PaperPlan | None:
         if not plans:
             return None
-        unresolved = [
+        occupying = [
             plan
             for plan in plans
-            if plan.paper_plan_id not in latest_outcomes
-            or not paper_outcome_is_settled(latest_outcomes[plan.paper_plan_id], plan)
+            if paper_trade_occupies_slot(
+                latest_outcomes.get(plan.paper_plan_id), plan, now=now
+            )
         ]
-        candidates = unresolved or list(plans)
+        candidates = occupying or list(plans)
         return max(candidates, key=lambda plan: (plan.plan_as_of, plan.paper_plan_id))
 
     def _heartbeat(

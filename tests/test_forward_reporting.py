@@ -202,6 +202,10 @@ def test_forward_report_never_hides_ambiguous_incomplete_or_open_observations() 
     assert sum(statuses.values()) == 1
     assert report.metrics.paper_plans_with_outcome == 1
     assert report.metrics.ambiguous_count >= 1
+    # An unordered same-candle touch is visible but is not a confirmed fill.
+    assert report.metrics.entry_reached_rate.numerator == 0
+    assert report.metrics.entry_reached_rate.denominator == 1
+    assert report.metrics.raw_observational_r.sample_size == 0
 
     payload = report.to_json_dict()
     assert payload["metrics"]["outcome_status_counts"]
