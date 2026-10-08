@@ -11,8 +11,9 @@ export class ApiError extends Error {
   }
 }
 
-async function request(method, path, body) {
+async function request(method, path, body, requestOptions = {}) {
   const options = { method, headers: { Accept: "application/json" } };
+  if (requestOptions.signal) options.signal = requestOptions.signal;
   if (body !== undefined) {
     options.headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(body);
@@ -41,7 +42,8 @@ async function request(method, path, body) {
 export const api = {
   meta: () => request("GET", "/api/meta"),
   settings: () => request("GET", "/api/settings"),
-  dashboard: (params = {}) => request("GET", `/api/dashboard${queryString(params)}`),
+  dashboard: (params = {}, requestOptions = {}) =>
+    request("GET", `/api/dashboard${queryString(params)}`, undefined, requestOptions),
   candles: (params = {}) => request("GET", `/api/market/candles${queryString(params)}`),
   structure: (params = {}) => request("GET", `/api/market/structure${queryString(params)}`),
   journalList: (params = {}) => request("GET", `/api/journal/records${queryString(params)}`),
@@ -54,7 +56,8 @@ export const api = {
   statistics: (params = {}) => request("GET", `/api/statistics${queryString(params)}`),
   rollingStatistics: (params = {}) => request("GET", `/api/statistics/rolling${queryString(params)}`),
   validation: (params = {}) => request("GET", `/api/validation${queryString(params)}`),
-  forward: (params = {}) => request("GET", `/api/forward${queryString(params)}`),
+  forward: (params = {}, requestOptions = {}) =>
+    request("GET", `/api/forward${queryString(params)}`, undefined, requestOptions),
   forwardComparison: (params = {}) =>
     request("GET", `/api/forward/comparison${queryString(params)}`),
 };

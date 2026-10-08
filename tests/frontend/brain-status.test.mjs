@@ -133,6 +133,20 @@ test("a persisted NO_SETUP cycle is distinguishable from an empty observation re
   assert.deepEqual(view.observations, []);
 });
 
+test("a failed automatic refresh marks the last persisted cycle stale and withholds current decisions", () => {
+  const view = brainStatusViewModel(
+    dashboardFixture(),
+    forwardFixture(),
+    { refreshStale: true },
+  );
+  assert.equal(view.statusLabel, "STALE");
+  assert.equal(view.refreshStale, true);
+  assert.equal(view.cycleCurrent, false);
+  assert.equal(view.currentDecisionAvailable, false);
+  assert.equal(view.observations.length, 1);
+  assert.match(view.reason, /refresh failed/);
+});
+
 test("a stopped runner shows its last persisted cycle as historical, never current", () => {
   const view = brainStatusViewModel(
     dashboardFixture(),

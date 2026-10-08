@@ -60,7 +60,7 @@ function projectObservation(row) {
  * cycle, confirmed data boundary, setup identity/state, and (when present) plan
  * identity all match the corresponding stored observation.
  */
-export function brainStatusViewModel(dashboard, forward) {
+export function brainStatusViewModel(dashboard, forward, { refreshStale = false } = {}) {
   const status = forward?.status;
   const runner = status && typeof status === "object" ? status.runner : null;
   const cycle = status && typeof status === "object" ? status.latest_cycle : null;
@@ -83,7 +83,7 @@ export function brainStatusViewModel(dashboard, forward) {
     market?.missing_candle_count === 0;
   const runnerActive = ACTIVE_RUNNER_STATES.has(runnerStatus) && !runner?.last_error;
   const cycleCurrent = Boolean(
-    runnerActive && matchingCycle && forwardMarketCurrent && pending === 0,
+    !refreshStale && runnerActive && matchingCycle && forwardMarketCurrent && pending === 0,
   );
   const dashboardMarketCurrent = dashboard?.freshness?.status === "CURRENT" &&
     dashboard?.market?.complete === true;
@@ -136,7 +136,10 @@ export function brainStatusViewModel(dashboard, forward) {
 
   let statusLabel = "UNAVAILABLE";
   let reason = "Forward runner status is unavailable; no current BRAIN decision is shown.";
-  if (!status || typeof status !== "object" || !("runner" in status)) {
+  if (refreshStale) {
+    statusLabel = "STALE";
+    reason = "Automatic BRAIN status refresh failed; the last persisted cycle is shown as historical, not current.";
+  } else if (!status || typeof status !== "object" || !("runner" in status)) {
     statusLabel = "UNAVAILABLE";
   } else if (!runner) {
     statusLabel = "NOT RUN";
@@ -179,6 +182,7 @@ export function brainStatusViewModel(dashboard, forward) {
 
   return {
     cycleCurrent,
+    refreshStale,
     currentDecisionAvailable: dashboardMatchesCycle,
     statusLabel,
     runnerStatus: runnerStatus || (status && "runner" in status ? "NOT RUN" : "UNKNOWN"),

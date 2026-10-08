@@ -321,22 +321,17 @@ export function createFormingStream({
   function processTradeMessage(message, connection) {
     const trades = parseKrakenTrades(message, now());
     if (message.type === "snapshot") tradeSnapshotSeen = true;
-    // Kraken trade_id is the sequence source. Validate batched updates in that
-    // order even if timestamp precision/order differs; candle values are
-    // separately replayed by exchange timestamp in candleAfterTrades().
-    const sequenceOrdered = message.type === "update"
-      ? [...trades].sort((left, right) => left.tradeId === right.tradeId ? 0 :
-        left.tradeId < right.tradeId ? -1 : 1)
-      : trades;
+    // Kraken documents trade_id as a sequence number unique per book, but does
+    // not promise contiguous values. Order each batch by ID and reject repeats
+    // or older IDs; a numeric jump alone is not evidence of a lost trade.
+    // Candle values are replayed separately by exchange timestamp below.
+    const sequenceOrdered = [...trades].sort((left, right) =>
+      left.tradeId === right.tradeId ? 0 : left.tradeId < right.tradeId ? -1 : 1);
     for (const trade of sequenceOrdered) {
       const key = fingerprint(trade);
       if (seenTradeKeys.has(key)) continue;
       const isUpdate = message.type === "update";
       if (isUpdate && lastTradeId !== null && trade.tradeId <= lastTradeId) continue;
-      if (isUpdate && lastTradeId !== null && trade.tradeId > lastTradeId + 1n) {
-        discardConnection(connection, `Kraken trade sequence gap: expected ${lastTradeId + 1n}, received ${trade.tradeId}. Resynchronizing.`);
-        return false;
-      }
       seenTradeKeys.add(key);
       if (seenTradeKeys.size > MAX_BUFFERED_TRADES) {
         const oldest = seenTradeKeys.values().next().value;

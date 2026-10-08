@@ -292,17 +292,29 @@ test("disconnect reconnects with bounded backoff and a fresh pair of subscriptio
   h.stream.stop();
 });
 
-test("trade sequence gaps force a stale/disconnected resync rather than silently omitting ticks", () => {
+test("documented non-consecutive Kraken trade IDs are accepted and batches are ordered by ID", () => {
   const h = makeHarness();
   const socket = startReady(h);
-  seedTradeSnapshot(socket, NOW + 100, 50);
+  // Kraken's published v2 trade example advances from 4665847 to 4665906.
+  // IDs are unique sequence values, not a guarantee of gap-free integers.
+  socket.emit({ channel: "trade", type: "snapshot", data: [
+    makeTrade(4665846, NOW + 100, 102, 0.1),
+    makeTrade(4665847, NOW + 150, 103, 0.2),
+  ] });
+  assert.equal(h.statuses.at(-1).status, "LIVE");
   const priceCount = h.prices.length;
-  socket.emit({ channel: "trade", type: "update", data: [makeTrade(52, NOW + 200, 120)] });
-  assert.equal(h.prices.length, priceCount, "a tick after a detected gap is not presented as complete live data");
-  assert.equal(h.statuses.at(-1).status, "DISCONNECTED");
-  assert.match(h.statuses.at(-1).detail.reason, /sequence gap/);
-  assert.equal(h.candles.at(-1), null);
-  assert.equal(h.retries[0].delay, 1000);
+
+  socket.emit({ channel: "trade", type: "update", data: [
+    makeTrade(4665908, NOW + 400, 105, 0.4),
+    makeTrade(4665906, NOW + 200, 104, 0.3),
+    makeTrade(4665907, NOW + 300, 106, 0.2),
+  ] });
+
+  assert.equal(h.statuses.at(-1).status, "LIVE");
+  assert.equal(h.prices.length, priceCount + 3);
+  assert.equal(h.prices.at(-1).tradeId, "4665908");
+  assert.equal(h.candles.at(-1).close, 105);
+  assert.equal(h.retries.length, 0, "a legitimate ID jump must not force resynchronization");
   h.stream.stop();
 });
 

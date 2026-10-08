@@ -90,8 +90,17 @@ export { multiTimeframeCard };
 export { compactHierarchyStrip };
 export { hasValidTradePlan };
 
+export const BRAIN_STATUS_REFRESH_INTERVAL_MS = 30_000;
+export const BRAIN_STATUS_REFRESH_TIMEOUT_MS = 5_000;
+export const BRAIN_STATUS_STALE_AFTER_MS = 90_000;
+
 let renderGeneration = 0;
 let activeChart = null;
+let activeBrainStatusCard = null;
+let brainRefreshTimer = null;
+let brainRefreshRequestTimeout = null;
+let brainRefreshController = null;
+let brainRefreshGeneration = 0;
 
 function countFromMap(map, key) {
   if (!map || typeof map !== "object") return null;
@@ -1193,7 +1202,9 @@ function persistedObservationCard(observation) {
 }
 
 function brainStatusCard(model) {
-  const badgeTone = model.cycleCurrent ? "good" : model.statusLabel === "STOPPED" ? "warn" : "neutral";
+  const badgeTone = model.cycleCurrent
+    ? "good"
+    : ["STOPPED", "STALE", "ERROR"].includes(model.statusLabel) ? "warn" : "neutral";
   const cycleTime = model.cycleAsOf ? formatUtc(model.cycleAsOf) : "no cycle recorded";
   const counts = Object.entries(model.setupStateCounts || {})
     .filter(([, count]) => Number.isInteger(count) && count >= 0)
@@ -1263,7 +1274,11 @@ function brainStatusCard(model) {
       el("ul", {}, model.notes.map((note) => el("li", { text: String(note) }))),
     ]));
   }
-  return el("section", { class: "card terminal-card brain-status-card", "aria-label": "Persisted BRAIN status" }, children);
+  return el("section", {
+    class: "card terminal-card brain-status-card",
+    "aria-label": "Persisted BRAIN status",
+    dataset: { status: model.statusLabel },
+  }, children);
 }
 
 function roundedRMultiple(value) {
@@ -1780,8 +1795,120 @@ function systemDetailsCard(dashboard, forward) {
   ]);
 }
 
+function stopBrainStatusRefresh() {
+  brainRefreshGeneration += 1;
+  if (brainRefreshTimer !== null) clearTimeout(brainRefreshTimer);
+  if (brainRefreshRequestTimeout !== null) clearTimeout(brainRefreshRequestTimeout);
+  brainRefreshTimer = null;
+  brainRefreshRequestTimeout = null;
+  if (brainRefreshController) brainRefreshController.abort();
+  brainRefreshController = null;
+}
+
+function replaceBrainStatusCard(model) {
+  if (!activeBrainStatusCard?.parentNode) return false;
+  const replacement = brainStatusCard(model);
+  activeBrainStatusCard.parentNode.replaceChild(replacement, activeBrainStatusCard);
+  activeBrainStatusCard = replacement;
+  return true;
+}
+
+function showBrainStatusStale(view, model) {
+  if (activeChart) activeChart.destroy();
+  activeChart = null;
+  activeBrainStatusCard = brainStatusCard(model);
+  view.className = "view terminal-dashboard";
+  clearNode(view).append(
+    activeBrainStatusCard,
+    el("div", {
+      class: "brain-refresh-stale chart-note",
+      role: "alert",
+      text: `BRAIN status has not refreshed for ${Math.floor(BRAIN_STATUS_STALE_AFTER_MS / 1000)} seconds. The persisted record above is historical; current decision panels are withheld until refresh succeeds.`,
+    }),
+  );
+  setTopbarWarning();
+}
+
+function startBrainStatusRefresh({ view, prefs, pageGeneration, dashboard, forward, brainModel }) {
+  const refreshGeneration = ++brainRefreshGeneration;
+  const lastDashboard = dashboard;
+  let latestForward = forward;
+  let latestModel = brainModel;
+  let lastSuccessAt = forward ? Date.now() : null;
+  let staleScreen = false;
+
+  const isCurrent = () => refreshGeneration === brainRefreshGeneration &&
+    pageGeneration === renderGeneration;
+  const schedule = () => {
+    if (!isCurrent()) return;
+    brainRefreshTimer = setTimeout(() => {
+      brainRefreshTimer = null;
+      void refresh();
+    }, BRAIN_STATUS_REFRESH_INTERVAL_MS);
+  };
+
+  async function refresh() {
+    if (!isCurrent()) return;
+    const controller = new AbortController();
+    brainRefreshController = controller;
+    const timeout = setTimeout(
+      () => controller.abort(),
+      BRAIN_STATUS_REFRESH_TIMEOUT_MS,
+    );
+    brainRefreshRequestTimeout = timeout;
+    try {
+      const nextForward = await api.forward({
+        limit: 50,
+        symbol: prefs.preferredSymbol || undefined,
+        timeframe: prefs.preferredTimeframe || undefined,
+      }, { signal: controller.signal });
+      if (!isCurrent()) return;
+
+      const nextModel = brainStatusViewModel(lastDashboard, nextForward);
+      const previousCycleId = latestForward?.status?.latest_cycle?.cycle_id ?? null;
+      const nextCycleId = nextForward?.status?.latest_cycle?.cycle_id ?? null;
+      const cycleChanged = previousCycleId !== nextCycleId;
+      const decisionAvailabilityChanged =
+        latestModel.currentDecisionAvailable !== nextModel.currentDecisionAvailable;
+      latestForward = nextForward;
+      latestModel = nextModel;
+      lastSuccessAt = Date.now();
+
+      if (staleScreen || cycleChanged || decisionAvailabilityChanged) {
+        staleScreen = false;
+        void renderDashboard(view);
+        return;
+      }
+      updateTopbar(lastDashboard, nextForward);
+      replaceBrainStatusCard(nextModel);
+    } catch {
+      if (!isCurrent()) return;
+      if (lastSuccessAt !== null &&
+          Date.now() - lastSuccessAt >= BRAIN_STATUS_STALE_AFTER_MS) {
+        const staleModel = brainStatusViewModel(lastDashboard, latestForward, {
+          refreshStale: true,
+        });
+        latestModel = staleModel;
+        if (!staleScreen) {
+          showBrainStatusStale(view, staleModel);
+          staleScreen = true;
+        }
+      }
+    } finally {
+      clearTimeout(timeout);
+      if (brainRefreshRequestTimeout === timeout) brainRefreshRequestTimeout = null;
+      if (brainRefreshController === controller) brainRefreshController = null;
+      schedule();
+    }
+  }
+
+  schedule();
+}
+
 export function disposeDashboard() {
   renderGeneration += 1;
+  stopBrainStatusRefresh();
+  activeBrainStatusCard = null;
   if (activeChart) activeChart.destroy();
   activeChart = null;
   // The header is owned by the topbar module now: the dashboard view resets
@@ -1991,6 +2118,8 @@ function multiTimeframeCard(dashboard) {
 }
 
 export async function renderDashboard(view) {
+  stopBrainStatusRefresh();
+  activeBrainStatusCard = null;
   const generation = ++renderGeneration;
   if (activeChart) activeChart.destroy();
   activeChart = null;
@@ -2025,12 +2154,13 @@ export async function renderDashboard(view) {
   updateTopbar(dashboard, forward);
 
   const chart = chartCard(dashboard, prefs, brainModel);
+  const brainCard = brainStatusCard(brainModel);
   const hierarchySummary = brainModel.currentDecisionAvailable
     ? compactHierarchyStrip(dashboard)
     : hierarchyNotCurrentCard("Multi-timeframe status", brainModel);
   const sideCards = brainModel.currentDecisionAvailable
-    ? [brainStatusCard(brainModel), verdictCard(dashboard, forward), botWatchingCard(dashboard), planCard(dashboard)]
-    : [brainStatusCard(brainModel)];
+    ? [brainCard, verdictCard(dashboard, forward), botWatchingCard(dashboard), planCard(dashboard)]
+    : [brainCard];
   clearNode(view).append(
     el("div", { class: "primary-layout" }, [
       el("div", { class: "chart-stack" }, [
@@ -2057,4 +2187,13 @@ export async function renderDashboard(view) {
   );
   chart.mount();
   activeChart = chart;
+  activeBrainStatusCard = brainCard;
+  startBrainStatusRefresh({
+    view,
+    prefs,
+    pageGeneration: generation,
+    dashboard,
+    forward,
+    brainModel,
+  });
 }

@@ -3,6 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  BRAIN_STATUS_REFRESH_INTERVAL_MS,
+  BRAIN_STATUS_REFRESH_TIMEOUT_MS,
+  BRAIN_STATUS_STALE_AFTER_MS,
   disposeDashboard,
   hasValidTradePlan,
   performanceViewModel,
@@ -59,6 +62,16 @@ class MockNode {
       this.children.splice(index, 1);
       child.parentNode = null;
     }
+    return child;
+  }
+
+  replaceChild(replacement, child) {
+    const index = this.children.indexOf(child);
+    if (index < 0) throw new Error("child to replace was not found");
+    if (replacement.parentNode) replacement.parentNode.removeChild(replacement);
+    this.children[index] = replacement;
+    replacement.parentNode = this;
+    child.parentNode = null;
     return child;
   }
 
@@ -494,6 +507,39 @@ function chartLibraryState() {
   return { charts, observers, ResizeObserverMock, library };
 }
 
+function fakeTimeouts() {
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const timers = new Map();
+  const cleared = [];
+  let nextId = 1;
+  globalThis.setTimeout = (callback, delay) => {
+    const id = nextId++;
+    timers.set(id, { callback, delay });
+    return id;
+  };
+  globalThis.clearTimeout = (id) => {
+    cleared.push(id);
+    timers.delete(id);
+  };
+  return {
+    timers,
+    cleared,
+    run(delay) {
+      const entry = [...timers].find(([, timer]) => timer.delay === delay);
+      assert.ok(entry, `expected a timer with delay ${delay}`);
+      const [id, timer] = entry;
+      timers.delete(id);
+      timer.callback();
+      return id;
+    },
+    restore() {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+    },
+  };
+}
+
 async function withDashboard(dashboard, forward, callback) {
   const keys = ["Node", "document", "window", "ResizeObserver", "getComputedStyle", "localStorage", "fetch"];
   const prior = new Map(keys.map((key) => [
@@ -571,6 +617,81 @@ test("a stopped BRAIN runner shows recorded setup facts as historical and withho
     assert.doesNotMatch(view.textContent, /Current verdict/);
     assert.equal(findNodes(view, (node) => (node.className || "").split(/\s+/).includes("plan-card")).length, 0);
   });
+});
+
+test("persisted BRAIN status refreshes automatically and the timer is cleaned up", async () => {
+  const timers = fakeTimeouts();
+  const forward = forwardPayload();
+  try {
+    await withDashboard(backendDashboard(), forward, async ({ view }) => {
+      await renderDashboard(view);
+      assert.match(view.textContent, /BRAIN status/);
+      assert.match(view.textContent, /IDLE/);
+      timers.run(BRAIN_STATUS_REFRESH_INTERVAL_MS);
+      forward.status.runner = {
+        ...forward.status.runner,
+        recorded_at: "2026-10-06T12:01:00Z",
+        heartbeat_age_seconds: 0,
+      };
+      await new Promise((resolve) => setImmediate(resolve));
+      const statusCard = findNodes(view, (node) =>
+        (node.className || "").split(/\s+/).includes("brain-status-card"))[0];
+      assert.ok(statusCard);
+      assert.match(statusCard.textContent, /12:01/);
+      assert.ok([...timers.timers.values()].some(
+        (timer) => timer.delay === BRAIN_STATUS_REFRESH_INTERVAL_MS,
+      ));
+    });
+    assert.equal(timers.timers.size, 0, "dashboard disposal clears the next refresh timer");
+    assert.ok(timers.cleared.length > 0);
+  } finally {
+    timers.restore();
+  }
+});
+
+test("a timed-out BRAIN refresh becomes stale and aborts cleanly on dashboard disposal", async () => {
+  const timers = fakeTimeouts();
+  const originalDateNow = Date.now;
+  let now = Date.parse("2026-10-06T12:00:00Z");
+  Date.now = () => now;
+  const forward = forwardPayload();
+  try {
+    await withDashboard(backendDashboard(), forward, async ({ view }) => {
+      await renderDashboard(view);
+      const normalFetch = globalThis.fetch;
+      let requestSignal = null;
+      globalThis.fetch = (path, options = {}) => {
+        if (String(path).startsWith("/api/forward")) {
+          requestSignal = options.signal;
+          return new Promise((resolve, reject) => {
+            requestSignal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+          });
+        }
+        return normalFetch(path, options);
+      };
+      now += BRAIN_STATUS_STALE_AFTER_MS + 1;
+      timers.run(BRAIN_STATUS_REFRESH_INTERVAL_MS);
+      await Promise.resolve();
+      assert.ok(requestSignal, "the poll passes an AbortSignal to fetch");
+      timers.run(BRAIN_STATUS_REFRESH_TIMEOUT_MS);
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const statusCard = findNodes(view, (node) =>
+        (node.className || "").split(/\s+/).includes("brain-status-card"))[0];
+      assert.ok(statusCard);
+      assert.equal(statusCard.dataset.status, "STALE");
+      assert.match(view.textContent, /current decision panels are withheld/);
+      assert.equal(findNodes(view, (node) =>
+        (node.className || "").split(/\s+/).includes("plan-card")).length, 0);
+
+      disposeDashboard();
+      assert.equal(requestSignal.aborted, true);
+      assert.equal(timers.timers.size, 0, "disposal clears refresh and request-timeout timers");
+    });
+  } finally {
+    Date.now = originalDateNow;
+    timers.restore();
+  }
 });
 
 test("compact LOOKING FOR keeps its complete backend facts behind collapsed technical details", async () => {
