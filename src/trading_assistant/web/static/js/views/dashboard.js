@@ -6,7 +6,11 @@
  */
 
 import { api } from "../api.js";
-import { canShowForming, createFormingStream } from "../forming-display.js";
+import {
+  canShowForming,
+  createFormingStreamForExchange,
+  providerLabel,
+} from "../market-data-provider.js";
 import { lookingForCard, scenarioBand } from "../looking-for.js";
 import {
   buildDecisionRequest,
@@ -377,7 +381,13 @@ export const CHART_TIMEFRAMES = [
 ];
 
 const CHART_CANDLE_LIMIT = 500;
-const ENGINE_CHART_NOTE = "Confirmed history is stored closed candles only. Any ghost forming candle is public Kraken data, display only; it is never confirmed here.";
+
+const PROVIDER_DISPLAY_NAMES = Object.freeze({ kraken: "Kraken", binance: "Binance" });
+
+function engineChartNote(exchange) {
+  const venue = PROVIDER_DISPLAY_NAMES[exchange] || exchange || "the configured exchange";
+  return `Confirmed history is stored closed candles only. Any ghost forming candle is public ${venue} data, display only; it is never confirmed here.`;
+}
 
 function viewedTimeframeLabel(timeframe) {
   const known = CHART_TIMEFRAMES.find((entry) => entry.id === timeframe);
@@ -433,6 +443,11 @@ function chartCard(dashboard, initialPrefs) {
   const symbol = meta.symbol || "UNKNOWN";
   const engineTimeframe = typeof meta.timeframe === "string" && meta.timeframe ? meta.timeframe : "1h";
   const decisionAsOf = typeof meta.as_of === "string" && meta.as_of ? meta.as_of : null;
+  // The forming-candle ghost follows the configured exchange; an unknown venue
+  // gets no public stream at all (the stored chart is shown unchanged).
+  const exchange = typeof meta.exchange === "string" && meta.exchange ? meta.exchange : "";
+  const providerText = providerLabel(exchange);
+  const chartNote = engineChartNote(exchange);
   const rows = Array.isArray(dashboard?.market?.candles) ? dashboard.market.candles : [];
   const validCandles = toChartCandles(rows);
   const host = el("div", {
@@ -455,7 +470,7 @@ function chartCard(dashboard, initialPrefs) {
 
   const headingTitle = el("div", { class: "chart-heading-title", text: `${symbol} · ${viewedTimeframeLabel(engineTimeframe)} chart` });
   const headingMeta = el("div", { class: "chart-heading-meta", text: chartHeadingMeta(engineTimeframe, engineTimeframe) });
-  const viewNote = el("div", { class: "chart-note terminal-chart-note chart-view-note", text: ENGINE_CHART_NOTE });
+  const viewNote = el("div", { class: "chart-note terminal-chart-note chart-view-note", text: chartNote });
 
   const showChartOverlay = (node) => {
     if (emptyNode) emptyNode.remove();
@@ -484,16 +499,23 @@ function chartCard(dashboard, initialPrefs) {
     if (!handleRef.current || symbol !== "BTC/USDT" || !latest ||
         !canShowForming(timeframe, latest.time * 1000, Date.now())) return;
     // This socket is bound ONLY to the selected chart view, never the setup snapshot.
-    formingStream = createFormingStream({
+    const stream = createFormingStreamForExchange(exchange, {
       timeframe, confirmedOpenMs: latest.time * 1000,
       onCandle: (candle) => setFormingCandle(handleRef.current, candle),
       onStatus: (status, receivedAt) => {
         formingStatus.dataset.freshness = status;
         formingStatus.textContent = status === "CURRENT"
-          ? `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY · KRAKEN OHLC CURRENT · last update ${new Date(receivedAt).toISOString().slice(11, 19)} UTC`
-          : `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY · KRAKEN OHLC ${status} · stored chart unchanged`;
+          ? `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY · ${providerText} CURRENT · last update ${new Date(receivedAt).toISOString().slice(11, 19)} UTC`
+          : `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY · ${providerText} ${status} · stored chart unchanged`;
       },
     });
+    if (!stream) {
+      formingStatus.dataset.freshness = "UNAVAILABLE";
+      formingStatus.textContent =
+        `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY · ${providerText} UNAVAILABLE · stored chart unchanged`;
+      return;
+    }
+    formingStream = stream;
     formingStream.start();
   }
   const applyViewedOverlays = () => {
@@ -613,7 +635,7 @@ function chartCard(dashboard, initialPrefs) {
             ? "The stored candle payload contains no renderable rows. No substitute data is shown."
             : "No stored closed candles were returned for this symbol and timeframe.",
         ));
-        viewNote.textContent = ENGINE_CHART_NOTE;
+        viewNote.textContent = chartNote;
         return;
       }
       const handle = ensureChart();
@@ -621,7 +643,7 @@ function chartCard(dashboard, initialPrefs) {
       setCandles(handle, rows);
       startForming(timeframe, rows);
       applyViewedOverlays();
-      viewNote.textContent = ENGINE_CHART_NOTE;
+      viewNote.textContent = chartNote;
       return;
     }
 

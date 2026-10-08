@@ -23,6 +23,11 @@ logger = logging.getLogger(__name__)
 # Kraken's public OHLC endpoint returns at most 720 candles per request.
 _KRAKEN_MAX_OHLCV_LIMIT = 720
 
+# Binance's public spot klines endpoint returns at most 1000 candles per
+# request (CCXT clamps to the same cap; advertising it here keeps the
+# paginator's page size honest when the configured limit is raised above it).
+_BINANCE_MAX_OHLCV_LIMIT = 1000
+
 #: A single CCXT request performs several individually-bounded phases: DNS
 #: resolution, one connect attempt per resolved address (an IPv6 attempt can
 #: time out before the IPv4 attempt succeeds), the TLS handshake and the
@@ -242,6 +247,8 @@ class CCXTMarketDataSource:
 
         if self.exchange_id == "kraken":
             return _KRAKEN_MAX_OHLCV_LIMIT
+        if self.exchange_id == "binance":
+            return _BINANCE_MAX_OHLCV_LIMIT
         return None
 
     @property
@@ -252,6 +259,9 @@ class CCXTMarketDataSource:
         regardless of how old ``since`` is.  It is therefore not safe to run
         the generic date-based pagination loop against it: a later request can
         return the same rolling window instead of the next historical page.
+        Binance's spot klines endpoint is date-bounded (``startTime``), so it
+        is NOT a rolling window: the generic cursor pagination retrieves older
+        history there, and the millisecond cursor is sent unchanged.
         """
 
         return self.exchange_id == "kraken"
@@ -303,6 +313,10 @@ class CCXTMarketDataSource:
         # Decimal and raises ``method() missing currencyPrecision``. The
         # default float parser is safe for metadata; Decimal is still applied
         # before OHLCV parsing so candle values retain their source precision.
+        # The detour stays Kraken-only: Binance's market loader reads its
+        # precision fields with ``safe_string`` and tolerates Decimal parsing,
+        # so Binance lazy-loads its markets inside ``fetch_ohlcv`` (under the
+        # same watchdog) without the float round-trip.
         load_markets = getattr(exchange, "load_markets", None)
         if (
             self.exchange_id == "kraken"

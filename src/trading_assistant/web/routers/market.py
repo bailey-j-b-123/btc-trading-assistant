@@ -54,8 +54,13 @@ def get_structure(
 
 
 @router.get("/live-price")
-def get_live_price() -> dict[str, object]:
-    """Public display-only quote; never reads or writes stored candle tables."""
+def get_live_price(request: Request) -> dict[str, object]:
+    """Public display-only quote from the app's configured venue.
+
+    This endpoint never reads or writes stored candle tables. Passing the
+    application state's exchange explicitly keeps dependency-injected settings,
+    the dashboard stream and the quote endpoint on the same venue.
+    """
     from trading_assistant.web.live_price import live_price
 
-    return live_price()
+    return live_price(exchange=request.app.state.services.settings.exchange)

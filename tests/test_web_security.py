@@ -129,6 +129,10 @@ def test_security_headers_on_every_response(app):
         csp = response.headers.get("content-security-policy", "")
         assert "default-src 'self'" in csp, path
         assert "connect-src 'self' wss://ws.kraken.com" in csp, path
+        # Both public display sockets are allowed: Kraken OHLC and the Binance
+        # spot kline stream (default-port and :9443 origins).
+        assert "wss://stream.binance.com" in csp, path
+        assert "wss://stream.binance.com:9443" in csp, path
         assert "'unsafe-inline'" not in csp, path
         assert "'unsafe-eval'" not in csp, path
         assert response.headers.get("x-content-type-options") == "nosniff", path

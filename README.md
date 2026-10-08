@@ -168,6 +168,21 @@ engine.dispose()
 
 `download_history` and `update_history` return counts, raw-file paths, and any gaps. To retry a reported gap, request that aligned historical range explicitly; unchanged candles are skipped and only absent identities are inserted. Stored candles can be retrieved with `get_candles(exchange=..., symbol=..., timeframe=..., start_time=..., end_time=...)`; the returned `CandleQueryResult.candles` are chronologically ordered, while `.gaps`, `.missing_candle_count`, and `.complete` make incomplete ranges explicit. Optional time bounds are inclusive. Without explicit bounds, retrieval can assess only gaps between stored endpoints; completeness cannot be inferred beyond the range available from the configured exchange.
 
+### Exchange selection: Kraken and Binance Spot
+
+`TRADING_ASSISTANT_EXCHANGE` selects the public, credential-free CCXT exchange used for market data: `kraken` (default) or `binance` (Spot). Both venues serve BTC/USDT; every code path (history download, incremental update, the forward runner's data refresh, the multi-timeframe CLI, dashboard reads, market-structure and BRAIN data paths) follows the configured exchange through the same `MarketDataService`, so no trading logic changes between venues.
+
+Binance Spot specifics:
+
+* The klines endpoint is **date-bounded** (`startTime`), so the generic cursor pagination retrieves older history and the millisecond cursor is always sent — unlike Kraken's rolling-window OHLC route. The endpoint serves at most **1000 candles per request**; the source advertises that cap so the configured page limit is clamped to it.
+* The last kline returned by Binance is usually still forming; exactly like any other venue, it is archived in the raw response but **excluded from stored closed-candle history** (`excluded_open_count`).
+* Candle identities remain `(exchange, symbol, timeframe, UTC open time)`, so Binance and Kraken histories coexist fully separated in the same database — switching exchanges never mixes series, and existing Kraken data, paper trades, journal records, volume gates and risk rules are untouched.
+* Binance's CCXT market loader tolerates the project's exact `Decimal` number mode, so no Kraken-style float detour is needed; klines values keep their source precision end to end.
+
+The live display follows the same configuration. `/api/market/live-price` quotes the configured venue's public ticker (Kraken `Ticker` or Binance Spot `ticker/price`) and the payload always names the exchange it actually queried. The dashboard's forming-candle ghost is a separate, display-only series: it streams Kraken's public OHLC websocket (`wss://ws.kraken.com`) or Binance's public spot kline websocket (`wss://stream.binance.com:9443/ws/btcusdt@kline_<interval>`), and both origins are allow-listed in the Content-Security-Policy. A **final** Binance kline (`x: true`) is closed history and is never drawn as the ghost; only a still-forming kline (`x: false`) for the current UTC bucket, adjacent to the stored closed series, is shown. An unrecognised exchange gets no public stream at all — the stored chart is shown unchanged.
+
+Both integrations use public endpoints only; no API keys, no private API, no order capability. The Binance parser/pagination tests use deterministic stubbed responses and do **not** establish live connectivity; verify endpoint access in the deployment network before relying on refreshes or the browser stream.
+
 ### Raw source and processed/database storage
 
 Each page returned by CCXT is archived separately under `data/raw/<exchange>/<symbol>/<timeframe>/`. Filenames and JSON metadata identify the exchange, symbol, timeframe, request cursor, and retrieval time. The archive includes the CCXT OHLCV page and, when exposed by CCXT, its HTTP response text. Files are created exclusively: an existing raw file is never overwritten or silently removed. Raw files remain separate from the processed candle table and are ignored by Git.

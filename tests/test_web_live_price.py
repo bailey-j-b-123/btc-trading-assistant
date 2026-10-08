@@ -1,5 +1,7 @@
 """The quote path is a display island: no DB, no qualification input."""
 
+from dataclasses import replace
+
 from web_fixtures import (
     insert_candles,
     make_client,
@@ -47,8 +49,12 @@ def test_public_quote_only_validates_positive_last_trade(monkeypatch):
 
 def test_quote_failure_and_staleness_never_change_closed_engine(tmp_path, monkeypatch):
     engine, url = migrated_engine(tmp_path)
-    insert_candles(engine, qualifying_candles())
-    client = make_client(engine, make_settings(url), clock=qualified_clock())
+    kraken_candles = tuple(replace(candle, exchange="kraken") for candle in qualifying_candles())
+    insert_candles(engine, kraken_candles)
+    # This quote regression is specifically the retained Kraken path; align
+    # the app's injected settings instead of relying on a process env default.
+    settings = make_settings(url).model_copy(update={"exchange": "kraken"})
+    client = make_client(engine, settings, clock=qualified_clock())
     try:
         before = client.get("/api/dashboard").json()
         assert before["market"]["candles"]

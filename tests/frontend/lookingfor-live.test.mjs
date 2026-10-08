@@ -139,6 +139,40 @@ test("chart-only preference migration preserves the engine timeframe and later m
 });
 
 
+test("unavailable quote preserves the configured exchange source label", async () => {
+  const saved = ["document", "fetch", "setInterval", "clearInterval"].map((key) => [key,
+    Object.hasOwn(globalThis, key), globalThis[key]]);
+  class Node {
+    constructor() { this.children = []; this._text = ""; this.dataset = {}; this.style = {}; }
+    set textContent(value) { this._text = String(value); this.children = []; }
+    get textContent() { return this._text + this.children.map((child) => child.textContent).join(""); }
+    append(...children) { this.children.push(...children); }
+    setAttribute() {}
+  }
+  globalThis.document = { createElement: () => new Node() };
+  globalThis.setInterval = () => 1;
+  globalThis.clearInterval = () => {};
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({
+    status: "UNAVAILABLE", price: null, fetched_at: null,
+    exchange: "binance", source: "Binance public ticker", display_only: true,
+  }) });
+  const display = mountLiveDisplay("BTC/USDT");
+  try {
+    display.start();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(display.node.dataset.freshness, "UNAVAILABLE");
+    assert.match(display.node.textContent, /Binance public ticker unavailable/);
+    assert.doesNotMatch(display.node.textContent, /Kraken/);
+  } finally {
+    display.destroy();
+    for (const [key, had, value] of saved) {
+      if (had) globalThis[key] = value;
+      else delete globalThis[key];
+    }
+  }
+});
+
+
 test("browser disconnect immediately labels the last valid quote stale without drawing a candle", async () => {
   const saved = ["document", "fetch", "setInterval", "clearInterval"].map((key) => [key,
     Object.hasOwn(globalThis, key), globalThis[key]]);

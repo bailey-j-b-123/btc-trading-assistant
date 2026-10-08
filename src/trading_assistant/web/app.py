@@ -60,7 +60,10 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'self'; script-src 'self'; style-src 'self'; "
-        "img-src 'self' data:; connect-src 'self' wss://ws.kraken.com; object-src 'none'; "
+        # Public, credential-free display sockets only: Kraken's OHLC stream and
+        # Binance's spot kline stream (both the :9443 and default-port origins).
+        "img-src 'self' data:; connect-src 'self' wss://ws.kraken.com "
+        "wss://stream.binance.com wss://stream.binance.com:9443; object-src 'none'; "
         "base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
     ),
     "X-Content-Type-Options": "nosniff",

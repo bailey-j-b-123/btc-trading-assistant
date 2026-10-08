@@ -372,17 +372,26 @@ def test_kraken_source_loads_markets_before_decimal_parsing_and_stores_closed_ca
 
 
 @pytest.mark.parametrize(
-    ("exchange_id", "requested_limit", "expected_limit", "expected_since"),
+    ("exchange_id", "requested_limit", "expected_limit", "expected_since", "expected_cap"),
     [
         # A rolling-window endpoint never receives the local date cursor.
-        ("kraken", 5_000, 720, None),
-        ("kraken", 5, 5, None),
-        # Date-bounded exchanges keep receiving the unchanged millisecond cursor.
-        ("binance", 5_000, 5_000, 0),
+        ("kraken", 5_000, 720, None, 720),
+        ("kraken", 5, 5, None, 720),
+        # Date-bounded exchanges keep receiving the unchanged millisecond
+        # cursor; a project-known per-request cap is still applied. Binance's
+        # public spot klines endpoint serves at most 1000 candles per request.
+        ("binance", 5_000, 1_000, 0, 1_000),
+        ("binance", 500, 500, 0, 1_000),
+        # Exchanges without a project-known cap pass the limit through.
+        ("coinbase", 5_000, 5_000, 0, None),
     ],
 )
 def test_ccxt_source_uses_only_known_exchange_ohlcv_caps(
-    exchange_id: str, requested_limit: int, expected_limit: int, expected_since: int | None
+    exchange_id: str,
+    requested_limit: int,
+    expected_limit: int,
+    expected_since: int | None,
+    expected_cap: int | None,
 ):
     client = RecordingCCXTClient(exchange_id)
     source = ccxt_source_for(exchange_id, client)
@@ -395,7 +404,7 @@ def test_ccxt_source_uses_only_known_exchange_ohlcv_caps(
     )
 
     assert client.requests == [("BTC/USD", "1h", expected_since, expected_limit)]
-    assert source.max_ohlcv_limit == (720 if exchange_id == "kraken" else None)
+    assert source.max_ohlcv_limit == expected_cap
 
 
 def test_kraken_ccxt_request_omits_the_local_ms_cursor():
