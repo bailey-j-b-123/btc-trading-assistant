@@ -1856,13 +1856,19 @@ A paper observation is created **only** when the unchanged Step 6 result is
 `PLANNABLE`. `NO_SETUP`, `WATCH`, and `QUALIFIED`-but-`NO_PLAN` closes are
 recorded with their evidence but never produce a paper plan.
 
-**At most one unresolved paper trade per instrument (one BTC paper trade).** The
-ledger tracks a paper trade until its latest outcome version can no longer change
-(stopped, targets reached, ambiguous, or an observation horizon that has fully
-elapsed without the entry). While one is unresolved, a second genuinely
-`PLANNABLE` candidate at the same close is **still monitored and recorded in
-full** — its exact Step 6 plan, levels and R are written — but no second paper
-trade is created, and the observation carries one deterministic reason:
+**At most one unresolved paper trade per instrument (one BTC paper trade), on
+any timeframe.** The rule is instrument-wide, deliberately not scoped to the
+base timeframe being processed: one BTC paper trade is one trade, so a plan
+recorded on 5M blocks a new one on 15M, 1H or any other supported timeframe of
+the same exchange/symbol, and the reverse — the guard reads every stored
+timeframe of the instrument from the ledger on each close. The ledger tracks a
+paper trade until its latest outcome version can no longer change (stopped,
+targets reached, ambiguous, or an observation horizon that has fully elapsed
+without the entry), each plan judged against its own timeframe's interval. While
+one is unresolved, a second genuinely `PLANNABLE` candidate (at the same close or
+on another timeframe) is **still monitored and recorded in full** — its exact
+Step 6 plan, levels and R are written — but no second paper trade is created, and
+the observation carries one deterministic reason:
 
 ```text
 NO TRADE — BTC paper trade already active.
@@ -1871,9 +1877,11 @@ NO TRADE — BTC paper trade already active.
 The frozen paper trade is never rewritten, replaced, or hidden by a refusal: the
 candidate's own later observations keep pointing at nothing while the active
 trade's rows stay exactly as recorded. Once the active trade settles, a later
-valid candidate is paper-traded normally, and the one-unresolved-trade rule is
-re-checked against the ledger on every close (nothing is remembered in memory
-across passes).
+valid candidate — on its own timeframe or another one — is paper-traded normally,
+and the one-unresolved-trade rule is re-checked against the ledger on every close
+(nothing is remembered in memory across passes). A plan's outcome only advances
+when a pass for that plan's own timeframe runs, so the guard always reflects the
+outcomes the ledger has recorded so far.
 
 **MISSED is a recorded reason, not a new state.** The setup and plan vocabulary
 is unchanged (`NO_SETUP`/`WATCH`/`QUALIFIED` and `PLANNABLE`/`NO_PLAN`/`INVALID`

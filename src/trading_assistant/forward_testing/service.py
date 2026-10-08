@@ -14,8 +14,9 @@ and nothing more:
 5. append the immutable forward observation and, when the Step 6 result is
    PLANNABLE, the frozen paper plan — or, when a paper trade is deliberately
    not created, the deterministic no-trade reason: at most one unresolved
-   paper trade exists per instrument at a time, and a monitored setup that was
-   plannable earlier but whose decision-time entry no longer reaches the
+   paper trade exists per instrument at a time **on any timeframe** (one BTC
+   trade, whether it was recorded on 5M, 15M or 1H), and a monitored setup that
+   was plannable earlier but whose decision-time entry no longer reaches the
    mandatory reward-to-risk floor is recorded as MISSED;
 6. append new outcome versions for earlier paper plans using the newly closed
    candles (existing Step 7 observation semantics);
@@ -1741,8 +1742,11 @@ class ForwardTestService:
                 )
                 if plan is not None and plan.state is PlanState.PLANNABLE:
                     if paper_trade_active is None:
+                        # The policy is instrument-wide: an unresolved paper
+                        # trade on *any* timeframe (5M, 15M, 1H, ...) of this
+                        # symbol blocks a new one here.
                         paper_trade_active = self._paper_trade_is_active(
-                            exchange=exchange, symbol=symbol, timeframe=timeframe
+                            exchange=exchange, symbol=symbol
                         )
                     allow_new_paper_trade = not paper_trade_active
                 else:
@@ -2083,12 +2087,12 @@ class ForwardTestService:
         when a plan is already stored for that instance it is reused verbatim: a
         setup that stays plannable for many candles keeps exactly one paper plan.
 
-        ``allow_new_paper_trade`` is the one-active-paper-trade policy: when the
-        instrument already has an unresolved paper trade, a *new* plan is refused
-        and ``(None, None)`` is returned, which the caller records as the
-        deterministic no-trade reason. A setup that already owns a frozen plan is
-        always answered with that plan id, so the refusal can never rewrite,
-        replace, or hide an existing paper trade.
+        ``allow_new_paper_trade`` is the instrument-wide one-active-paper-trade
+        policy: when *any* timeframe of the instrument already has an unresolved
+        paper trade, a *new* plan is refused and ``(None, None)`` is returned,
+        which the caller records as the deterministic no-trade reason. A setup
+        that already owns a frozen plan is always answered with that plan id, so
+        the refusal can never rewrite, replace, or hide an existing paper trade.
         """
 
         assert plan.as_of is not None
@@ -2331,27 +2335,31 @@ class ForwardTestService:
             (min(floors) if floors else None),
         )
 
-    def _paper_trade_is_active(
-        self, *, exchange: str, symbol: str, timeframe: str
-    ) -> bool:
-        """Whether this instrument already has one unresolved paper trade.
+    def _paper_trade_is_active(self, *, exchange: str, symbol: str) -> bool:
+        """Whether the instrument already has one unresolved paper trade.
+
+        The question is instrument-wide, deliberately **not** scoped to the
+        timeframe being processed: one BTC paper trade means one trade, so a
+        plan recorded on 5M blocks a new one on 15M or 1H (and the reverse)
+        until it settles. Both ledger reads therefore ask for every stored
+        timeframe of this exchange/symbol.
 
         A paper trade is active until its latest recorded outcome version is
         settled — exactly the ``unresolved`` definition the status payload
         reports — so a plan with no outcome yet is active, and a plan whose
         trajectory can no longer change (stopped, targets reached, ambiguous,
         or an observation horizon that has fully passed without the entry) is
-        not. The ledger is the only authority: nothing here is remembered
-        across passes.
+        not. Each plan is judged against its own timeframe's interval. The
+        ledger is the only authority: nothing here is remembered across passes.
         """
 
         plans = self.ledger.paper_plans(
-            exchange=exchange, symbol=symbol, timeframe=timeframe
+            exchange=exchange, symbol=symbol, timeframe=None
         )
         latest = {
             outcome.paper_plan_id: outcome
             for outcome in self.ledger.latest_outcomes(
-                exchange=exchange, symbol=symbol, timeframe=timeframe
+                exchange=exchange, symbol=symbol, timeframe=None
             )
         }
         return any(

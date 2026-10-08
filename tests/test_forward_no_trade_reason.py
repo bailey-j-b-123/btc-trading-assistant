@@ -4,9 +4,10 @@ Two approved rules are enforced and recorded here, using only the existing
 Step 5/6 vocabulary (setup state, plan state and the planner's
 ``minimum_r_multiple_not_met`` refusal code):
 
-* **At most one unresolved paper trade per instrument.** A second genuinely
-  plannable candidate at the same close is still monitored and recorded in full,
-  but it is refused a paper trade with the deterministic reason
+* **At most one unresolved paper trade per instrument, on any timeframe.** A
+  second genuinely plannable candidate (at the same close, or on another
+  timeframe of the same exchange/symbol) is still monitored and recorded in
+  full, but it is refused a paper trade with the deterministic reason
   ``NO TRADE — BTC paper trade already active.``; once the active trade settles,
   a later valid candidate may be paper-traded as usual.
 * **MISSED.** A candidate that was genuinely plannable earlier (>= the mandatory
@@ -29,20 +30,24 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import replace
+from datetime import timedelta
 from decimal import Decimal as D
 
 import pytest
 from alembic import command
 from alembic.config import Config
 from forward_fixtures import (
+    EPOCH,
     EXCHANGE,
     INTERVAL,
     SYMBOL,
     TIMEFRAME,
     QUALIFYING_BOUNDARY,
     bar,
+    clock_at,
     labelled_series,
     make_harness,
+    make_service,
 )
 from sqlalchemy import CheckConstraint, text
 from sqlalchemy.exc import IntegrityError
@@ -55,6 +60,7 @@ from trading_assistant.forward_testing import (
     PAPER_TRADE_ACTIVE_REASON,
     HeartbeatStatus,
 )
+from trading_assistant.forward_testing.models import paper_outcome_is_settled
 from trading_assistant.forward_testing.repository import (
     ForwardLedgerRepository,
     _cycle_values,
@@ -241,6 +247,203 @@ def test_the_ledger_refuses_a_reason_on_a_paper_traded_observation() -> None:
         match="ck_forward_observations_no_trade_reason_no_paper",
     ):
         harness.service.ledger.insert_observation(violating)
+
+
+# ----------------------------------------------------------------------
+# One active BTC paper trade — instrument-wide, across every timeframe
+# ----------------------------------------------------------------------
+
+#: A second supported timeframe of the same fixture instrument (5M, 15M and 1H
+#: are all valid forward-runner timeframes; the fixture settings support 15m).
+OTHER_TIMEFRAME = "15m"
+
+
+def _timeframe_step(timeframe: str) -> timedelta:
+    return INTERVAL if timeframe == TIMEFRAME else timedelta(minutes=15)
+
+
+def candles_on(timeframe: str) -> tuple:
+    """The labelled series on a timeframe's own grid.
+
+    The shared fixtures author every candle on the hourly grid; each candle is
+    re-tagged onto the requested timeframe's grid by its own fixture index, so
+    the same price geometry replays on 1H and 15M with correct timestamps.
+    """
+
+    step = _timeframe_step(timeframe)
+    return tuple(
+        replace(
+            candle,
+            timeframe=timeframe,
+            timestamp=EPOCH + step * ((candle.timestamp - EPOCH) // INTERVAL),
+        )
+        for candle in labelled_series()
+    )
+
+
+def harness_on(timeframe: str) -> tuple:
+    """A fresh ledger whose first trade is entered on ``timeframe``."""
+
+    candles = candles_on(timeframe)
+    boundary = candles[-1].timestamp + _timeframe_step(timeframe)
+    harness = make_harness(series=candles, ledger_start=boundary)
+    harness.advance_to(boundary)
+    return harness, boundary
+
+
+def pass_on(harness, timeframe: str):
+    """Run one real closed-candle pass for another timeframe of the same ledger."""
+
+    candles = candles_on(timeframe)
+    harness.store(candles)
+    boundary = candles[-1].timestamp + _timeframe_step(timeframe)
+    service = make_service(
+        harness.engine,
+        harness.settings,
+        None,
+        clock=lambda: clock_at(boundary),
+        ledger_start=boundary,
+    )
+    result = service.run_once(timeframe=timeframe, refresh_market_data=False)
+    return service, boundary, result
+
+
+def plans_on(service, timeframe: str):
+    return service.ledger.paper_plans(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=timeframe
+    )
+
+
+def unresolved_across_timeframes(service):
+    """The ledger's own answer to "is a BTC paper trade active anywhere?"."""
+
+    plans = service.ledger.paper_plans(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=None
+    )
+    latest = {
+        outcome.paper_plan_id: outcome
+        for outcome in service.ledger.latest_outcomes(
+            exchange=EXCHANGE, symbol=SYMBOL, timeframe=None
+        )
+    }
+    return [
+        plan
+        for plan in plans
+        if plan.paper_plan_id not in latest
+        or not paper_outcome_is_settled(latest[plan.paper_plan_id], plan)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("first", "second"), [(TIMEFRAME, OTHER_TIMEFRAME), (OTHER_TIMEFRAME, TIMEFRAME)]
+)
+def test_a_paper_trade_on_another_timeframe_blocks_a_new_one(first, second) -> None:
+    """One BTC paper trade means one trade, whichever timeframe recorded it."""
+
+    harness, _ = harness_on(first)
+    first_result = harness.run(timeframe=first, refresh_market_data=False)
+    assert first_result.status is HeartbeatStatus.PROCESSED
+    assert first_result.paper_plans_created == 1
+    active = plans_on(harness.service, first)
+    assert len(active) == 1
+    frozen = active[0].to_json_dict()
+
+    service, _, second_result = pass_on(harness, second)
+
+    # The new timeframe is genuinely plannable, yet no second paper trade is
+    # created while the first one is unresolved on another timeframe.
+    assert second_result.status is HeartbeatStatus.PROCESSED
+    assert second_result.paper_plans_created == 0
+    observations = service.ledger.observations(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=second
+    )
+    plannable = [
+        item for item in observations if item.plan_state is PlanState.PLANNABLE
+    ]
+    assert plannable
+    assert all(item.paper_plan_id is None for item in plannable)
+    assert all(
+        item.no_trade_reason == PAPER_TRADE_ACTIVE_REASON for item in plannable
+    )
+    assert plans_on(service, second) == ()
+
+    # The existing trade on the first timeframe is preserved byte for byte, and
+    # the ledger still holds exactly one unresolved trade in total.
+    assert [plan.to_json_dict() for plan in plans_on(service, first)] == [frozen]
+    live = unresolved_across_timeframes(service)
+    assert len(live) == 1 and live[0].timeframe == first
+
+
+def test_a_settled_trade_on_another_timeframe_frees_the_instrument() -> None:
+    """Settlement anywhere releases the instrument for later valid candidates."""
+
+    # A 1H trade, stopped out by the next closed candle.
+    harness, _ = harness_on(TIMEFRAME)
+    first_result = harness.run(timeframe=TIMEFRAME, refresh_market_data=False)
+    assert first_result.paper_plans_created == 1
+    stopped = harness.step((bar(21, 124, low=116),), refresh_market_data=False)
+    assert stopped.status is HeartbeatStatus.PROCESSED
+    assert len(unresolved_across_timeframes(harness.service)) == 0
+
+    # A later 15M candidate may now be paper-traded: the settled 1H trade does
+    # not block it, and the two plans coexist as *history*, never as two live
+    # trades.
+    service, _, later = pass_on(harness, OTHER_TIMEFRAME)
+    assert later.paper_plans_created == 1
+    created = plans_on(service, OTHER_TIMEFRAME)
+    assert len(created) == 1
+    assert created[0].timeframe == OTHER_TIMEFRAME
+    live = unresolved_across_timeframes(service)
+    assert [plan.paper_plan_id for plan in live] == [created[0].paper_plan_id]
+    assert len(plans_on(service, TIMEFRAME)) == 1  # the old plan is preserved
+    # The settled 1H trajectory keeps its recorded outcome versions, so the
+    # instrument-wide answer is exactly the new 15M trade.
+    assert service.ledger.latest_outcomes(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME
+    )
+
+
+def test_the_repository_can_answer_the_instrument_wide_question() -> None:
+    """``timeframe=None`` selects every stored timeframe, never just one."""
+
+    harness, _ = harness_on(TIMEFRAME)
+    harness.run(timeframe=TIMEFRAME, refresh_market_data=False)
+    harness.step((bar(21, 124, low=116),), refresh_market_data=False)
+    service, _, _ = pass_on(harness, OTHER_TIMEFRAME)
+    ledger = service.ledger
+
+    per_timeframe = {
+        timeframe: ledger.paper_plans(
+            exchange=EXCHANGE, symbol=SYMBOL, timeframe=timeframe
+        )
+        for timeframe in (TIMEFRAME, OTHER_TIMEFRAME)
+    }
+    assert all(per_timeframe.values())
+    every = ledger.paper_plans(exchange=EXCHANGE, symbol=SYMBOL, timeframe=None)
+    # Every stored timeframe, in one chronological (newest-last) sequence.
+    chronological = sorted(
+        (plan for plans in per_timeframe.values() for plan in plans),
+        key=lambda plan: (plan.plan_as_of, plan.paper_plan_id),
+    )
+    assert [plan.paper_plan_id for plan in every] == [
+        plan.paper_plan_id for plan in chronological
+    ]
+    assert {plan.timeframe for plan in every} == {TIMEFRAME, OTHER_TIMEFRAME}
+    assert [
+        plan.timeframe for plan in every
+    ] == [OTHER_TIMEFRAME, TIMEFRAME]
+    # The instrument-wide outcome question sees the recorded 1H version; the
+    # just-created 15M plan has none yet, and a single-timeframe read would miss
+    # the other trade entirely.
+    assert ledger.latest_outcomes(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=None
+    ) == ledger.latest_outcomes(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME
+    )
+    assert ledger.latest_outcomes(
+        exchange=EXCHANGE, symbol=SYMBOL, timeframe=OTHER_TIMEFRAME
+    ) == ()
+    assert unresolved_across_timeframes(service)
 
 
 # ----------------------------------------------------------------------

@@ -413,17 +413,27 @@ class ForwardLedgerRepository:
         *,
         exchange: str,
         symbol: str,
-        timeframe: str,
+        timeframe: str | None,
         limit: int | None = None,
         newest_first: bool = False,
     ) -> tuple[PaperPlan, ...]:
+        """Stored paper plans, newest-last unless asked otherwise.
+
+        ``timeframe`` selects one base timeframe; ``None`` selects **every**
+        stored timeframe of the instrument, which is what the instrument-wide
+        one-active-paper-trade policy needs (a BTC paper trade is one trade
+        whether it was recorded on 5M, 15M or 1H).
+        """
+
+        criteria = [
+            ForwardPaperPlanRow.exchange == exchange,
+            ForwardPaperPlanRow.symbol == symbol,
+        ]
+        if timeframe is not None:
+            criteria.append(ForwardPaperPlanRow.timeframe == timeframe)
         statement = (
             select(ForwardPaperPlanRow)
-            .where(
-                ForwardPaperPlanRow.exchange == exchange,
-                ForwardPaperPlanRow.symbol == symbol,
-                ForwardPaperPlanRow.timeframe == timeframe,
-            )
+            .where(*criteria)
             .order_by(
                 ForwardPaperPlanRow.plan_as_of.desc()
                 if newest_first
@@ -503,10 +513,21 @@ class ForwardLedgerRepository:
             return tuple(_outcome_from_row(row) for row in rows)
 
     def latest_outcomes(
-        self, *, exchange: str, symbol: str, timeframe: str
+        self, *, exchange: str, symbol: str, timeframe: str | None
     ) -> tuple[PaperOutcome, ...]:
-        """The newest outcome version per paper plan for one instrument."""
+        """The newest outcome version per paper plan for one instrument.
 
+        ``timeframe`` selects one base timeframe; ``None`` selects **every**
+        stored timeframe of the instrument, so an instrument-wide active-trade
+        question sees each plan's own latest version.
+        """
+
+        criteria = [
+            ForwardPaperPlanRow.exchange == exchange,
+            ForwardPaperPlanRow.symbol == symbol,
+        ]
+        if timeframe is not None:
+            criteria.append(ForwardPaperPlanRow.timeframe == timeframe)
         statement = (
             select(ForwardPaperOutcomeRow)
             .join(
@@ -514,11 +535,7 @@ class ForwardLedgerRepository:
                 ForwardPaperPlanRow.paper_plan_id
                 == ForwardPaperOutcomeRow.paper_plan_id,
             )
-            .where(
-                ForwardPaperPlanRow.exchange == exchange,
-                ForwardPaperPlanRow.symbol == symbol,
-                ForwardPaperPlanRow.timeframe == timeframe,
-            )
+            .where(*criteria)
             .order_by(
                 ForwardPaperOutcomeRow.paper_plan_id.asc(),
                 ForwardPaperOutcomeRow.sequence.asc(),

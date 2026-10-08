@@ -44,8 +44,9 @@ FORWARD_RUNNER_RULES_VERSION = "forward-runner-v1"
 FORWARD_PARAMETERS_VERSION = "forward-parameters-v1"
 
 #: Recorded on a candidate observation when its PLANNABLE Step 6 plan is refused
-#: because the instrument already has one unresolved (active) paper trade: the
-#: candidate is still monitored, but no second paper trade is created.
+#: because the instrument already has one unresolved (active) paper trade on some
+#: timeframe — the guard is instrument-wide, never per-timeframe: the candidate
+#: is still monitored, but no second paper trade is created.
 PAPER_TRADE_ACTIVE_REASON = "NO TRADE — BTC paper trade already active."
 
 #: Recorded on a candidate observation that was genuinely plannable earlier, is
