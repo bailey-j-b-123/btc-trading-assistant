@@ -46,6 +46,14 @@ QUALIFYING_ROWS = (100, 104, 109, 104, 103) + (
 )
 QUALIFIED_BOUNDARY_OFFSET = 21  # as_of = EPOCH + 21h
 
+#: Candle index -> explicit high for the qualifying series. Index 3 carries the
+#: single genuine confirmed structural level above the qualifying close (138) -
+#: the only level the planner may keep as its structural target - so the fixture
+#: holds its documented contract (entry 124, stop 117, risk 7, target 138, two
+#: qualified setups) with no synthetic R-derived target, and the later structure
+#: and the ATR facts stay exactly as the other fixtures assert them.
+QUALIFYING_HIGHS = {3: "138"}
+
 #: Candles that produce a WATCH snapshot at EPOCH + 7h (Step 5 service test).
 WATCH_ROWS = (100, 104, 109, 104, 103, 112, (111, 112, 109))
 
@@ -63,7 +71,10 @@ def bar(index: int, close, *, high=None, low=None, open_=None, timeframe="1h"):
 
 
 def qualifying_candles(symbol: str = SYMBOL) -> tuple:
-    candles = tuple(bar(i, price) for i, price in enumerate(QUALIFYING_ROWS))
+    candles = tuple(
+        bar(i, price, high=QUALIFYING_HIGHS.get(i))
+        for i, price in enumerate(QUALIFYING_ROWS)
+    )
     if symbol == SYMBOL:
         return candles
     from dataclasses import replace

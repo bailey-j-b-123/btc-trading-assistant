@@ -18,9 +18,10 @@ sizing: those concepts do not exist in the schema.
 from __future__ import annotations
 
 from dataclasses import fields
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -412,17 +413,27 @@ class ForwardLedgerRepository:
         *,
         exchange: str,
         symbol: str,
-        timeframe: str,
+        timeframe: str | None,
         limit: int | None = None,
         newest_first: bool = False,
     ) -> tuple[PaperPlan, ...]:
+        """Stored paper plans, newest-last unless asked otherwise.
+
+        ``timeframe`` selects one base timeframe; ``None`` selects **every**
+        stored timeframe of the instrument, which is what the instrument-wide
+        one-active-paper-trade policy needs (a BTC paper trade is one trade
+        whether it was recorded on 5M, 15M or 1H).
+        """
+
+        criteria = [
+            ForwardPaperPlanRow.exchange == exchange,
+            ForwardPaperPlanRow.symbol == symbol,
+        ]
+        if timeframe is not None:
+            criteria.append(ForwardPaperPlanRow.timeframe == timeframe)
         statement = (
             select(ForwardPaperPlanRow)
-            .where(
-                ForwardPaperPlanRow.exchange == exchange,
-                ForwardPaperPlanRow.symbol == symbol,
-                ForwardPaperPlanRow.timeframe == timeframe,
-            )
+            .where(*criteria)
             .order_by(
                 ForwardPaperPlanRow.plan_as_of.desc()
                 if newest_first
@@ -441,6 +452,39 @@ class ForwardLedgerRepository:
             if row is None:
                 raise ForwardNotFound(f"paper plan {paper_plan_id} is not stored")
             return _paper_plan_from_row(row)
+
+    def setup_was_plannable(
+        self,
+        *,
+        exchange: str,
+        symbol: str,
+        timeframe: str,
+        setup_id: str,
+        before: datetime,
+    ) -> bool:
+        """Whether this setup instance recorded a floor-passing plan earlier.
+
+        A stored observation with ``PLANNABLE`` proves the mandatory
+        reward-to-risk floor was met at that close (the floor is one of the
+        always-evaluated planning rules), so it is the frozen evidence the
+        MISSED reason needs: the opportunity was genuinely enterable before the
+        market moved, and it is compared strictly before the current boundary.
+        """
+
+        statement = (
+            select(ForwardObservationRow.observation_id)
+            .where(
+                ForwardObservationRow.exchange == exchange,
+                ForwardObservationRow.symbol == symbol,
+                ForwardObservationRow.timeframe == timeframe,
+                ForwardObservationRow.setup_id == setup_id,
+                ForwardObservationRow.as_of < before,
+                ForwardObservationRow.plan_state == PlanState.PLANNABLE.value,
+            )
+            .limit(1)
+        )
+        with self._sessions() as session:
+            return session.scalars(statement).first() is not None
 
     def paper_plan_for_setup(
         self, *, exchange: str, symbol: str, timeframe: str, setup_id: str
@@ -469,10 +513,21 @@ class ForwardLedgerRepository:
             return tuple(_outcome_from_row(row) for row in rows)
 
     def latest_outcomes(
-        self, *, exchange: str, symbol: str, timeframe: str
+        self, *, exchange: str, symbol: str, timeframe: str | None
     ) -> tuple[PaperOutcome, ...]:
-        """The newest outcome version per paper plan for one instrument."""
+        """The newest outcome version per paper plan for one instrument.
 
+        ``timeframe`` selects one base timeframe; ``None`` selects **every**
+        stored timeframe of the instrument, so an instrument-wide active-trade
+        question sees each plan's own latest version.
+        """
+
+        criteria = [
+            ForwardPaperPlanRow.exchange == exchange,
+            ForwardPaperPlanRow.symbol == symbol,
+        ]
+        if timeframe is not None:
+            criteria.append(ForwardPaperPlanRow.timeframe == timeframe)
         statement = (
             select(ForwardPaperOutcomeRow)
             .join(
@@ -480,11 +535,7 @@ class ForwardLedgerRepository:
                 ForwardPaperPlanRow.paper_plan_id
                 == ForwardPaperOutcomeRow.paper_plan_id,
             )
-            .where(
-                ForwardPaperPlanRow.exchange == exchange,
-                ForwardPaperPlanRow.symbol == symbol,
-                ForwardPaperPlanRow.timeframe == timeframe,
-            )
+            .where(*criteria)
             .order_by(
                 ForwardPaperOutcomeRow.paper_plan_id.asc(),
                 ForwardPaperOutcomeRow.sequence.asc(),
@@ -509,6 +560,16 @@ class ForwardLedgerRepository:
     def latest_heartbeat(
         self, *, exchange: str, symbol: str, timeframe: str
     ) -> ForwardHeartbeat | None:
+        """The most recently written heartbeat for one instrument.
+
+        One runner pass writes its STARTED/PROCESSED/STOPPED rows at a single
+        clock instant, so ``recorded_at`` alone cannot order them and the
+        content fingerprint is arbitrary; ties are therefore broken by insertion
+        order (SQLite ``rowid``), which is what "latest" actually means here —
+        otherwise a finished pass could report its own STARTED row as the
+        newest state.
+        """
+
         statement = (
             select(ForwardRunnerHeartbeatRow)
             .where(
@@ -518,7 +579,7 @@ class ForwardLedgerRepository:
             )
             .order_by(
                 ForwardRunnerHeartbeatRow.recorded_at.desc(),
-                ForwardRunnerHeartbeatRow.heartbeat_id.desc(),
+                text("rowid DESC"),
             )
             .limit(1)
         )
@@ -748,6 +809,7 @@ def _observation_values(observation: ForwardObservation) -> dict[str, Any]:
         "plan_config_fingerprint": observation.plan_config_fingerprint,
         "planning_rules_version": observation.planning_rules_version,
         "paper_plan_id": observation.paper_plan_id,
+        "no_trade_reason": observation.no_trade_reason,
         "data_health": observation.data_health.value,
         "missing_candle_count": observation.missing_candle_count,
         "market_trend": observation.market_trend,
@@ -808,6 +870,7 @@ def _observation_from_row(row: ForwardObservationRow) -> ForwardObservation:
         plan_config_fingerprint=row.plan_config_fingerprint,
         planning_rules_version=row.planning_rules_version,
         paper_plan_id=row.paper_plan_id,
+        no_trade_reason=row.no_trade_reason,
         data_health=DataHealth(row.data_health),
         missing_candle_count=row.missing_candle_count,
         market_trend=row.market_trend,

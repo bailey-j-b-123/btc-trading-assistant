@@ -417,14 +417,16 @@ def test_market_state_reports_current_facts(qualified_client):
     assert market_state["trend"]["transition"] == "unchanged"
     assert market_state["trend"]["momentum"] == "steady"
     assert market_state["volatility"]["available"] is True
-    assert market_state["volatility"]["atr_percent_of_price"] == "2.75345715"
+    # The fixture's confirmed 138 level widens the early true range, so the
+    # deterministic ATR/breakout facts are the ones this series actually has.
+    assert market_state["volatility"]["atr_percent_of_price"] == "3.82433560"
     assert market_state["volatility"]["direction"]["label"] == "contracting"
     assert market_state["volume"]["sufficient"] is True
     assert market_state["volume"]["relative_volume"] == "1.00000000"
     assert market_state["range"]["active"] is False
     assert market_state["levels"]["zone_count"] == 5
     assert market_state["levels"]["nearest_support"]["band_high"] == "122"
-    assert market_state["events"]["breakouts"]["count"] == 6
+    assert market_state["events"]["breakouts"]["count"] == 4
     assert market_state["events"]["retests"]["held_count"] >= 1
     assert len(market_state["breakout_state"]["attempts"]) == 2
     assert market_state["higher_timeframes"]["requested"] == []

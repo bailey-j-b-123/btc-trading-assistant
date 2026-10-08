@@ -182,9 +182,12 @@ def test_bounded_replay_reproduces_every_live_setup_exactly(tmp_path):
     try:
         pad = 20
         flat = tuple(bar(i, 100) for i in range(pad))
+        # The overhead planning level is deliberately absent here: this test
+        # asserts the Step 5 replay floor, and the level changes the historical
+        # setup population the floor is meant to trim (see the docstring).
         shifted = tuple(
             replace(c, timestamp=EPOCH + INTERVAL * (pad + i))
-            for i, c in enumerate(labelled_series())
+            for i, c in enumerate(labelled_series(overhead_level=False))
         )
         insert(engine, flat + shifted)
         parameters = QualificationParameters()

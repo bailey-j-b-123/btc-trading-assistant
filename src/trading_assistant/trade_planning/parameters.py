@@ -5,6 +5,15 @@ Defaults are explicit, uncalibrated choices: they must not be read as validated
 strategy parameters. The configuration fingerprint (plus the Step 5 source
 fingerprint it records) is part of every plan identity, so changing any planning
 setting intentionally changes plan identities rather than silently reusing them.
+
+The reward-to-risk floor is policy, not preference:
+
+* ``min_r_multiple`` defaults to 1 and can never be configured below 1, so a
+  plan whose genuine structural targets offer less than 1R can never become
+  actionable. A stricter value only tightens the same gate.
+* ``preferred_r_multiple`` (default 1.5) classifies a plan whose nearest
+  retained structural target already reaches the preferred distance. It never
+  blocks anything: a plan at exactly 1R is fully actionable.
 """
 
 import json
@@ -16,10 +25,14 @@ from hashlib import sha256
 from trading_assistant.market_structure.numeric import as_decimal, require_int
 from trading_assistant.market_structure.snapshot import to_jsonable
 
-PLANNING_RULES_VERSION = "trade-planning-v1"
+PLANNING_RULES_VERSION = "trade-planning-v2"
 
 #: Target lists longer than this add no planning value; keep identities bounded.
 MAX_TARGETS_LIMIT = 10
+
+#: The mandatory reward-to-risk floor. It is a policy constant, not a tuneable
+#: preference: no configuration may plan a trade below this multiple.
+MINIMUM_R_MULTIPLE_FLOOR = Decimal(1)
 
 
 def fingerprint(*parts: object) -> str:
@@ -42,23 +55,6 @@ def canonical_decimal(value: Decimal) -> Decimal:
     return value
 
 
-class EntryMode(StrEnum):
-    """Which as-of-known price anchors the proposed entry.
-
-    ``PLAN_CLOSE``
-        The latest closed candle close at the planning frame, i.e. the actual
-        market print when the plan is generated. No fill or better price is
-        assumed or searched for.
-    ``FROZEN_CONFIRMATION``
-        The family-specific frozen confirmation close already recorded by
-        Steps 4–5 (held-retest close, reversal confirmation breakout close, or
-        seed reclaim/re-entry close).
-    """
-
-    PLAN_CLOSE = "plan_close"
-    FROZEN_CONFIRMATION = "frozen_confirmation"
-
-
 class StopBufferMode(StrEnum):
     """Deterministic offset between logical invalidation and the proposed stop.
 
@@ -79,22 +75,24 @@ class StopBufferMode(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class PlanningParameters:
-    """Every rule input the Step 6 planner consults. Nothing else is tunable."""
+    """Every rule input the Step 6 planner consults. Nothing else is tunable.
 
-    entry_mode: EntryMode = EntryMode.PLAN_CLOSE
+    Entry is fixed policy: the actual decision-time price (the latest closed
+    candle's close at the planning ``as_of``). No older or better price is ever
+    substituted, so a setup whose move already happened is measured against the
+    price that is really available now.
+    """
+
     stop_buffer_mode: StopBufferMode = StopBufferMode.NONE
     stop_buffer_atr_multiple: Decimal = Decimal(1)
     stop_buffer_percentage: Decimal = Decimal("0.1")
     max_structural_targets: int = 2
     include_equal_levels_as_targets: bool = True
-    r_multiple_fallbacks: tuple[Decimal, ...] = (Decimal(2),)
-    min_r_multiple: Decimal | None = None
+    min_r_multiple: Decimal = MINIMUM_R_MULTIPLE_FLOOR
+    preferred_r_multiple: Decimal = Decimal("1.5")
 
     def __post_init__(self) -> None:
-        for name, enum_type in (
-            ("entry_mode", EntryMode),
-            ("stop_buffer_mode", StopBufferMode),
-        ):
+        for name, enum_type in (("stop_buffer_mode", StopBufferMode),):
             current = getattr(self, name)
             if not isinstance(current, enum_type):
                 try:
@@ -131,24 +129,25 @@ class PlanningParameters:
         )
         if type(self.include_equal_levels_as_targets) is not bool:
             raise TypeError("include_equal_levels_as_targets must be boolean")
-        if not isinstance(self.r_multiple_fallbacks, tuple):
-            raise TypeError("r_multiple_fallbacks must be an immutable tuple")
-        multiples = []
-        for index, raw in enumerate(self.r_multiple_fallbacks):
-            value = as_decimal(raw, name=f"r_multiple_fallbacks[{index}]")
-            if value <= 0:
-                raise ValueError("r_multiple_fallbacks entries must be positive")
-            multiples.append(canonical_decimal(value))
-        if len(set(multiples)) != len(multiples):
-            raise ValueError("r_multiple_fallbacks must be unique after normalization")
-        # Canonical order: ascending R, so targets and identity never depend on
-        # the spelling order supplied by a caller.
-        object.__setattr__(self, "r_multiple_fallbacks", tuple(sorted(multiples)))
-        if self.min_r_multiple is not None:
-            minimum = as_decimal(self.min_r_multiple, name="min_r_multiple")
-            if minimum <= 0:
-                raise ValueError("min_r_multiple must be positive or None")
-            object.__setattr__(self, "min_r_multiple", canonical_decimal(minimum))
+        minimum = as_decimal(self.min_r_multiple, name="min_r_multiple")
+        if minimum < MINIMUM_R_MULTIPLE_FLOOR:
+            raise ValueError(
+                "min_r_multiple must be >= 1: the mandatory reward-to-risk "
+                "floor cannot be configured away (a stricter value is allowed)"
+            )
+        object.__setattr__(self, "min_r_multiple", canonical_decimal(minimum))
+        preferred = as_decimal(
+            self.preferred_r_multiple, name="preferred_r_multiple"
+        )
+        if preferred < MINIMUM_R_MULTIPLE_FLOOR:
+            raise ValueError(
+                "preferred_r_multiple must be >= 1; it classifies plans and "
+                "never blocks them, and it is independent of a stricter "
+                "min_r_multiple floor"
+            )
+        object.__setattr__(
+            self, "preferred_r_multiple", canonical_decimal(preferred)
+        )
 
     def fingerprint(self) -> str:
         """Versioned identity of this exact configuration."""

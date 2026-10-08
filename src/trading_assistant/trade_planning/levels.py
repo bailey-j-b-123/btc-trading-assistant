@@ -139,56 +139,6 @@ def plan_close_level(
     )
 
 
-def frozen_confirmation_level(
-    family: SetupFamily,
-    seed: Seed,
-    confirmation: Confirmation | None,
-) -> tuple[Decimal | None, str | None, str | None, datetime | None, datetime | None]:
-    """Family-specific frozen confirmation close, or ``None`` when absent.
-
-    Continuation uses the held-retest candle close; reversal uses the
-    confirmation breakout's close; range reversal uses the seed sweep's reclaim
-    close or the failed breakout's re-entry close.
-    """
-    if family is SetupFamily.BREAKOUT_RETEST:
-        if not isinstance(confirmation, Retest):
-            return None, None, None, None, None
-        return (
-            confirmation.candle.close,
-            confirmation.id,
-            "step4_retest_close",
-            confirmation.candle.timestamp,
-            confirmation.known_at,
-        )
-    if family is SetupFamily.LIQUIDITY_REVERSAL:
-        if not isinstance(confirmation, Breakout):
-            return None, None, None, None, None
-        return (
-            confirmation.breakout_close,
-            confirmation.id,
-            "step4_breakout_close",
-            confirmation.candle.timestamp,
-            confirmation.known_at,
-        )
-    if isinstance(seed, Sweep):
-        return (
-            seed.reclaim_close,
-            seed.id,
-            "step4_sweep_reclaim_close",
-            seed.candle.timestamp,
-            seed.known_at,
-        )
-    if isinstance(seed, FailedBreakout):
-        return (
-            seed.candle.close,
-            seed.id,
-            "step4_failure_reentry_close",
-            seed.candle.timestamp,
-            seed.known_at,
-        )
-    return None, None, None, None, None
-
-
 def stop_buffer(
     parameters: PlanningParameters,
     invalidation: Decimal,

@@ -33,13 +33,13 @@ class PlanState(StrEnum):
     ``NO_PLAN``
         No actionable plan can be produced because the source setup is not
         currently usable (not QUALIFIED, terminal, or stale at the requested
-        ``as_of``) or because a required input is missing/UNKNOWN. Nothing is
-        guessed through the gap.
+        ``as_of``), because a required input is missing/UNKNOWN, or because no
+        genuine structural target reaches the mandatory reward-to-risk floor.
+        Nothing is guessed through the gap and no synthetic target is invented.
     ``INVALID``
         All inputs were present, but a derived plan violates a hard planning
-        invariant (wrong-side stop, zero/negative risk, wrong-side entry,
-        contradictory frozen evidence, or an explicitly enabled minimum-R rule
-        that no surviving target meets). Invalid plans are reported with their
+        invariant (wrong-side stop, zero/negative risk, wrong-side entry, or
+        contradictory frozen evidence). Invalid plans are reported with their
         offending numbers; they are never silently corrected.
     """
 
@@ -88,9 +88,10 @@ class PlannedTarget:
 
     ``reward_per_unit`` and ``risk_per_unit`` are absolute Decimal price
     distances per unit of the instrument; ``r_multiple`` is
-    ``quantize_derived(reward / risk)``. ``is_structural`` distinguishes a
-    level taken from pre-existing market-structure evidence from an
-    explicitly labelled R-derived fallback target.
+    ``quantize_derived(reward / risk)``. Every target is a genuine structural
+    level taken from pre-existing market-structure evidence: ``is_structural``
+    is always true for a target the planner retains, and no R-derived or
+    synthetic target exists that could rescue a structurally targetless plan.
     """
 
     level: PlannedLevel
@@ -118,6 +119,10 @@ class TradePlanResult:
     and/or ``missing_inputs`` is the documented representation of "unknown".
     ``excluded_targets`` preserves every rejected target with its exact
     rejection reason so rejections are auditable rather than silent.
+    ``preferred_r_multiple_met`` is an informational classification only
+    (``None`` unless the plan is PLANNABLE): a plan that clears the mandatory
+    reward-to-risk floor is actionable whether or not it reaches the preferred
+    distance, and the flag never changes ``state``.
     """
 
     id: str
@@ -137,6 +142,7 @@ class TradePlanResult:
     invalidation: PlannedLevel
     stop: PlannedLevel
     risk_per_unit: Decimal | None
+    preferred_r_multiple_met: bool | None
     targets: tuple[PlannedTarget, ...]
     rules: tuple[PlanningRuleResult, ...]
     reasons: tuple[str, ...]

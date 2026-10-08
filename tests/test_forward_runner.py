@@ -12,7 +12,7 @@ from __future__ import annotations
 from decimal import Decimal as D
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text as sa_text
 from sqlalchemy.orm import Session
 from forward_fixtures import (
     EXCHANGE,
@@ -46,7 +46,11 @@ def heartbeat_rows(harness):
             session.execute(
                 select(ForwardRunnerHeartbeatRow).order_by(
                     ForwardRunnerHeartbeatRow.recorded_at,
-                    ForwardRunnerHeartbeatRow.heartbeat_id,
+                    # Ties are broken by insertion (rowid), never by the content
+                    # fingerprint: every heartbeat of one pass shares the runner's
+                    # single clock instant, and the trail must read in the order
+                    # the runner actually wrote it.
+                    sa_text("rowid"),
                 )
             ).scalars()
         )
@@ -84,7 +88,7 @@ def test_single_pass_runner_records_started_processed_and_stopped() -> None:
 
     result = runner.run(once=True, refresh_market_data=False)
     assert result is not None
-    assert result.paper_plans_created == 2
+    assert result.paper_plans_created == 1
 
     rows = heartbeat_rows(harness)
     statuses = [row.status for row in rows]
@@ -306,7 +310,7 @@ def test_cli_single_pass_records_one_close_and_creates_paper_plans(
         timeframe=TIMEFRAME,
         refresh_market_data=False,
     )
-    assert result.paper_plans_created == 2
+    assert result.paper_plans_created == 1
     # The harness clock is exactly one interval past the qualifying close, so
     # the runner records that close plus the freshly-closed next boundary.
     assert len(result.processed_boundaries) == 2
@@ -314,7 +318,7 @@ def test_cli_single_pass_records_one_close_and_creates_paper_plans(
     assert "LIVE FORWARD VALIDATION" not in result.detail
 
     assert cli_database.counts()["cycles"] == 2
-    assert cli_database.counts()["paper_plans"] == 2
+    assert cli_database.counts()["paper_plans"] == 1
     assert len(cli_database.observations()) == 6
 
     # Re-running the same pass is idempotent: no new cycle is recorded, no

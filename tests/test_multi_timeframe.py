@@ -1355,7 +1355,7 @@ def test_hierarchy_migration_is_additive_and_refuses_to_drop_rows(tmp_path):
     table_names = set(inspect(migrated).get_table_names())
     migrated.dispose()
 
-    assert revision == "0005_multi_timeframe_hierarchy"
+    assert revision == "0006_forward_no_trade_reason"
     assert "forward_hierarchy_observations" in table_names
     assert candles == 1  # existing market history untouched
 

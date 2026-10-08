@@ -12,7 +12,12 @@ and nothing more:
 4. build the Step 9 explanation from those deterministic facts and record its
    fingerprints;
 5. append the immutable forward observation and, when the Step 6 result is
-   PLANNABLE, the frozen paper plan;
+   PLANNABLE, the frozen paper plan — or, when a paper trade is deliberately
+   not created, the deterministic no-trade reason: at most one unresolved
+   paper trade exists per instrument at a time **on any timeframe** (one BTC
+   trade, whether it was recorded on 5M, 15M or 1H), and a monitored setup that
+   was plannable earlier but whose decision-time entry no longer reaches the
+   mandatory reward-to-risk floor is recorded as MISSED;
 6. append new outcome versions for earlier paper plans using the newly closed
    candles (existing Step 7 observation semantics);
 7. record a runner heartbeat.
@@ -60,6 +65,8 @@ from trading_assistant.forward_testing.models import (
 from trading_assistant.forward_testing.parameters import (
     FORWARD_LEDGER_RULES_VERSION,
     FORWARD_RUNNER_RULES_VERSION,
+    MISSED_OPPORTUNITY_REASON,
+    PAPER_TRADE_ACTIVE_REASON,
     CycleStatus,
     DataHealth,
     ForwardParameters,
@@ -112,6 +119,7 @@ from trading_assistant.setup_qualification.service import (
     bounded_replay_start,
 )
 from trading_assistant.trade_planning import (
+    MINIMUM_R_MULTIPLE_NOT_MET,
     PLANNING_RULES_VERSION,
     PlanningParameters,
     PlanState,
@@ -1715,6 +1723,11 @@ class ForwardTestService:
         if status is CycleStatus.COMPLETE:
             assert frame is not None and snapshot is not None
             snapshot_id = snapshot_identity(snapshot)
+            # One unresolved paper trade per instrument, at most. ``None`` until
+            # the ledger is consulted, so a close that proposes no plan at all
+            # never pays for the query; once this cycle freezes a plan, every
+            # later candidate at the same close is refused a second one.
+            paper_trade_active: bool | None = None
             for setup in snapshot.setups:
                 if not self._should_record_setup(
                     setup=setup,
@@ -1727,6 +1740,17 @@ class ForwardTestService:
                     if setup.state is SetupState.QUALIFIED and not planning_withheld
                     else None
                 )
+                if plan is not None and plan.state is PlanState.PLANNABLE:
+                    if paper_trade_active is None:
+                        # The policy is instrument-wide: an unresolved paper
+                        # trade on *any* timeframe (5M, 15M, 1H, ...) of this
+                        # symbol blocks a new one here.
+                        paper_trade_active = self._paper_trade_is_active(
+                            exchange=exchange, symbol=symbol
+                        )
+                    allow_new_paper_trade = not paper_trade_active
+                else:
+                    allow_new_paper_trade = False
                 observation, frozen_plan = self._build_observation(
                     setup=setup,
                     plan=plan,
@@ -1741,7 +1765,10 @@ class ForwardTestService:
                     boundary=boundary,
                     open_time=open_time,
                     recorded_at=recorded_at,
+                    allow_new_paper_trade=allow_new_paper_trade,
                 )
+                if frozen_plan is not None:
+                    paper_trade_active = True
                 recorded_items.append(observation)
                 pending_plans.append(frozen_plan)
                 if setup.state not in (SetupState.WATCH, SetupState.QUALIFIED):
@@ -1907,6 +1934,7 @@ class ForwardTestService:
         boundary: datetime,
         open_time: datetime,
         recorded_at: datetime,
+        allow_new_paper_trade: bool,
     ) -> tuple[ForwardObservation, PaperPlan | None]:
         observation_id = fingerprint(
             "forward-observation",
@@ -1922,6 +1950,7 @@ class ForwardTestService:
         )
         frozen_plan: PaperPlan | None = None
         paper_plan_id: str | None = None
+        no_trade_reason: str | None = None
         if plan is not None and plan.state is PlanState.PLANNABLE:
             paper_plan_id, frozen_plan = self._build_paper_plan(
                 observation_id=observation_id,
@@ -1934,6 +1963,20 @@ class ForwardTestService:
                 symbol=symbol,
                 timeframe=timeframe,
                 recorded_at=recorded_at,
+                allow_new_paper_trade=allow_new_paper_trade,
+            )
+            if paper_plan_id is None:
+                # A new paper trade was required and refused: this instrument
+                # already has one active. The candidate is still monitored.
+                no_trade_reason = PAPER_TRADE_ACTIVE_REASON
+        elif plan is not None and plan.state is PlanState.NO_PLAN:
+            no_trade_reason = self._missed_reason(
+                setup=setup,
+                plan=plan,
+                exchange=exchange,
+                symbol=symbol,
+                timeframe=timeframe,
+                as_of=boundary,
             )
         targets = (
             ()
@@ -2001,6 +2044,7 @@ class ForwardTestService:
                     None if plan is None else plan.planning_rules_version
                 ),
                 paper_plan_id=paper_plan_id,
+                no_trade_reason=no_trade_reason,
                 data_health=context.data_health,
                 missing_candle_count=context.missing_candle_count,
                 market_trend=frame.patterns.structure.trend.direction.value.upper(),
@@ -2028,7 +2072,8 @@ class ForwardTestService:
         symbol: str,
         timeframe: str,
         recorded_at: datetime,
-    ) -> tuple[str, PaperPlan | None]:
+        allow_new_paper_trade: bool,
+    ) -> tuple[str | None, PaperPlan | None]:
         """Build the frozen PLANNABLE projection for one setup instance.
 
         Returns ``(paper_plan_id, frozen_plan)``. The frozen plan is ``None`` when
@@ -2041,6 +2086,13 @@ class ForwardTestService:
         the observation instead. The id is deterministic per setup instance, and
         when a plan is already stored for that instance it is reused verbatim: a
         setup that stays plannable for many candles keeps exactly one paper plan.
+
+        ``allow_new_paper_trade`` is the instrument-wide one-active-paper-trade
+        policy: when *any* timeframe of the instrument already has an unresolved
+        paper trade, a *new* plan is refused and ``(None, None)`` is returned,
+        which the caller records as the deterministic no-trade reason. A setup
+        that already owns a frozen plan is always answered with that plan id, so
+        the refusal can never rewrite, replace, or hide an existing paper trade.
         """
 
         assert plan.as_of is not None
@@ -2054,6 +2106,8 @@ class ForwardTestService:
         )
         if existing is not None:
             return existing.paper_plan_id, None
+        if not allow_new_paper_trade:
+            return None, None
         plan_key = fingerprint(
             "forward-paper-plan",
             exchange,
@@ -2280,6 +2334,88 @@ class ForwardTestService:
             frozenset(terminal),
             (min(floors) if floors else None),
         )
+
+    def _paper_trade_is_active(self, *, exchange: str, symbol: str) -> bool:
+        """Whether the instrument already has one unresolved paper trade.
+
+        The question is instrument-wide, deliberately **not** scoped to the
+        timeframe being processed: one BTC paper trade means one trade, so a
+        plan recorded on 5M blocks a new one on 15M or 1H (and the reverse)
+        until it settles. Both ledger reads therefore ask for every stored
+        timeframe of this exchange/symbol.
+
+        A paper trade is active until its latest recorded outcome version is
+        settled — exactly the ``unresolved`` definition the status payload
+        reports — so a plan with no outcome yet is active, and a plan whose
+        trajectory can no longer change (stopped, targets reached, ambiguous,
+        or an observation horizon that has fully passed without the entry) is
+        not. Each plan is judged against its own timeframe's interval. The
+        ledger is the only authority: nothing here is remembered across passes.
+        """
+
+        plans = self.ledger.paper_plans(
+            exchange=exchange, symbol=symbol, timeframe=None
+        )
+        latest = {
+            outcome.paper_plan_id: outcome
+            for outcome in self.ledger.latest_outcomes(
+                exchange=exchange, symbol=symbol, timeframe=None
+            )
+        }
+        return any(
+            plan.paper_plan_id not in latest
+            or not paper_outcome_is_settled(latest[plan.paper_plan_id], plan)
+            for plan in plans
+        )
+
+    def _missed_reason(
+        self,
+        *,
+        setup: SetupResult,
+        plan: TradePlanResult,
+        exchange: str,
+        symbol: str,
+        timeframe: str,
+        as_of: datetime,
+    ) -> str | None:
+        """The deterministic MISSED reason, or ``None`` when it does not apply.
+
+        MISSED is a refusal expressed in the existing vocabulary, never a new
+        setup/plan state: at this close the setup is still ``QUALIFIED`` (not
+        invalidated, not failed, not expired) and Step 6 refused for exactly the
+        mandatory reward-to-risk floor (``minimum_r_multiple_not_met``): the
+        decision-time reward-to-risk has deteriorated below the floor, so at the
+        price actually available now no remaining genuine structural target
+        reaches 1R. It is reported only when the opportunity genuinely existed
+        before and was never taken: this setup instance recorded a floor-passing
+        (PLANNABLE) plan at an earlier close and has no frozen paper trade of its
+        own. A setup that is already paper-traded is never called missed — that
+        trajectory belongs to its paper plan's outcome versions (entry not
+        reached, invalidated before entry, stopped, ...). Nothing is chased, no
+        earlier entry is reused, no stop is squeezed, and no target is invented:
+        this reason only names the refusal that Step 6 already produced.
+        """
+
+        if setup.state is not SetupState.QUALIFIED:
+            return None
+        if plan.state is not PlanState.NO_PLAN:
+            return None
+        if MINIMUM_R_MULTIPLE_NOT_MET not in plan.reasons:
+            return None
+        existing = self.ledger.paper_plan_for_setup(
+            exchange=exchange, symbol=symbol, timeframe=timeframe, setup_id=setup.id
+        )
+        if existing is not None:
+            return None
+        if not self.ledger.setup_was_plannable(
+            exchange=exchange,
+            symbol=symbol,
+            timeframe=timeframe,
+            setup_id=setup.id,
+            before=as_of,
+        ):
+            return None
+        return MISSED_OPPORTUNITY_REASON
 
     def _current_paper_plan(
         self, *, plans: Sequence[PaperPlan], latest_outcomes

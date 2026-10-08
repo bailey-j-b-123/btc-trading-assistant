@@ -394,7 +394,25 @@ The Step 1 foundation revision is unchanged. The Step 2 OHLCV migration adds onl
 
 **Step 7 adds revision `0003_journal`**, which is strictly additive: four append-only journal tables plus their indexes and SQLite `UPDATE`/`DELETE` guard triggers, with no change to `ohlcv_candles` or any existing row. Its downgrade refuses to run while journal rows exist and otherwise drops only the (empty) journal tables; the candle archive is never dropped or rewritten.
 
-**Step 12 adds revision `0004_forward_testing`**, also strictly additive: five forward ledger tables (`forward_cycles`, `forward_observations`, `forward_paper_plans`, `forward_paper_outcomes`, `forward_runner_heartbeats`) plus indexes and SQLite `UPDATE`/`DELETE` guard triggers. The forward ledger is a new, separate store: it never reads or writes the Step 7 journal tables and never rewrites `ohlcv_candles`. `0004_forward_testing` is the current head, so `alembic upgrade head` takes an existing Step 7/11 database to the forward schema without touching stored market data or recorded decisions. Its downgrade refuses to run while forward rows exist and otherwise drops only the (empty) forward tables.
+**Step 12 adds revision `0004_forward_testing`**, also strictly additive: five forward ledger tables (`forward_cycles`, `forward_observations`, `forward_paper_plans`, `forward_paper_outcomes`, `forward_runner_heartbeats`) plus indexes and SQLite `UPDATE`/`DELETE` guard triggers. The forward ledger is a new, separate store: it never reads or writes the Step 7 journal tables and never rewrites `ohlcv_candles`. `alembic upgrade head` takes an existing Step 7/11 database to the forward schema without touching stored market data or recorded decisions (later revisions are listed with their steps below; the current head of the whole chain is `0006_forward_no_trade_reason`). Its downgrade refuses to run while forward rows exist and otherwise drops only the (empty) forward tables.
+
+**Step 12's rules revision `0006_forward_no_trade_reason`** adds the nullable
+`forward_observations.no_trade_reason` column and replaces the old
+`ck_forward_observations_plannable_is_paper` check (every `PLANNABLE` row had to
+carry a paper plan) with the policy that is now correct: a paper plan still
+requires a `PLANNABLE` plan (`ck_forward_observations_paper_requires_plannable`),
+and a recorded reason never coexists with a paper plan
+(`ck_forward_observations_no_trade_reason_no_paper`). SQLite cannot drop a check
+constraint in place, so this revision rebuilds `forward_observations` in batch
+mode with every existing row copied verbatim (foreign-key enforcement is
+switched off for the rebuild window only, because SQLite would otherwise refuse
+the implicit delete of the referencing `forward_paper_plans` rows, and a scoped
+`PRAGMA foreign_key_check` proves afterwards that no paper plan was orphaned),
+then recreates the append-only `UPDATE`/`DELETE` triggers. Its downgrade refuses
+to run while any reason is recorded and otherwise restores the previous column
+set and constraint, again recreating the triggers.
+The forward ledger rules version is `forward-ledger-v2`: a v1 ledger allowed
+concurrent paper plans, so the recorded cohorts are never merged silently.
 
 ## Tests
 
@@ -978,7 +996,7 @@ Step 6 is the first planning layer in the pipeline and the last before statistic
 
 ### Inputs, API and consumption contract
 
-`trade_planning.plan_trade(...)` is the entire public planning surface (`trading_assistant.trade_planning.PlanningParameters`, `EntryMode`, `StopBufferMode`, `PlanState`, `TradePlanResult`, `PlannedLevel`, `PlannedTarget`, `PlanningRuleResult`, `PLANNING_RULES_VERSION`, `BASE_RULES`, `INVALID_CODES` complete it):
+`trade_planning.plan_trade(...)` is the entire public planning surface (`trading_assistant.trade_planning.PlanningParameters`, `MINIMUM_R_MULTIPLE_FLOOR`, `StopBufferMode`, `PlanState`, `TradePlanResult`, `PlannedLevel`, `PlannedTarget`, `PlanningRuleResult`, `PLANNING_RULES_VERSION`, `BASE_RULES`, `INVALID_CODES` complete it):
 
 ```python
 plan_trade(
@@ -996,14 +1014,14 @@ The current actionable setup is the setup object inside the supplied, as-of-froz
 ### Plan states (exact)
 
 - `PLANNABLE` — a complete proposal was derived: entry, invalidation, protective stop, at least one target, positive `risk_per_unit`, and every planning rule passed.
-- `NO_PLAN` — not planable *from the available evidence*: the setup is absent or not currently QUALIFIED (`setup_not_in_snapshot`, `setup_not_qualified`), terminal (`terminal_source_setup`), stale (`stale_qualification`), or a required upstream input is missing/UNKNOWN (`seed_event_missing`, `confirmation_event_missing`, `current_close_unavailable`, `missing_plan_close`, `missing_confirmation_level`, `missing_reference_band`, `missing_atr_for_stop_buffer`, `no_valid_target_available`). Missing values are never invented and gaps are never inferred: the result lists every missing input path and marks dependent rules `PENDING`.
-- `INVALID` — the setup's or evidence's own data contradicts the contract or safety boundary: identity/instrument/as_of mismatches (`instrument_mismatch`, `frame_snapshot_asof_mismatch`, `reference_id_mismatch`, `family_mismatch`, `direction_mismatch`, `setup_identity_mismatch`, `as_of_beyond_snapshot_horizon`), evidence known only after the cutoff (`future_evidence_used`), failed family re-verification (`frozen_range_evidence_missing`, `active_range_mismatch`, `range_followthrough_failed`), unusable numbers (`entry_level_not_usable`, `invalid_reference_band`, `entry_not_on_trade_side`, `range_entry_outside_frozen_bounds`), or plan-level safety breaches (`stop_non_positive`, `stop_not_beyond_entry`, `non_positive_risk`, `minimum_r_multiple_not_met`).
+- `NO_PLAN` — not planable *from the available evidence*: the setup is absent or not currently QUALIFIED (`setup_not_in_snapshot`, `setup_not_qualified`), terminal (`terminal_source_setup`), stale (`stale_qualification`), or a required upstream input is missing/UNKNOWN (`seed_event_missing`, `confirmation_event_missing`, `current_close_unavailable`, `missing_plan_close`, `missing_confirmation_level`, `missing_reference_band`, `missing_atr_for_stop_buffer`, `no_valid_target_available`, `minimum_r_multiple_not_met`). Missing values are never invented and gaps are never inferred: the result lists every missing input path and marks dependent rules `PENDING`.
+- `INVALID` — the setup's or evidence's own data contradicts the contract or safety boundary: identity/instrument/as_of mismatches (`instrument_mismatch`, `frame_snapshot_asof_mismatch`, `reference_id_mismatch`, `family_mismatch`, `direction_mismatch`, `setup_identity_mismatch`, `as_of_beyond_snapshot_horizon`), evidence known only after the cutoff (`future_evidence_used`), failed family re-verification (`frozen_range_evidence_missing`, `active_range_mismatch`, `range_followthrough_failed`), unusable numbers (`entry_level_not_usable`, `invalid_reference_band`, `entry_not_on_trade_side`, `range_entry_outside_frozen_bounds`), or plan-level safety breaches (`stop_non_positive`, `stop_not_beyond_entry`, `non_positive_risk`). A mandatory reward-to-risk floor that no structural target meets is a `NO_PLAN` (`minimum_r_multiple_not_met`), because there is no viable target — not a malformed plan.
 
 QUALIFIED never implies PLANNABLE: the refusal codes and their exact rule reasons are recorded even when nothing could be planned, and the first failed rule's code is reported as `state_detail`. `INVALID` outranks `NO_PLAN`; the evaluation never crashes on bad inputs.
 
-### The exact planning rules (`PLANNING_RULES_VERSION = "trade-planning-v1"`)
+### The exact planning rules (`PLANNING_RULES_VERSION = "trade-planning-v2"`)
 
-Fourteen named rules run in a fixed order — a fifteenth `minimum_r_multiple` record appears only when that knob is configured — and every outcome (passed/failed/pending with an exact reason string) is part of the result, so a decision can be audited later without re-running anything.
+Fifteen named rules run in a fixed order — the mandatory `minimum_r_multiple` floor is always evaluated, never optional — and every outcome (passed/failed/pending with an exact reason string) is part of the result, so a decision can be audited later without re-running anything.
 
 1. `source_inputs_consistent` — the snapshot and frame agree on exchange/symbol/timeframe and on the single planning `as_of`, and the seed and confirmation events exist in the frame's frozen catalogs with the reference id the setup recorded.
 2. `setup_usable` — the setup is QUALIFIED, still current at `as_of`, non-terminal, its family/direction agree with the seed event, and no consumed evidence post-dates `as_of`.
@@ -1012,14 +1030,14 @@ Fourteen named rules run in a fixed order — a fifteenth `minimum_r_multiple` r
 5. `availability_at_as_of` — the seed/confirmation `known_at` values and reference-band timestamps are all `< as_of` (information available *at* the cutoff, never after).
 6. `family_confirmation_available` — the family's required confirmation is present (a `CONFIRMED` retest or later same-direction breakout; the swept reference for reversals; the active frozen range for range-reversals).
 7. `family_state_reverified` — read-only re-check: a continuation retest is still `HELD`; a reversal's confirm candle closed back beyond the band while the extreme still holds the structural side; a range-reversal's latest close is still inside the frozen range and below (above) the failed-breakout candle's close for shorts (longs).
-8. `entry_level_available` — the proposed entry number exists: `PLAN_CLOSE` uses the Step 3 `volatility.latest_close` (`source_type="step3_volatility_latest_close"`, `observed_at = as_of - 1h`, `confirmed_at = as_of`); `FROZEN_CONFIRMATION` uses the confirmation's own recorded close (`step4_retest_close` / `step4_breakout_close` / `step4_sweep_reclaim_close`). Zero/negative/non-finite values are `INVALID`, never replaced.
+8. `entry_level_available` — the proposed entry number exists: it is always the actual decision-time price, the Step 3 `volatility.latest_close` at the planning cutoff (`source_type="step3_volatility_latest_close"`, `observed_at = as_of - 1h`, `confirmed_at = as_of`). A late confirmation can never be credited with an earlier, better print: there is exactly one entry policy, and R:R is computed from this decision-time entry. Zero/negative/non-finite values are `INVALID`, never replaced.
 9. `reference_band_available` — the setup's frozen reference band is an ordered pair of finite positive prices (`invalid_reference_band` if not, `missing_reference_band` gap if absent), and it is what pins the logical invalidation: the band's *lower* side for LONG plans, its *upper* side for SHORT plans.
 10. `entry_on_trade_side` — a long entry must sit on or above the band's upper side and a short on or below its lower side (`entry_not_on_trade_side` otherwise); range-reversal entries must additionally lie inside the frozen range bounds (`range_entry_outside_frozen_bounds`). A refused plan is never “corrected” onto the right side.
 11. `stop_buffer_inputs_available` — an `ATR` buffer requires the Step 3 `volatility.atr` already known at `as_of`; its absence is a transparent `NO_PLAN` (`missing_atr_for_stop_buffer`).
 12. `stop_beyond_entry` — the protective stop lies on the risk side: LONG `stop < entry`, SHORT `stop > entry` (`stop_on_wrong_side_of_entry`; a zero-distance stop is `stop_not_beyond_entry`).
 13. `positive_risk` — `risk_per_unit = quantize_derived(abs(entry - stop)) > 0` (`non_positive_risk`).
-14. `target_levels_valid` — at least one target survives the level rules below; targets on the wrong side or at the entry level are dropped with exact notes in `excluded_targets`, and if nothing usable remains the plan is refused as `NO_PLAN`/`no_valid_target_available`; a configured `minimum_r_multiple` that no target meets is refused as `INVALID`/`minimum_r_multiple_not_met` reporting the met target's exact R and the threshold. Low R alone is never a rejection unless this knob is configured.
-15. `minimum_r_multiple` (recorded only when configured) — keeps every selected target at or above the threshold, excluding near targets with the exact reason (`R 1.00000000 < minimum_r_multiple 1.5`). Low R alone is never a rejection unless this knob is configured.
+14. `target_levels_valid` — at least one target survives the level rules below; targets on the wrong side or at the entry level are dropped with exact notes in `excluded_targets`, and if nothing usable remains the plan is refused as `NO_PLAN`/`no_valid_target_available`. Only genuine structural targets can be selected; a synthetic or R-derived level is never invented to rescue a structurally targetless trade.
+15. `minimum_r_multiple` (always evaluated) — the mandatory reward-to-risk floor. Every selected target must sit at or above `min_r_multiple` (default 1, and the configured value can never be lower than 1: the floor is policy, not a knob that can be switched off). Targets below the floor are excluded with the exact reason (`R 0.75000000 < minimum_r_multiple 1`) and a plan whose every structural target sits below the floor is refused as `NO_PLAN`/`minimum_r_multiple_not_met` — still refusing to squeeze the stop or the entry to manufacture reward. `preferred_r_multiple` (default 1.5) is classification only: it sets `preferred_r_multiple_met` on the result from the nearest retained target and never blocks a plan that clears the floor, so 1R–1.49R plans remain actionable.
 
 ### Invalidation, stop and target derivation (exact)
 
@@ -1027,13 +1045,13 @@ Fourteen named rules run in a fixed order — a fifteenth `minimum_r_multiple` r
 
 **The protective stop** is `invalidation -/+ buffer` (long subtracts, short adds), quantized with the shared `quantize_derived` rounding at 8 decimal places. The buffer mode is explicit configuration — `none` (stop equals invalidation, documented as "no buffer applied"), `atr` (`atr * stop_buffer_atr_multiple`, using Step 3's ATR — never a locally recomputed one), or `percentage` (`tolerance_band(level, stop_buffer_percentage)`). Arbitrary protective offsets are impossible: the mode and value are part of the configuration fingerprint, and each buffered level records the exact formula string (e.g. `invalidation - quantize_derived(atr 2 x stop_buffer_atr_multiple 1) = buffer 2`) as its transformation. The invalidation level and the stop are reported separately and may differ.
 
-**Targets** are derived only from information known at `as_of`. Structural candidates, in fixed sort order (distance, value, source id) with duplicates collapsed and unusable levels dropped with recorded reasons: range bounds recorded on the active frozen range (only for range setups — a setup's `active_range_id` must match its seed event's range, otherwise `active_range_mismatch`), then same-side confirmed structural references from the seed event's catalogs, then optional equal-level clusters (`step4_equal_level_cluster`, `include_equal_level_clusters`). A future swing or range is never a historical target: every candidate's confirmation must pre-date the cutoff or it is dropped with an exact `confirmed after planning as_of` note in `target_exclusions`/`excluded_targets`. Structural targets are capped at `max_structural_targets` (extra *known* levels are reported as excluded, never silently dropped). When no usable structural target exists, the configured R-multiple fallbacks produce explicit `"derived_from_r_multiple"` targets (`entry ± risk * multiple`) — labelled as derived, never presented as structural. The same rule is enforced as an invariant test: any target whose source id resolves to a recorded event has that event's `confirmed_at < as_of`.
+**Targets** are derived only from information known at `as_of`, and only from genuine structural levels — no R-derived, synthetic or fallback target exists anywhere. Structural candidates, in fixed sort order (distance, value, source id) with duplicates collapsed and unusable levels dropped with recorded reasons: range bounds recorded on the active frozen range (only for range setups — a setup's `active_range_id` must match its seed event's range, otherwise `active_range_mismatch`), then same-side confirmed structural references from the seed event's catalogs, then optional equal-level clusters (`step4_equal_level_cluster`, `include_equal_levels_as_targets`). A future swing or range is never a historical target: every candidate's confirmation must pre-date the cutoff or it is dropped with an exact `confirmed after planning as_of` note in `target_exclusions`/`excluded_targets`. Structural targets are capped at `max_structural_targets` (extra *known* levels are reported as excluded, never silently dropped), then the mandatory `minimum_r_multiple` floor filters them as described in rule 15. When no genuine structural target survives, the plan is refused as `NO_PLAN`/`no_valid_target_available` — the planner invents nothing and the stop is never tightened to turn a sub-1R structural level into an actionable trade. The same rule is enforced as an invariant test: any target whose source id resolves to a recorded event has that event's `confirmed_at < as_of`.
 
 **Risk and R** are unit-neutral distances only: `risk_per_unit = quantize_derived(abs(entry - stop))`; for each target, `reward = target - entry` for longs and `entry - target` for shorts (unquantized directional distance, always positive for accepted targets), and `R = quantize_derived(reward / risk)` at 8 places (`None` only in refusals). There is no position size, notional, quantity, account balance, equity, leverage, margin, fee, funding, P&L, or any other account-dependent calculation anywhere in the layer — enforced by tests that walk every JSON key and scan the planner source for forbidden tokens (`position_size`, `notional`, `quantity`, `leverage`, `balance`, `equity`, `pnl`, `margin`, `fee`, `funding`, `order`, `execution`, `submit`, `credential`, `secret`, `passphrase`, `api_key`) outside their negations.
 
 ### Configuration and identity
 
-`PlanningParameters` is a frozen, validated container (exact type/range checks on load; `ValueError` with stable message substrings, consistent with Steps 3–5): `entry_mode` (`plan_close` default | `frozen_confirmation`), `stop_buffer_mode` (`none` default | `atr` | `percentage`), `stop_buffer_atr_multiple` (1, `> 0`), `stop_buffer_percentage` (0.1%, `>= 0`, `<= 5`), `max_structural_targets` (2, 1–10), `include_equal_level_clusters` (true), `r_multiple_fallbacks` (`(2,)`, unique positive multiples, sorted ascending; empty disables fallbacks), `minimum_r_multiple` (None, optional `> 0`). Its deterministic `config_fingerprint` (a SHA-256 over the canonical JSON projection, version-prefixed with `trade-planning-v1`) is recorded on every plan alongside the consumed snapshot's Step 5 fingerprint, so any configuration change is visible on previously planned setups. Changing any planning input — as_of, setup state, evidence, or config — deterministically changes the plan.
+`PlanningParameters` is a frozen, validated container (exact type/range checks on load; `ValueError` with stable message substrings, consistent with Steps 3–5): `stop_buffer_mode` (`none` default | `atr` | `percentage`), `stop_buffer_atr_multiple` (1, `> 0`), `stop_buffer_percentage` (0.1%, `> 0`, `< 100`), `max_structural_targets` (2, 1–10), `include_equal_levels_as_targets` (true), `min_r_multiple` (1, mandatory and never below the exported `MINIMUM_R_MULTIPLE_FLOOR` of 1; a stricter value such as 2 is allowed), `preferred_r_multiple` (1.5, `>= 1`; classification only, independent of the floor), and no entry-mode knob at all: the entry policy is fixed to the decision-time close. Its deterministic `config_fingerprint` (a SHA-256 over the canonical JSON projection, version-prefixed with `trade-planning-v2`) is recorded on every plan alongside the consumed snapshot's Step 5 fingerprint, so any configuration change is visible on previously planned setups. Changing any planning input — as_of, setup state, evidence, or config — deterministically changes the plan.
 
 `TradePlanResult` is fully immutable (frozen dataclasses like Steps 3–5; attempts to replace plan fields, targets, or rule records raise `FrozenInstanceError`, and tampering with a `to_json_dict()` projection can never write back). The source snapshot, frame, and every consumed event are returned unmodified (proven by full JSON projections). Plan identity is the canonical `sha256` fingerprint over the *plan content*: same setup + same `as_of` + same config + same evidence ⇒ the same stable plan id and identical numbers (reproducible for backtesting later); different setup, side, mode, buffer, or config ⇒ different fingerprint. The Step 5 `setup_created_at` recorded on the plan is the seed event's confirmation time; the planning cutoff is recorded separately as `as_of`. `to_json_dict()` is the complete public representation: state, reasons, every level with its full traceability record (level id, value, source id/type, timeframe, observed/confirmed timestamps, source value, transformation), targets, risk/reward/R, rule outcomes, and both fingerprints.
 
@@ -1820,6 +1838,8 @@ Each observation is immutable and carries:
   produced it;
 * the Step 6 plan id/state and, in a frozen paper plan, entry, stop,
   invalidation, targets, risk per unit and R multiples;
+* the deterministic **no-trade reason** when a monitored candidate deliberately
+  produced no paper trade (at most one active paper trade, or MISSED below);
 * the Step 9 explanation fingerprint;
 * data-health/freshness verdict and detail;
 * the current paper outcome and its version chain, ambiguity/incomplete flags;
@@ -1835,6 +1855,54 @@ observed window is only re-checked when it was recorded as incomplete.
 A paper observation is created **only** when the unchanged Step 6 result is
 `PLANNABLE`. `NO_SETUP`, `WATCH`, and `QUALIFIED`-but-`NO_PLAN` closes are
 recorded with their evidence but never produce a paper plan.
+
+**At most one unresolved paper trade per instrument (one BTC paper trade), on
+any timeframe.** The rule is instrument-wide, deliberately not scoped to the
+base timeframe being processed: one BTC paper trade is one trade, so a plan
+recorded on 5M blocks a new one on 15M, 1H or any other supported timeframe of
+the same exchange/symbol, and the reverse — the guard reads every stored
+timeframe of the instrument from the ledger on each close. The ledger tracks a
+paper trade until its latest outcome version can no longer change (stopped,
+targets reached, ambiguous, or an observation horizon that has fully elapsed
+without the entry), each plan judged against its own timeframe's interval. While
+one is unresolved, a second genuinely `PLANNABLE` candidate (at the same close or
+on another timeframe) is **still monitored and recorded in full** — its exact
+Step 6 plan, levels and R are written — but no second paper trade is created, and
+the observation carries one deterministic reason:
+
+```text
+NO TRADE — BTC paper trade already active.
+```
+
+The frozen paper trade is never rewritten, replaced, or hidden by a refusal: the
+candidate's own later observations keep pointing at nothing while the active
+trade's rows stay exactly as recorded. Once the active trade settles, a later
+valid candidate — on its own timeframe or another one — is paper-traded normally,
+and the one-unresolved-trade rule is re-checked against the ledger on every close
+(nothing is remembered in memory across passes). A plan's outcome only advances
+when a pass for that plan's own timeframe runs, so the guard always reflects the
+outcomes the ledger has recorded so far.
+
+**MISSED is a recorded reason, not a new state.** The setup and plan vocabulary
+is unchanged (`NO_SETUP`/`WATCH`/`QUALIFIED` and `PLANNABLE`/`NO_PLAN`/`INVALID`
+plus the existing machine-readable reason codes). A candidate is recorded as
+
+```text
+MISSED — price moved before execution; remaining reward-to-risk is below 1R.
+```
+
+only when all of these hold at a close: it is still `QUALIFIED` (not
+invalidated, not failed, not expired); Step 6 refused it for exactly the
+mandatory reward-to-risk floor (`minimum_r_multiple_not_met`) because the
+decision-time reward-to-risk has deteriorated below the floor — at the price
+actually available now, no remaining genuine structural target reaches 1R; it
+has no frozen paper trade of its own; and an earlier close for
+that same setup instance recorded a `PLANNABLE` (>= 1R) plan. A setup that is
+already paper-traded is never called missed — its trajectory belongs to that
+paper plan's outcome versions (`ENTRY_NOT_REACHED`, `INVALIDATED_BEFORE_ENTRY`,
+`STOPPED`, ...). Nothing is chased: no earlier entry is reused, no stop is
+squeezed, and no target is invented — the reason only names the refusal Step 6
+already produced, and no paper trade is created for a missed opportunity.
 
 Paper tracking is observational and level-based, using the existing Step 7
 outcome semantics over subsequent **closed** candles only:
@@ -1911,7 +1979,7 @@ logic.
 Everything runs locally; there is no Docker, cloud service, queue, or scheduler.
 
 ```bash
-alembic upgrade head                                   # additive: 0003_journal -> 0004_forward_testing
+alembic upgrade head                                   # additive: 0003_journal -> 0004 -> 0005 -> 0006
 
 # process the closes that are already pending, then exit (safe first run)
 python -m trading_assistant.forward_testing run --once
@@ -2224,7 +2292,7 @@ fingerprint of the evaluation content (including the hierarchy fingerprint), so:
 ### Running the hierarchy runner
 
 ```bash
-alembic upgrade head                                   # additive: 0004 -> 0005_multi_timeframe_hierarchy
+alembic upgrade head                                   # additive through 0005; 0006 rebuilds forward_observations
 
 # one pass over closed 5M boundaries (safe, explicit, easy to inspect)
 python -m trading_assistant.multi_timeframe run --once
@@ -2303,8 +2371,9 @@ never mixed):
   candle; failure/retest windows 10 candles; pattern depth/prominence 1%.
 - Step 5: setup lifetimes 10 bars per family; min relative volume 1.0;
   max ATR 10% of price; HTF alignment optional and off by default.
-- Step 6: entry at plan close; no stop buffer; up to 2 structural targets
-  plus equal levels; 2R fallback target.
+- Step 6: entry at the decision-time close (fixed policy); no stop buffer;
+  up to 2 structural targets plus equal levels; mandatory 1R floor with a
+  preferred 1.5R classification (no R-derived fallback target).
 - Step 8: minimum sample 30; 8 decimal places; quartiles.
 - Step 11: 30% out-of-sample fraction; 20-candle observation horizon;
   minimum sample 20; zero-fee/slippage default friction (explicitly labelled
