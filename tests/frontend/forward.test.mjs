@@ -19,7 +19,9 @@ test("the one-page dashboard reuses read-only forward data without primary-page 
   assert.match(view, /LIVE FORWARD VALIDATION — NOT REAL PERFORMANCE/);
   assert.match(view, /PAPER OBSERVATION — NO REAL ORDER/);
   assert.match(view, /Paper trading and historical performance do not establish future profitability\./);
-  assert.match(dashboard, /api\.forward\(\{ limit: 8 \}\)/);
+  assert.match(dashboard, /api\.forward\(\{[^}]*limit: 50/);
+  assert.match(dashboard, /symbol: prefs\.preferredSymbol/);
+  assert.match(dashboard, /timeframe: prefs\.preferredTimeframe/);
   assert.match(dashboard, /Recent decisions/);
   assert.match(dashboard, /performanceViewModel/);
   assert.match(dashboard, /Paper \/ historical records only/);

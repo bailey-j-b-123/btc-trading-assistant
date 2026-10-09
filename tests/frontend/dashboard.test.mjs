@@ -3,6 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  BRAIN_STATUS_REFRESH_INTERVAL_MS,
+  BRAIN_STATUS_REFRESH_TIMEOUT_MS,
+  BRAIN_STATUS_STALE_AFTER_MS,
   disposeDashboard,
   hasValidTradePlan,
   performanceViewModel,
@@ -59,6 +62,16 @@ class MockNode {
       this.children.splice(index, 1);
       child.parentNode = null;
     }
+    return child;
+  }
+
+  replaceChild(replacement, child) {
+    const index = this.children.indexOf(child);
+    if (index < 0) throw new Error("child to replace was not found");
+    if (replacement.parentNode) replacement.parentNode.removeChild(replacement);
+    this.children[index] = replacement;
+    replacement.parentNode = this;
+    child.parentNode = null;
     return child;
   }
 
@@ -306,32 +319,99 @@ function backendDashboard(overrides = {}) {
   };
 }
 
-function forwardPayload(timestamp = "2026-10-06T12:00:00Z") {
+function forwardPayload(timestamp = "2026-10-06T12:00:00Z", {
+  snapshotState = "WATCH",
+  setupId = snapshotState === "QUALIFIED" ? "setup-qualified-1" : "setup-watch-1",
+  plan = null,
+  runnerStatus = "IDLE",
+  pending = 0,
+  cycleStatus = "COMPLETE",
+  currentStateAsOf = timestamp,
+  statusAsOf = timestamp,
+  dataHealth = "CURRENT",
+  missingCandleCount = 0,
+  paperPlanCount = 1,
+} = {}) {
+  const cycleId = `cycle-${snapshotState}-${timestamp}`;
+  const setup = {
+    id: setupId,
+    state: snapshotState,
+    family: snapshotState === "QUALIFIED" ? "breakout_retest_continuation" : "range_rejection_reversal",
+    direction: snapshotState === "QUALIFIED" ? "bullish" : "bearish",
+    rules: snapshotState === "QUALIFIED" ? [] : [{
+      rule_id: "confirmation_event",
+      outcome: "pending",
+      reason: "A confirming close has not been recorded.",
+      required: true,
+    }],
+  };
+  const recordedPlan = plan ? { state: "PLANNABLE", ...plan } : null;
+  const observations = snapshotState === "NO_SETUP" ? [] : [{
+    observation_id: `observation-${setupId}-${timestamp}`,
+    cycle_id: cycleId,
+    snapshot_state: snapshotState,
+    setup_id: setupId,
+    setup_family: setup.family,
+    setup_direction: setup.direction,
+    setup_state: snapshotState,
+    setup_json: JSON.stringify(setup),
+    pending_rules: snapshotState === "WATCH" ? ["confirmation_event"] : [],
+    plan_id: recordedPlan?.id ?? null,
+    plan_state: recordedPlan?.state ?? null,
+    plan_json: recordedPlan ? JSON.stringify(recordedPlan) : null,
+    no_trade_reason: null,
+    data_health: dataHealth,
+    as_of: timestamp,
+  }];
+  const setupCounts = snapshotState === "NO_SETUP" ? {} : { [snapshotState]: observations.length };
+  const cycle = {
+    cycle_id: cycleId,
+    as_of: timestamp,
+    status: cycleStatus,
+    snapshot_state: snapshotState,
+    snapshot_json: JSON.stringify({ state: snapshotState, setups: snapshotState === "NO_SETUP" ? [] : [setup] }),
+    observation_count: observations.length,
+    setup_state_counts: Object.entries(setupCounts),
+    plan_state_counts: recordedPlan ? [[recordedPlan.state, 1]] : [],
+    explanation_headline: "Persisted BRAIN cycle explanation",
+    notes: [],
+  };
   return {
     disclaimer: "Paper trading and historical performance do not establish future profitability.",
+    symbol: "BTC/USDT",
+    timeframe: "1h",
     status: {
+      symbol: "BTC/USDT",
+      timeframe: "1h",
+      as_of: statusAsOf,
       market_data: {
-        data_health: "CURRENT",
+        data_health: dataHealth,
         latest_stored_candle_open: timestamp,
         expected_latest_closed_candle_open: timestamp,
-        missing_candle_count: 0,
+        missing_candle_count: missingCandleCount,
       },
       runner: {
-        status: "IDLE",
+        status: runnerStatus,
         recorded_at: timestamp,
         latest_cycle_as_of: timestamp,
-        pending_boundaries: 0,
+        pending_boundaries: pending,
         last_error: null,
       },
-      sample: { paper_plans: 1, pending_catch_up_boundaries: 0 },
+      latest_cycle: cycle,
+      sample: { paper_plans: paperPlanCount, pending_catch_up_boundaries: pending },
       current_state: {
         available: true,
-        as_of: timestamp,
-        setup_state_counts: { WATCH: 1, QUALIFIED: 0 },
-        plan_state_counts: { PLANNABLE: 0 },
+        as_of: currentStateAsOf,
+        cycle_status: cycleStatus,
+        setup_state: snapshotState,
+        setup_state_counts: setupCounts,
+        plan_state_counts: recordedPlan ? { [recordedPlan.state]: 1 } : {},
+        explanation_headline: "Persisted BRAIN cycle explanation",
+        notes: [],
       },
     },
-    observations: { observations: [] },
+    observations: { observations },
+
     report: {
       combined_metrics_available: true,
       metrics: {
@@ -398,7 +478,7 @@ function chartLibraryState() {
   }
   const library = {
     createChart: () => {
-      const record = { removed: false, candleData: [], formingData: [], volumeData: [], lines: new Set() };
+      const record = { removed: false, candleData: [], formingData: [], volumeData: [], formingVolumeData: [], fitCalls: 0, lines: new Set() };
       const series = {
         setData: (rows) => { record.candleData = rows; },
         createPriceLine: (options) => {
@@ -410,18 +490,54 @@ function chartLibraryState() {
       };
       const forming = { setData: (rows) => { record.formingData = rows; } };
       let candleSeriesCount = 0;
+      let histogramCount = 0;
       const volume = { setData: (rows) => { record.volumeData = rows; } };
+      const formingVolume = { setData: (rows) => { record.formingVolumeData = rows; } };
       charts.push(record);
       return {
         addCandlestickSeries: () => candleSeriesCount++ === 0 ? series : forming,
-        addHistogramSeries: () => volume,
+        addHistogramSeries: () => histogramCount++ === 0 ? volume : formingVolume,
         priceScale: () => ({ applyOptions: () => {} }),
+        timeScale: () => ({ fitContent: () => { record.fitCalls += 1; } }),
         resize: () => {},
         remove: () => { record.removed = true; },
       };
     },
   };
   return { charts, observers, ResizeObserverMock, library };
+}
+
+function fakeTimeouts() {
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const timers = new Map();
+  const cleared = [];
+  let nextId = 1;
+  globalThis.setTimeout = (callback, delay) => {
+    const id = nextId++;
+    timers.set(id, { callback, delay });
+    return id;
+  };
+  globalThis.clearTimeout = (id) => {
+    cleared.push(id);
+    timers.delete(id);
+  };
+  return {
+    timers,
+    cleared,
+    run(delay) {
+      const entry = [...timers].find(([, timer]) => timer.delay === delay);
+      assert.ok(entry, `expected a timer with delay ${delay}`);
+      const [id, timer] = entry;
+      timers.delete(id);
+      timer.callback();
+      return id;
+    },
+    restore() {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+    },
+  };
 }
 
 async function withDashboard(dashboard, forward, callback) {
@@ -486,6 +602,96 @@ test("WATCH renders with backend evidence and missing confirmation", async () =>
     assert.match(card.textContent, /Invalid if/);
     assert.match(card.textContent, /Scenario — not prediction/);
   });
+});
+
+test("a stopped BRAIN runner shows recorded setup facts as historical and withholds current decisions", async () => {
+  await withDashboard(backendDashboard(), forwardPayload("2026-10-06T12:00:00Z", {
+    runnerStatus: "STOPPED",
+  }), async ({ view }) => {
+    await renderDashboard(view);
+    assert.match(view.textContent, /BRAIN status/);
+    assert.match(view.textContent, /STOPPED/);
+    assert.match(view.textContent, /Persisted BRAIN cycle explanation/);
+    assert.match(view.textContent, /Recorded waiting state/);
+    assert.match(view.textContent, /historical, not a fresh decision/);
+    assert.doesNotMatch(view.textContent, /Current verdict/);
+    assert.equal(findNodes(view, (node) => (node.className || "").split(/\s+/).includes("plan-card")).length, 0);
+  });
+});
+
+test("persisted BRAIN status refreshes automatically and the timer is cleaned up", async () => {
+  const timers = fakeTimeouts();
+  const forward = forwardPayload();
+  try {
+    await withDashboard(backendDashboard(), forward, async ({ view }) => {
+      await renderDashboard(view);
+      assert.match(view.textContent, /BRAIN status/);
+      assert.match(view.textContent, /IDLE/);
+      timers.run(BRAIN_STATUS_REFRESH_INTERVAL_MS);
+      forward.status.runner = {
+        ...forward.status.runner,
+        recorded_at: "2026-10-06T12:01:00Z",
+        heartbeat_age_seconds: 0,
+      };
+      await new Promise((resolve) => setImmediate(resolve));
+      const statusCard = findNodes(view, (node) =>
+        (node.className || "").split(/\s+/).includes("brain-status-card"))[0];
+      assert.ok(statusCard);
+      assert.match(statusCard.textContent, /12:01/);
+      assert.ok([...timers.timers.values()].some(
+        (timer) => timer.delay === BRAIN_STATUS_REFRESH_INTERVAL_MS,
+      ));
+    });
+    assert.equal(timers.timers.size, 0, "dashboard disposal clears the next refresh timer");
+    assert.ok(timers.cleared.length > 0);
+  } finally {
+    timers.restore();
+  }
+});
+
+test("a timed-out BRAIN refresh becomes stale and aborts cleanly on dashboard disposal", async () => {
+  const timers = fakeTimeouts();
+  const originalDateNow = Date.now;
+  let now = Date.parse("2026-10-06T12:00:00Z");
+  Date.now = () => now;
+  const forward = forwardPayload();
+  try {
+    await withDashboard(backendDashboard(), forward, async ({ view }) => {
+      await renderDashboard(view);
+      const normalFetch = globalThis.fetch;
+      let requestSignal = null;
+      globalThis.fetch = (path, options = {}) => {
+        if (String(path).startsWith("/api/forward")) {
+          requestSignal = options.signal;
+          return new Promise((resolve, reject) => {
+            requestSignal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+          });
+        }
+        return normalFetch(path, options);
+      };
+      now += BRAIN_STATUS_STALE_AFTER_MS + 1;
+      timers.run(BRAIN_STATUS_REFRESH_INTERVAL_MS);
+      await Promise.resolve();
+      assert.ok(requestSignal, "the poll passes an AbortSignal to fetch");
+      timers.run(BRAIN_STATUS_REFRESH_TIMEOUT_MS);
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const statusCard = findNodes(view, (node) =>
+        (node.className || "").split(/\s+/).includes("brain-status-card"))[0];
+      assert.ok(statusCard);
+      assert.equal(statusCard.dataset.status, "STALE");
+      assert.match(view.textContent, /current decision panels are withheld/);
+      assert.equal(findNodes(view, (node) =>
+        (node.className || "").split(/\s+/).includes("plan-card")).length, 0);
+
+      disposeDashboard();
+      assert.equal(requestSignal.aborted, true);
+      assert.equal(timers.timers.size, 0, "disposal clears refresh and request-timeout timers");
+    });
+  } finally {
+    Date.now = originalDateNow;
+    timers.restore();
+  }
 });
 
 test("compact LOOKING FOR keeps its complete backend facts behind collapsed technical details", async () => {
@@ -568,7 +774,7 @@ test("NO TRADE is rendered from NO_SETUP and its backend reason", async () => {
       invalidate: { cases: [] },
     },
   });
-  await withDashboard(dashboard, forwardPayload(), async ({ view }) => {
+  await withDashboard(dashboard, forwardPayload("2026-10-06T12:00:00Z", { snapshotState: "NO_SETUP" }), async ({ view }) => {
     await renderDashboard(view);
     assert.match(view.textContent, /No trade/);
     assert.match(view.textContent, /No candidate met deterministic setup conditions\./);
@@ -687,6 +893,7 @@ test("PLANNABLE requires the backend plan state and renders its supplied levels"
     },
     planning: { state: "PLANNABLE", reasons: [], missing_inputs: [], state_detail: null },
     plan: {
+      id: "plan-qualified-1",
       state: "PLANNABLE",
       direction: "bullish",
       family: "breakout_retest_continuation",
@@ -710,8 +917,11 @@ test("PLANNABLE requires the backend plan state and renders its supplied levels"
     },
   });
   const original = structuredClone(dashboard);
-  const forward = forwardPayload();
-  forward.status.current_state.as_of = "2026-10-06T11:00:00Z";
+  const forward = forwardPayload("2026-10-06T12:00:00Z", {
+    snapshotState: "QUALIFIED",
+    setupId: "setup-qualified-1",
+    plan: { id: "plan-qualified-1" },
+  });
   await withDashboard(dashboard, forward, async ({ view }) => {
     await renderDashboard(view);
     assert.match(view.textContent, /PLAN CALCULATED/);
@@ -756,7 +966,9 @@ test("non-plannable payload values never leak into a guessed plan", async () => 
       targets: [{ level: { value: "777777" } }],
     },
   });
-  await withDashboard(dashboard, forwardPayload(), async ({ view }) => {
+  await withDashboard(dashboard, forwardPayload("2026-10-06T12:00:00Z", {
+    plan: { state: "NO_PLAN" },
+  }), async ({ view }) => {
     await renderDashboard(view);
     assert.match(view.textContent, /No qualified trade plan right now\./);
     assert.match(view.textContent, /confirmation_event_missing/);
@@ -776,6 +988,7 @@ test("missing valid-plan fields remain UNKNOWN rather than being filled in", asy
     },
     planning: { state: "PLANNABLE", reasons: [], missing_inputs: [], state_detail: null },
     plan: {
+      id: "plan-unknown-levels",
       state: "PLANNABLE",
       direction: "bullish",
       family: "breakout_retest_continuation",
@@ -786,9 +999,12 @@ test("missing valid-plan fields remain UNKNOWN rather than being filled in", asy
       targets: [{ level: { value: null }, r_multiple: null }],
     },
   });
-  await withDashboard(dashboard, forwardPayload(), async ({ view }) => {
+  await withDashboard(dashboard, forwardPayload("2026-10-06T12:00:00Z", {
+    snapshotState: "QUALIFIED", setupId: "setup-qualified-1", plan: { id: "plan-unknown-levels" },
+  }), async ({ view }) => {
     await renderDashboard(view);
-    const levels = findNodes(view, (node) => node.className.split(/\s+/).includes("plan-level"));
+    const planCard = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("plan-card"))[0];
+    const levels = findNodes(planCard, (node) => (node.className || "").split(/\s+/).includes("plan-level"));
     assert.equal(levels.length, 5);
     assert.ok(levels.some((node) => /EntryUNKNOWN/.test(node.textContent)));
     assert.ok(levels.some((node) => /StopUNKNOWN/.test(node.textContent)));
@@ -798,7 +1014,7 @@ test("missing valid-plan fields remain UNKNOWN rather than being filled in", asy
   });
 });
 
-test("missing candle data renders an unavailable state without creating a chart", async () => {
+test("missing candle data stays visibly unavailable without inventing confirmed candles", async () => {
   const dashboard = backendDashboard({
     market: { candles: null, latest_closed_candle: null, complete: false, missing_candle_count: null },
     freshness: { status: "UNKNOWN", latest_stored: null, expected_latest_closed: null },
@@ -807,7 +1023,8 @@ test("missing candle data renders an unavailable state without creating a chart"
     await renderDashboard(view);
     assert.match(view.textContent, /Candle data unavailable/);
     assert.match(view.textContent, /No stored closed candles were returned/);
-    assert.equal(chartState.charts.length, 0);
+    assert.equal(chartState.charts.length, 1);
+    assert.deepEqual(chartState.charts[0].candleData, []);
     assert.equal(ids.get("topbar-price").textContent, "UNKNOWN");
   });
 });
@@ -825,6 +1042,7 @@ test("repeated dashboard renders dispose old charts and replace, not stack, over
     },
     planning: { state: "PLANNABLE", reasons: [], missing_inputs: [], state_detail: null },
     plan: {
+      id: "plan-repeat",
       state: "PLANNABLE",
       entry: { value: "62100" },
       stop: { value: "61900" },
@@ -832,8 +1050,9 @@ test("repeated dashboard renders dispose old charts and replace, not stack, over
       targets: [{ level: { value: "62500" }, r_multiple: "2" }],
     },
   });
-  const forward = forwardPayload(timestamp);
-  forward.status.current_state.as_of = "2026-10-06T11:00:00Z";
+  const forward = forwardPayload(timestamp, {
+    snapshotState: "QUALIFIED", setupId: "setup-qualified-1", plan: { id: "plan-repeat" },
+  });
   await withDashboard(dashboard, forward, async ({ view, chartState }) => {
     await renderDashboard(view);
     assert.equal(chartState.charts.length, 1);

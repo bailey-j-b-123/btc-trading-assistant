@@ -191,6 +191,12 @@ def test_journal_listing_and_detail_immutable(client):
     # The stored snapshot bytes are the exact Step 5 projection.
     assert detail["setup_snapshot"]["state"] == "QUALIFIED"
     assert detail["setup_snapshot"]["as_of"] == dashboard["meta"]["as_of"]
+    snapshots = detail["market_snapshots"]
+    assert snapshots["available"] is True
+    assert snapshots["source"] == "stored_closed_candles_only"
+    assert snapshots["before"]["candles"][-1][0] == int((EPOCH + 20 * INTERVAL).timestamp() * 1000)
+    assert snapshots["after"] is None  # no outcome cutoff: do not reveal later stored candles
+    assert "not versioned by ingestion time" in snapshots["note"]
 
 
 def test_historical_snapshot_stays_historical(tmp_path):
@@ -206,19 +212,38 @@ def test_historical_snapshot_stays_historical(tmp_path):
         decided, dashboard = _seed_records(client)
         journal_id = decided["journal_id"]
         before = client.get(f"/api/journal/records/{journal_id}").json()
+        assert before["market_snapshots"]["after"] is None
 
-        # Market moves on: append later candles and advance the clock.
+        # Market moves on: append real stored closed-candle rows and advance the
+        # clock. Later rows are not exposed in the AFTER panel until the journal
+        # has an outcome observation with an explicit observed_through cutoff.
         extra = tuple(
             bar(21 + index, price) for index, price in enumerate((126, 127, 125))
         )
         insert_candles(engine, extra)
         later = make_client(engine, settings, clock=qualified_clock() + 3 * INTERVAL)
 
+        without_observation = later.get(f"/api/journal/records/{journal_id}").json()
+        assert without_observation["market_snapshots"]["after"] is None
+        assert without_observation["market_snapshots"]["before"] == before["market_snapshots"]["before"]
+
+        observed = later.post(f"/api/journal/records/{journal_id}/observations", json={})
+        assert observed.status_code == 200
         after = later.get(f"/api/journal/records/{journal_id}").json()
         assert after["record"] == before["record"]
         assert after["setup_snapshot"] == before["setup_snapshot"]
         assert after["plan"] == before["plan"]
-        # Current market moved, but the record's as_of did not.
+        before_window = after["market_snapshots"]["before"]
+        after_window = after["market_snapshots"]["after"]
+        assert before_window["candles"] == before["market_snapshots"]["before"]["candles"]
+        assert before_window["candles"][-1][0] == int((EPOCH + 20 * INTERVAL).timestamp() * 1000)
+        assert [row[0] for row in after_window["candles"]] == [
+            int((EPOCH + index * INTERVAL).timestamp() * 1000) for index in (21, 22, 23)
+        ]
+        assert after_window["observed_through"] == after["latest_outcome"]["observed_through"]
+        assert all(row[0] <= int((EPOCH + 23 * INTERVAL).timestamp() * 1000)
+                   for row in after_window["candles"])
+        # Current market moved, but the immutable record's as_of did not.
         current = later.get("/api/dashboard").json()
         assert current["meta"]["as_of"] != dashboard["meta"]["as_of"]
         assert after["record"]["setup_as_of"] == dashboard["meta"]["as_of"]

@@ -315,6 +315,12 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* chart */
 .chart-wrap { position: relative; width: 100%; height: 420px; }
+.journal-market-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.journal-market-window { min-width: 0; padding: 12px !important; }
+.journal-market-window .section-title-row { margin-bottom: 6px; }
+.journal-market-window .card-title { color: var(--text); font-size: 10px; }
+.journal-market-chart { height: 300px; margin-top: 2px; overflow: hidden; }
+.journal-window-note { margin-top: 7px; line-height: 1.45; }
 .chart-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .chart-toolbar .spacer { flex: 1; }
 
@@ -823,9 +829,24 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .overlay-toggle[aria-pressed="true"] { border-color: var(--border-strong); background: var(--panel-2); color: var(--text-dim); }
 .overlay-toggle .swatch { width: 7px; height: 7px; border-radius: 50%; background: var(--swatch, var(--blue)); }
 .terminal-chart-wrap { height: 530px; margin-top: 8px; }
-.forming-status { min-height: 16px; margin-top: 8px; font-size: 11px; font-weight: 700; letter-spacing: .035em; color: var(--blue); }
-.forming-status[data-freshness="STALE"],
-.forming-status[data-freshness="UNAVAILABLE"] { color: var(--amber); }
+.forming-status { min-height: 16px; margin-top: 8px; color: var(--blue); }
+.live-market-strip { display: grid; gap: 5px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,.018); }
+.live-status-line { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.stream-state-badge { display: inline-flex; align-items: center; min-height: 21px; padding: 3px 7px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-muted); font-size: 9px; font-weight: 800; letter-spacing: .1em; }
+.stream-state-badge[data-status="LIVE"] { border-color: rgba(47,191,127,.45); color: var(--green); background: rgba(47,191,127,.08); }
+.stream-state-badge[data-status="STALE"] { border-color: rgba(232,163,61,.45); color: var(--amber); background: rgba(232,163,61,.08); }
+.stream-state-badge[data-status="DISCONNECTED"] { border-color: rgba(224,86,91,.45); color: var(--red); background: rgba(224,86,91,.08); }
+.stream-state-badge[data-status="CONNECTING"] { border-color: rgba(91,155,213,.4); color: var(--blue); }
+.forming-caption { color: var(--text-muted); font-size: 9px; font-weight: 750; letter-spacing: .08em; }
+.live-price-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.live-price-symbol { color: var(--text-faint); font-size: 10px; font-weight: 800; letter-spacing: .08em; }
+.live-price-value { color: var(--text); font-family: var(--mono); font-size: clamp(21px, 2.6vw, 30px); font-weight: 800; letter-spacing: -.04em; line-height: 1; }
+.live-price-caption { color: var(--text-faint); font-size: 9px; }
+.live-price-time, .live-stream-detail { color: var(--text-muted); font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
+.live-stream-detail { color: var(--text-faint); }
+.forming-ohlc { margin-top: 2px; color: var(--text-dim); font-family: var(--mono); font-size: 10px; line-height: 1.55; overflow-wrap: anywhere; }
+.confirmed-history-status { color: var(--text-faint); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
+.brain-scenario-unavailable { color: var(--amber); }
 .looking-for { display: grid; gap: 4px; padding: 9px 11px; margin-top: 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 11px; color: var(--text-dim); }
 .looking-for-kicker { color: var(--text-faint); font-size: 9px; font-weight: 750; letter-spacing: .12em; }
 .looking-for-title { font-size: 14px; line-height: 1.25; color: var(--text); }
@@ -977,6 +998,34 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .bot-watching-details .evidence-grid { margin-top: 6px; }
 .bot-watching-card > .details-disclosure { margin-top: 0; }
 
+.brain-status-card { display: flex; flex-direction: column; gap: 9px; }
+.brain-state-badge { display: inline-flex; align-items: center; flex: none; min-height: 22px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-muted); font-size: 9px; font-weight: 800; letter-spacing: .09em; }
+.brain-state-badge[data-tone="good"] { border-color: rgba(47,191,127,.45); color: var(--green); background: rgba(47,191,127,.08); }
+.brain-state-badge[data-tone="warn"] { border-color: rgba(232,163,61,.45); color: var(--amber); background: rgba(232,163,61,.08); }
+.brain-runner-state { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; color: var(--text-dim); font-size: 10px; }
+.brain-runner-state strong { color: var(--text); font-family: var(--mono); font-size: 10px; }
+.brain-runner-state .mono { color: var(--text-faint); }
+.brain-detail-label { color: var(--text-faint); font-size: 8px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.brain-cycle-meta, .brain-state-counts { color: var(--text-muted); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
+.brain-current-note, .brain-not-current { padding: 8px 9px; border-left: 2px solid var(--amber); background: rgba(232,163,61,.055); color: var(--text-dim); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.brain-current-note { border-left-color: var(--green); background: rgba(47,191,127,.05); }
+.brain-persisted-explanation { display: grid; gap: 4px; padding: 8px 9px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-dim); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.brain-observation-record { display: grid; gap: 7px; padding: 9px; border: 1px solid var(--border); border-radius: 7px; background: rgba(255,255,255,.015); min-width: 0; }
+.brain-observation-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; color: var(--text); font-size: 11px; }
+.brain-observation-heading .tag { flex: none; }
+.brain-waiting-record { display: grid; gap: 4px; color: var(--amber); font-size: 10px; line-height: 1.45; }
+.brain-waiting-record ul, .brain-recorded-details ul { margin: 0; padding-left: 17px; }
+.brain-waiting-record li, .brain-recorded-details li { margin: 2px 0; }
+.brain-no-trade-reason { display: grid; gap: 3px; color: var(--text-dim); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
+.brain-plan-record { display: grid; gap: 5px; padding-top: 5px; border-top: 1px solid var(--border); }
+.brain-plan-levels { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+.brain-plan-levels .plan-level { padding: 6px; }
+.brain-plan-levels .plan-level .value { font-size: 12px; }
+.brain-recorded-targets, .brain-plan-unavailable { color: var(--text-dim); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
+.brain-recorded-details { padding-top: 6px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 10px; }
+.brain-recorded-details summary { cursor: pointer; color: var(--text-dim); }
+.brain-recorded-details > .brain-observation-record { margin-top: 7px; }
+
 .system-details { margin-top: 0; padding: 10px 14px !important; background: transparent; box-shadow: none !important; }
 .system-details summary { font-size: 10px !important; }
 .system-details-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; padding-top: 8px; }
@@ -992,6 +1041,7 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 }
 
 @media (max-width: 760px) {
+  .journal-market-grid { grid-template-columns: minmax(0, 1fr); }
   .topbar { gap: 9px 14px; padding: 8px 14px; }
   .topbar-meta { gap: 10px; }
   .topbar-caption { font-size: 8px; }
@@ -1001,9 +1051,9 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   .primary-layout { grid-template-columns: minmax(0, 1fr); }
   .terminal-chart-wrap { height: 420px; }
   .side-stack { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; }
-  /* Three side-stack cards (verdict · bot is watching · plan): the third
-     spans both columns so nothing is stranded half-width. */
-  .side-stack > :nth-child(3) { grid-column: 1 / -1; }
+  /* Status and plan records span both columns; compact verdict/watch cards
+     may share a row when there is enough tablet width. */
+  .side-stack > :nth-child(1), .side-stack > :nth-child(4) { grid-column: 1 / -1; }
   .verdict-card, .plan-card { min-height: 0; }
   .secondary-grid { grid-template-columns: minmax(0, 1fr); }
   .tertiary-grid { grid-template-columns: minmax(0, 1fr); }

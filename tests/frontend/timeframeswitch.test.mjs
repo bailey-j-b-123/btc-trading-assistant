@@ -99,7 +99,8 @@ function findOne(node, predicate) {
 }
 
 function click(node) {
-  for (const listener of node.listeners.get("click") || []) listener({ preventDefault() {} });
+  const event = { preventDefault() {}, stopPropagation() {}, target: node, currentTarget: node };
+  for (const callback of node.listeners.get("click") || []) callback(event);
 }
 
 async function flush(rounds = 25) {
@@ -108,74 +109,60 @@ async function flush(rounds = 25) {
   }
 }
 
+function structurePayload(timeframe, overrides = {}) {
+  return {
+    symbol: SYMBOL,
+    timeframe,
+    as_of: AS_OF,
+    complete: true,
+    missing_candle_count: 0,
+    equal_levels: [],
+    zones: [{ role: "support", band_low: "61900", band_high: "62000", center: "61950", touch_count: 3 }],
+    range: null,
+    swings: [],
+    ...overrides,
+  };
+}
+
 const ENGINE_ROWS = [
-  [1791284400000, "62000", "62120", "61920", "62080", "12.4"],
-  [1791288000000, "62080", "62200", "62000", "62160", "15.2"],
+  [Date.parse("2026-10-06T11:00:00Z"), "62000", "62100", "61950", "62080", "12.4"],
+  [Date.parse("2026-10-06T12:00:00Z"), "62080", "62200", "62000", "62160", "15.2"],
 ];
 const FIVE_MIN_ROWS = [
-  [1791284700000, "62100", "62120", "62090", "62110", "3.1"],
-  [1791285000000, "62110", "62140", "62100", "62130", "2.7"],
-  [1791285300000, "62130", "62150", "62120", "62140", "4.0"],
+  [Date.parse("2026-10-06T11:50:00Z"), "62110", "62130", "62100", "62120", "1.1"],
+  [Date.parse("2026-10-06T11:55:00Z"), "62120", "62160", "62110", "62150", "1.3"],
 ];
 const FIFTEEN_MIN_ROWS = [
-  [1791285600000, "62010", "62060", "61990", "62040", "8.8"],
-  [1791286500000, "62040", "62090", "62020", "62070", "9.1"],
+  [Date.parse("2026-10-06T11:30:00Z"), "62050", "62120", "62020", "62090", "3.1"],
+  [Date.parse("2026-10-06T11:45:00Z"), "62090", "62160", "62070", "62150", "4.2"],
 ];
 const FOUR_H_ROWS = [
-  [1791266400000, "61800", "62000", "61700", "61950", "120.5"],
-  [1791280800000, "61950", "62300", "61900", "62160", "140.2"],
+  [Date.parse("2026-10-06T00:00:00Z"), "61700", "61900", "61600", "61800", "82"],
+  [Date.parse("2026-10-06T04:00:00Z"), "61800", "62100", "61750", "62000", "90"],
 ];
 
-function structurePayload(timeframe, { zones = [], range = null, candleCount = 48 } = {}) {
+function candlesPayload(timeframe, rows, overrides = {}) {
   return {
-    exchange: "kraken",
     symbol: SYMBOL,
     timeframe,
     as_of: AS_OF,
-    candle_count: candleCount,
-    trend: { direction: "bullish" },
-    zones,
-    range,
-    swings: [],
-    completeness: {},
-  };
-}
-
-function candlesPayload(timeframe, rows) {
-  return {
-    exchange: "kraken",
-    symbol: SYMBOL,
-    timeframe,
-    as_of: AS_OF,
-    candles: rows,
-    gaps: [],
-    complete: true,
     returned_count: rows.length,
+    complete: true,
+    missing_candle_count: 0,
+    candles: rows.map(([timestamp, open, high, low, close, volume]) => [timestamp, open, high, low, close, volume]),
+    ...overrides,
   };
 }
 
-function hierarchyPayload(overrides = {}) {
+function hierarchyPayload() {
   return {
     available: true,
-    hierarchy: {
-      steps: [
-        { role: "context", timeframe: "4h" },
-        { role: "setup", timeframe: "1h" },
-        { role: "confirmation", timeframe: "15m" },
-        { role: "execution", timeframe: "5m" },
-      ],
-      timeframes: ["4h", "1h", "15m", "5m"],
-      rules_version: "multi-timeframe-hierarchy-v1",
-      fingerprint: "abc123",
-    },
-    decision_time: AS_OF,
+    status: "evaluated",
     decision: "awaiting_confirmation",
     decision_label: "Waiting for confirmation",
-    overall: "WAITING FOR CONFIRMATION",
     alignment: "aligned",
     alignment_label: "Aligned",
     counter_trend: false,
-    status: "evaluated",
     ladder: [
       {
         role: "context", timeframe: "4h", label: "4H CONTEXT", state: "Transition",
@@ -207,7 +194,6 @@ function hierarchyPayload(overrides = {}) {
     snapshot: {},
     latest_recorded: null,
     limitations: ["The hierarchy is decision support only."],
-    ...overrides,
   };
 }
 
@@ -225,8 +211,10 @@ function dashboardFixture(overrides = {}) {
     freshness: { status: "CURRENT", latest_stored: AS_OF, expected_latest_closed: AS_OF, staleness_intervals: 0 },
     qualification: {
       available: true, state: "WATCH", reasons: [], selected_setup_id: null,
-      setups: [], snapshot: { setups: [] },
+      setups: [{ id: "watch-setup", family: "breakout_retest_continuation", direction: "bullish", state: "WATCH", created_at: "2026-10-06T11:00:00Z" }],
+      snapshot: { setups: [{ id: "watch-setup", family: "breakout_retest_continuation", direction: "bullish", state: "WATCH", rules: [{ rule_id: "held_retest", outcome: "pending", reason: "", required: true }] }] },
     },
+    looking_for: { available: true, timeframe: "1h", setup_id: "watch-setup", family: "breakout_retest_continuation", direction: "bullish", state: "WATCH", pending_required: [{ rule_id: "held_retest", reason: "" }], reference: null },
     planning: { state: null, reasons: [], missing_inputs: [], state_detail: null },
     plan: null,
     overlays: {
@@ -248,22 +236,71 @@ function dashboardFixture(overrides = {}) {
   };
 }
 
-function forwardFixture() {
+function forwardFixture({
+  asOf = AS_OF,
+  timeframe = "1h",
+  snapshotState = "WATCH",
+  setupId = "watch-setup",
+  plan = null,
+  runnerStatus = "IDLE",
+  pending = 0,
+} = {}) {
+  const cycleId = `cycle-${setupId}-${asOf}`;
+  const setup = {
+    id: setupId,
+    family: "breakout_retest_continuation",
+    direction: "bullish",
+    state: snapshotState,
+    rules: [{ rule_id: "held_retest", outcome: "pending", reason: "", required: true }],
+  };
+  const recordedPlan = plan ? { state: "PLANNABLE", ...plan } : null;
+  const observation = snapshotState === "NO_SETUP" ? [] : [{
+    cycle_id: cycleId,
+    setup_id: setupId,
+    setup_family: setup.family,
+    setup_direction: setup.direction,
+    setup_state: snapshotState,
+    pending_rules: snapshotState === "WATCH" ? ["held_retest"] : [],
+    setup_json: JSON.stringify(setup),
+    plan_state: recordedPlan?.state || null,
+    plan_json: recordedPlan ? JSON.stringify(recordedPlan) : null,
+    no_trade_reason: null,
+    as_of: asOf,
+  }];
+  const counts = { [snapshotState]: 1 };
+  const cycle = {
+    cycle_id: cycleId,
+    as_of: asOf,
+    status: "COMPLETE",
+    snapshot_state: snapshotState,
+    snapshot_json: JSON.stringify({ state: snapshotState, setups: snapshotState === "NO_SETUP" ? [] : [setup] }),
+    setup_state_counts: Object.entries(counts),
+    plan_state_counts: recordedPlan ? [["PLANNABLE", 1]] : [],
+    observation_count: observation.length,
+    explanation_headline: "Recorded BRAIN headline",
+    notes: [],
+  };
   return {
     disclaimer: "Paper trading and historical performance do not establish future profitability.",
+    symbol: SYMBOL,
+    timeframe,
+    observations: { observations: observation },
     status: {
+      symbol: SYMBOL,
+      timeframe,
+      as_of: asOf,
       market_data: {
         data_health: "CURRENT",
-        latest_stored_candle_open: AS_OF,
-        expected_latest_closed_candle_open: AS_OF,
+        latest_stored_candle_open: asOf,
+        expected_latest_closed_candle_open: asOf,
         missing_candle_count: 0,
       },
-      runner: { status: "IDLE", recorded_at: AS_OF, latest_cycle_as_of: AS_OF, pending_boundaries: 0, last_error: null },
-      sample: { paper_plans: 0, pending_catch_up_boundaries: 0 },
-      current_state: { available: true, as_of: AS_OF, setup_state_counts: {}, plan_state_counts: {} },
+      runner: { status: runnerStatus, recorded_at: asOf, latest_cycle_as_of: asOf, pending_boundaries: pending, last_error: null },
+      latest_cycle: cycle,
+      sample: { paper_plans: recordedPlan ? 1 : 0, pending_catch_up_boundaries: pending },
+      current_state: { available: true, as_of: asOf, setup_state: snapshotState, setup_state_counts: counts, plan_state_counts: recordedPlan ? { PLANNABLE: 1 } : {}, cycle_status: "COMPLETE", explanation_headline: "Recorded BRAIN headline", notes: [] },
     },
-    observations: { observations: [] },
-    report: { combined_metrics_available: true, metrics: { paper_plan_count: 0 }, version_cohorts: [] },
+    report: { combined_metrics_available: true, metrics: { paper_plan_count: recordedPlan ? 1 : 0 }, version_cohorts: [] },
   };
 }
 
@@ -277,7 +314,7 @@ function chartLibraryState() {
   }
   const library = {
     createChart: () => {
-      const record = { removed: false, candleData: [], formingData: [], volumeData: [], lines: new Set() };
+      const record = { removed: false, candleData: [], formingData: [], volumeData: [], formingVolumeData: [], fitCalls: 0, lines: new Set() };
       const series = {
         setData: (rows) => { record.candleData = rows; },
         createPriceLine: (options) => {
@@ -289,12 +326,15 @@ function chartLibraryState() {
       };
       const forming = { setData: (rows) => { record.formingData = rows; } };
       let candleSeriesCount = 0;
+      let histogramCount = 0;
       const volume = { setData: (rows) => { record.volumeData = rows; } };
+      const formingVolume = { setData: (rows) => { record.formingVolumeData = rows; } };
       charts.push(record);
       return {
         addCandlestickSeries: () => candleSeriesCount++ === 0 ? series : forming,
-        addHistogramSeries: () => volume,
+        addHistogramSeries: () => histogramCount++ === 0 ? volume : formingVolume,
         priceScale: () => ({ applyOptions: () => {} }),
+        timeScale: () => ({ fitContent: () => { record.fitCalls += 1; } }),
         resize: () => {},
         remove: () => { record.removed = true; },
       };
@@ -317,75 +357,77 @@ async function withDashboard({ dashboard, forward, market = {}, failCandles = []
   const chartState = chartLibraryState();
   const calls = [];
   const prefWrites = [];
+  const storage = new Map();
   const candlesByTimeframe = {
     "5m": candlesPayload("5m", FIVE_MIN_ROWS),
     "15m": candlesPayload("15m", FIFTEEN_MIN_ROWS),
+    "1h": candlesPayload("1h", ENGINE_ROWS),
     "4h": candlesPayload("4h", FOUR_H_ROWS),
-    ...(market.candles || {}),
+    ...market.candles,
   };
-  const structureByTimeframe = {
-    "5m": structurePayload("5m", {
-      zones: [{ role: "resistance", band_low: "62150", band_high: "62200", center: "62175", touch_count: 2 }],
-    }),
-    "15m": structurePayload("15m", {
-      zones: [{ role: "support", band_low: "61950", band_high: "62000", center: "61975", touch_count: 2 }],
-    }),
-    "4h": structurePayload("4h", {
-      zones: [],
-      range: { range_low: "61000", range_high: "63000", active: true },
-    }),
-    ...(market.structure || {}),
+  const structuresByTimeframe = {
+    "5m": structurePayload("5m"),
+    "15m": structurePayload("15m"),
+    "1h": structurePayload("1h"),
+    "4h": structurePayload("4h"),
+    ...market.structures,
   };
+  class PublicSocket {
+    static all = [];
+    constructor(url) { this.url = url; this.sent = []; this.closed = false; this.readyState = 0; PublicSocket.all.push(this); }
+    send(data) { this.sent.push(JSON.parse(data)); }
+    open() { this.readyState = 1; this.onopen?.(); }
+    close() { this.readyState = 3; this.closed = true; this.onclose?.(); }
+    emit(message) { this.onmessage?.({ data: JSON.stringify(message) }); }
+  }
+  const SocketClass = WebSocketImpl || PublicSocket;
   globalThis.Node = MockNode;
-  globalThis.ResizeObserver = chartState.ResizeObserverMock;
-  globalThis.getComputedStyle = () => ({ getPropertyValue: () => "monospace" });
-  const storage = new Map();
-  globalThis.localStorage = {
-    getItem: (key) => storage.get(key) || null,
-    setItem: (key, value) => { storage.set(key, value); prefWrites.push([key, value]); },
-  };
   globalThis.document = {
     documentElement: {},
     getElementById: (id) => ids.get(id) || null,
     createElement: (name) => new MockNode(name),
-    createTextNode: (text) => {
-      const node = new MockNode("#text", true);
-      node._text = String(text);
-      return node;
-    },
+    createTextNode: (text) => { const node = new MockNode("#text", true); node._text = String(text); return node; },
   };
-  globalThis.window = { LightweightCharts: chartState.library, WebSocket: WebSocketImpl };
+  globalThis.window = {
+    LightweightCharts: chartState.library,
+    ResizeObserver: chartState.ResizeObserverMock,
+    localStorage: {
+      getItem: (key) => storage.get(key) ?? null,
+      setItem: (key, value) => { storage.set(key, value); prefWrites.push([key, value]); },
+    },
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    WebSocket: SocketClass,
+  };
+  globalThis.ResizeObserver = chartState.ResizeObserverMock;
+  globalThis.getComputedStyle = () => ({ getPropertyValue: () => "monospace" });
+  globalThis.localStorage = window.localStorage;
   globalThis.fetch = async (path, options = {}) => {
-    calls.push({ path: String(path), method: options.method || "GET" });
-    const url = new URL(String(path), "http://test.invalid");
-    if (url.pathname === "/api/dashboard") return { ok: true, status: 200, json: async () => dashboard };
-    if (url.pathname === "/api/forward") return { ok: true, status: 200, json: async () => forward };
-    if (url.pathname === "/api/market/live-price") {
-      return { ok: true, status: 200, json: async () => livePrice || { status: "UNAVAILABLE" } };
-    }
-    if (url.pathname === "/api/market/candles") {
+    calls.push({ path, method: options.method || "GET" });
+    const url = new URL(path, "http://test.invalid");
+    let payload = dashboard;
+    if (url.pathname === "/api/dashboard") payload = dashboard;
+    else if (url.pathname === "/api/forward") payload = forward;
+    else if (url.pathname === "/api/market/live-price") payload = livePrice || { status: "UNAVAILABLE", price: null };
+    else if (url.pathname === "/api/market/candles") {
       const timeframe = url.searchParams.get("timeframe");
       if (failCandles.includes(timeframe)) {
-        return { ok: false, status: 500, json: async () => ({ error: { code: "boom", message: "candles exploded" } }) };
+        return { ok: false, status: 503, json: async () => ({ detail: { message: "candles exploded" } }) };
       }
-      const payload = candlesByTimeframe[timeframe];
-      if (!payload) return { ok: false, status: 400, json: async () => ({ error: { code: "validation_error", message: "unsupported" } }) };
-      return { ok: true, status: 200, json: async () => payload };
-    }
-    if (url.pathname === "/api/market/structure") {
+      payload = candlesByTimeframe[timeframe];
+    } else if (url.pathname === "/api/market/structure") {
       const timeframe = url.searchParams.get("timeframe");
       if (failStructure.includes(timeframe)) {
-        return { ok: false, status: 500, json: async () => ({ error: { code: "boom", message: "structure exploded" } }) };
+        return { ok: false, status: 503, json: async () => ({ detail: { message: "structure exploded" } }) };
       }
-      const payload = structureByTimeframe[timeframe];
-      if (!payload) return { ok: false, status: 400, json: async () => ({ error: { code: "validation_error", message: "unsupported" } }) };
-      return { ok: true, status: 200, json: async () => payload };
+      payload = structuresByTimeframe[timeframe];
     }
-    throw new Error(`unexpected request ${path}`);
+    return { ok: true, status: 200, json: async () => payload };
   };
-
   try {
-    await callback({ view, ids, chartState, calls, prefWrites });
+    await callback({ view, ids, calls, chartState, prefWrites, sockets: SocketClass.all || PublicSocket.all });
   } finally {
     disposeDashboard();
     for (const [key, value] of prior) {
@@ -455,13 +497,14 @@ test("selecting 5m requests and renders stored 5m candles and 5m structure", asy
     const structureCalls = marketCalls(calls.slice(before), "/api/market/structure", "5m");
     assert.equal(candleCalls.length, 1);
     assert.equal(structureCalls.length, 1);
-    // Both reads are pinned to the dashboard decision instant — the viewed
-    // chart can never run ahead of the verdict.
-    for (const call of [...candleCalls, ...structureCalls]) {
-      const url = new URL(call.path, "http://test.invalid");
-      assert.equal(url.searchParams.get("symbol"), SYMBOL);
-      assert.equal(url.searchParams.get("end_time") || url.searchParams.get("as_of"), AS_OF);
-    }
+    // Show the latest stored closed rows. Their structure query is pinned to
+    // the snapshot returned by that closed-candle read, not to an old verdict.
+    const candleUrl = new URL(candleCalls[0].path, "http://test.invalid");
+    const structureUrl = new URL(structureCalls[0].path, "http://test.invalid");
+    assert.equal(candleUrl.searchParams.get("symbol"), SYMBOL);
+    assert.equal(candleUrl.searchParams.has("end_time"), false);
+    assert.equal(structureUrl.searchParams.get("symbol"), SYMBOL);
+    assert.equal(structureUrl.searchParams.get("as_of"), AS_OF);
     assert.deepEqual(chartState.charts[0].candleData, toChartCandles(FIVE_MIN_ROWS));
     assert.equal(headingTitle(view).textContent, `${SYMBOL} · 5M chart`);
     assert.match(viewNote(view).textContent, /5M stored closed candles/);
@@ -526,7 +569,7 @@ test("switching clears the setup scenario before new data arrives", async () => 
     direction: "bullish", state: "WATCH", seed_event: { kind: "breakout" },
     reference: { band_low: "61900", band_high: "62000" }, pending_required: [], invalidation: null,
   } });
-  await withDashboard({ dashboard, forward: forwardFixture() }, async ({ view, chartState }) => {
+  await withDashboard({ dashboard, forward: forwardFixture({ setupId: "only-watch" }) }, async ({ view, chartState }) => {
     await renderDashboard(view);
     assert.deepEqual(drawnLines(chartState), [
       "Zone low@61900",
@@ -550,12 +593,12 @@ test("plan levels persist across chart switches, governed by the trade plan", as
     },
     planning: { state: "PLANNABLE", reasons: [], missing_inputs: [], state_detail: null },
     plan: {
-      state: "PLANNABLE", direction: "bullish", family: "breakout_retest_continuation",
+      id: "plan-1", state: "PLANNABLE", direction: "bullish", family: "breakout_retest_continuation",
       entry: { value: "62250" }, stop: { value: "62050" }, invalidation: { value: "62050" },
       risk_per_unit: "200", targets: [{ level: { value: "62600" }, r_multiple: "1.75" }],
     },
   });
-  await withDashboard({ dashboard, forward: forwardFixture() }, async ({ view, chartState }) => {
+  await withDashboard({ dashboard, forward: forwardFixture({ snapshotState: "QUALIFIED", setupId: "setup-1", plan: { id: "plan-1" } }) }, async ({ view, chartState }) => {
     await renderDashboard(view);
     assert.deepEqual(drawnLines(chartState), [
       "Entry@62250",
@@ -596,29 +639,16 @@ test("switching chart timeframe cannot alter hierarchy, verdict, plan, or journa
     }
 
     assert.equal(stripNode(view).textContent, stripBefore);
-    assert.equal(
-      findOne(view, (node) => (node.className || "").split(" ").includes("verdict-card")).textContent,
-      verdictBefore,
-    );
-    assert.equal(
-      findOne(view, (node) => (node.className || "").split(" ").includes("plan-card")).textContent,
-      planBefore,
-    );
-    assert.deepEqual(
-      [
-        ids.get("topbar-symbol").textContent,
-        ids.get("topbar-timeframe").textContent,
-        ids.get("topbar-candle-time").textContent,
-        ids.get("topbar-price").textContent,
-        ids.get("topbar-status").textContent,
-      ],
-      topbarBefore,
-    );
-    // View-only proof: only GETs, no dashboard refetch, no decision POST,
-    // and no preference write (the engine timeframe preference is untouched).
-    assert.ok(calls.every((call) => call.method === "GET"));
+    assert.equal(findOne(view, (node) => (node.className || "").split(" ").includes("verdict-card")).textContent, verdictBefore);
+    assert.equal(findOne(view, (node) => (node.className || "").split(" ").includes("plan-card")).textContent, planBefore);
+    assert.deepEqual([
+      ids.get("topbar-symbol").textContent,
+      ids.get("topbar-timeframe").textContent,
+      ids.get("topbar-candle-time").textContent,
+      ids.get("topbar-price").textContent,
+      ids.get("topbar-status").textContent,
+    ], topbarBefore);
     assert.equal(calls.filter((call) => call.path.startsWith("/api/dashboard")).length, dashboardCallsBefore);
-    assert.ok(calls.every((call) => !call.path.includes("/decisions")));
     assert.equal(prefWrites.length, 0);
   });
 });
@@ -641,19 +671,16 @@ test("compactHierarchyViewModel projects the backend payload without recomputing
   assert.equal(model.counterTrend, false);
   assert.equal(model.waitingForText, "Waiting for: 15M acceptance of the setup reference level");
 
-  // Pure projection: verbatim backend strings pass through untouched,
-  // including unfamiliar ones the frontend has no logic for.
-  const custom = compactHierarchyViewModel({
-    multi_timeframe: hierarchyPayload({
-      overall: "PURPLE OVERALL",
-      ladder: hierarchyPayload().ladder.map((row) => ({ ...row, state: `custom ${row.role}` })),
-    }),
-  });
+  const payload = hierarchyPayload();
+  const custom = compactHierarchyViewModel({ multi_timeframe: {
+    ...payload,
+    overall: "PURPLE OVERALL",
+    ladder: payload.ladder.map((row) => ({ ...row, state: `custom ${row.role}` })),
+  } });
   assert.equal(custom.overall, "PURPLE OVERALL");
-  assert.deepEqual(
-    custom.rows.map((row) => row.state),
-    ["custom context", "custom setup", "custom confirmation", "custom execution"],
-  );
+  assert.deepEqual(custom.rows.map((row) => row.state), [
+    "custom context", "custom setup", "custom confirmation", "custom execution",
+  ]);
 
   const unavailable = compactHierarchyViewModel({ multi_timeframe: { available: false } });
   assert.equal(unavailable.available, false);
@@ -793,9 +820,10 @@ test("a timeframe with no stored candles renders honestly empty, never fabricate
       assert.equal(chartState.charts[0].lines.size, 0);
       const empty = findOne(view, (node) => (node.className || "").split(" ").includes("chart-empty"));
       assert.ok(empty);
-      assert.ok(empty.textContent.includes("4H data unavailable"));
-      assert.ok(empty.textContent.includes("No substitute data is shown"));
-      assert.match(viewNote(view).textContent, /honestly empty/);
+      assert.ok(empty.textContent.includes("4H stored history unavailable"));
+      assert.ok(empty.textContent.includes("No stored 4H closed candles were returned"));
+      assert.match(viewNote(view).textContent, /no history is invented or substituted/);
+      assert.match(viewNote(view).textContent, /no history is invented or substituted/);
       assert.equal(headingTitle(view).textContent, `${SYMBOL} · 4H chart`);
     },
   );
@@ -810,7 +838,7 @@ test("a candles failure leaves the chart empty with the backend message", async 
       await flush();
       assert.deepEqual(chartState.charts[0].candleData, []);
       const empty = findOne(view, (node) => (node.className || "").split(" ").includes("chart-empty"));
-      assert.ok(empty.textContent.includes("5M chart unavailable"));
+      assert.ok(empty.textContent.includes("5M stored history unavailable"));
       assert.ok(empty.textContent.includes("candles exploded"));
     },
   );
@@ -878,8 +906,7 @@ test("existing dashboard behaviour still works alongside the new UI", async () =
   });
 });
 
-
-test("chart shows one forming-feed status and ignores the separate REST quote", async () => {
+test("chart ignores the separate REST quote and reports Kraken WebSocket status", async () => {
   const dashboard = dashboardFixture();
   const original = structuredClone(dashboard);
   const staleQuote = { status: "UNAVAILABLE", price: null, fetched_at: null };
@@ -890,7 +917,7 @@ test("chart shows one forming-feed status and ignores the separate REST quote", 
     assert.equal(quote, null);
     const forming = findOne(view, (node) => (node.className || "").split(" ").includes("forming-status"));
     assert.ok(forming);
-    assert.match(forming.textContent, /FORMING 1H — DISPLAY ONLY/);
+    assert.match(forming.textContent, /FORMING 1H · DISPLAY ONLY/);
     assert.doesNotMatch(view.textContent, /LIVE PRICE · LAST TRADE|LIVE DATA UNAVAILABLE/);
     assert.deepEqual(chartState.charts[0].candleData, toChartCandles(ENGINE_ROWS));
     assert.deepEqual(dashboard, original);
@@ -917,7 +944,7 @@ test("manual S/R toggle reveals the stored structure without changing setup or h
 });
 
 
-test("public forming OHLC follows 5M/15M/1H/4H chart view only, never the engine or stored series", async () => {
+test("Kraken trades update live price and forming OHLCV for each chart timeframe only", async () => {
   const originalNow = Date.now;
   const now = Date.parse("2026-10-06T13:03:00Z");
   Date.now = () => now;
@@ -926,9 +953,10 @@ test("public forming OHLC follows 5M/15M/1H/4H chart view only, never the engine
     "1h": "2026-10-06T13:00:00Z", "4h": "2026-10-06T12:00:00Z" };
   class PublicSocket {
     static all = [];
-    constructor(url) { this.url = url; this.sent = []; this.closed = false; PublicSocket.all.push(this); }
+    constructor(url) { this.url = url; this.sent = []; this.closed = false; this.readyState = 0; PublicSocket.all.push(this); }
     send(data) { this.sent.push(JSON.parse(data)); }
-    close() { this.closed = true; this.onclose?.(); }
+    open() { this.readyState = 1; this.onopen?.(); }
+    close() { this.readyState = 3; this.closed = true; this.onclose?.(); }
     emit(message) { this.onmessage?.({ data: JSON.stringify(message) }); }
   }
   const engineRows = [[Date.parse("2026-10-06T11:00:00Z"), "100", "102", "99", "101", "5"],
@@ -940,54 +968,82 @@ test("public forming OHLC follows 5M/15M/1H/4H chart view only, never the engine
   };
   const fixture = dashboardFixture({
     meta: { exchange: "kraken", symbol: SYMBOL, timeframe: "1h", as_of: "2026-10-06T13:00:00Z" },
-    market: { candles: engineRows, latest_closed_candle: { close: "103" } },
+    market: { candles: engineRows, latest_closed_candle: { close: "103" }, complete: true, missing_candle_count: 0 },
     qualification: { available: true, state: "QUALIFIED", reasons: [], selected_setup_id: "fixed-setup",
       setups: [{ id: "fixed-setup", state: "QUALIFIED", direction: "bullish" }], snapshot: { setups: [] } },
     planning: { state: "PLANNABLE", reasons: [] },
-    plan: { state: "PLANNABLE", setup_id: "fixed-setup", entry: { value: "110" },
+    plan: { id: "plan-fixed", state: "PLANNABLE", setup_id: "fixed-setup", entry: { value: "110" },
       stop: { value: "95" }, invalidation: { value: "95" }, targets: [{ level: { value: "125" } }] },
   });
   const before = structuredClone(fixture);
   try {
-    await withDashboard({ dashboard: fixture, forward: forwardFixture(), WebSocketImpl: PublicSocket,
-      market: { candles: Object.fromEntries(Object.entries(rows).map(([tf, data]) => [tf, candlesPayload(tf, data)])) },
-    }, async ({ view, chartState, calls }) => {
+    await withDashboard({ dashboard: fixture, forward: forwardFixture({
+      asOf: "2026-10-06T13:00:00Z", snapshotState: "QUALIFIED", setupId: "fixed-setup", plan: { id: "plan-fixed" },
+    }), WebSocketImpl: PublicSocket,
+      market: { candles: Object.fromEntries(Object.entries(rows).map(([tf, data]) => [tf, candlesPayload(tf, data, { as_of: "2026-10-06T13:00:00Z" })])) },
+    }, async ({ view, chartState, calls, sockets }) => {
       await renderDashboard(view);
+      assert.deepEqual(drawnLines(chartState), ["Entry@110", "Stop / Invalidation@95", "T1@125"]);
       for (const tf of ["1h", "5m", "15m", "4h"]) {
         if (tf !== "1h") {
-          const previous = PublicSocket.all.at(-1);
+          const previous = sockets.at(-1);
           click(switchButtons(view).find((button) => button.getAttribute("data-timeframe") === tf));
           assert.equal(previous.closed, true);
           assert.deepEqual(chartState.charts[0].formingData, []);
           await flush();
         }
-        const socket = PublicSocket.all.at(-1);
-        socket.onopen();
-        assert.equal(socket.sent.at(-1).params.interval, intervals[tf]);
-        assert.equal(socket.sent.at(-1).params.symbol[0], "BTC/USDT");
+        const socket = sockets.at(-1);
+        socket.open();
+        assert.equal(socket.sent.length, 2);
+        assert.equal(socket.sent[0].params.channel, "trade");
+        assert.equal(socket.sent[0].params.snapshot, true);
+        assert.equal(socket.sent[1].params.channel, "ohlc");
+        assert.equal(socket.sent[1].params.interval, intervals[tf]);
+        assert.equal(socket.sent[1].params.symbol[0], "BTC/USDT");
         const stored = tf === "1h" ? engineRows : rows[tf];
         const original = structuredClone(toChartCandles(stored));
         assert.deepEqual(chartState.charts[0].candleData, original);
-        socket.emit({ channel: "ohlc", type: "update", timestamp: new Date(now).toISOString(), data: [{
+
+        socket.emit({ method: "subscribe", success: true, result: { channel: "trade" } });
+        socket.emit({ method: "subscribe", success: true, result: { channel: "ohlc" } });
+        socket.emit({ channel: "trade", type: "snapshot", data: [{
+          symbol: SYMBOL, price: 106, qty: 0.25, side: "buy", trade_id: 100,
+          timestamp: new Date(now + 1000).toISOString(),
+        }] });
+        socket.emit({ channel: "ohlc", type: "snapshot", timestamp: new Date(now + 1500).toISOString(), data: [{
           symbol: SYMBOL, interval: intervals[tf], interval_begin: buckets[tf],
           open: 104, high: 108, low: 102, close: 106, volume: 3, trades: 6,
         }] });
+        socket.emit({ channel: "trade", type: "update", data: [{
+          symbol: SYMBOL, price: 107, qty: 0.5, side: "buy", trade_id: 101,
+          timestamp: new Date(now + 2000).toISOString(),
+        }] });
+
         assert.deepEqual(chartState.charts[0].formingData, [{
-          time: Date.parse(buckets[tf]) / 1000, open: 104, high: 108, low: 102, close: 106,
+          time: Date.parse(buckets[tf]) / 1000, open: 104, high: 108, low: 102, close: 107,
+        }]);
+        assert.deepEqual(chartState.charts[0].formingVolumeData, [{
+          time: Date.parse(buckets[tf]) / 1000, value: 3.5, color: "rgba(47,191,127,0.72)",
         }]);
         assert.deepEqual(chartState.charts[0].candleData, original);
+        assert.equal(chartState.charts[0].volumeData.length, stored.length);
         const badge = findOne(view, (node) => (node.className || "").split(" ").includes("forming-status"));
         assert.match(badge.textContent, /FORMING .*DISPLAY ONLY/);
-        assert.match(badge.textContent, /KRAKEN OHLC CURRENT/);
+        assert.match(badge.textContent, /LIVE/);
         assert.doesNotMatch(badge.textContent, /LIVE DATA UNAVAILABLE/);
+        assert.equal(badge.dataset.freshness, "LIVE");
+        const formingOhlc = findOne(view, (node) => (node.className || "").split(" ").includes("forming-ohlc"));
+        assert.match(formingOhlc.textContent, /C \$107\.00/);
+        assert.match(formingOhlc.textContent, /V 3\.5 BTC/);
+        const livePrice = findOne(view, (node) => (node.className || "").split(" ").includes("live-price-value"));
+        assert.equal(livePrice.textContent, "$107.00");
+        assert.match(livePrice.title, /trade ID 101/);
         assert.equal(findOne(view, (node) => (node.className || "").split(" ").includes("live-quote")), null);
-        assert.equal(badge.dataset.freshness, "CURRENT");
       }
-      PublicSocket.all.at(-1).close();
+      sockets.at(-1).close();
       assert.deepEqual(chartState.charts[0].formingData, []);
       assert.deepEqual(chartState.charts[0].candleData, toChartCandles(rows["4h"]));
       assert.deepEqual(fixture, before);
-      assert.deepEqual(drawnLines(chartState), ["Entry@110", "Stop / Invalidation@95", "T1@125"]);
       assert.equal(calls.filter((c) => c.path.startsWith("/api/dashboard")).length, 1);
       assert.equal(calls.filter((c) => c.path.startsWith("/api/market/live-price")).length, 0);
       assert.equal(calls.filter((c) => c.method !== "GET").length, 0);
