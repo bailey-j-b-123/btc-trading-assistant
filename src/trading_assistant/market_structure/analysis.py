@@ -9,6 +9,8 @@ by ``as_of`` before any component sees it.
 
 from __future__ import annotations
 
+from collections import OrderedDict
+
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -77,6 +79,30 @@ class TimeframeStructureAnalysis:
         return detected
 
 
+#: Bounded memo for :func:`analyze_candles`. The analysis is a pure function of
+#: its inputs, and the pattern replay calls it for the same growing prefixes once
+#: per snapshot, so repeated prefixes are answered from here. The key is the exact
+#: content: decimal values are keyed by ``str`` (which preserves exponent, unlike
+#: Decimal equality), so two inputs share an entry only when every output is
+#: identical. Results are frozen dataclasses, so sharing them is safe.
+_ANALYSIS_MEMO: "OrderedDict[tuple, TimeframeStructureAnalysis]" = OrderedDict()
+_ANALYSIS_MEMO_LIMIT = 4096
+
+
+def _candle_key(candle: Candle) -> tuple:
+    return (
+        candle.exchange,
+        candle.symbol,
+        candle.timeframe,
+        candle.timestamp,
+        str(candle.open),
+        str(candle.high),
+        str(candle.low),
+        str(candle.close),
+        str(candle.volume),
+    )
+
+
 def analyze_candles(
     candles: Iterable[Candle],
     *,
@@ -92,6 +118,33 @@ def analyze_candles(
     the same result computed historically from data available at that instant.
     """
 
+    materialized = tuple(candles)
+    key = (
+        tuple(_candle_key(c) for c in materialized),
+        interval,
+        as_of,
+        parameters if parameters is not None else MarketStructureParameters(),
+    )
+    cached = _ANALYSIS_MEMO.get(key)
+    if cached is not None:
+        _ANALYSIS_MEMO.move_to_end(key)
+        return cached
+    result = _analyze_candles_uncached(
+        materialized, interval=interval, as_of=as_of, parameters=parameters
+    )
+    _ANALYSIS_MEMO[key] = result
+    while len(_ANALYSIS_MEMO) > _ANALYSIS_MEMO_LIMIT:
+        _ANALYSIS_MEMO.popitem(last=False)
+    return result
+
+
+def _analyze_candles_uncached(
+    candles: Iterable[Candle],
+    *,
+    interval: timedelta,
+    as_of: datetime,
+    parameters: MarketStructureParameters | None = None,
+) -> TimeframeStructureAnalysis:
     resolved = parameters if parameters is not None else MarketStructureParameters()
     resolved_interval = require_positive_interval(interval)
     as_of_utc = require_utc_datetime(as_of, field_name="as_of")

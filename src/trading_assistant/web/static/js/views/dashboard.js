@@ -459,6 +459,7 @@ const CHART_LAYER_TOGGLES = Object.freeze([
 /** Next higher timeframe whose stored structure may be shown on this chart. */
 const HIGHER_TIMEFRAME = Object.freeze({ "5m": "15m", "15m": "1h", "1h": "4h" });
 const HIGHER_LEVEL_LIMIT = 3;
+const CHART_MARKER_KEY = "▲ breakout (green up, red down) · ▼ sweep · grey = failed breakout · ● retest · HH/HL/LH/LL swing labels · click any marker for detail";
 const CHART_EXPLAIN_HINT = "Click a candle to see what BRAIN recorded there, when it became known, and whether it influenced the current assessment.";
 
 function evidenceMetaText(evidence, timeframe) {
@@ -517,6 +518,8 @@ function chartCard(dashboard) {
   const confirmedStatus = el("div", { class: "chart-note", text: "Last confirmed stored close: unavailable" });
   const ohlcLine = el("div", { class: "chart-ohlc", "aria-live": "off", text: "Move over a candle for its confirmed OHLC." });
   const evidenceMeta = el("div", { class: "chart-evidence-meta", role: "note", text: "" });
+  // Key for the textless arrow and circle markers. Labels (HH, LL, Double top…) stay on the chart.
+  const markerKey = el("div", { class: "chart-marker-key", "aria-label": "Marker key", text: CHART_MARKER_KEY });
   const explainBody = el("div", { class: "evidence-explain-body", "aria-live": "polite" }, [
     el("p", { class: "evidence-explain-hint", text: CHART_EXPLAIN_HINT }),
   ]);
@@ -950,6 +953,7 @@ function chartCard(dashboard) {
     lookingForCard(dashboard),
     host,
     evidenceMeta,
+    markerKey,
     explainPanel,
     viewNote,
   ]);

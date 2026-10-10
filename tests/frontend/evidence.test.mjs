@@ -239,10 +239,13 @@ test("breakouts, failed breakouts, sweeps and retests get their own labelled mar
     asOfMs: ms(19),
     layers: LAYERS_ON,
   });
-  const texts = model.markers.map((marker) => marker.text);
-  assert.ok(texts.includes("BRK↑"));
-  assert.ok(texts.includes("SWP↓"));
-  assert.ok(texts.includes("RT held"));
+  // Markers are shapes only (no label text, so dense charts stay readable); the click panel names each event.
+  const shapes = model.markers.map((marker) => marker.shape);
+  assert.ok(shapes.includes("arrowUp"), "bullish breakout arrow");
+  assert.ok(shapes.includes("arrowDown"), "sweep arrow");
+  assert.ok(shapes.includes("circle"), "retest circle");
+  const arrows = model.markers.filter((marker) => marker.shape === "arrowUp" || marker.shape === "arrowDown");
+  assert.ok(arrows.length > 0 && arrows.every((marker) => marker.text === ""), "no label text on breakout and sweep arrows");
   assert.equal(model.counts.breakouts, 3);
   const off = buildEvidenceModel({ evidence: evidence({ breakouts: [breakout] }), candles: rows(20), asOfMs: ms(19), layers: { ...LAYERS_ON, breakouts: false } });
   assert.equal(off.counts.breakouts, 0);
@@ -329,7 +332,7 @@ test("breakout and sweep markers are limited to the recent window and one marker
   assert.equal(model.hiddenOlder.breakouts, 1);
   const eventMarkers = model.markers.filter((marker) => marker.shape === "arrowDown");
   assert.equal(eventMarkers.length, 1, "one marker for the candle holding three events");
-  assert.equal(eventMarkers[0].text, "SWP↓ +2", "sweep is the primary label; the rest are counted");
+  assert.equal(eventMarkers[0].text, "", "event markers carry no label text");
   // Every event on the candle stays registered and clickable.
   assert.equal(itemsAtTime(model, toSeconds(ms(190))).length, 3);
   assert.match(evidenceCountText(model), /1 older event not drawn/);
@@ -375,9 +378,9 @@ test("breakout arrows point the way their label says; retests use a circle", () 
     candle_shapes: [],
   };
   const model = buildEvidenceModel({ evidence, candles, asOfMs: ms(20), layers: { ...DEFAULT_LAYERS, breakouts: true } });
-  const up = model.markers.find((marker) => marker.text === "BRK↑");
-  assert.equal(up.shape, "arrowUp");
+  const up = model.markers.find((marker) => marker.shape === "arrowUp");
+  assert.ok(up, "bullish breakout is drawn as an up arrow");
   assert.equal(up.position, "belowBar");
-  const retest = model.markers.find((marker) => marker.text === "RT held");
-  assert.equal(retest.shape, "circle");
+  const retest = model.markers.find((marker) => marker.shape === "circle");
+  assert.ok(retest, "retest is drawn as a circle");
 });

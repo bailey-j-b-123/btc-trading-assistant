@@ -334,15 +334,16 @@ export function buildEvidenceModel({ evidence, candles, asOfMs, layers }) {
       const primary = items[0];
       const down = primary.direction === "bearish" || primary.direction === "below";
       const failed = primary.kind === "failed_breakout" || primary.state === "failed";
-      const extra = items.length > 1 ? ` +${items.length - 1}` : "";
-      // The arrow points the way its label names (Breakout ↑ / ↓, Sweep ↑ / ↓).
+      // The arrow points the way the breakout or sweep went (up = bullish, down = bearish).
       // Retests have no direction arrow, so they use a plain circle.
       const retest = primary._kind === "retest";
       model.markers.push(makeMarker(time, {
         position: down ? "aboveBar" : "belowBar",
         shape: retest ? "circle" : down ? "arrowDown" : "arrowUp",
         color: failed ? SHAPE_NEUTRAL : down ? BREAKOUT_DOWN : BREAKOUT_UP,
-        text: `${primary._text}${extra}`,
+        // Arrows and circles only: the label text would collide on a dense chart.
+        // The click-to-explain panel names the event and its state exactly.
+        text: "",
         size: 1,
       }));
       for (const item of items) {

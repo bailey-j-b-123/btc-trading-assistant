@@ -190,11 +190,37 @@ export function createPriceChart(container, { height } = {}) {
   return handle;
 }
 
+/** Recent candles shown on first load; the user can zoom out to the full window. */
+export const DEFAULT_VISIBLE_CANDLES = 120;
+/** Phones get fewer candles so each candle and its marker stays readable. */
+export const DEFAULT_VISIBLE_CANDLES_NARROW = 60;
+
+/** Tablets get an intermediate window. Each tier is a presentation choice; the data window is unchanged. */
+export const DEFAULT_VISIBLE_CANDLES_TABLET = 90;
+
+function defaultVisibleCandles() {
+  const matches = (query) => typeof globalThis.matchMedia === "function" && globalThis.matchMedia(query).matches;
+  if (matches("(max-width: 640px)")) return DEFAULT_VISIBLE_CANDLES_NARROW;
+  if (matches("(max-width: 1040px)")) return DEFAULT_VISIBLE_CANDLES_TABLET;
+  return DEFAULT_VISIBLE_CANDLES;
+}
+
 export function setCandles(handle, payload) {
   if (!handle || handle.destroyed) return;
   const rows = rowsFromPayload(payload);
   const candles = toChartCandles(rows);
   handle.series.setData(candles);
+  // Apply the default view once per chart: later refreshes must not reset a
+  // zoom or pan the user has made.
+  if (!handle.initialRangeApplied && candles.length > 0 && handle.chart && typeof handle.chart.timeScale === "function") {
+    const timeScale = handle.chart.timeScale();
+    if (typeof timeScale.setVisibleLogicalRange === "function") {
+      const last = candles.length - 1;
+      const visible = defaultVisibleCandles();
+      timeScale.setVisibleLogicalRange({ from: Math.max(0, last - visible + 1), to: last + 3 });
+    }
+    handle.initialRangeApplied = true;
+  }
 
   const volumeRows = [];
   for (const row of rows) {

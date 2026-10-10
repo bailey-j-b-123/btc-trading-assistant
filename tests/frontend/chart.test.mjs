@@ -415,3 +415,31 @@ test("real backend row bytes convert and reach setData in order", () => {
     destroyPriceChart(handle);
   });
 });
+
+test("first load shows the recent candles once; refreshes keep the user's zoom", () => {
+  const calls = [];
+  const handle = {
+    chart: {
+      timeScale: () => ({ setVisibleLogicalRange: (range) => calls.push(range) }),
+    },
+    series: { setData: () => {} },
+    volume: { setData: () => {} },
+  };
+  const rows = Array.from({ length: 300 }, (_, i) => [1704067200000 + i * 3600000, "100", "101", "99", "100", "1"]);
+  setCandles(handle, rows);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0], { from: 300 - 120, to: 299 + 3 });
+  setCandles(handle, rows);
+  assert.equal(calls.length, 1, "a refresh must not reset the view");
+});
+
+test("a short series is never given a negative default range", () => {
+  const calls = [];
+  const handle = {
+    chart: { timeScale: () => ({ setVisibleLogicalRange: (range) => calls.push(range) }) },
+    series: { setData: () => {} },
+    volume: { setData: () => {} },
+  };
+  setCandles(handle, [[1704067200000, "100", "101", "99", "100", "1"]]);
+  assert.equal(calls[0].from, 0);
+});

@@ -4,6 +4,7 @@ Gap boundaries discard pending candidates and all live references. Recorded
 pre-gap evidence remains; post-gap structure starts from an empty segment.
 """
 
+from collections import OrderedDict
 from collections.abc import Iterable
 from dataclasses import replace
 from datetime import datetime
@@ -34,6 +35,29 @@ from trading_assistant.pattern_liquidity.references import references
 from trading_assistant.pattern_liquidity.retests import detect_retest
 from trading_assistant.pattern_liquidity.snapshot import PatternLiquiditySnapshot
 from trading_assistant.pattern_liquidity.sweeps import detect_sweep
+
+
+#: Per-context memo for the pattern detectors. Their output depends only on the
+#: (immutable) context object, the instrument, the interval, and the parameters.
+#: Contexts come from the analysis memo, so one closed prefix yields one object
+#: and repeated snapshots reuse its detections. The entry keeps a reference to
+#: the context, so its ``id`` cannot be recycled while the entry lives; the
+#: identity check guards every hit.
+_DETECTOR_MEMO: "OrderedDict[tuple, tuple]" = OrderedDict()
+_DETECTOR_MEMO_LIMIT = 8192
+
+
+def _memoized_by_context(name, detector, context, *arguments):
+    key = (name, id(context), arguments)
+    entry = _DETECTOR_MEMO.get(key)
+    if entry is not None and entry[0] is context:
+        _DETECTOR_MEMO.move_to_end(key)
+        return entry[1]
+    result = detector(context, *arguments)
+    _DETECTOR_MEMO[key] = (context, result)
+    while len(_DETECTOR_MEMO) > _DETECTOR_MEMO_LIMIT:
+        _DETECTOR_MEMO.popitem(last=False)
+    return result
 
 
 def analyze_patterns(
@@ -118,7 +142,7 @@ def analyze_patterns(
         context = analyze_candles(segment, interval=interval, as_of=now, parameters=sp)
         carried_context = context
         if previous:
-            for ref in references(previous_context, instrument):
+            for ref in _memoized_by_context("references", references, previous_context, instrument):
                 directions = (
                     ("bullish",)
                     if ref.type in ("swing_high", "range_high")
@@ -168,9 +192,9 @@ def analyze_patterns(
             # A failure without a band visit ends the retest candidate as well.
             if breakout.id in failed:
                 completed_retests.add(breakout.id)
-        for cluster in detect_equal_levels(context, instrument, p):
+        for cluster in _memoized_by_context("equal_levels", detect_equal_levels, context, instrument, p):
             clusters.setdefault(cluster.id, cluster)
-        for shape in detect_shapes(context, instrument, interval, p):
+        for shape in _memoized_by_context("shapes", detect_shapes, context, instrument, interval, p):
             if shape.id not in patterns:
                 # Retain all source candles, including swing confirmation windows.
                 shape = replace(

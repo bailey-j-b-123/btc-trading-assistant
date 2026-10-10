@@ -1040,7 +1040,7 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   .verdict-state { font-size: 34px; }
   .candidate-count .value { font-size: 16px; }
   .terminal-chart-wrap { height: 350px; }
-  .chart-toolbar { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 3px; scrollbar-width: thin; }
+  .chart-toolbar { flex-wrap: wrap; }
   .overlay-toggle { min-height: 40px; }
   .evidence-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .system-details-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1359,6 +1359,8 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 /* --- Responsive ------------------------------------------------------------- */
 @media (max-width: 1040px) {
   .terminal-chart-wrap { height: 460px; }
+  /* Keep brand, instrument, mode and price on one line; the time captions stay in the candle panel. */
+  .topbar-caption, .topbar-candle-time { display: none; }
 }
 @media (max-width: 760px) {
   .terminal-chart-wrap { height: 380px; }
@@ -1380,3 +1382,6 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   .layer-toggle { transition: none; }
 }
 
+
+/* Marker key under the chart: small, muted, wraps on narrow screens. */
+.chart-marker-key { font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
