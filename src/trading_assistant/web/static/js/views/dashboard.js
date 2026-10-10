@@ -39,7 +39,7 @@ import {
   itemsAtTime,
 } from "../evidence.js";
 import { explainEvidence, explainZoneBand } from "../explain.js";
-import { lastConfirmedClose, relocateBands } from "../zone-position.js";
+import { capBandsForDisplay, lastConfirmedClose, relocateBands } from "../zone-position.js";
 import { botWatchingCard, rawRuleRows } from "../bot-watching.js";
 import {
   directionArrow,
@@ -608,10 +608,14 @@ function chartCard(dashboard) {
     // Every band is positioned against the VIEWED chart's last confirmed close, not the close of the timeframe
     // that produced it. The source close and source position stay on the band as evidence.
     const viewedClose = lastConfirmedClose(viewed.candleRows);
+    // Calm default: at most the nearest band per side plus one containing price, per timeframe. The
+    // rest are still stored and listed in the nearby-zones card; they are simply not painted on candles.
     const viewedBands = prefs.overlays?.zones === true && Array.isArray(viewed.overlays?.zone_bands?.bands)
-      ? relocateBands(viewed.overlays.zone_bands.bands, viewedClose)
+      ? capBandsForDisplay(relocateBands(viewed.overlays.zone_bands.bands, viewedClose)).shown
       : [];
-    const higherBands = prefs.layers?.htfLevels === true ? relocateBands(viewed.htfBands || [], viewedClose) : [];
+    const higherBands = prefs.layers?.htfLevels === true
+      ? capBandsForDisplay(relocateBands(viewed.htfBands || [], viewedClose)).shown
+      : [];
     setZoneBands(handleRef.current, [...viewedBands, ...higherBands], { onSelect: selectZoneBand });
   };
   /** Draw evidence for the viewed timeframe. Clears previous evidence first. */
@@ -2126,7 +2130,7 @@ function zoneRow(band) {
   return el("li", { class: "zone-row", dataset: { tone } }, [
     el("div", { class: "zone-row-head" }, [
       el("strong", { class: "zone-role", text: role }),
-      el("span", { class: "mono zone-bounds", text: `${band.band_low} – ${band.band_high}` }),
+      el("span", { class: "mono zone-bounds", text: `${displayRounded(band.band_low, 2).display} – ${displayRounded(band.band_high, 2).display}` }),
     ]),
     el("div", { class: "zone-meta", text: meta }),
     band.position_changed
@@ -2181,18 +2185,37 @@ function waitingCard(dashboard, forward) {
   ]);
 }
 
+/**
+ * Empty ledger: one plain statement instead of three panels of zeros. Only shown when the forward
+ * report confirms zero paper plans; the engine builds a plan only from a qualified setup.
+ */
+function paperEmptyCard(forward) {
+  return el("section", { class: "card terminal-card paper-empty", "aria-label": "No paper plans" }, [
+    el("h2", { class: "card-title", text: "No paper plans recorded yet" }),
+    el("p", {
+      class: "paper-empty-text",
+      text: "BRAIN records a paper plan only when its engine builds one from a qualified setup. None has been recorded for this symbol and timeframe, so there are no outcomes, R-multiples or performance figures to show.",
+    }),
+    el("p", { class: "performance-caveat", text: forward?.paper_label || "PAPER OBSERVATION — NO REAL ORDER" }),
+  ]);
+}
+
 /** Paper observations, recent decisions and measured performance, grouped as one ledger. */
-function paperSection(dashboard, forward) {
+export function paperSection(dashboard, forward) {
+  const model = paperObservationsViewModel(forward);
+  const empty = model.available === true && model.paperPlans === 0;
   return el("section", { class: "paper-section", "aria-label": "Paper trading results" }, [
     el("div", { class: "section-head" }, [
       el("h2", { text: "Paper trading" }),
       el("p", { class: "muted", text: "Observations and plans on stored candles. No real orders are placed; these are records, not performance claims." }),
     ]),
-    el("div", { class: "paper-grid" }, [
-      paperObservationsCard(forward),
-      recentDecisionsCard(forward),
-      performanceCard(forward, dashboard?.meta || {}),
-    ]),
+    empty
+      ? paperEmptyCard(forward)
+      : el("div", { class: "paper-grid" }, [
+          paperObservationsCard(forward),
+          recentDecisionsCard(forward),
+          performanceCard(forward, dashboard?.meta || {}),
+        ]),
   ]);
 }
 

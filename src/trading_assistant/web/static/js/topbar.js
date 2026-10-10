@@ -87,9 +87,27 @@ export function runnerDetailsViewModel(forward) {
 /** Plain-language reasons for the freshness codes the backend returns (web/freshness.py). */
 const FRESHNESS_REASON_TEXT = {
   as_of_is_not_the_current_boundary: "The displayed instant is not the newest closed-candle boundary.",
+  no_stored_candles: "No closed candles are stored for this timeframe. Run the Binance ingestion process to fetch them.",
+  stored_candle_after_expected_boundary: "A stored candle is newer than the expected newest closed candle, so the series cannot be confirmed current.",
 };
 
-function freshnessReasonText(reason) {
+/** UTC wall-clock label from an ISO timestamp, e.g. "2026-10-10 17:00 UTC". */
+function utcLabel(iso) {
+  if (typeof iso !== "string" || iso.length < 16) return String(iso ?? "unknown");
+  return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
+}
+
+/**
+ * Specific freshness detail: names the stored end, the newest closed candle that should be stored,
+ * and how far behind the clock the series is. Never a generic "not confirmed current".
+ */
+function freshnessDetailText(freshness) {
+  if (freshness.reason === "stored_candles_stop_before_expected_boundary" && freshness.latest_stored && freshness.expected_latest_closed) {
+    const n = Number(freshness.staleness_intervals);
+    const behind = Number.isFinite(n) && n > 0 ? ` ${n} candle${n === 1 ? "" : "s"} behind the clock.` : "";
+    return `Stored closed candles end at ${utcLabel(freshness.latest_stored)}; the newest closed candle that should be stored is ${utcLabel(freshness.expected_latest_closed)}.${behind} New closed candles are not being stored: check the Binance ingestion process is running.`;
+  }
+  const reason = freshness.reason;
   if (!reason) return "Stored closed candles are not confirmed current.";
   return FRESHNESS_REASON_TEXT[reason] || String(reason).replaceAll("_", " ");
 }
@@ -138,7 +156,7 @@ export function systemHealthViewModel(dashboard, forward) {
     const freshness = dashboard.freshness || {};
     if (freshness.status !== "CURRENT") {
       issues.push({ severity: 1, component: "Market data", condition: `Freshness ${freshness.status || "UNKNOWN"}`,
-        detail: freshnessReasonText(freshness.reason) });
+        detail: freshnessDetailText(freshness) });
     }
     if (dashboard.market?.complete !== true) {
       issues.push({ severity: 1, component: "Market data", condition: "Stored window incomplete",

@@ -219,7 +219,7 @@ const baseBand = {
 
 test("a band that contains the close is explained as inside, never as resistance, and says why the detector differed", () => {
   const explanation = explainZoneBand(baseBand, { timeframe: "1h" });
-  assert.match(explanation.title, /^Price inside zone · 1H · 61500 – 61900$/);
+  assert.match(explanation.title, /^Price inside zone · 1H · 61,500\.00 – 61,900\.00$/);
   assert.match(body(explanation, 0), /The latest close 61,700 is inside this band/);
   assert.doesNotMatch(explanation.title, /resistance/i);
   assert.match(explanation.note, /labelled this zone "resistance" because its centre sits on that side of the close/);
@@ -252,7 +252,7 @@ test("a support band below price reads as support with the close above it", () =
     ...baseBand, position: "below_price", display_role: "support", band_low: "58000", band_high: "58200",
     raw_roles: ["support"], latest_close: "60000",
   }, { timeframe: "1h" });
-  assert.match(explanation.title, /^Support · 1H · 58000 – 58200$/);
+  assert.match(explanation.title, /^Support · 1H · 58,000\.00 – 58,200\.00$/);
   assert.match(body(explanation, 0), /The band is below the latest close/);
   assert.equal(explanation.note, "Display only. Showing this band does not change any zone, setup, plan or paper observation.");
 });

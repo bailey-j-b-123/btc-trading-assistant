@@ -300,3 +300,26 @@ test("each failing condition is listed with its component, most severe first", (
   assert.match(health.issues.find((i) => i.component === "Market data").detail, /not the newest closed-candle boundary/);
   assert.equal(health.tone, "red");
 });
+
+// Regression (PR #38 follow-up): a lagging default view must name the stored end and the missing
+// candle, never "Freshness STALE" with a generic reason.
+test("a stale series names the stored end, the candle that should exist, and how far behind", () => {
+  const dashboard = {
+    ...headerDashboard(),
+    freshness: {
+      status: "STALE",
+      reason: "stored_candles_stop_before_expected_boundary",
+      latest_stored: "2026-10-10T17:00:00Z",
+      expected_latest_closed: "2026-10-10T18:00:00Z",
+      staleness_intervals: 1,
+    },
+  };
+  const issue = systemHealthViewModel(dashboard, headerForward()).issues.find(
+    (item) => item.condition === "Freshness STALE",
+  );
+  assert.ok(issue, "a STALE freshness issue is reported");
+  assert.match(issue.detail, /end at 2026-10-10 17:00 UTC/);
+  assert.match(issue.detail, /should be stored is 2026-10-10 18:00 UTC/);
+  assert.match(issue.detail, /1 candle behind the clock/);
+  assert.match(issue.detail, /Binance ingestion process/);
+});

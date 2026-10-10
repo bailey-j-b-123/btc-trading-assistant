@@ -548,10 +548,12 @@ export function addHigherTimeframeLines(handle, entries) {
 // pointer events are off except on each band's label, so candles under a band stay clickable.
 
 const ZONE_LABEL_MIN_GAP_PX = 16;
+// Fills are deliberately faint: candles must stay the focus (PR #38 follow-up). Edges are drawn at
+// reduced strength in CSS. Higher-timeframe bands use dashed edges and no fill (see styles.css).
 const ZONE_STYLE = {
-  support: { fill: "rgba(46, 196, 182, 0.13)", edge: "#2ec4b6", short: "S" },
-  resistance: { fill: "rgba(239, 83, 80, 0.13)", edge: "#ef5350", short: "R" },
-  price_inside: { fill: "rgba(245, 166, 35, 0.16)", edge: "#f5a623", short: "IN" },
+  support: { fill: "rgba(46, 196, 182, 0.06)", edge: "#2ec4b6", short: "S" },
+  resistance: { fill: "rgba(239, 83, 80, 0.06)", edge: "#ef5350", short: "R" },
+  price_inside: { fill: "rgba(245, 166, 35, 0.08)", edge: "#f5a623", short: "IN" },
 };
 
 function createZoneLayer(handle) {

@@ -111,7 +111,7 @@ test("the explanation states the viewed-chart position and keeps the source-time
   const relocated = relocateBandToViewedPrice(htfBand, "61900");
   const explanation = explainZoneBand(relocated, { timeframe: "1h" });
   const what = explanation.sections[0].body;
-  assert.match(what, /Resistance band 62000 – 62400 on the 4H chart/);
+  assert.match(what, /Resistance band 62,000\.00 – 62,400\.00 on the 4H chart/);
   assert.match(what, /The band is above the latest close 61,900/);
   assert.match(what, /below the 4H close 62,685/);
   assert.match(what, /shown against the viewed close 61,900/);
@@ -137,4 +137,24 @@ test("selecting a zone band explains it against the viewed close, not the source
   assert.ok(call, "selectZoneBand must call explainZoneBand with an explicit close");
   assert.match(call[0], /close: band\.viewed_close \?\? band\.latest_close/);
   assert.doesNotMatch(call[0], /close: band\.latest_close \?\? null/);
+});
+
+// Regression (PR #38 follow-up): the chart paints a calm subset of bands, nearest to the viewed close.
+import { capBandsForDisplay } from "../../src/trading_assistant/web/static/js/zone-position.js";
+
+test("the chart paints only the nearest band per side plus one containing price, and counts the rest", () => {
+  const band = (id, position, low, high, touches = 1) => ({ id, position, band_low: String(low), band_high: String(high), touch_count: touches });
+  const bands = [
+    band("r-far", "above_price", 70000, 70100, 5),
+    band("r-near", "above_price", 63000, 63100, 2),
+    band("s-near", "below_price", 61000, 61100, 3),
+    band("s-far", "below_price", 50000, 50100, 9),
+    band("in-a", "price_inside", 62000, 62200, 1),
+    band("in-b", "price_inside", 62050, 62300, 4),
+  ];
+  const { shown, hidden } = capBandsForDisplay(bands);
+  assert.deepEqual(shown.map((b) => b.id), ["r-near", "s-near", "in-b"]);
+  assert.equal(hidden, 3, "every band not drawn is counted, never silently dropped");
+  assert.equal(capBandsForDisplay(bands, { perSide: 2, inside: 3 }).hidden, 0);
+  assert.deepEqual(capBandsForDisplay(null), { shown: [], hidden: 0 });
 });

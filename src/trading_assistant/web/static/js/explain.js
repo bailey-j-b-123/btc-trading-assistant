@@ -8,7 +8,7 @@
  * own rule evidence (source_reference / seed / reference ids), never inferred.
  */
 
-import { displayOrUnknown, formatUtc, isMissing } from "./format.js";
+import { displayOrUnknown, displayRounded, formatUtc, isMissing } from "./format.js";
 
 const KIND_TITLES = {
   swing: "Swing point",
@@ -424,7 +424,8 @@ export function explainZoneBand(band, { close = band?.viewed_close ?? band?.late
   const tf = band.source_timeframe || timeframe || "";
   const tfLabel = tf ? tf.toUpperCase() : "";
   const kindWord = band.display_role === "support" ? "Support" : band.display_role === "resistance" ? "Resistance" : "Price inside zone";
-  const bounds = `${band.band_low} – ${band.band_high}`;
+  // Two decimals for display; the exact backend strings remain on the band and in technical details.
+  const bounds = `${displayRounded(band.band_low, 2).display} – ${displayRounded(band.band_high, 2).display}`;
   const swingCount = Array.isArray(band.source_swing_timestamps) ? band.source_swing_timestamps.length : 0;
   const age = Number.isFinite(band.age_candles) ? ` (${band.age_candles} candle${band.age_candles === 1 ? "" : "s"} ago)` : "";
   const touches = band.isolated

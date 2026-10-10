@@ -1577,3 +1577,14 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .chart-item-button:hover, .chart-item-button:focus-visible { border-color: var(--blue); }
 .chart-item-time { flex: none; color: var(--text-muted); font-size: 13px; }
 .chart-item-name { min-width: 0; overflow-wrap: anywhere; }
+
+/* Calmer S/R bands (PR #38 follow-up): candles stay the focus.
+   Edges are softened; higher-timeframe bands are dashed with no fill so they read as a
+   separate layer from this chart's own bands. */
+.zone-band { border-top-color: color-mix(in srgb, var(--zone-edge) 55%, transparent); border-bottom-color: color-mix(in srgb, var(--zone-edge) 55%, transparent); }
+.zone-band--htf { background: transparent; border-style: dashed; border-width: 1px 0; }
+
+/* Empty paper ledger: one statement, not a grid of zeros. */
+.paper-empty { max-width: 760px; display: flex; flex-direction: column; gap: 10px; }
+.paper-empty .card-title { margin: 0; font-size: 18px; }
+.paper-empty-text { margin: 0; font-size: 16px; line-height: 1.55; color: var(--text-dim); max-width: 64ch; }

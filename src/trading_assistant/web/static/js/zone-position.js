@@ -88,3 +88,26 @@ export function relocateBands(bands, viewedClose) {
   if (!Array.isArray(bands)) return [];
   return bands.map((band) => relocateBandToViewedPrice(band, viewedClose));
 }
+
+/**
+ * Chart display cap (presentation only; the stored zones are unchanged).
+ * Keeps the bands nearest to the viewed close: `perSide` above and `inside` containing price, per
+ * call. Everything else is returned as `hidden` so the caller can say how many were not drawn.
+ * Nearest is measured from the viewed close, because relocation can change the backend's order.
+ */
+export function capBandsForDisplay(bands, { perSide = 1, inside = 1 } = {}) {
+  if (!Array.isArray(bands)) return { shown: [], hidden: 0 };
+  const above = [];
+  const below = [];
+  const within = [];
+  for (const band of bands) {
+    if (band?.position === "above_price") above.push(band);
+    else if (band?.position === "below_price") below.push(band);
+    else within.push(band);
+  }
+  above.sort((a, b) => Number(a.band_low) - Number(b.band_low));
+  below.sort((a, b) => Number(b.band_high) - Number(a.band_high));
+  within.sort((a, b) => (Number(b.touch_count) || 0) - (Number(a.touch_count) || 0));
+  const shown = [...above.slice(0, perSide), ...below.slice(0, perSide), ...within.slice(0, inside)];
+  return { shown, hidden: bands.length - shown.length };
+}

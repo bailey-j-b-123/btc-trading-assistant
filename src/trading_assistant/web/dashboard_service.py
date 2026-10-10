@@ -124,6 +124,11 @@ class DashboardService:
         resolved_as_of = self._resolve_as_of(
             timeframe=resolved_timeframe, as_of=as_of, now=now
         )
+        # Freshness is judged against the clock's newest boundary for a default
+        # request, so a stored series that stops behind the clock is reported
+        # STALE (with the missing intervals), not HISTORICAL. The decision
+        # snapshot itself stays pinned to the last stored boundary below.
+        freshness_as_of = resolved_as_of
         if as_of is None:
             resolved_as_of = self._default_as_of(
                 exchange=exchange,
@@ -141,7 +146,7 @@ class DashboardService:
             exchange=exchange,
             symbol=resolved_symbol,
             timeframe=resolved_timeframe,
-            as_of=resolved_as_of,
+            as_of=freshness_as_of,
             now=now,
             market=market,
         )
