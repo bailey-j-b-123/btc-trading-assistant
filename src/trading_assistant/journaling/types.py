@@ -492,6 +492,27 @@ class OutcomeObservation:
     mae_r: Decimal | None
     config_fingerprint: str
     observation_rules_version: str
+    #: Resolution timeframe declared by the observation rules version, or
+    #: ``None`` for rules versions without a resolution policy (v1). Today the
+    #: only approved resolution granularity is the 1-minute series used to
+    #: order events inside an ambiguous higher-timeframe candle.
+    resolution_timeframe: str | None = None
+    #: True when an ambiguity arose and the resolution policy was consulted.
+    resolution_attempted: bool = False
+    #: True when genuine stored resolution candles actually determined an
+    #: ordering (the trajectory continued or terminated on that evidence).
+    resolution_used: bool = False
+    #: Deterministic code describing the decisive resolution consultation:
+    #: ``resolution_used``, or one of the unresolved reasons recorded by
+    #: ``journaling.observation``. ``None`` when no ambiguity arose.
+    resolution_reason: str | None = None
+    #: Expected/present/missing resolution-candle counts over every candle the
+    #: resolution policy consulted in this observation (0 when not attempted).
+    resolution_expected_candles: int = 0
+    resolution_present_candles: int = 0
+    resolution_missing_candles: int = 0
+    #: Inclusive missing ranges of resolution-candle open times (audit trail).
+    resolution_missing_ranges: tuple[CandleGap, ...] = ()
 
     @classmethod
     def from_json_dict(cls, payload: dict[str, Any]) -> OutcomeObservation:
@@ -592,6 +613,28 @@ class OutcomeObservation:
                 mae_price_move=_payload_optional_decimal(payload, "mae_price_move"),
                 mfe_r=_payload_optional_decimal(payload, "mfe_r"),
                 mae_r=_payload_optional_decimal(payload, "mae_r"),
+                resolution_timeframe=_backcompat_optional_text(
+                    payload, "resolution_timeframe"
+                ),
+                resolution_attempted=_backcompat_optional_bool(
+                    payload, "resolution_attempted", default=False
+                ),
+                resolution_used=_backcompat_optional_bool(
+                    payload, "resolution_used", default=False
+                ),
+                resolution_reason=_backcompat_optional_text(
+                    payload, "resolution_reason"
+                ),
+                resolution_expected_candles=_backcompat_optional_int(
+                    payload, "resolution_expected_candles", default=0
+                ),
+                resolution_present_candles=_backcompat_optional_int(
+                    payload, "resolution_present_candles", default=0
+                ),
+                resolution_missing_candles=_backcompat_optional_int(
+                    payload, "resolution_missing_candles", default=0
+                ),
+                resolution_missing_ranges=_backcompat_gaps(payload),
                 config_fingerprint=_payload_text(payload, "config_fingerprint"),
                 observation_rules_version=_payload_text(
                     payload, "observation_rules_version"
@@ -601,9 +644,31 @@ class OutcomeObservation:
             raise JournalError(f"stored outcome payload is malformed: {exc}") from exc
 
     def to_json_dict(self) -> dict[str, Any]:
-        """Canonical, lossless projection; decoding it reproduces this object."""
+        """Canonical, lossless projection; decoding it reproduces this object.
 
-        return to_jsonable(self)
+        journal-outcome-v1 observations keep exactly the fields they have
+        always stored, so a historical payload is byte-identical to the row
+        that was written and is never silently extended in place. The
+        resolution fields exist only under journal-outcome-v2; decoding
+        tolerates their absence on older payloads.
+        """
+
+        payload = to_jsonable(self)
+        from trading_assistant.journaling.parameters import OUTCOME_RULES_VERSION
+
+        if self.observation_rules_version == OUTCOME_RULES_VERSION:
+            for key in (
+                "resolution_timeframe",
+                "resolution_attempted",
+                "resolution_used",
+                "resolution_reason",
+                "resolution_expected_candles",
+                "resolution_present_candles",
+                "resolution_missing_candles",
+                "resolution_missing_ranges",
+            ):
+                payload.pop(key, None)
+        return payload
 
 
 def record_identity_material(
@@ -767,6 +832,50 @@ def _payload_list(payload: dict[str, Any], key: str) -> list[Any]:
     if not isinstance(value, list):
         raise TypeError(f"stored {key!r} must be a list")
     return value
+
+
+def _backcompat_optional_text(payload: dict[str, Any], key: str) -> str | None:
+    """Decode an optional field added by a later outcome rules version.
+
+    Stored observations written by earlier rules versions do not carry the
+    field at all; it decodes to ``None`` instead of failing, so historical
+    payloads stay readable without ever being rewritten.
+    """
+
+    if key not in payload:
+        return None
+    return _payload_optional_text(payload, key)
+
+
+def _backcompat_optional_bool(
+    payload: dict[str, Any], key: str, *, default: bool
+) -> bool:
+    if key not in payload:
+        return default
+    return _payload_bool(payload, key)
+
+
+def _backcompat_optional_int(
+    payload: dict[str, Any], key: str, *, default: int
+) -> int:
+    if key not in payload:
+        return default
+    return _payload_int(payload, key)
+
+
+def _backcompat_gaps(payload: dict[str, Any]) -> tuple[CandleGap, ...]:
+    """Decode ``resolution_missing_ranges`` tolerating pre-resolution payloads."""
+
+    if "resolution_missing_ranges" not in payload:
+        return ()
+    return tuple(
+        CandleGap(
+            start=_payload_datetime(gap, "start"),
+            end=_payload_datetime(gap, "end"),
+            missing_count=_payload_int(gap, "missing_count"),
+        )
+        for gap in _payload_list(payload, "resolution_missing_ranges")
+    )
 
 
 def _payload_direction(payload: dict[str, Any]) -> Direction:

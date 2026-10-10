@@ -811,7 +811,7 @@ def test_step7_observation_rule_versions_are_separated_as_well():
             observed(
                 second,
                 "open",
-                parameters=OutcomeParameters(rules_version="journal-outcome-v2"),
+                parameters=OutcomeParameters(rules_version="journal-outcome-v3"),
             )
         ),
     )
@@ -827,7 +827,7 @@ def test_step7_observation_rule_versions_are_separated_as_well():
     assert len(report.groups) == 2
     assert {
         dict(group.key)["observation_rules_version"] for group in report.groups
-    } == {"journal-outcome-v1", "journal-outcome-v2"}
+    } == {"journal-outcome-v1", "journal-outcome-v3"}
 
 
 def test_configuration_filters_and_no_decision_filter_are_exact():

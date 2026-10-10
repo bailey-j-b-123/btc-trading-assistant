@@ -683,10 +683,10 @@ def test_different_cutoff_or_configuration_changes_the_observation_identity():
         plan,
         candles[:1],
         0,
-        parameters=OutcomeParameters(rules_version="journal-outcome-v2"),
+        parameters=OutcomeParameters(rules_version="journal-outcome-v3"),
     )
     assert other_config.id != t1.id
-    assert other_config.observation_rules_version == "journal-outcome-v2"
+    assert other_config.observation_rules_version == "journal-outcome-v3"
 
 
 def test_future_candles_cannot_alter_a_historical_observation():

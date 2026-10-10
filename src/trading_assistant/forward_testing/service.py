@@ -79,13 +79,15 @@ from trading_assistant.forward_testing.parameters import (
 )
 from trading_assistant.forward_testing.repository import ForwardLedgerRepository
 from trading_assistant.journaling import (
-    OUTCOME_RULES_VERSION,
+    OUTCOME_RESOLUTION_RULES_VERSION,
     OutcomeParameters,
     ProposedPlanLevels,
+    RESOLUTION_PENDING_REASONS,
+    RESOLUTION_TIMEFRAME,
     observe_outcome,
     snapshot_identity,
 )
-from trading_assistant.journaling.types import OutcomeStatus
+from trading_assistant.journaling.types import OutcomeObservation, OutcomeStatus
 from trading_assistant.market_data.errors import is_transient_network_error
 from trading_assistant.market_data.integrity import (
     RequiredWindowAssessment,
@@ -1090,6 +1092,20 @@ class ForwardTestService:
                 f"supported_timeframes {list(self.settings.supported_timeframes)}"
             )
         interval_for_timeframe(resolved_timeframe)
+        # The 1-minute series exists only as outcome-ordering evidence for the
+        # journal-outcome-v2 rules; it must never become a forward/planning base
+        # timeframe. Refuse any base timeframe at or below the resolution
+        # granularity so lower-timeframe candles can never drive the planning
+        # decision or the one-active paper-trade policy.
+        if timeframe_to_milliseconds(
+            resolved_timeframe
+        ) <= timeframe_to_milliseconds(RESOLUTION_TIMEFRAME):
+            raise ValueError(
+                f"timeframe {resolved_timeframe!r} is at or below the "
+                f"{RESOLUTION_TIMEFRAME} outcome-resolution granularity and "
+                "cannot be a forward planning timeframe; 1-minute candles are "
+                "ordering evidence only"
+            )
         return self.settings.exchange, resolved_symbol, resolved_timeframe
 
     # ------------------------------------------------------------------
@@ -1608,7 +1624,12 @@ class ForwardTestService:
             ("forward_parameters", self.parameters.fingerprint()),
             ("friction_assumptions", self.parameters.friction.fingerprint()),
             ("explanation_rules", EXPLANATION_RULES_VERSION),
-            ("outcome_observation_rules", OUTCOME_RULES_VERSION),
+            # The exact outcome-observation policy these cycles' paper outcomes
+            # are evaluated with. journal-outcome-v2 may order events inside an
+            # ambiguous candle from genuine stored 1-minute evidence; cycles
+            # recorded under v1 keep their stored fingerprint, so the two
+            # evaluation policies are reported as separate cohorts.
+            ("outcome_observation_rules", OUTCOME_RESOLUTION_RULES_VERSION),
             ("setup_qualification_rules", self.snapshot_rules_version(snapshot)),
             ("trade_planning_rules", PLANNING_RULES_VERSION),
             (
@@ -2190,7 +2211,21 @@ class ForwardTestService:
         interval,
         recorded_at: datetime,
     ) -> int:
-        """Append new outcome versions for unresolved paper plans."""
+        """Append new outcome versions for unresolved paper plans.
+
+        Outcomes are evaluated under the journal-outcome-v2 rules: when a
+        higher-timeframe candle is ambiguous, genuine stored 1-minute candles
+        for that one candle may order the events (see
+        ``_observe_with_resolution``). Settlement is unchanged: an
+        ``AMBIGUOUS`` outcome is still terminal and is never converted into a
+        win or a loss. The single exception is an append-only re-check of a
+        v2 ``AMBIGUOUS`` whose only blocker was *missing* 1-minute evidence —
+        the same pattern the ledger already applies to gapped
+        ``INCOMPLETE_DATA`` windows. Earlier rows are never rewritten; a
+        successful re-check appends a new superseding outcome version.
+        journal-outcome-v1 rows (including every historical AMBIGUOUS row) are
+        never re-observed at all.
+        """
 
         written = 0
         plans = self.ledger.paper_plans(
@@ -2207,7 +2242,14 @@ class ForwardTestService:
             horizon_last_open = plan.plan_as_of + interval * (
                 plan.observation_horizon_candles - 1
             )
-            if previous is not None and paper_outcome_is_settled(previous, plan):
+            recheck_due = previous is not None and self._resolution_recheck_due(
+                previous, plan
+            )
+            if (
+                previous is not None
+                and paper_outcome_is_settled(previous, plan)
+                and not recheck_due
+            ):
                 continue
             last_closed_open = boundary - interval
             observed_through = min(horizon_last_open, last_closed_open)
@@ -2221,9 +2263,11 @@ class ForwardTestService:
                     previous.observed_through == observed_through
                     and previous.observation.status
                     is not OutcomeStatus.INCOMPLETE_DATA
+                    and not recheck_due
                 ):
                     # Nothing new was observed; only a previously gapped window
-                    # is re-checked, in case the missing candle has arrived.
+                    # — or an ambiguity still waiting for its 1-minute evidence
+                    # — is re-checked, in case the missing candles arrived.
                     continue
             candles = self.candles.get_candles(
                 exchange=exchange,
@@ -2232,38 +2276,225 @@ class ForwardTestService:
                 start_time=plan.plan_as_of,
                 end_time=observed_through,
             ).candles
-            outcome = self._observe(plan=plan, candles=candles, observed_through=observed_through, recorded_at=recorded_at)
+            outcome = self._observe_with_resolution(
+                plan=plan,
+                candles=candles,
+                observed_through=observed_through,
+                recorded_at=recorded_at,
+                boundary=boundary,
+            )
             _, created = self.ledger.append_outcome(outcome)
             written += 1 if created else 0
         return written
 
-    def _observe(
+    def _resolution_recheck_due(
+        self, outcome: PaperOutcome, plan: PaperPlan
+    ) -> bool:
+        """Whether a settled AMBIGUOUS outcome may gain one append-only re-check.
+
+        Only a journal-outcome-v2 observation whose resolution failed because
+        the 1-minute evidence was *absent or incomplete* is re-checked: newly
+        stored evidence can change it. An ambiguity resolved against evidence
+        that was present but insufficient (same-minute co-touch, integrity
+        conflict) is final, and every journal-outcome-v1 observation — the
+        historical record — is never re-observed. Plans recorded on an
+        exchange other than the active market-data provider (e.g. isolated
+        legacy Kraken history) can never receive matching 1-minute evidence,
+        so they are not re-checked either.
+        """
+
+        observation = outcome.observation
+        return (
+            observation.status is OutcomeStatus.AMBIGUOUS
+            and observation.observation_rules_version
+            == OUTCOME_RESOLUTION_RULES_VERSION
+            and observation.resolution_attempted
+            and not observation.resolution_used
+            and observation.resolution_reason in RESOLUTION_PENDING_REASONS
+            and plan.exchange == self.settings.exchange
+        )
+
+    def _observe_with_resolution(
         self,
         *,
         plan: PaperPlan,
         candles: Sequence[Candle],
         observed_through: datetime,
         recorded_at: datetime,
+        boundary: datetime,
     ) -> PaperOutcome:
-        observation = observe_outcome(
-            journal_id=f"forward-paper:{plan.paper_plan_id}",
-            levels=ProposedPlanLevels(
-                plan_id=plan.plan_id,
+        """Evaluate one paper plan under journal-outcome-v2.
+
+        The plan's entry, stop, targets and planning timestamp are used
+        unchanged; the higher-timeframe walk runs first, exactly as under v1.
+        Only when that walk reaches an ambiguous candle are genuine, confirmed
+        stored 1-minute candles consulted — for that one candle only — through
+        the unchanged Step 2 pipeline (closed candles, Decimal validation, raw
+        archival, explicit gaps). If the evidence for an ambiguous candle is
+        not stored yet it is requested once for the candle's exact closed
+        1-minute span; whatever is genuinely available decides whether the
+        ambiguity is ordered or stays an explicitly unscored AMBIGUOUS.
+        """
+
+        resolution: dict[int, Candle] = {}
+        attempted_opens: set[int] = set()
+        resolution_enabled = (
+            plan.exchange == self.settings.exchange
+            and timeframe_to_milliseconds(plan.timeframe)
+            > timeframe_to_milliseconds(RESOLUTION_TIMEFRAME)
+        )
+        observation: OutcomeObservation | None = None
+        # Each loop pass either terminates, or adds at least one new candle's
+        # worth of 1-minute evidence; the horizon bounds the total work.
+        for _ in range(plan.observation_horizon_candles + 1):
+            observation = observe_outcome(
+                journal_id=f"forward-paper:{plan.paper_plan_id}",
+                levels=ProposedPlanLevels(
+                    plan_id=plan.plan_id,
+                    exchange=plan.exchange,
+                    symbol=plan.symbol,
+                    timeframe=plan.timeframe,
+                    direction=plan.direction,
+                    entry=plan.entry,
+                    stop=plan.stop,
+                    targets=plan.targets,
+                    risk_per_unit=plan.risk_per_unit,
+                    as_of=plan.plan_as_of,
+                    setup_id=plan.setup_id,
+                ),
+                candles=candles,
+                observed_through=observed_through,
+                parameters=OutcomeParameters(
+                    rules_version=OUTCOME_RESOLUTION_RULES_VERSION
+                ),
+                resolution_candles=tuple(
+                    resolution[open_ms] for open_ms in sorted(resolution)
+                ),
+            )
+            if observation.status is not OutcomeStatus.AMBIGUOUS:
+                break
+            if not resolution_enabled:
+                break
+            if observation.resolution_reason not in RESOLUTION_PENDING_REASONS:
+                # The evidence was present and insufficient, or no evidence was
+                # possible; later candles cannot change this ambiguity.
+                break
+            ambiguity_open_ms = datetime_to_milliseconds(
+                observation.ambiguity_timestamp
+            )
+            if ambiguity_open_ms in attempted_opens:
+                break
+            attempted_opens.add(ambiguity_open_ms)
+            fetched = self._ensure_resolution_candles(
+                plan=plan, candle_open_ms=ambiguity_open_ms, boundary=boundary
+            )
+            new_candles = {
+                datetime_to_milliseconds(candle.timestamp): candle
+                for candle in fetched
+                if datetime_to_milliseconds(candle.timestamp) not in resolution
+            }
+            if not new_candles:
+                break
+            resolution.update(new_candles)
+        assert observation is not None
+        return self._wrap_observation(
+            plan=plan, observation=observation, recorded_at=recorded_at
+        )
+
+    def _ensure_resolution_candles(
+        self, *, plan: PaperPlan, candle_open_ms: int, boundary: datetime
+    ) -> tuple[Candle, ...]:
+        """Stored 1-minute candles for one ambiguous candle's closed span.
+
+        Reads the store first; when the span is not fully stored, requests
+        exactly that closed 1-minute range through the unchanged Step 2
+        download path (bounded retries, idempotent, gaps reported) and reads
+        the store again. A fetch failure never fails the pass: the outcome is
+        simply recorded with whatever genuine evidence exists, which keeps it
+        an honest unscored AMBIGUOUS instead of an invented ordering.
+        """
+
+        interval_ms = timeframe_to_milliseconds(plan.timeframe)
+        minute_ms = timeframe_to_milliseconds(RESOLUTION_TIMEFRAME)
+        start = milliseconds_to_datetime(candle_open_ms)
+        end = milliseconds_to_datetime(candle_open_ms + interval_ms - minute_ms)
+        expected_count = interval_ms // minute_ms
+
+        def _stored() -> tuple[Candle, ...]:
+            return self.candles.get_candles(
                 exchange=plan.exchange,
                 symbol=plan.symbol,
-                timeframe=plan.timeframe,
-                direction=plan.direction,
-                entry=plan.entry,
-                stop=plan.stop,
-                targets=plan.targets,
-                risk_per_unit=plan.risk_per_unit,
-                as_of=plan.plan_as_of,
-                setup_id=plan.setup_id,
-            ),
-            candles=candles,
-            observed_through=observed_through,
-            parameters=OutcomeParameters(),
-        )
+                timeframe=RESOLUTION_TIMEFRAME,
+                start_time=start,
+                end_time=end,
+            ).candles
+
+        stored = _stored()
+        if len(stored) >= expected_count:
+            return stored
+        try:
+            service = self._market_data_service()
+        except ForwardNotConfigured:
+            return stored
+        attempts = self.runner_settings.fetch_max_attempts
+        last_error: Exception | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                service.download_history(
+                    start_time=start,
+                    end_time=end,
+                    symbol=plan.symbol,
+                    timeframe=RESOLUTION_TIMEFRAME,
+                    as_of=boundary,
+                )
+                last_error = None
+                break
+            except Exception as exc:  # noqa: BLE001 - classified below
+                last_error = exc
+                if not _is_retryable(exc) or attempt == attempts:
+                    break
+                backoff = self.runner_settings.fetch_retry_backoff_seconds * attempt
+                logger.warning(
+                    "Forward runner retrying 1-minute resolution evidence fetch",
+                    extra={
+                        "fields": {
+                            "stage": "RETRY_WAIT",
+                            "exchange": plan.exchange,
+                            "symbol": plan.symbol,
+                            "resolution_timeframe": RESOLUTION_TIMEFRAME,
+                            "attempt": attempt,
+                            "max_attempts": attempts,
+                            "error_type": type(exc).__name__,
+                            "backoff_seconds": str(backoff),
+                        }
+                    },
+                )
+                self._sleep(float(backoff))
+                if self._stop_event.is_set():
+                    break
+        if last_error is not None:
+            logger.warning(
+                "Forward runner could not fetch 1-minute resolution evidence; "
+                "the ambiguity stays unscored",
+                extra={
+                    "fields": {
+                        "stage": "ERROR",
+                        "exchange": plan.exchange,
+                        "symbol": plan.symbol,
+                        "resolution_timeframe": RESOLUTION_TIMEFRAME,
+                        "error_type": type(last_error).__name__,
+                    }
+                },
+            )
+        return _stored()
+
+    def _wrap_observation(
+        self,
+        *,
+        plan: PaperPlan,
+        observation: OutcomeObservation,
+        recorded_at: datetime,
+    ) -> PaperOutcome:
         return PaperOutcome(
             outcome_id="",  # assigned by the repository from the payload identity
             paper_plan_id=plan.paper_plan_id,

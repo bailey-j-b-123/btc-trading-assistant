@@ -29,6 +29,29 @@ relative to each other is immaterial and is not invented. Touches that happen
 before the entry (possible for a target on a jump) are recorded as
 ``PRE_ENTRY`` and never count toward the post-entry trajectory.
 
+1-minute ordering evidence (``journal-outcome-v2`` only): when the caller
+supplies genuine, confirmed stored 1-minute candles (``resolution_candles``),
+an ambiguous higher-timeframe candle is re-examined **inside that one candle
+only**, using exactly the same touch, ordering, pre-entry, and
+never-pick-the-winner rules at 1-minute granularity. The plan's entry, stop,
+targets, planning timestamp, and minimum-1R rules are never influenced by the
+1-minute series — it can only order events the higher-timeframe candle already
+evidenced. Resolution is strictly conservative:
+
+* every expected 1-minute candle of the ambiguous candle must be present
+  (missing minutes keep the result ``AMBIGUOUS``);
+* the 1-minute series must reproduce the higher-timeframe candle's open, high,
+  low, and close exactly and stay inside its range (any conflict keeps the
+  result ``AMBIGUOUS``);
+* if the competing levels are touched within one and the same 1-minute candle,
+  the order remains unknowable and the result stays ``AMBIGUOUS``.
+
+When resolution succeeds, the trajectory continues (or terminates) on the
+1-minute evidence; otherwise the observation is recorded exactly as the
+unscored ``AMBIGUOUS`` it would have been under ``journal-outcome-v1``, with
+the deterministic reason stored alongside. Without resolution candles,
+``journal-outcome-v2`` behaves exactly like ``journal-outcome-v1``.
+
 Gaps: expected candle open times are derived from the timeframe, not from the
 supplied rows. At the first missing open time the evaluation stops, the missing
 ranges are reported, and the result becomes ``INCOMPLETE_DATA`` unless a
@@ -46,10 +69,12 @@ raw extremes are stored so nothing is lost for later statistics.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
 from trading_assistant.journaling.parameters import (
+    OUTCOME_RESOLUTION_RULES_VERSION,
     OutcomeParameters,
     fingerprint,
 )
@@ -77,6 +102,27 @@ ENTRY_AND_EXIT_SAME_CANDLE = "entry_and_exit_same_candle"
 #: Ambiguity kind: the stop and at least one target share one candle.
 STOP_AND_TARGET_SAME_CANDLE = "stop_and_target_same_candle"
 
+#: The only approved ordering-resolution granularity: genuine, confirmed
+#: 1-minute candles used (in ``journal-outcome-v2``) solely to order events
+#: inside one ambiguous higher-timeframe candle. Never used to re-plan.
+RESOLUTION_TIMEFRAME = "1m"
+
+#: Resolution outcome codes. ``resolution_used`` means the stored 1-minute
+#: evidence decided an ordering; the other codes each explain why the result
+#: stayed an explicitly unscored ``AMBIGUOUS``.
+RESOLUTION_USED = "resolution_used"
+RESOLUTION_NO_CANDLES = "resolution_no_candles"
+RESOLUTION_COVERAGE_INCOMPLETE = "resolution_coverage_incomplete"
+RESOLUTION_CONSISTENCY_CONFLICT = "resolution_consistency_conflict"
+RESOLUTION_SAME_MINUTE_AMBIGUOUS = "resolution_same_minute_ambiguous"
+
+#: Resolution reasons where newly arrived 1-minute evidence could still change
+#: the observation. ``same_minute`` and ``consistency`` failures are final: the
+#: evidence either existed and was insufficient, or contradicted the candle.
+RESOLUTION_PENDING_REASONS = frozenset(
+    {RESOLUTION_NO_CANDLES, RESOLUTION_COVERAGE_INCOMPLETE}
+)
+
 _TOUCH_ORDER = {
     OutcomeEventKind.ENTRY: 0,
     OutcomeEventKind.STOP: 1,
@@ -98,6 +144,7 @@ def observe_outcome(
     candles: Sequence[Candle],
     observed_through: datetime,
     parameters: OutcomeParameters | None = None,
+    resolution_candles: Sequence[Candle] | None = None,
 ) -> OutcomeObservation:
     """Observe how the market moved relative to one proposed plan.
 
@@ -106,6 +153,16 @@ def observe_outcome(
     stored observation row. ``candles`` must contain only candles for the plan's
     instrument/timeframe inside ``[plan.as_of, observed_through]``; anything
     outside that window is refused rather than silently filtered.
+
+    ``resolution_candles`` is optional ordering evidence for
+    ``journal-outcome-v2`` observations: genuine, confirmed stored 1-minute
+    candles for the plan instrument covering any subset of the evaluated
+    window's span ``[plan.as_of, observed_through + one plan interval)``. They
+    are consulted **only** inside an ambiguous higher-timeframe candle to order
+    the events that candle already evidenced; they never alter the plan, the
+    window, or the touch rules, and anything outside the span is refused rather
+    than silently filtered. Supplying them to ``journal-outcome-v1`` is an
+    error, because v1 identities must never depend on resolution evidence.
     """
 
     if not isinstance(journal_id, str) or not journal_id.strip():
@@ -130,6 +187,80 @@ def observe_outcome(
         raise ValueError("observed_through must not precede the plan as_of")
     if (end_ms - start_ms) % interval_ms:
         raise ValueError("observed_through must align to the plan timeframe grid")
+
+    resolution_by_htf_open: dict[int, list[Candle]] = {}
+    if resolution_candles is not None:
+        if config.rules_version != OUTCOME_RESOLUTION_RULES_VERSION:
+            raise ValueError(
+                "resolution_candles require the journal-outcome-v2 observation "
+                "rules; journal-outcome-v1 identities never depend on "
+                "resolution evidence"
+            )
+        minute_ms = timeframe_to_milliseconds(RESOLUTION_TIMEFRAME)
+        if interval_ms % minute_ms:
+            raise ValueError(
+                "the plan timeframe must be an exact multiple of the "
+                f"{RESOLUTION_TIMEFRAME} resolution timeframe"
+            )
+        if interval_ms <= minute_ms:
+            raise ValueError(
+                "resolution candles must be strictly finer than the plan "
+                "timeframe"
+            )
+        resolution_end_ms = end_ms + interval_ms
+        seen_minutes: set[int] = set()
+        for minute in resolution_candles:
+            if not isinstance(minute, Candle):
+                raise TypeError(
+                    "resolution_candles must contain market_data Candle values"
+                )
+            if (
+                minute.exchange != levels.exchange
+                or minute.symbol != levels.symbol
+            ):
+                raise ValueError(
+                    f"resolution candle {minute.exchange}/{minute.symbol}/"
+                    f"{minute.timeframe} does not match the plan instrument "
+                    f"{levels.exchange}/{levels.symbol}/{timeframe}"
+                )
+            if minute.timeframe != RESOLUTION_TIMEFRAME:
+                raise ValueError(
+                    "resolution candles must use the "
+                    f"{RESOLUTION_TIMEFRAME} timeframe, not {minute.timeframe!r}"
+                )
+            minute_ms_value = datetime_to_milliseconds(
+                minute.timestamp, field_name="resolution candle timestamp"
+            )
+            if not is_timeframe_aligned(minute_ms_value, RESOLUTION_TIMEFRAME):
+                raise ValueError(
+                    "every resolution candle timestamp must align to the "
+                    f"{RESOLUTION_TIMEFRAME} grid"
+                )
+            for name in ("low", "high"):
+                price = getattr(minute, name)
+                if not isinstance(price, Decimal):
+                    raise TypeError(f"resolution candle {name} must be a Decimal")
+                if not price.is_finite():
+                    raise ValueError(f"resolution candle {name} must be finite")
+            if minute.high < minute.low:
+                raise ValueError(
+                    "resolution candle high must not be below candle low"
+                )
+            if not start_ms <= minute_ms_value < resolution_end_ms:
+                raise ValueError(
+                    "every resolution candle must lie inside the evaluated "
+                    "window span [plan.as_of, observed_through + one plan "
+                    "interval); future or earlier minutes are never used"
+                )
+            if minute_ms_value in seen_minutes:
+                raise ValueError(
+                    "resolution candles must not repeat a minute open time"
+                )
+            seen_minutes.add(minute_ms_value)
+            htf_open_ms = minute_ms_value - ((minute_ms_value - start_ms) % interval_ms)
+            resolution_by_htf_open.setdefault(htf_open_ms, []).append(minute)
+        for minutes in resolution_by_htf_open.values():
+            minutes.sort(key=lambda minute: minute.timestamp)
 
     present: dict[int, Candle] = {}
     for candle in candles:
@@ -209,6 +340,7 @@ def observe_outcome(
         cutoff=cutoff,
         gaps=tuple(gaps),
         config=config,
+        resolution_by_htf_open=resolution_by_htf_open,
     )
     return result
 
@@ -219,6 +351,322 @@ def _gap(start_ms: int, end_ms: int, missing_count: int) -> CandleGap:
         start=milliseconds_to_datetime(start_ms),
         end=milliseconds_to_datetime(end_ms),
         missing_count=missing_count,
+    )
+
+
+@dataclass(frozen=True)
+class _MinuteGroup:
+    """One ordered touch group established by one 1-minute candle."""
+
+    bar_open: datetime
+    touches: tuple[tuple[OutcomeEventKind, int | None, Decimal], ...]
+    ordering: OutcomeEventOrdering
+
+
+@dataclass(frozen=True)
+class _MinuteResolutionOutcome:
+    """The deterministic result of consulting the 1-minute evidence for one
+    ambiguous higher-timeframe candle.
+
+    ``kind`` is ``"unavailable"`` (missing/incomplete/inconsistent evidence —
+    the caller keeps the exact journal-outcome-v1 AMBIGUOUS record),
+    ``"ambiguous"`` (the evidence exists but the ordering is still unknowable
+    at 1-minute granularity — the caller records AMBIGUOUS from the state the
+    walk established) or ``"resolved"`` (the evidence ordered the events; the
+    trajectory continues or terminates on ``terminal``).
+    """
+
+    kind: str
+    reason: str
+    expected_count: int
+    present_count: int
+    missing_ranges: tuple[CandleGap, ...]
+    groups: tuple[_MinuteGroup, ...] = ()
+    ambiguity_kind: str | None = None
+    ambiguity_timestamp: datetime | None = None
+    entry_newly_ordered: bool = False
+    entry_bar_open: datetime | None = None
+    entry_touched_ambiguous: bool = False
+    stop_touched: bool = False
+    stop_pre_entry: bool = False
+    stop_bar_open: datetime | None = None
+    new_reached_targets: tuple[int, ...] = ()
+    new_pre_entry_targets: tuple[int, ...] = ()
+    terminal: OutcomeStatus | None = None
+
+
+def _minute_missing_ranges(
+    missing_opens: list[int], minute_ms: int
+) -> tuple[CandleGap, ...]:
+    """Consolidate missing 1-minute open times into inclusive gap ranges."""
+
+    ranges: list[CandleGap] = []
+    run_start: int | None = None
+    run_end: int | None = None
+    run_count = 0
+    for open_ms in missing_opens:
+        if run_start is None or open_ms != run_end + minute_ms:  # type: ignore[operator]
+            if run_start is not None:
+                ranges.append(_gap(run_start, run_end, run_count))  # type: ignore[arg-type]
+            run_start = open_ms
+            run_count = 0
+        run_end = open_ms
+        run_count += 1
+    if run_start is not None:
+        ranges.append(_gap(run_start, run_end, run_count))  # type: ignore[arg-type]
+    return tuple(ranges)
+
+
+def _attempt_minute_resolution(
+    *,
+    levels: ProposedPlanLevels,
+    htf_candle: Candle,
+    minutes: Sequence[Candle],
+    entry_ordered_start: bool,
+    reached_start: Sequence[int],
+) -> _MinuteResolutionOutcome:
+    """Order one ambiguous higher-timeframe candle from its 1-minute candles.
+
+    Applies exactly the same touch, ordering, pre-entry and
+    never-pick-the-winner rules as the higher-timeframe walk, at 1-minute
+    granularity, inside the one ambiguous candle. The plan levels are used
+    unchanged: the 1-minute series can only order events the higher-timeframe
+    candle already evidenced, never re-plan them. Any missing minute, any
+    conflict between the 1-minute series and the higher-timeframe candle, or
+    any same-minute co-touch keeps the result explicitly unresolved.
+    """
+
+    interval_ms = timeframe_to_milliseconds(levels.timeframe)
+    minute_ms = timeframe_to_milliseconds(RESOLUTION_TIMEFRAME)
+    expected_count = interval_ms // minute_ms
+    htf_open_ms = datetime_to_milliseconds(htf_candle.timestamp)
+    expected_opens = [htf_open_ms + step * minute_ms for step in range(expected_count)]
+    present_minutes = {
+        datetime_to_milliseconds(minute.timestamp): minute for minute in minutes
+    }
+    missing_opens = [
+        open_ms for open_ms in expected_opens if open_ms not in present_minutes
+    ]
+    if missing_opens:
+        return _MinuteResolutionOutcome(
+            kind="unavailable",
+            reason=(
+                RESOLUTION_NO_CANDLES
+                if len(present_minutes) == 0
+                else RESOLUTION_COVERAGE_INCOMPLETE
+            ),
+            expected_count=expected_count,
+            present_count=len(present_minutes),
+            missing_ranges=_minute_missing_ranges(missing_opens, minute_ms),
+        )
+
+    ordered = [present_minutes[open_ms] for open_ms in expected_opens]
+    # Integrity guard: the genuine 1-minute series must compose exactly into
+    # the higher-timeframe candle it claims to refine. A conflict means the
+    # two stored series cannot both witness the same price path, so no
+    # ordering is taken from them.
+    if (
+        ordered[0].open != htf_candle.open
+        or ordered[-1].close != htf_candle.close
+        or max(bar.high for bar in ordered) != htf_candle.high
+        or min(bar.low for bar in ordered) != htf_candle.low
+    ):
+        return _MinuteResolutionOutcome(
+            kind="unavailable",
+            reason=RESOLUTION_CONSISTENCY_CONFLICT,
+            expected_count=expected_count,
+            present_count=len(present_minutes),
+            missing_ranges=(),
+        )
+
+    long = levels.direction == "bullish"
+    entry = levels.entry
+    stop = levels.stop
+    targets = levels.targets
+    target_count = len(targets)
+
+    groups: list[_MinuteGroup] = []
+    entry_reached = entry_ordered_start
+    entry_ordered = entry_ordered_start
+    entry_bar_open: datetime | None = None
+    stop_reached = False
+    stop_bar_open: datetime | None = None
+    reached = list(reached_start)
+    pre_entry: list[int] = []
+    ambiguity_kind: str | None = None
+    ambiguity_timestamp: datetime | None = None
+    entry_touched_ambiguous = False
+    stop_touched_in_ambiguity = False
+    terminal: OutcomeStatus | None = None
+
+    for bar in ordered:
+        entry_touch = (not entry_reached) and bar.low <= entry <= bar.high
+        stop_touch = (not stop_reached) and (
+            bar.low <= stop if long else bar.high >= stop
+        )
+        target_touches = [
+            target_index
+            for target_index in range(target_count)
+            if target_index not in reached
+            and (
+                bar.high >= targets[target_index]
+                if long
+                else bar.low <= targets[target_index]
+            )
+        ]
+        target_touch_list = [
+            (OutcomeEventKind.TARGET, target_index, targets[target_index])
+            for target_index in target_touches
+        ]
+
+        if not entry_ordered:
+            if entry_touch and (stop_touch or target_touch_list):
+                # Same-minute entry and exit: still unknowable at this
+                # granularity; the favourable order is never chosen.
+                groups.append(
+                    _MinuteGroup(
+                        bar_open=bar.timestamp,
+                        touches=tuple(
+                            [(OutcomeEventKind.ENTRY, None, entry)]
+                            + (
+                                [(OutcomeEventKind.STOP, None, stop)]
+                                if stop_touch
+                                else []
+                            )
+                            + target_touch_list
+                        ),
+                        ordering=OutcomeEventOrdering.AMBIGUOUS,
+                    )
+                )
+                ambiguity_kind = ENTRY_AND_EXIT_SAME_CANDLE
+                ambiguity_timestamp = bar.timestamp
+                entry_touched_ambiguous = True
+                stop_touched_in_ambiguity = stop_touch
+                terminal = OutcomeStatus.AMBIGUOUS
+                break
+            if entry_touch:
+                groups.append(
+                    _MinuteGroup(
+                        bar_open=bar.timestamp,
+                        touches=((OutcomeEventKind.ENTRY, None, entry),),
+                        ordering=OutcomeEventOrdering.ORDERED,
+                    )
+                )
+                entry_reached = True
+                entry_ordered = True
+                entry_bar_open = bar.timestamp
+                continue
+            if stop_touch:
+                groups.append(
+                    _MinuteGroup(
+                        bar_open=bar.timestamp,
+                        touches=tuple(
+                            [(OutcomeEventKind.STOP, None, stop)]
+                            + target_touch_list
+                        ),
+                        ordering=OutcomeEventOrdering.PRE_ENTRY,
+                    )
+                )
+                pre_entry.extend(target_touches)
+                stop_reached = True
+                stop_bar_open = bar.timestamp
+                terminal = OutcomeStatus.INVALIDATED_BEFORE_ENTRY
+                break
+            if target_touch_list:
+                groups.append(
+                    _MinuteGroup(
+                        bar_open=bar.timestamp,
+                        touches=tuple(target_touch_list),
+                        ordering=OutcomeEventOrdering.PRE_ENTRY,
+                    )
+                )
+                pre_entry.extend(target_touches)
+                continue
+            continue
+
+        if stop_touch and target_touch_list:
+            groups.append(
+                _MinuteGroup(
+                    bar_open=bar.timestamp,
+                    touches=tuple(
+                        [(OutcomeEventKind.STOP, None, stop)] + target_touch_list
+                    ),
+                    ordering=OutcomeEventOrdering.AMBIGUOUS,
+                )
+            )
+            ambiguity_kind = STOP_AND_TARGET_SAME_CANDLE
+            ambiguity_timestamp = bar.timestamp
+            stop_touched_in_ambiguity = True
+            terminal = OutcomeStatus.AMBIGUOUS
+            break
+        if stop_touch:
+            groups.append(
+                _MinuteGroup(
+                    bar_open=bar.timestamp,
+                    touches=((OutcomeEventKind.STOP, None, stop),),
+                    ordering=OutcomeEventOrdering.ORDERED,
+                )
+            )
+            stop_reached = True
+            stop_bar_open = bar.timestamp
+            terminal = (
+                OutcomeStatus.STOPPED_AFTER_TARGETS if reached else OutcomeStatus.STOPPED
+            )
+            break
+        if target_touch_list:
+            groups.append(
+                _MinuteGroup(
+                    bar_open=bar.timestamp,
+                    touches=tuple(target_touch_list),
+                    ordering=OutcomeEventOrdering.ORDERED,
+                )
+            )
+            reached.extend(target_touches)
+            if len(reached) == target_count:
+                terminal = OutcomeStatus.TARGETS_REACHED
+                break
+            continue
+
+    if terminal is OutcomeStatus.AMBIGUOUS:
+        assert ambiguity_kind is not None
+        assert ambiguity_timestamp is not None
+        return _MinuteResolutionOutcome(
+            kind="ambiguous",
+            reason=RESOLUTION_SAME_MINUTE_AMBIGUOUS,
+            expected_count=expected_count,
+            present_count=len(present_minutes),
+            missing_ranges=(),
+            groups=tuple(groups),
+            ambiguity_kind=ambiguity_kind,
+            ambiguity_timestamp=ambiguity_timestamp,
+            entry_newly_ordered=entry_ordered and not entry_ordered_start,
+            entry_bar_open=entry_bar_open,
+            entry_touched_ambiguous=entry_touched_ambiguous,
+            stop_touched=stop_touched_in_ambiguity,
+            stop_bar_open=stop_bar_open if stop_touched_in_ambiguity else None,
+            new_reached_targets=tuple(
+                index for index in reached if index not in reached_start
+            ),
+            new_pre_entry_targets=tuple(pre_entry),
+        )
+
+    return _MinuteResolutionOutcome(
+        kind="resolved",
+        reason=RESOLUTION_USED,
+        expected_count=expected_count,
+        present_count=len(present_minutes),
+        missing_ranges=(),
+        groups=tuple(groups),
+        entry_newly_ordered=entry_ordered and not entry_ordered_start,
+        entry_bar_open=entry_bar_open,
+        stop_touched=stop_reached,
+        stop_pre_entry=terminal is OutcomeStatus.INVALIDATED_BEFORE_ENTRY,
+        stop_bar_open=stop_bar_open,
+        new_reached_targets=tuple(
+            index for index in reached if index not in reached_start
+        ),
+        new_pre_entry_targets=tuple(pre_entry),
+        terminal=terminal,
     )
 
 
@@ -234,6 +682,7 @@ def _evaluate(
     cutoff: datetime,
     gaps: tuple[CandleGap, ...],
     config: OutcomeParameters,
+    resolution_by_htf_open: dict[int, list[Candle]] | None = None,
 ) -> OutcomeObservation:
     long = levels.direction == "bullish"
     entry = levels.entry
@@ -262,6 +711,15 @@ def _evaluate(
     evaluated_high: Decimal | None = None
     evaluated_high_timestamp: datetime | None = None
 
+    resolution_enabled = config.rules_version == OUTCOME_RESOLUTION_RULES_VERSION
+    resolution_source = resolution_by_htf_open if resolution_enabled else {}
+    resolution_attempted = False
+    resolution_used = False
+    resolution_reason: str | None = None
+    resolution_expected_total = 0
+    resolution_present_total = 0
+    resolution_missing_ranges: list[CandleGap] = []
+
     def touch_group(
         candle_index: int,
         timestamp: datetime,
@@ -283,6 +741,68 @@ def _evaluate(
                 )
             )
         sequence += 1
+
+    def consult_minute_resolution(
+        *,
+        index: int,
+        candle: Candle,
+        entry_ordered_start: bool,
+        reached_start: tuple[int, ...],
+    ) -> _MinuteResolutionOutcome | None:
+        """Consult the 1-minute evidence for one ambiguous candle.
+
+        Returns ``None`` when the resolution policy is not active for this
+        observation rules version (the caller then applies the exact
+        journal-outcome-v1 AMBIGUOUS record). Otherwise the consultation
+        statistics are recorded and the deterministic outcome is returned.
+        """
+
+        nonlocal resolution_attempted, resolution_used, resolution_reason
+        nonlocal resolution_expected_total, resolution_present_total
+        if not resolution_enabled:
+            return None
+        resolution_attempted = True
+        outcome = _attempt_minute_resolution(
+            levels=levels,
+            htf_candle=candle,
+            minutes=tuple(resolution_source.get(positions[index], ())),  # type: ignore[union-attr]
+            entry_ordered_start=entry_ordered_start,
+            reached_start=reached_start,
+        )
+        resolution_expected_total += outcome.expected_count
+        resolution_present_total += outcome.present_count
+        resolution_missing_ranges.extend(outcome.missing_ranges)
+        resolution_reason = outcome.reason
+        if outcome.kind == "resolved":
+            resolution_used = True
+        return outcome
+
+    def apply_minute_state(
+        index: int, outcome: _MinuteResolutionOutcome
+    ) -> None:
+        """Apply one minute-resolution outcome to the trajectory state."""
+
+        nonlocal entry_reached, entry_ordered, entry_timestamp, entry_candle_index
+        nonlocal stop_reached, stop_pre_entry, stop_timestamp
+        for group in outcome.groups:
+            touch_group(index, group.bar_open, list(group.touches), group.ordering)
+        if outcome.entry_newly_ordered:
+            entry_reached = True
+            entry_ordered = True
+            entry_timestamp = outcome.entry_bar_open
+            entry_candle_index = index
+        elif outcome.entry_touched_ambiguous:
+            # Same-minute ambiguity touches the entry without ordering it,
+            # exactly as the higher-timeframe rule does.
+            entry_reached = True
+            entry_timestamp = outcome.ambiguity_timestamp
+            entry_candle_index = index
+        if outcome.stop_touched and not stop_reached:
+            stop_reached = True
+            stop_timestamp = outcome.stop_bar_open
+        stop_pre_entry = stop_pre_entry or outcome.stop_pre_entry
+        reached_targets.extend(outcome.new_reached_targets)
+        pre_entry_targets.extend(outcome.new_pre_entry_targets)
 
     for index in range(stop_index):
         candle = present[positions[index]]
@@ -316,7 +836,29 @@ def _evaluate(
 
         if not entry_ordered:
             if entry_touch and (stop_touch or target_touch_list):
-                # Same-candle entry and exit: the order is unknowable from OHLC.
+                # Same-candle entry and exit: the order is unknowable from this
+                # candle's own OHLC. journal-outcome-v2 consults genuine stored
+                # 1-minute candles for this one candle only; without sufficient
+                # evidence the AMBIGUOUS record below stands unchanged.
+                consultation = consult_minute_resolution(
+                    index=index,
+                    candle=candle,
+                    entry_ordered_start=False,
+                    reached_start=(),
+                )
+                if consultation is not None and consultation.kind == "resolved":
+                    apply_minute_state(index, consultation)
+                    if consultation.terminal is not None:
+                        terminal = consultation.terminal
+                        break
+                    continue
+                if consultation is not None and consultation.kind == "ambiguous":
+                    apply_minute_state(index, consultation)
+                    ambiguous = True
+                    ambiguity_kind = consultation.ambiguity_kind
+                    ambiguity_timestamp = consultation.ambiguity_timestamp
+                    terminal = OutcomeStatus.AMBIGUOUS
+                    break
                 ambiguous = True
                 ambiguity_kind = ENTRY_AND_EXIT_SAME_CANDLE
                 ambiguity_timestamp = timestamp
@@ -374,6 +916,29 @@ def _evaluate(
             continue
 
         if stop_touch and target_touch_list:
+            # Same-candle stop and target after the entry: unknowable from this
+            # candle's own OHLC. journal-outcome-v2 consults genuine stored
+            # 1-minute candles for this one candle only; without sufficient
+            # evidence the AMBIGUOUS record below stands unchanged.
+            consultation = consult_minute_resolution(
+                index=index,
+                candle=candle,
+                entry_ordered_start=True,
+                reached_start=tuple(reached_targets),
+            )
+            if consultation is not None and consultation.kind == "resolved":
+                apply_minute_state(index, consultation)
+                if consultation.terminal is not None:
+                    terminal = consultation.terminal
+                    break
+                continue
+            if consultation is not None and consultation.kind == "ambiguous":
+                apply_minute_state(index, consultation)
+                ambiguous = True
+                ambiguity_kind = consultation.ambiguity_kind
+                ambiguity_timestamp = consultation.ambiguity_timestamp
+                terminal = OutcomeStatus.AMBIGUOUS
+                break
             ambiguous = True
             ambiguity_kind = STOP_AND_TARGET_SAME_CANDLE
             ambiguity_timestamp = timestamp
@@ -512,4 +1077,23 @@ def _evaluate(
         "config_fingerprint": config.fingerprint(),
         "observation_rules_version": config.rules_version,
     }
+    if resolution_enabled:
+        # Resolution metadata is recorded only under journal-outcome-v2, so a
+        # journal-outcome-v1 observation keeps the exact historical identity
+        # and payload it always had.
+        resolution_missing_total = sum(
+            gap.missing_count for gap in resolution_missing_ranges
+        )
+        facts.update(
+            {
+                "resolution_timeframe": RESOLUTION_TIMEFRAME,
+                "resolution_attempted": resolution_attempted,
+                "resolution_used": resolution_used,
+                "resolution_reason": resolution_reason,
+                "resolution_expected_candles": resolution_expected_total,
+                "resolution_present_candles": resolution_present_total,
+                "resolution_missing_candles": resolution_missing_total,
+                "resolution_missing_ranges": tuple(resolution_missing_ranges),
+            }
+        )
     return OutcomeObservation(id=fingerprint("outcome-observation", facts), **facts)

@@ -24,6 +24,18 @@ DECISION_RULES_VERSION = "journal-decision-v1"
 #: Version of the deterministic candle-based outcome observation contract.
 OUTCOME_RULES_VERSION = "journal-outcome-v1"
 
+#: Version of the outcome contract that may use genuine, confirmed stored
+#: 1-minute candles **only to order events inside an ambiguous higher-timeframe
+#: candle** (Phase 3). The plan's entry, stop, targets, planning timestamp and
+#: minimum-1R rules are never altered by this version: lower-timeframe candles
+#: never re-plan. When 1-minute evidence is missing, incomplete, inconsistent
+#: with the higher-timeframe candle, or still ambiguous at 1-minute
+#: granularity, the observation stays an explicitly unscored ``AMBIGUOUS`` —
+#: the favourable result is never chosen. Observations evaluated under this
+#: version carry it on the row, so v1 and v2 cohorts are never merged
+#: silently. Without resolution candles this version behaves exactly like v1.
+OUTCOME_RESOLUTION_RULES_VERSION = "journal-outcome-v2"
+
 #: Hard bound for a user-supplied note/reason; notes are metadata, not evidence.
 MAX_NOTE_LENGTH = 2000
 

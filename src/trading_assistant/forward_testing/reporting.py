@@ -85,6 +85,11 @@ FORWARD_REPORT_LIMITATIONS: tuple[str, ...] = (
     "A proposed level is only counted as touched when the closed candle's range "
     "evidences it. Same-candle ambiguity is recorded as AMBIGUOUS and is never "
     "resolved in the favourable direction.",
+    "Where genuine, confirmed stored 1-minute candles completely and consistently "
+    "cover an ambiguous higher-timeframe candle, journal-outcome-v2 may order the "
+    "events inside that one candle from that evidence alone. Missing, incomplete "
+    "or still-ambiguous 1-minute evidence keeps the outcome an explicitly unscored "
+    "AMBIGUOUS; the plan itself is never re-planned from lower-timeframe candles.",
     "Ambiguous, incomplete, entry-not-reached, and still-open observations are "
     "reported separately and are never converted into wins or losses.",
     "Raw observational R and friction-adjusted hypothetical R are unit-neutral "

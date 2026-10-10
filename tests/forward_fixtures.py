@@ -31,7 +31,11 @@ from trading_assistant.forward_testing import (
 from trading_assistant.market_data.raw_storage import RawResponseStore
 from trading_assistant.market_data.repository import CandleRepository
 from trading_assistant.market_data.service import MarketDataService
-from trading_assistant.market_data.timeframes import datetime_to_milliseconds
+from trading_assistant.market_data.timeframes import (
+    datetime_to_milliseconds,
+    milliseconds_to_datetime,
+)
+from trading_assistant.market_data.types import Candle
 
 from web_fixtures import (  # noqa: F401  (re-export)
     QUALIFYING_HIGHS,
@@ -248,12 +252,92 @@ def forward_settings(database_url: str, *, raw_dir: Path) -> Settings:
         quote_asset="USDT",
         exchange=EXCHANGE,
         default_timeframe=TIMEFRAME,
-        supported_timeframes=("15m", TIMEFRAME, "4h", "1d"),
+        # ``1m`` is outcome-ordering evidence for the journal-outcome-v2 rules
+        # (never a planning timeframe); the rest are analytical timeframes.
+        supported_timeframes=("1m", "15m", TIMEFRAME, "4h", "1d"),
         database_url=database_url,
         raw_data_dir=raw_dir,
         market_data_page_limit=1000,
         market_data_max_pages=50,
     )
+
+
+def minute_bar(
+    open_time: datetime,
+    *,
+    open_: str,
+    high: str,
+    low: str,
+    close: str,
+    volume: str = "10",
+):
+    """One genuine-shaped 1-minute candle at an exact UTC minute open time."""
+
+    if open_time.second or open_time.microsecond:
+        raise ValueError("minute_bar requires a whole-minute open time")
+    return Candle(
+        exchange=EXCHANGE,
+        symbol=SYMBOL,
+        timeframe="1m",
+        timestamp=open_time,
+        open=D(open_),
+        high=D(high),
+        low=D(low),
+        close=D(close),
+        volume=D(volume),
+    )
+
+
+def minute_composition(
+    htf_candle,
+    *,
+    path: tuple,
+    extra_lows: dict[int, str] | None = None,
+    extra_highs: dict[int, str] | None = None,
+):
+    """Sixty 1-minute candles composing exactly one 1h fixture candle.
+
+    ``path`` is 61 prices: minute ``i`` opens at ``path[i]`` and closes at
+    ``path[i + 1]``; ``extra_lows``/``extra_highs`` optionally push one
+    minute's range beyond its open/close pair (the wick that touches a plan
+    level). The helper enforces the exact composition identities (first open,
+    last close, highest high, lowest low, containment) and raises otherwise,
+    so a test cannot accidentally build evidence the journal-outcome-v2
+    integrity guard would reject.
+    """
+
+    if len(path) != 61:
+        raise ValueError("path must contain 61 prices (60 minute candles)")
+    lows_extra = {index: D(value) for index, value in (extra_lows or {}).items()}
+    highs_extra = {index: D(value) for index, value in (extra_highs or {}).items()}
+    open_ms = datetime_to_milliseconds(htf_candle.timestamp)
+    bars = []
+    for index in range(60):
+        open_price = D(str(path[index]))
+        close_price = D(str(path[index + 1]))
+        low = min(open_price, close_price, lows_extra.get(index, open_price))
+        high = max(open_price, close_price, highs_extra.get(index, close_price))
+        bars.append(
+            minute_bar(
+                milliseconds_to_datetime(open_ms + index * 60_000),
+                open_=format(open_price, "f"),
+                high=format(high, "f"),
+                low=format(low, "f"),
+                close=format(close_price, "f"),
+            )
+        )
+    if bars[0].open != htf_candle.open:
+        raise ValueError("path[0] must equal the higher-timeframe open")
+    if bars[-1].close != htf_candle.close:
+        raise ValueError("path[60] must equal the higher-timeframe close")
+    if max(bar.high for bar in bars) != htf_candle.high:
+        raise ValueError("an extra high must reproduce the higher-timeframe high")
+    if min(bar.low for bar in bars) != htf_candle.low:
+        raise ValueError("an extra low must reproduce the higher-timeframe low")
+    for bar in bars:
+        if not (htf_candle.low <= bar.low <= bar.high <= htf_candle.high):
+            raise ValueError("every minute range must stay inside the candle")
+    return tuple(bars)
 
 
 def insert_candles(engine, candles) -> None:
