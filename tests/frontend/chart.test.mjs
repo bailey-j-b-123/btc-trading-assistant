@@ -226,7 +226,7 @@ test("confirmed swing overlays remain optional and use only returned levels", ()
 
 test("the chart accepts the real market-candles API envelope", () => {
   const payload = {
-    exchange: "kraken",
+    exchange: "binance",
     symbol: "BTC/USDT",
     timeframe: "1h",
     candles: ROWS,

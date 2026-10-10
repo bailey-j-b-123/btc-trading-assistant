@@ -1,18 +1,16 @@
 """Runtime configuration loaded from environment variables and an optional .env."""
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-#: Finite default timeout for public exchange (CCXT) requests, in milliseconds.
-#: CCXT expresses ``timeout`` in milliseconds and applies it to every individual
-#: socket operation (connect/read) of one request. 10 seconds matches CCXT's own
-#: default: healthy Kraken public endpoints answer in well under two seconds, so
-#: this leaves roughly an order of magnitude of headroom (no false failures
-#: under normal latency) while making a hung connect/read fail fast instead of
-#: blocking a forward pass. It deliberately cannot bound DNS resolution - see
-#: ``trading_assistant.market_data.exchange``, which adds a watchdog for that.
+#: Finite default timeout for Binance public market-data requests, in
+#: milliseconds. CCXT expresses ``timeout`` in milliseconds and applies it to
+#: every individual socket operation (connect/read) of one request. It bounds
+#: network waits without masking a genuinely stalled request; DNS resolution
+#: is bounded separately by the watchdog in ``market_data.exchange``.
 DEFAULT_EXCHANGE_TIMEOUT_MS = 10_000
 
 #: Lower bound for the exchange timeout. Below one second a healthy-but-slow
@@ -48,19 +46,22 @@ class Settings(BaseSettings):
     sqlite_busy_timeout_ms: int = Field(default=5_000, ge=0, le=60_000)
     log_level: str = "INFO"
 
-    exchange: str = "kraken"
+    # Fixed public market-data provider. A legacy exchange override is accepted
+    # only when it says "binance"; unsupported venues fail validation rather
+    # than silently changing the source used by analysis and paper observations.
+    exchange: Literal["binance"] = "binance"
     default_timeframe: str = "1h"
-    supported_timeframes: tuple[str, ...] = ("5m", "15m", "1h", "4h", "1d")
+    supported_timeframes: tuple[str, ...] = ("5m", "15m", "1h", "4h")
     raw_data_dir: Path = Path("data/raw")
-    market_data_page_limit: int = Field(default=720, gt=0)
+    market_data_page_limit: int = Field(default=1_000, gt=0)
     market_data_max_pages: int = Field(default=10_000, gt=0)
     #: Finite, project-controlled timeout for public exchange (CCXT) requests,
     #: in milliseconds (CCXT timeout semantics: milliseconds, applied by CCXT to
-    #: every individual socket connect/read of a request). It covers Kraken
-    #: public market-data requests - both ``load_markets`` and ``fetch_ohlcv``,
-    #: which share the same exchange instance - and never requires API
-    #: credentials. It bounds each socket operation; DNS resolution is bounded
-    #: separately by the watchdog in ``market_data.exchange``.
+    #: every individual socket connect/read of a request). It covers Binance
+    #: public market-data requests, including market metadata and OHLCV,
+    #: and never requires API credentials. It bounds each socket operation; DNS
+    #: resolution is bounded separately by the watchdog in
+    #: ``market_data.exchange``.
     exchange_timeout_ms: int = Field(
         default=DEFAULT_EXCHANGE_TIMEOUT_MS,
         ge=MIN_EXCHANGE_TIMEOUT_MS,

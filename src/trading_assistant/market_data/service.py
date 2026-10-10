@@ -280,13 +280,10 @@ class MarketDataService:
             )
             raw_pages.append(page)
 
-            # Kraken's public OHLC endpoint is a rolling window: it returns at
-            # most the latest 720 candles, regardless of how old ``since`` is.
-            # It is not a normal date-range endpoint, so asking for another
-            # page with a locally-derived timestamp can repeat the same window
-            # rather than advance through history.  Keep the returned page for
-            # validation/storage, where any unavailable older range remains an
-            # explicit gap, but never fabricate pagination for Kraken.
+            # A source may explicitly advertise a rolling-window endpoint that
+            # cannot advance through historical pages. Keep that response for
+            # validation/storage, report unavailable history as a gap, and do
+            # not invent a local cursor advance. Binance Spot is date-bounded.
             if getattr(self.source, "ohlcv_is_rolling_window", False):
                 break
 

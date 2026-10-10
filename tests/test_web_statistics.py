@@ -88,7 +88,7 @@ def _observe_accepted(engine, journal_id):
     for index, (open_, high, low, close) in enumerate(prices):
         extra.append(
             Candle(
-                exchange="mock-exchange",
+                exchange="binance",
                 symbol="BTC/USDT",
                 timeframe="1h",
                 timestamp=EPOCH + (21 + index) * INTERVAL,

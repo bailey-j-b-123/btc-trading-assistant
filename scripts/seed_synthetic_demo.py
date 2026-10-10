@@ -11,7 +11,9 @@ Usage:
     python -m trading_assistant.web
 
 The seeded series naturally produces a QUALIFIED setup with a PLANNABLE plan
-at its newest boundary through the real Steps 2-5 replay.
+at its newest boundary through the real Steps 2-5 replay. It refuses to write
+if BTC/USDT candles already exist under any exchange identity or timeframe in
+the selected DB; use a disposable empty local database for a preview.
 """
 
 from __future__ import annotations
@@ -22,6 +24,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal as D
 from pathlib import Path
 
+from sqlalchemy import select
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT / "tests"))
@@ -30,6 +34,7 @@ from market_structure_fixtures import candle_at
 
 from trading_assistant.database import create_database_engine
 from trading_assistant.journaling import DecisionState, JournalService
+from trading_assistant.market_data.models import OHLCVCandleRecord
 from trading_assistant.market_data.repository import CandleRepository
 from trading_assistant.market_data.types import Candle
 from trading_assistant.pattern_liquidity import PatternLiquidityService
@@ -39,7 +44,7 @@ from trading_assistant.setup_qualification.models import (
 )
 from trading_assistant.trade_planning import plan_trade
 
-EXCHANGE = "kraken"
+EXCHANGE = "binance"
 SYMBOL = "BTC/USDT"
 TIMEFRAME = "1h"
 EPOCH = datetime(2024, 1, 1, tzinfo=UTC)
@@ -76,10 +81,31 @@ def demo_bar(index: int, close) -> Candle:
     )
 
 
+def _has_existing_btc_usdt_history(engine) -> bool:
+    """Protect any existing BTC/USDT history from synthetic demo writes."""
+
+    statement = (
+        select(OHLCVCandleRecord.timestamp)
+        .where(
+            OHLCVCandleRecord.symbol == SYMBOL,
+        )
+        .limit(1)
+    )
+    with engine.connect() as connection:
+        return connection.scalar(statement) is not None
+
+
 def main() -> None:
     engine = create_database_engine()
-    repository = CandleRepository(engine)
+    if _has_existing_btc_usdt_history(engine):
+        print(
+            "[synthetic demo] refusing to seed: BTC/USDT candles already exist "
+            "in this database. Use a disposable empty local database."
+        )
+        engine.dispose()
+        return
 
+    repository = CandleRepository(engine)
     candles = tuple(
         replace(demo_bar(i, price), exchange=EXCHANGE)
         for i, price in enumerate(QUALIFYING_ROWS)

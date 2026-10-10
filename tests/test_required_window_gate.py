@@ -302,9 +302,8 @@ def test_out_of_range_rows_are_excluded_and_threaded_to_the_result(tmp_path) -> 
             end_time=EPOCH + timedelta(minutes=5),
             as_of=EPOCH + timedelta(minutes=15),
         )
-        # Kraken-style rolling responses serve newer rows than requested: they
-        # are excluded by range, never stored, and the exclusion is counted so
-        # received/accepted stays exactly reconcilable.
+        # A source may return rows outside the requested range: they are
+        # excluded, never stored, and counted so response totals reconcile.
         assert result.excluded_range_count == 1
         assert result.accepted_count == 2
         assert result.received_count == (
@@ -314,7 +313,7 @@ def test_out_of_range_rows_are_excluded_and_threaded_to_the_result(tmp_path) -> 
             + result.excluded_range_count
         )
         stored = service.repository.get_candles(
-            exchange="mock-exchange", symbol="ETH/USDT", timeframe="5m"
+            exchange="binance", symbol="ETH/USDT", timeframe="5m"
         )
         assert len(stored.candles) == 2
     finally:

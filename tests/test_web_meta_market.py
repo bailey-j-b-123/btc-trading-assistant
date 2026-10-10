@@ -6,7 +6,6 @@ candles, fixed clocks. No network, no exchange.
 
 import pytest
 from web_fixtures import (
-    EXCHANGE,
     SYMBOL,
     insert_candles,
     make_client,
@@ -36,7 +35,7 @@ def test_meta_reports_identity_and_execution_disabled(client):
         payload["application"]["authentication_required_before_public_deployment"]
         is True
     )
-    assert payload["exchange"] == EXCHANGE
+    assert payload["exchange"] == "binance"
     assert payload["default_symbol"] == SYMBOL
     assert payload["default_timeframe"] == "1h"
     assert "5m" in payload["supported_timeframes"]

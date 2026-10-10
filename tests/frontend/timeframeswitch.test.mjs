@@ -128,7 +128,7 @@ const FOUR_H_ROWS = [
 
 function structurePayload(timeframe, { zones = [], range = null, candleCount = 48 } = {}) {
   return {
-    exchange: "kraken",
+    exchange: "binance",
     symbol: SYMBOL,
     timeframe,
     as_of: AS_OF,
@@ -143,7 +143,7 @@ function structurePayload(timeframe, { zones = [], range = null, candleCount = 4
 
 function candlesPayload(timeframe, rows) {
   return {
-    exchange: "kraken",
+    exchange: "binance",
     symbol: SYMBOL,
     timeframe,
     as_of: AS_OF,
@@ -213,7 +213,7 @@ function hierarchyPayload(overrides = {}) {
 
 function dashboardFixture(overrides = {}) {
   return {
-    meta: { exchange: "kraken", symbol: SYMBOL, timeframe: "1h", as_of: AS_OF },
+    meta: { exchange: "binance", symbol: SYMBOL, timeframe: "1h", as_of: AS_OF },
     market: {
       candles: ENGINE_ROWS,
       latest_closed_candle: {
@@ -917,11 +917,11 @@ test("manual S/R toggle reveals the stored structure without changing setup or h
 });
 
 
-test("public forming OHLC follows 5M/15M/1H/4H chart view only, never the engine or stored series", async () => {
+test("public Binance forming klines follow the 5M/15M/1H/4H chart view only, never the engine or stored series", async () => {
   const originalNow = Date.now;
   const now = Date.parse("2026-10-06T13:03:00Z");
   Date.now = () => now;
-  const intervals = { "5m": 5, "15m": 15, "1h": 60, "4h": 240 };
+  const minutes = { "5m": 5, "15m": 15, "1h": 60, "4h": 240 };
   const buckets = { "5m": "2026-10-06T13:00:00Z", "15m": "2026-10-06T13:00:00Z",
     "1h": "2026-10-06T13:00:00Z", "4h": "2026-10-06T12:00:00Z" };
   class PublicSocket {
@@ -931,6 +931,14 @@ test("public forming OHLC follows 5M/15M/1H/4H chart view only, never the engine
     close() { this.closed = true; this.onclose?.(); }
     emit(message) { this.onmessage?.({ data: JSON.stringify(message) }); }
   }
+  const klineEvent = (timeframe) => {
+    const begin = Date.parse(buckets[timeframe]);
+    return { e: "kline", E: now, s: "BTCUSDT", k: {
+      t: begin, T: begin + minutes[timeframe] * 60_000 - 1,
+      s: "BTCUSDT", i: timeframe, o: "104", h: "108", l: "102", c: "106",
+      v: "3", n: 6, x: false,
+    } };
+  };
   const engineRows = [[Date.parse("2026-10-06T11:00:00Z"), "100", "102", "99", "101", "5"],
     [Date.parse("2026-10-06T12:00:00Z"), "101", "104", "100", "103", "6"]];
   const rows = {
@@ -939,7 +947,7 @@ test("public forming OHLC follows 5M/15M/1H/4H chart view only, never the engine
     "4h": [[Date.parse("2026-10-06T08:00:00Z"), "101", "105", "99", "103", "8"]],
   };
   const fixture = dashboardFixture({
-    meta: { exchange: "kraken", symbol: SYMBOL, timeframe: "1h", as_of: "2026-10-06T13:00:00Z" },
+    meta: { exchange: "binance", symbol: SYMBOL, timeframe: "1h", as_of: "2026-10-06T13:00:00Z" },
     market: { candles: engineRows, latest_closed_candle: { close: "103" } },
     qualification: { available: true, state: "QUALIFIED", reasons: [], selected_setup_id: "fixed-setup",
       setups: [{ id: "fixed-setup", state: "QUALIFIED", direction: "bullish" }], snapshot: { setups: [] } },
@@ -962,23 +970,19 @@ test("public forming OHLC follows 5M/15M/1H/4H chart view only, never the engine
           await flush();
         }
         const socket = PublicSocket.all.at(-1);
-        socket.onopen();
-        assert.equal(socket.sent.at(-1).params.interval, intervals[tf]);
-        assert.equal(socket.sent.at(-1).params.symbol[0], "BTC/USDT");
+        assert.equal(socket.url, `wss://stream.binance.com:9443/ws/btcusdt@kline_${tf}`);
+        assert.deepEqual(socket.sent, [], "the Binance raw-stream URL is the subscription");
         const stored = tf === "1h" ? engineRows : rows[tf];
         const original = structuredClone(toChartCandles(stored));
         assert.deepEqual(chartState.charts[0].candleData, original);
-        socket.emit({ channel: "ohlc", type: "update", timestamp: new Date(now).toISOString(), data: [{
-          symbol: SYMBOL, interval: intervals[tf], interval_begin: buckets[tf],
-          open: 104, high: 108, low: 102, close: 106, volume: 3, trades: 6,
-        }] });
+        socket.emit(klineEvent(tf));
         assert.deepEqual(chartState.charts[0].formingData, [{
           time: Date.parse(buckets[tf]) / 1000, open: 104, high: 108, low: 102, close: 106,
         }]);
         assert.deepEqual(chartState.charts[0].candleData, original);
         const badge = findOne(view, (node) => (node.className || "").split(" ").includes("forming-status"));
         assert.match(badge.textContent, /FORMING .*DISPLAY ONLY/);
-        assert.match(badge.textContent, /KRAKEN OHLC CURRENT/);
+        assert.match(badge.textContent, /BINANCE SPOT KLINE CURRENT/);
         assert.doesNotMatch(badge.textContent, /LIVE DATA UNAVAILABLE/);
         assert.equal(findOne(view, (node) => (node.className || "").split(" ").includes("live-quote")), null);
         assert.equal(badge.dataset.freshness, "CURRENT");

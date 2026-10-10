@@ -8,8 +8,8 @@ export function liveQuoteModel(payload, now = Date.now()) {
   const stamp = Date.parse(payload?.fetched_at);
   const price = payload?.price;
   const numeric = typeof price === "string" && price.trim() ? Number(price) : NaN;
-  const valid = Number.isFinite(numeric) && numeric > 0 && Number.isFinite(stamp) &&
-    stamp <= now + 5000;
+  const valid = payload?.exchange === "binance" && Number.isFinite(numeric) &&
+    numeric > 0 && Number.isFinite(stamp) && stamp <= now + 5000;
   const stale = valid && (payload?.status === "STALE" || now - stamp >= LIVE_STALE_MS);
   return {
     status: valid ? (stale ? "STALE" : payload?.status === "CURRENT" ? "CURRENT" : "UNAVAILABLE") : "UNAVAILABLE",
@@ -22,7 +22,7 @@ export function mountLiveDisplay(symbol) {
   const node = el("div", { class: "live-quote", role: "status", "aria-label": "Live price display only" });
   const label = el("div", { class: "verdict-kicker", text: "LIVE PRICE · LAST TRADE · DISPLAY ONLY" });
   const value = el("strong", { class: "live-quote-value", text: "LIVE DATA UNAVAILABLE" });
-  const freshness = el("span", { class: "chart-note", text: "Public Kraken quote · no forming candles are shown" });
+  const freshness = el("span", { class: "chart-note", text: "Binance Spot public quote · no forming candles are shown" });
   node.append(label, value, freshness);
   if (symbol !== "BTC/USDT") {
     freshness.textContent = "Live quote only available for BTC/USDT";
@@ -44,8 +44,8 @@ export function mountLiveDisplay(symbol) {
       ? `$${model.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
       : `LIVE DATA ${status}`;
     freshness.textContent = model.fetchedAt
-      ? `Last valid fetch: ${new Date(model.fetchedAt).toISOString().replace("T", " ").slice(0, 19)} UTC · Kraken public ticker · no forming candles shown`
-      : "Kraken public ticker unavailable · confirmed chart unchanged";
+      ? `Last valid fetch: ${new Date(model.fetchedAt).toISOString().replace("T", " ").slice(0, 19)} UTC · Binance Spot public ticker · no forming candles shown`
+      : "Binance Spot public ticker unavailable · confirmed chart unchanged";
   }
   async function poll() {
     if (stopped || pending) return;

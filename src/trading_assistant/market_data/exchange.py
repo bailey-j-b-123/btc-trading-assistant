@@ -20,8 +20,9 @@ from trading_assistant.market_data.errors import ExchangeNetworkTimeout
 
 logger = logging.getLogger(__name__)
 
-# Kraken's public OHLC endpoint returns at most 720 candles per request.
-_KRAKEN_MAX_OHLCV_LIMIT = 720
+# Binance Spot's public klines endpoint accepts at most 1000 candles per request.
+_BINANCE_MAX_OHLCV_LIMIT = 1_000
+_BINANCE_EXCHANGE_ID = "binance"
 
 #: A single CCXT request performs several individually-bounded phases: DNS
 #: resolution, one connect attempt per resolved address (an IPv6 attempt can
@@ -57,10 +58,11 @@ def resolve_exchange_timeout_ms(timeout_ms: int | None) -> int:
 
 
 class CCXTMarketDataSource:
-    """Fetch public OHLCV through a rate-limited CCXT exchange instance.
+    """Fetch public Binance Spot OHLCV through a rate-limited CCXT client.
 
-    No credentials or trading permissions are configured by this adapter. Two
-    finite bounds apply to every network operation:
+    Binance is the only supported live market-data source. No credentials or
+    trading permissions are configured by this adapter. Two finite bounds apply
+    to every network operation:
 
     * the project-controlled CCXT ``timeout`` (``exchange_timeout_ms``, in
       milliseconds - CCXT's timeout semantics), passed to the exchange
@@ -84,19 +86,22 @@ class CCXTMarketDataSource:
     _poisoned: bool = False
     _abandoned: tuple[Any, ...] = ()
 
-    def __init__(self, exchange_id: str, *, timeout_ms: int | None = None) -> None:
-        exchange_class = getattr(ccxt, exchange_id, None)
-        if exchange_class is None or exchange_id not in ccxt.exchanges:
-            raise ValueError(f"Unknown CCXT exchange id: {exchange_id!r}")
+    def __init__(self, exchange_id: str = _BINANCE_EXCHANGE_ID, *, timeout_ms: int | None = None) -> None:
+        if exchange_id != _BINANCE_EXCHANGE_ID:
+            raise ValueError(
+                "only Binance Spot market data is supported; "
+                f"got exchange id {exchange_id!r}"
+            )
+        exchange_class = getattr(ccxt, _BINANCE_EXCHANGE_ID, None)
+        if exchange_class is None or _BINANCE_EXCHANGE_ID not in ccxt.exchanges:
+            raise RuntimeError("the installed CCXT package does not provide Binance")
         self._exchange_class = exchange_class
         self._timeout_ms = resolve_exchange_timeout_ms(timeout_ms)
         self._exchange = self._build_exchange()
         self.exchange_id = self._exchange.id
         self.last_http_response: Any = None
         if not self._exchange.has.get("fetchOHLCV"):
-            raise ValueError(
-                f"CCXT exchange {exchange_id!r} does not support fetchOHLCV"
-            )
+            raise RuntimeError("the installed CCXT Binance client does not support fetchOHLCV")
 
     @property
     def timeout_ms(self) -> int:
@@ -237,24 +242,16 @@ class CCXTMarketDataSource:
         return getattr(self._exchange, "timeframes", None)
 
     @property
-    def max_ohlcv_limit(self) -> int | None:
-        """Return a known per-request OHLCV cap without constraining other exchanges."""
+    def max_ohlcv_limit(self) -> int:
+        """Binance Spot's documented maximum klines per public request."""
 
-        if self.exchange_id == "kraken":
-            return _KRAKEN_MAX_OHLCV_LIMIT
-        return None
+        return _BINANCE_MAX_OHLCV_LIMIT
 
     @property
     def ohlcv_is_rolling_window(self) -> bool:
-        """Whether the exchange endpoint cannot provide arbitrary date ranges.
+        """Binance Spot klines support date-bounded cursor pagination."""
 
-        Kraken's public OHLC endpoint returns only its latest 720 entries,
-        regardless of how old ``since`` is.  It is therefore not safe to run
-        the generic date-based pagination loop against it: a later request can
-        return the same rolling window instead of the next historical page.
-        """
-
-        return self.exchange_id == "kraken"
+        return False
 
     def fetch_ohlcv(
         self,
@@ -266,19 +263,11 @@ class CCXTMarketDataSource:
     ) -> Any:
         """Fetch a single unified CCXT page and retain its HTTP response text.
 
-        The locally-derived millisecond cursor is passed through unchanged for
-        date-bounded endpoints.  A rolling-window endpoint (see
-        :attr:`ohlcv_is_rolling_window`) cannot use it: Kraken serves only its
-        newest 720 entries no matter how old ``since`` is, so the cursor can
-        never retrieve older history there and is deliberately not sent.  The
-        cursor-less response is a superset of any cursor-filtered response, so
-        omitting it cannot remove a candle the caller asked for; the returned
-        page is still validated against the requested range by
-        :class:`~trading_assistant.market_data.service.MarketDataService`.
-
-        Both network operations - the Kraken market-metadata load and the OHLCV
-        request - run under the finite watchdog deadline described on the
-        class, so neither can block the caller indefinitely.
+        The locally-derived millisecond cursor is passed through unchanged to
+        Binance Spot's date-bounded klines endpoint. The configured page size is
+        capped at Binance's 1000-candle per-request maximum. The request runs
+        under the finite watchdog deadline described on the class, so it cannot
+        block the caller indefinitely.
         """
 
         self._ensure_exchange()
@@ -288,29 +277,11 @@ class CCXTMarketDataSource:
             raise ValueError(
                 f"Timeframe {timeframe!r} is not supported by CCXT exchange {self.exchange_id!r}"
             )
-        max_limit = self.max_ohlcv_limit
-        request_limit = (
-            min(limit, max_limit)
-            if max_limit is not None and limit is not None
-            else limit
-        )
-        request_since = None if self.ohlcv_is_rolling_window else since_ms
+        request_limit = min(limit, self.max_ohlcv_limit)
 
-        # Load CCXT market metadata before switching its numeric parser. Kraken
-        # parses fetched currency precision into ``Decimal`` values when
-        # ``number`` is Decimal, then its market loader passes those values to
-        # ``safe_number``/``safe_string``; CCXT's ``safe_string`` rejects
-        # Decimal and raises ``method() missing currencyPrecision``. The
-        # default float parser is safe for metadata; Decimal is still applied
-        # before OHLCV parsing so candle values retain their source precision.
-        load_markets = getattr(exchange, "load_markets", None)
-        if (
-            self.exchange_id == "kraken"
-            and getattr(exchange, "markets", None) is None
-            and callable(load_markets)
-        ):
-            exchange.number = float
-            self._network_call("load_markets", load_markets)
+        # Binance's CCXT market loader accepts Decimal number parsing. Keep it
+        # enabled before metadata loading and OHLCV parsing so numeric candle
+        # fields retain their source precision without a float round-trip.
         exchange.number = Decimal
 
         response = self._network_call(
@@ -318,7 +289,7 @@ class CCXTMarketDataSource:
             lambda: exchange.fetch_ohlcv(
                 symbol,
                 timeframe=timeframe,
-                since=request_since,
+                since=since_ms,
                 limit=request_limit,
             ),
         )

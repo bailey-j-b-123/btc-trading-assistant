@@ -109,7 +109,7 @@ function withDom(callback) {
 
 function ladderDashboard(overrides = {}) {
   return {
-    meta: { exchange: "kraken", symbol: "BTC/USDT", timeframe: "1h", as_of: "2026-10-07T12:00:00Z" },
+    meta: { exchange: "binance", symbol: "BTC/USDT", timeframe: "1h", as_of: "2026-10-07T12:00:00Z" },
     multi_timeframe: {
       available: true,
       hierarchy: {

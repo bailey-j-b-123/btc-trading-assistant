@@ -345,13 +345,13 @@ def test_observation_requires_plannable_plan(client, tmp_path):
     empty_client = make_client(engine, settings, clock=qualified_clock())
     try:
         # Journal a snapshot-kind record through Step 7 (no plan attached).
-        from web_fixtures import EXCHANGE, SYMBOL
+        from web_fixtures import SYMBOL
 
         from trading_assistant.setup_qualification import QualificationService
 
         service = QualificationService(engine)
         snapshot = service.snapshot(
-            exchange=EXCHANGE, symbol=SYMBOL, timeframe="1h", as_of=EPOCH + INTERVAL
+            exchange="binance", symbol=SYMBOL, timeframe="1h", as_of=EPOCH + INTERVAL
         )
         record = JournalService(engine).journal_snapshot(snapshot=snapshot)
         response = empty_client.post(

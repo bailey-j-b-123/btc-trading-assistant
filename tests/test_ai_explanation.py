@@ -194,7 +194,7 @@ def stat_at(index):
 def dated_record(index):
     record = journal_record(
         f"stat-{index}",
-        exchange="mock-exchange",
+        exchange="binance",
         symbol="BTC/USDT",
         timeframe="1h",
         setup_index=0,
@@ -381,7 +381,7 @@ def test_context_requires_consistent_journal_links():
     snapshot, _planning_frame, setup, plan = plannable_scenario()
     record = replace(
         dated_record(0),
-        exchange="mock-exchange",
+        exchange="binance",
         setup_id=setup.id,
         plan_id=plan.id,
     )
@@ -700,7 +700,7 @@ def linked_journal(scenario, decision_state, *, reason=None):
     snapshot, planning_frame, setup, plan = scenario
     record = replace(
         dated_record(0),
-        exchange="mock-exchange",
+        exchange="binance",
         setup_id=setup.id,
         plan_id=plan.id,
     )
@@ -755,7 +755,7 @@ def test_prompt_injection_in_journal_note_cannot_alter_instructions_or_facts():
     snapshot, watch_frame, setup, _seed = scenario
     record = replace(
         dated_record(0),
-        exchange="mock-exchange",
+        exchange="binance",
         setup_id=setup.id,
         plan_id=None,
         plan_state=None,

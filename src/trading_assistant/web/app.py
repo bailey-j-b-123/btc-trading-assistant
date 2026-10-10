@@ -60,7 +60,7 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'self'; script-src 'self'; style-src 'self'; "
-        "img-src 'self' data:; connect-src 'self' wss://ws.kraken.com; object-src 'none'; "
+        "img-src 'self' data:; connect-src 'self' wss://stream.binance.com:9443; object-src 'none'; "
         "base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
     ),
     "X-Content-Type-Options": "nosniff",

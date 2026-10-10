@@ -77,7 +77,7 @@ from trading_assistant.market_data.service import create_market_data_service
 def test_default_exchange_timeout_is_finite_and_documented() -> None:
     settings = Settings(_env_file=None)
     assert settings.exchange_timeout_ms == DEFAULT_EXCHANGE_TIMEOUT_MS == 10_000
-    # 10s matches CCXT's own default per-operation timeout: healthy Kraken
+    # 10s matches CCXT's own default per-operation timeout: healthy Binance
     # public endpoints answer in well under two seconds, so this leaves an
     # order of magnitude of headroom (no false failures under normal latency)
     # while making a hung connect/read fail fast.
@@ -117,7 +117,7 @@ def test_resolve_exchange_timeout_ms_validates_and_defaults() -> None:
 
 
 def test_ccxt_exchange_is_built_with_the_configured_timeout() -> None:
-    source = CCXTMarketDataSource("kraken")
+    source = CCXTMarketDataSource("binance")
     try:
         assert source.timeout_ms == DEFAULT_EXCHANGE_TIMEOUT_MS
         # CCXT timeout semantics: milliseconds, applied per socket operation.
@@ -131,18 +131,18 @@ def test_ccxt_exchange_is_built_with_the_configured_timeout() -> None:
 
 
 def test_ccxt_source_accepts_an_explicit_timeout_and_rejects_bad_ones() -> None:
-    source = CCXTMarketDataSource("kraken", timeout_ms=15_000)
+    source = CCXTMarketDataSource("binance", timeout_ms=15_000)
     try:
         assert source._exchange.timeout == 15_000
     finally:
         source.close()
     for invalid in (0, MIN_EXCHANGE_TIMEOUT_MS - 1, MAX_EXCHANGE_TIMEOUT_MS + 1):
         with pytest.raises(ValueError, match="exchange timeout"):
-            CCXTMarketDataSource("kraken", timeout_ms=invalid)
+            CCXTMarketDataSource("binance", timeout_ms=invalid)
 
 
 def test_market_data_service_factory_wires_the_configured_timeout() -> None:
-    settings = Settings(_env_file=None, exchange="kraken", exchange_timeout_ms=25_000)
+    settings = Settings(_env_file=None, exchange="binance", exchange_timeout_ms=25_000)
     engine = create_database_engine("sqlite:///:memory:")
     try:
         service = create_market_data_service(engine, settings=settings)
@@ -166,97 +166,80 @@ class _FakeHttpResponse:
         return None
 
 
-def _kraken_payloads() -> dict[str, dict]:
-    """Deterministic Kraken public payloads (assets, pairs, OHLC)."""
+def _binance_payloads() -> dict[str, dict | list]:
+    """Deterministic public Binance Spot metadata and kline responses."""
 
-    return {
-        "Assets": {
-            "error": [],
-            "result": {
-                "XXBT": {
-                    "aclass": "currency",
-                    "altname": "XBT",
-                    "decimals": 8,
-                    "display_decimals": 5,
-                    "status": "enabled",
-                },
-                "USDT": {
-                    "aclass": "currency",
-                    "altname": "USDT",
-                    "decimals": 8,
-                    "display_decimals": 4,
-                    "status": "enabled",
-                },
-            },
-        },
-        "AssetPairs": {
-            "error": [],
-            "result": {
-                "XBTUSDT": {
-                    "altname": "XBTUSDT",
-                    "wsname": "XBT/USDT",
-                    "aclass_base": "currency",
-                    "base": "XXBT",
-                    "aclass_quote": "currency",
-                    "quote": "USDT",
-                    "pair_decimals": 2,
-                    "lot_decimals": 8,
-                    "lot_multiplier": 1,
-                    "leverage_buy": [],
-                    "leverage_sell": [],
-                    "fees": [[0, 0.26]],
-                    "fees_maker": [[0, 0.16]],
-                    "status": "online",
-                },
-            },
-        },
-        "OHLC": {
-            "error": [],
-            "result": {
-                "XBTUSDT": [
-                    [0, "10.1", "11.2", "9.8", "10.7", "10.4", "3.25", 1],
-                    [3_600, "10.7", "11.5", "10.2", "11.0", "10.8", "4.5", 1],
+    spot_exchange_info = {
+        "timezone": "UTC",
+        "serverTime": 1_700_000_000_000,
+        "rateLimits": [],
+        "exchangeFilters": [],
+        "symbols": [
+            {
+                "symbol": "BTCUSDT",
+                "status": "TRADING",
+                "baseAsset": "BTC",
+                "baseAssetPrecision": 8,
+                "quoteAsset": "USDT",
+                "quotePrecision": 8,
+                "quoteAssetPrecision": 8,
+                "orderTypes": ["LIMIT", "MARKET"],
+                "icebergAllowed": True,
+                "ocoAllowed": True,
+                "isSpotTradingAllowed": True,
+                "isMarginTradingAllowed": True,
+                "filters": [
+                    {"filterType": "PRICE_FILTER", "minPrice": "0.01000000",
+                     "maxPrice": "1000000.00000000", "tickSize": "0.01000000"},
+                    {"filterType": "LOT_SIZE", "minQty": "0.00001000",
+                     "maxQty": "9000.00000000", "stepSize": "0.00001000"},
+                    {"filterType": "MIN_NOTIONAL", "minNotional": "10.00000000"},
                 ],
-                "last": 3_600,
-            },
-        },
+                "permissions": ["SPOT"],
+            }
+        ],
+    }
+    start_ms = 1_704_067_200_000  # 2024-01-01T00:00:00Z
+    return {
+        "/api/v3/exchangeInfo": spot_exchange_info,
+        "/fapi/v1/exchangeInfo": {"symbols": []},
+        "/dapi/v1/exchangeInfo": {"symbols": []},
+        "/api/v3/klines": [
+            [start_ms, "10.1", "11.2", "9.8", "10.7", "3.25",
+             start_ms + 3_599_999, "34.775", 12, "1.5", "16.05", "0"]
+        ],
     }
 
 
-def test_configured_timeout_reaches_load_markets_and_fetch_ohlcv(monkeypatch) -> None:
-    """The project-controlled timeout is passed to CCXT with correct semantics.
+def test_configured_timeout_reaches_binance_metadata_and_klines(monkeypatch) -> None:
+    """The same configured CCXT timeout applies to metadata and OHLCV requests."""
 
-    CCXT applies ``self.timeout`` (milliseconds) as ``timeout=(self.timeout /
-    1000)`` to every ``session.request``. Both network operations the forward
-    pass performs - the Kraken market-metadata load (``load_markets``, two
-    requests) and the OHLCV request - must run with the configured value.
-    """
-
-    source = CCXTMarketDataSource("kraken", timeout_ms=15_000)
+    source = CCXTMarketDataSource("binance", timeout_ms=15_000)
     exchange = source._exchange
     recorded: list[tuple[str, object]] = []
-    payloads = _kraken_payloads()
+    payloads = _binance_payloads()
 
     def fake_request(method, url, **kwargs):
         recorded.append((url, kwargs.get("timeout")))
-        for key, payload in payloads.items():
-            if key in url:
+        for route, payload in payloads.items():
+            if route in url:
                 return _FakeHttpResponse(payload)
         raise AssertionError(f"unexpected request url: {url}")
 
     monkeypatch.setattr(exchange.session, "request", fake_request)
     try:
-        rows = source.fetch_ohlcv("BTC/USDT", timeframe="1h", since_ms=0, limit=10)
-        assert len(rows) == 2
-        assert rows[0][0] == 0
+        rows = source.fetch_ohlcv(
+            "BTC/USDT", timeframe="1h", since_ms=1_704_067_200_000, limit=10
+        )
+        assert len(rows) == 1
+        assert rows[0][0] == 1_704_067_200_000
         urls = [url for url, _timeout in recorded]
-        # load_markets ran (assets + asset pairs) and the OHLCV request ran.
-        assert any("Assets" in url for url in urls)
-        assert any("AssetPairs" in url for url in urls)
-        assert any("OHLC" in url for url in urls)
-        assert len(recorded) == 3
-        # Every request carried the configured timeout, converted with CCXT's
-        # millisecond semantics: 15000 ms -> 15.0 s per socket operation.
+        assert any("/api/v3/exchangeInfo" in url for url in urls)
+        assert any("/fapi/v1/exchangeInfo" in url for url in urls)
+        assert any("/dapi/v1/exchangeInfo" in url for url in urls)
+        assert any("/api/v3/klines" in url for url in urls)
+        assert len(recorded) == 4
+        # 15000 ms -> 15.0 seconds per CCXT socket operation.
         assert all(timeout == 15.0 for _url, timeout in recorded)
     finally:
         source.close()
@@ -271,7 +254,7 @@ class _StubClient:
     """Offline CCXT-client double injected without constructing an exchange."""
 
     def __init__(self, rows=(), error: Exception | None = None) -> None:
-        self.id = "kraken"
+        self.id = "binance"
         self.timeframes = {"1h": "60"}
         self.markets = {"BTC/USDT": {"id": "XBTUSDT"}}
         self.number = float
@@ -292,10 +275,10 @@ class _StubClient:
 def _stub_source(client: _StubClient, *, timeout_ms: int = 1_000) -> CCXTMarketDataSource:
     source = CCXTMarketDataSource.__new__(CCXTMarketDataSource)
     source._exchange = client
-    source.exchange_id = "kraken"
+    source.exchange_id = "binance"
     source.last_http_response = None
     source._timeout_ms = timeout_ms
-    source._exchange_class = ccxt.kraken
+    source._exchange_class = ccxt.binance
     return source
 
 
@@ -319,12 +302,12 @@ def test_watchdog_passes_results_and_exceptions_through_unchanged() -> None:
 
 
 def test_watchdog_deadline_is_bounded_and_derived_from_configuration() -> None:
-    source = CCXTMarketDataSource("kraken")
+    source = CCXTMarketDataSource("binance")
     try:
         assert source._network_deadline_seconds == 30.0  # 3 x 10s default
     finally:
         source.close()
-    source = CCXTMarketDataSource("kraken", timeout_ms=1_000)
+    source = CCXTMarketDataSource("binance", timeout_ms=1_000)
     try:
         assert source._network_deadline_seconds == float(
             NETWORK_CALL_DEADLINE_MULTIPLIER
@@ -358,7 +341,7 @@ def test_watchdog_abandons_and_rebuilds_the_exchange_after_a_timeout() -> None:
         # The next call rebuilds a fresh exchange with the same finite timeout.
         source._ensure_exchange()
         assert source._exchange is not client
-        assert source._exchange.id == "kraken"
+        assert source._exchange.id == "binance"
         assert source._exchange.timeout == 1_000
         assert source._poisoned is False
     finally:
@@ -376,7 +359,7 @@ def test_watchdog_bounds_a_hung_dns_resolution(monkeypatch) -> None:
     transient, retryable error instead, so the forward runner can react.
     """
 
-    source = CCXTMarketDataSource("kraken", timeout_ms=1_000)  # 3s watchdog
+    source = CCXTMarketDataSource("binance", timeout_ms=1_000)  # 3s watchdog
     hang = threading.Event()
 
     def hung_getaddrinfo(*args, **kwargs):
@@ -412,7 +395,7 @@ def test_ccxt_timeout_alone_does_not_bound_dns_resolution(monkeypatch) -> None:
     operation for an hour while the process stayed alive.
     """
 
-    exchange = ccxt.kraken({"enableRateLimit": True, "timeout": 1_000})
+    exchange = ccxt.binance({"enableRateLimit": True, "timeout": 1_000})
     hang = threading.Event()
 
     def hung_getaddrinfo(*args, **kwargs):
@@ -448,17 +431,17 @@ def test_ccxt_timeout_alone_does_not_bound_dns_resolution(monkeypatch) -> None:
 @pytest.mark.parametrize(
     "error",
     [
-        ccxt.NetworkError("kraken GET https://api.kraken.com/0/public/OHLC: offline"),
-        ccxt.RequestTimeout("kraken GET https://api.kraken.com: request timed out"),
-        ccxt.ExchangeNotAvailable("kraken is temporarily unavailable"),
-        ccxt.DDoSProtection("kraken: rate limit exceeded"),
+        ccxt.NetworkError("binance GET https://api.binance.com/0/public/OHLC: offline"),
+        ccxt.RequestTimeout("binance GET https://api.binance.com: request timed out"),
+        ccxt.ExchangeNotAvailable("binance is temporarily unavailable"),
+        ccxt.DDoSProtection("binance: rate limit exceeded"),
         ConnectionError("connection reset by peer"),
         ConnectionResetError("connection reset"),
         ConnectionRefusedError("connection refused"),
         TimeoutError("timed out"),
         socket.timeout("timed out"),
         socket.gaierror(-2, "temporary failure in name resolution"),
-        ExchangeNetworkTimeout("kraken fetch_ohlcv exceeded its network deadline"),
+        ExchangeNetworkTimeout("binance fetch_ohlcv exceeded its network deadline"),
     ],
 )
 def test_transient_network_errors_are_classified_transient(error: Exception) -> None:
@@ -483,10 +466,10 @@ def test_structural_errors_are_not_classified_transient(error: Exception) -> Non
 def test_wrapped_network_error_is_classified_transient() -> None:
     """The market-data layer wraps exchange errors; the chain is walked."""
 
-    underlying = ccxt.RequestTimeout("kraken: request timed out")
+    underlying = ccxt.RequestTimeout("binance: request timed out")
     try:
         raise ExchangeDataError(
-            "OHLCV fetch failed for kraken BTC/USDT 1h (underlying RequestTimeout)"
+            "OHLCV fetch failed for binance BTC/USDT 1h (underlying RequestTimeout)"
         ) from underlying
     except ExchangeDataError as exc:
         assert is_transient_network_error(exc) is True
@@ -501,11 +484,11 @@ def test_wrapped_watchdog_timeout_is_classified_transient() -> None:
     """
 
     underlying = ExchangeNetworkTimeout(
-        "kraken fetch_ohlcv did not complete within its 3000ms network deadline"
+        "binance fetch_ohlcv did not complete within its 3000ms network deadline"
     )
     try:
         raise ExchangeDataError(
-            "OHLCV fetch failed for kraken BTC/USDT 1h "
+            "OHLCV fetch failed for binance BTC/USDT 1h "
             "(underlying ExchangeNetworkTimeout: ...)"
         ) from underlying
     except ExchangeDataError as exc:

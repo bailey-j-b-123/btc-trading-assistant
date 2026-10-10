@@ -68,10 +68,9 @@ class MarketDataUpdateResult:
     excluded_open_count: int
     gaps: tuple[CandleGap, ...]
     raw_files: tuple[Path, ...]
-    #: Response rows outside the requested range (routine for cursor-less
-    #: rolling-window endpoints such as Kraken, which always serve their newest
-    #: entries). Excluded, never stored; reported so received/accepted stays
-    #: exactly reconcilable.
+    #: Response rows outside the requested range (possible for a rolling-window
+    #: source that returns newer entries than requested). Excluded, never
+    #: stored; reported so received/accepted stays exactly reconcilable.
     excluded_range_count: int = 0
 
     @property

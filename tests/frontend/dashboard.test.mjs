@@ -119,7 +119,7 @@ function backendDashboard(overrides = {}) {
     ],
   };
   return {
-    meta: { exchange: "kraken", symbol: "BTC/USDT", timeframe: "1h", as_of: timestamp },
+    meta: { exchange: "binance", symbol: "BTC/USDT", timeframe: "1h", as_of: timestamp },
     market: {
       candles: [
         [1791284400000, "62000", "62120", "61920", "62080", "12.4"],

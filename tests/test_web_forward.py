@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import pytest
 from forward_fixtures import (
-    EXCHANGE,
     INTERVAL,
     QUALIFYING_BOUNDARY,
     SYMBOL,
@@ -177,13 +176,13 @@ def test_forward_view_without_any_stored_candle_is_unknown_not_zero_prices(tmp_p
 def test_forward_endpoints_are_read_only(empty_client) -> None:
     engine, client = empty_client
     service = client.app.state.services.forward
-    before = service.ledger.counts(exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME)
+    before = service.ledger.counts(exchange="binance", symbol=SYMBOL, timeframe=TIMEFRAME)
 
     for _ in range(2):
         assert client.get("/api/forward").status_code == 200
     assert client.get("/api/forward/comparison").status_code == 200
 
-    after = service.ledger.counts(exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME)
+    after = service.ledger.counts(exchange="binance", symbol=SYMBOL, timeframe=TIMEFRAME)
     assert after == before
     assert before["cycles"] == 0
     assert before["observations"] == 0
@@ -238,7 +237,7 @@ def test_seeded_forward_view_shows_paper_observations_not_trades(seeded_client) 
         assert item["plan_state"] in {"PLANNABLE", "NO_PLAN", "WATCH_ONLY", None}
         if item["plan_state"] != "PLANNABLE":
             assert item["paper_plan_id"] is None
-        assert item["exchange"] == EXCHANGE
+        assert item["exchange"] == "binance"
         assert item["symbol"] == SYMBOL
         assert item["timeframe"] == TIMEFRAME
         assert item["as_of"]
