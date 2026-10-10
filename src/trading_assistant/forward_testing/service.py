@@ -762,6 +762,18 @@ class ForwardTestService:
         )
         to_process = opens[: self.parameters.max_catch_up_candles]
         remaining = len(opens) - len(to_process)
+        new_closes = {
+            open_time + interval
+            for open_time in self._pending_opens(
+                exchange=exchange,
+                symbol=resolved_symbol,
+                timeframe=resolved_timeframe,
+                latest_cycle=latest_cycle,
+                target_boundary=target_boundary,
+                interval=interval,
+                include_retries=False,
+            )
+        }
 
         required_depth = required_trailing_depth(
             structure=self.structure_parameters,
@@ -959,15 +971,28 @@ class ForwardTestService:
                 recorded_at=instant,
             )
 
-        status = HeartbeatStatus.PROCESSED
-        detail = (
-            f"processed {len(processed_boundaries)} closed candle(s); "
-            f"{observations_recorded} forward observation(s), "
-            f"{paper_plans_created} new paper plan(s), "
-            f"{outcomes_recorded} outcome version(s)"
-            + (f"; {remaining} boundary(ies) still pending" if remaining else "")
-            + ("" if market_error is None else f"; market-data error: {market_error}")
+        progressed = cycles_recorded > 0 or any(
+            boundary in new_closes for boundary in processed_boundaries
         )
+        status = HeartbeatStatus.PROCESSED if progressed else HeartbeatStatus.IDLE
+        error_suffix = (
+            "" if market_error is None else f"; market-data error: {market_error}"
+        )
+        if progressed:
+            detail = (
+                f"processed {len(processed_boundaries)} closed candle(s); "
+                f"{observations_recorded} forward observation(s), "
+                f"{paper_plans_created} new paper plan(s), "
+                f"{outcomes_recorded} outcome version(s)"
+                + (f"; {remaining} boundary(ies) still pending" if remaining else "")
+                + error_suffix
+            )
+        else:
+            detail = (
+                "no new closed candle since the last recorded boundary; "
+                f"{len(processed_boundaries)} unfinished close(s) re-checked, "
+                "no new data" + error_suffix
+            )
         heartbeat = self._heartbeat(
             status=status,
             detail=detail,
@@ -1374,59 +1399,86 @@ class ForwardTestService:
         latest_cycle: ForwardCycle | None,
         target_boundary: datetime,
         interval,
+        include_retries: bool = True,
     ) -> tuple[datetime, ...]:
-        last_open = target_boundary - interval
-        start_boundary = self._start_boundary(
-            exchange=exchange, symbol=symbol, timeframe=timeframe, interval=interval
-        )
-        start_open = last_open if start_boundary is None else start_boundary - interval
-        if start_open > last_open:
-            return ()
-        count = int((last_open - start_open) // interval) + 1
-        return tuple(start_open + index * interval for index in range(count))
+        """Closed-candle opens this pass must process, chronologically.
 
-    def _start_boundary(
-        self,
-        *,
-        exchange: str,
-        symbol: str,
-        timeframe: str,
-        interval,
-    ) -> datetime | None:
-        """The first close this pass must (re)process, chronologically.
+        Three rules keep the forward ledger append-only and the runner moving:
 
-        Boundaries that were recorded without a complete conclusion are retried:
-        when a missing candle later arrives, the close is re-analysed and the
-        recovered conclusion is recorded as its own row. A boundary that already
-        has a complete cycle is never recomputed from changed data.
+        * a close that already has a COMPLETE cycle is never recomputed, even
+          when it sits between an earlier unfinished close and the target. The
+          previous contiguous range re-ran every close from the earliest
+          unfinished one, which re-derived complete history from data that had
+          since changed and made the append-only check refuse the pass;
+        * a close recorded WITHOUT a complete conclusion (missing candle,
+          insufficient history, incomplete window) is retried, because its
+          data may have arrived since. Each retry records its conclusion as its
+          own versioned cycle (the cycle identity covers every input);
+        * retries run on every pass, because a candle can arrive for an old
+          close without any new close existing (the recovered-candle contract).
+          A pass whose only work is retries that record nothing new is reported
+          IDLE by ``run_once``, so a permanently unfinished close cannot make
+          the runner look busy.
+
+        ``include_retries=False`` returns only the genuinely new closes.
         """
 
+        last_open = target_boundary - interval
         cycles = self.ledger.cycles(
             exchange=exchange, symbol=symbol, timeframe=timeframe
         )
-        complete = {cycle.as_of for cycle in cycles if cycle.complete}
-        unfinished = sorted(
-            {cycle.as_of for cycle in cycles if not cycle.complete} - complete
+        recorded_opens = {cycle.as_of - interval for cycle in cycles}
+        # Retry only closes whose missing data can still arrive. An
+        # INSUFFICIENT_HISTORY close is a settled fact about the history before
+        # it (it never gains older candles), so it is never re-run.
+        unfinished_opens = {
+            cycle.as_of - interval
+            for cycle in cycles
+            if not cycle.complete
+            and cycle.status is not CycleStatus.INSUFFICIENT_HISTORY
+        } - {cycle.as_of - interval for cycle in cycles if cycle.complete}
+        next_boundary = self._next_new_boundary(
+            complete_boundaries=[cycle.as_of for cycle in cycles if cycle.complete],
+            timeframe=timeframe,
+            interval=interval,
         )
-        if complete:
-            next_boundary = max(complete) + interval
-        elif self.ledger_start is not None:
+        first_new_open = last_open if next_boundary is None else next_boundary - interval
+        new_opens: list[datetime] = []
+        if first_new_open <= last_open:
+            count = int((last_open - first_new_open) // interval) + 1
+            for index in range(count):
+                candidate = first_new_open + index * interval
+                if candidate in recorded_opens:
+                    continue
+                new_opens.append(candidate)
+        if not include_retries:
+            return tuple(sorted(new_opens))
+        retries = {open_time for open_time in unfinished_opens if open_time <= last_open}
+        return tuple(sorted({*new_opens, *retries}))
+
+    def _next_new_boundary(
+        self,
+        *,
+        complete_boundaries: list[datetime],
+        timeframe: str,
+        interval,
+    ) -> datetime | None:
+        """The first close boundary that has never been analysed (or ``None``).
+
+        Uses the newest COMPLETE close when one exists; otherwise the configured
+        ``ledger_start`` (or ``None``, meaning "the latest close only").
+        """
+
+        if complete_boundaries:
+            return max(complete_boundaries) + interval
+        if self.ledger_start is not None:
             latest_closed = latest_closed_candle_open_time(self.ledger_start, timeframe)
-            next_boundary = (
+            return (
                 self.ledger_start
                 if latest_closed + interval == self.ledger_start
                 else latest_closed + interval
             )
-        else:
-            next_boundary = None
-        retryable = [
-            boundary
-            for boundary in unfinished
-            if next_boundary is None or boundary < next_boundary
-        ]
-        if retryable:
-            return retryable[0]
-        return next_boundary
+        return None
 
     def _pending_boundaries(
         self,
@@ -1719,6 +1771,13 @@ class ForwardTestService:
             if (not concluded or frame is None or snapshot is None)
             else snapshot_identity(snapshot)
         )
+        # The identity covers the boundary-local inputs that define the close's
+        # conclusion. A retry of an unfinished close whose own data has since
+        # arrived produces a NEW versioned row; re-recording identical inputs is
+        # a verified no-op. Whole-series, pass-time values (latest stored candle,
+        # staleness counts, free-text detail) are deliberately excluded: they
+        # change on every new close and would otherwise append a fresh row for
+        # every permanently unfinished close on every pass (see repository).
         cycle_id = fingerprint(
             "forward-cycle",
             exchange,
@@ -1728,9 +1787,10 @@ class ForwardTestService:
             open_time,
             status,
             snapshot_id_value,
-            context.missing_candle_count > 0,
-            context.structure_fingerprint if concluded else None,
-            context.pattern_fingerprint if concluded else None,
+            context.missing_candle_count,
+            context.source_candle_count,
+            context.structure_fingerprint,
+            context.pattern_fingerprint,
             context.version_fingerprint,
         )
         recorded_items: list[ForwardObservation] = []

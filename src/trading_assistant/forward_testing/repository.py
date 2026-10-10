@@ -61,10 +61,30 @@ from trading_assistant.trade_planning.models import PlanState
 #: Deterministic columns compared when an identical identity is re-recorded.
 #: Derived from the stored row shape so JSON-backed columns are compared in their
 #: stored text form; only genuinely informational columns are skipped.
+#: Informational, pass-time columns. They describe the pass that first recorded
+#: a close (whole-series latest candle, staleness relative to the newest stored
+#: candle, free-text detail), change on every new close, and are therefore
+#: neither part of the cycle identity nor compared by the append-only check.
+_CYCLE_INFORMATIONAL_FIELDS = frozenset(
+    {
+        "recorded_at",
+        "market_data_json",
+        "notes_json",
+        "latest_stored_candle",
+        "staleness_intervals",
+        "data_health_detail",
+        # Freshness label: CURRENT while the close is the newest stored one and
+        # HISTORICAL afterwards. The same close is CURRENT when recorded live and
+        # HISTORICAL when caught up later, so it must not change the identity.
+        # The conclusion itself is carried by ``status``.
+        "data_health",
+    }
+)
+
 _CYCLE_IDENTITY_FIELDS = tuple(
     name
     for name in ForwardCycleRow.__table__.columns.keys()
-    if name not in {"recorded_at", "market_data_json", "notes_json"}
+    if name not in _CYCLE_INFORMATIONAL_FIELDS
 )
 
 _OBSERVATION_IDENTITY_FIELDS = tuple(
