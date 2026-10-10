@@ -157,6 +157,10 @@ export function createPriceChart(container, { height } = {}) {
     volume,
     container,
     priceLineHandles: [],
+    // Chart evidence (markers + pattern line series) and event subscriptions are
+    // tracked separately so a timeframe switch or refresh removes exactly them.
+    evidenceSeries: [],
+    eventUnsubscribers: [],
     resizeObserver: null,
     resizeListener: null,
     destroyed: false,
@@ -263,6 +267,8 @@ export function clearOverlays(handle) {
 export function destroyPriceChart(handle) {
   if (!handle || handle.destroyed) return;
   clearOverlays(handle);
+  clearEvidence(handle);
+  unsubscribeChartEvents(handle);
   handle.destroyed = true;
   handle.resizeObserver?.disconnect();
   if (handle.resizeListener && typeof window !== "undefined") {
@@ -378,4 +384,130 @@ export function applyOverlays(handle, payload = {}) {
     });
   }
   flush();
+}
+
+// ---------------------------------------------------------------------------
+// Chart evidence: markers and pattern lines drawn from the pure evidence model
+// (evidence.js). Every object created here is tracked on the handle and removed
+// by clearEvidence(), so switching timeframe or refreshing never leaves a stale
+// marker, line series, or subscription behind.
+// ---------------------------------------------------------------------------
+
+/** Remove every evidence marker, line series and price line this module added. */
+export function clearEvidence(handle) {
+  if (!handle) return;
+  if (handle.series && typeof handle.series.setMarkers === "function") {
+    try {
+      handle.series.setMarkers([]);
+    } catch {
+      // The series may already be torn down; nothing else is tracked for it.
+    }
+  }
+  const lines = Array.isArray(handle.evidenceSeries) ? handle.evidenceSeries.splice(0) : [];
+  for (const line of lines) {
+    try {
+      handle.chart?.removeSeries?.(line);
+    } catch {
+      // Keep removing the remaining tracked series.
+    }
+  }
+}
+
+/**
+ * Draw an evidence model: markers on the confirmed candle series and one line
+ * series per pattern segment. Nothing is interpolated: points are the exact
+ * candle times that the model already verified exist on screen.
+ */
+export function setEvidence(handle, model) {
+  if (!handle || handle.destroyed) return;
+  clearEvidence(handle);
+  const markers = Array.isArray(model?.markers)
+    ? model.markers.filter((marker) => Number.isFinite(marker.time)).sort((a, b) => a.time - b.time)
+    : [];
+  if (handle.series && typeof handle.series.setMarkers === "function") {
+    handle.series.setMarkers(markers);
+  }
+  if (!handle.chart || typeof handle.chart.addLineSeries !== "function") return;
+  for (const line of Array.isArray(model?.patternLines) ? model.patternLines : []) {
+    // Lightweight Charts requires strictly ascending times: keep one point per time.
+    const byTime = new Map();
+    for (const point of line.points || []) {
+      if (Number.isFinite(point.time) && Number.isFinite(point.value)) byTime.set(point.time, point.value);
+    }
+    const data = [...byTime.entries()].sort((a, b) => a[0] - b[0]).map(([time, value]) => ({ time, value }));
+    if (data.length < 2) continue;
+    const series = handle.chart.addLineSeries({
+      color: line.color,
+      lineWidth: line.lineWidth || 1,
+      lineStyle: line.lineStyle ?? 0,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    });
+    series.setData(data);
+    handle.evidenceSeries.push(series);
+  }
+}
+
+/**
+ * Subscribe to candle clicks and crosshair moves. Returns an unsubscribe
+ * function; subscriptions are also released by destroyPriceChart().
+ * onClick receives the exact bar time (seconds) under the cursor, or null.
+ * onCrosshair receives the confirmed bar's OHLC and volume under the cursor.
+ */
+export function subscribeChartEvents(handle, { onClick, onCrosshair } = {}) {
+  if (!handle || handle.destroyed || !handle.chart) return () => {};
+  const chart = handle.chart;
+  const unsubscribers = [];
+  if (typeof onClick === "function" && typeof chart.subscribeClick === "function") {
+    const listener = (param) => {
+      const time = param && Number.isFinite(param.time) ? Number(param.time) : null;
+      onClick(time);
+    };
+    chart.subscribeClick(listener);
+    unsubscribers.push(() => chart.unsubscribeClick?.(listener));
+  }
+  if (typeof onCrosshair === "function" && typeof chart.subscribeCrosshairMove === "function") {
+    const listener = (param) => {
+      const bar = param?.seriesData?.get?.(handle.series) || null;
+      const volumeBar = handle.volume ? param?.seriesData?.get?.(handle.volume) || null : null;
+      onCrosshair(bar && Number.isFinite(bar.open)
+        ? { time: Number(param.time), open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: volumeBar?.value ?? null }
+        : null);
+    };
+    chart.subscribeCrosshairMove(listener);
+    unsubscribers.push(() => chart.unsubscribeCrosshairMove?.(listener));
+  }
+  const release = () => {
+    for (const undo of unsubscribers.splice(0)) {
+      try { undo(); } catch { /* chart already removed */ }
+    }
+  };
+  handle.eventUnsubscribers.push(release);
+  return release;
+}
+
+export function unsubscribeChartEvents(handle) {
+  if (!handle || !Array.isArray(handle.eventUnsubscribers)) return;
+  for (const release of handle.eventUnsubscribers.splice(0)) release();
+}
+
+/**
+ * Thin, tracked price lines for higher-timeframe zones. Titles carry the source
+ * timeframe so they can never be mistaken for the viewed timeframe's levels.
+ * Lines are tracked in priceLineHandles and removed by clearOverlays().
+ */
+export function addHigherTimeframeLines(handle, entries) {
+  if (!handle || handle.destroyed || !handle.series || typeof handle.series.createPriceLine !== "function") return;
+  if (!Array.isArray(handle.priceLineHandles)) handle.priceLineHandles = [];
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const price = finiteNumber(entry.price);
+    if (price === null || price <= 0) continue;
+    handle.priceLineHandles.push(handle.series.createPriceLine(priceLine(price, {
+      color: entry.color || OVERLAY_COLORS.reference,
+      title: entry.title,
+      style: 3,
+      width: 1,
+    })));
+  }
 }

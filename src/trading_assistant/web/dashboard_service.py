@@ -9,7 +9,9 @@ parameters, so planning and explanation consume exactly what Step 5 saw.
 
 from __future__ import annotations
 
+import copy
 import logging
+from collections import OrderedDict
 from datetime import datetime
 
 from trading_assistant.journaling.parameters import normalize_note
@@ -54,6 +56,10 @@ from trading_assistant.trade_planning.models import PlanState, TradePlanResult
 from trading_assistant.trade_planning.planner import plan_trade
 from trading_assistant.web.freshness import FreshnessReport, evaluate_freshness
 from trading_assistant.web.state import AppState
+
+#: Small in-process memo for chart evidence (bounded; keyed on the exact window).
+_CHART_EVIDENCE_CACHE: "OrderedDict[tuple, dict]" = OrderedDict()
+_CHART_EVIDENCE_CACHE_LIMIT = 32
 
 logger = logging.getLogger(__name__)
 
@@ -258,6 +264,12 @@ class DashboardService:
             "plan": None if plan is None else plan.to_json_dict(),
             "planning": planning_payload,
             "overlays": overlays,
+            "chart_evidence": self._chart_evidence_at(
+                exchange=exchange,
+                symbol=resolved_symbol,
+                timeframe=resolved_timeframe,
+                as_of=resolved_as_of,
+            ),
             "journal": journal_payload,
             "explanation": explanation_payload,
             "multi_timeframe": multi_timeframe_payload,
@@ -349,6 +361,117 @@ class DashboardService:
             "swings": to_jsonable(analysis.confirmed_swings),
             "completeness": to_jsonable(snapshot.completeness),
         }
+
+    def chart_evidence(
+        self,
+        *,
+        symbol: str | None = None,
+        timeframe: str | None = None,
+        as_of: datetime | None = None,
+    ) -> dict[str, object]:
+        """Chart evidence for one timeframe at one instant (read-only).
+
+        Runs the existing Step 3/4 detectors over the last
+        ``CHART_EVIDENCE_WINDOW`` closed candles at ``as_of`` (default: the
+        current closed boundary) and projects them for the chart. It does not
+        alter the engine's qualification, plan, journal, or forward ledger.
+        """
+
+        state = self.state
+        resolved_symbol = state.require_symbol(symbol)
+        resolved_timeframe = (
+            state.settings.default_timeframe if timeframe is None else timeframe
+        )
+        state.require_supported_timeframe(resolved_timeframe)
+        exchange = state.settings.exchange
+        now = state.now()
+        if as_of is None:
+            resolved_as_of = state.current_boundary(resolved_timeframe)
+        else:
+            resolved_as_of = self._resolve_as_of(
+                timeframe=resolved_timeframe,
+                as_of=require_utc_datetime(as_of, field_name="as_of"),
+                now=now,
+            )
+        return self._chart_evidence_at(
+            exchange=exchange,
+            symbol=resolved_symbol,
+            timeframe=resolved_timeframe,
+            as_of=resolved_as_of,
+        )
+
+    def _chart_evidence_at(
+        self,
+        *,
+        exchange: str,
+        symbol: str,
+        timeframe: str,
+        as_of: datetime,
+    ) -> dict[str, object]:
+        from trading_assistant.market_data.timeframes import (
+            latest_closed_candle_open_time as _latest_open,
+        )
+        from trading_assistant.market_structure.candles import interval_for_timeframe
+        from trading_assistant.pattern_liquidity.analysis import analyze_patterns
+        from trading_assistant.web.chart_evidence import (
+            CHART_EVIDENCE_WINDOW,
+            build_chart_evidence,
+            unavailable_chart_evidence,
+        )
+
+        interval = interval_for_timeframe(timeframe)
+        stored = self.state.candles.get_candles(
+            exchange=exchange,
+            symbol=symbol,
+            timeframe=timeframe,
+            end_time=_latest_open(as_of, timeframe),
+        )
+        window = tuple(stored.candles[-CHART_EVIDENCE_WINDOW:])
+        if not window:
+            return unavailable_chart_evidence(
+                exchange=exchange,
+                symbol=symbol,
+                timeframe=timeframe,
+                as_of=as_of,
+                reason="No stored closed candles exist at this decision time.",
+            )
+        # Chart evidence is a pure function of (instant, exact candle window):
+        # the same inputs always give the same payload, so repeat reads (dashboard
+        # refreshes, switching back to a timeframe) reuse it. Failures are never cached.
+        cache_key = (exchange, symbol, timeframe, as_of, window)
+        cached = _CHART_EVIDENCE_CACHE.get(cache_key)
+        if cached is not None:
+            _CHART_EVIDENCE_CACHE.move_to_end(cache_key)
+            return copy.deepcopy(cached)
+        try:
+            snapshot = analyze_patterns(
+                window,
+                exchange=exchange,
+                symbol=symbol,
+                timeframe=timeframe,
+                as_of=as_of,
+            )
+        except ValueError as exc:
+            return unavailable_chart_evidence(
+                exchange=exchange,
+                symbol=symbol,
+                timeframe=timeframe,
+                as_of=as_of,
+                reason=f"Stored candles could not be analysed: {exc}",
+            )
+        payload = build_chart_evidence(
+            exchange=exchange,
+            symbol=symbol,
+            timeframe=timeframe,
+            as_of=as_of,
+            snapshot=snapshot,
+            candles=window,
+            interval=interval,
+        )
+        _CHART_EVIDENCE_CACHE[cache_key] = copy.deepcopy(payload)
+        while len(_CHART_EVIDENCE_CACHE) > _CHART_EVIDENCE_CACHE_LIMIT:
+            _CHART_EVIDENCE_CACHE.popitem(last=False)
+        return payload
 
     def _required_window(
         self,

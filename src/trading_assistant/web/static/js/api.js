@@ -44,6 +44,7 @@ export const api = {
   dashboard: (params = {}) => request("GET", `/api/dashboard${queryString(params)}`),
   candles: (params = {}) => request("GET", `/api/market/candles${queryString(params)}`),
   structure: (params = {}) => request("GET", `/api/market/structure${queryString(params)}`),
+  annotations: (params = {}) => request("GET", `/api/market/annotations${queryString(params)}`),
   journalList: (params = {}) => request("GET", `/api/journal/records${queryString(params)}`),
   journalDetail: (journalId) => request("GET", `/api/journal/records/${encodeURIComponent(journalId)}`),
   recordDecision: (journalId, body) =>

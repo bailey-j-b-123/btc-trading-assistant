@@ -53,6 +53,22 @@ def get_structure(
     return service.structure(symbol=symbol, timeframe=timeframe, as_of=parsed_as_of)
 
 
+@router.get("/annotations")
+def get_annotations(
+    request: Request,
+    symbol: str | None = Query(default=None, min_length=1, max_length=64),
+    timeframe: str | None = Query(default=None, min_length=1, max_length=8),
+    as_of: str | None = Query(default=None, min_length=20, max_length=40),
+) -> dict[str, object]:
+    """Read-only chart evidence (swings, patterns, breakouts, candle shapes)."""
+    state = request.app.state.services
+    service = DashboardService(state)
+    parsed_as_of: datetime | None = None
+    if as_of is not None:
+        parsed_as_of = parse_utc_iso(as_of, field_name="as_of")
+    return service.chart_evidence(symbol=symbol, timeframe=timeframe, as_of=parsed_as_of)
+
+
 @router.get("/live-price")
 def get_live_price() -> dict[str, object]:
     """Public display-only quote; never reads or writes stored candle tables."""
