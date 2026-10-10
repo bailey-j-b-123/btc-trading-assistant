@@ -1,0 +1,17 @@
+{
+  "name": "brain-browser-audit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Readiness-based browser audit for the BRAIN dashboard (desktop, tablet and phone screenshots).",
+  "type": "module",
+  "main": "audit.mjs",
+  "scripts": {
+    "audit": "node audit.mjs"
+  },
+  "dependencies": {
+    "puppeteer-core": "^23.11.1"
+  },
+  "optionalDependencies": {
+    "@sparticuz/chromium": "^131.0.1"
+  }
+}
