@@ -1385,3 +1385,13 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 
 /* Marker key under the chart: small, muted, wraps on narrow screens. */
 .chart-marker-key { font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
+
+/* Support / resistance bands on the chart. The bands are decorative and never take
+   pointer events, so candles under them stay clickable; only the labels are controls. */
+.zone-band-layer { position: absolute; inset: 0; pointer-events: none; z-index: 2; overflow: hidden; }
+.zone-band { position: absolute; left: 0; right: 0; background: var(--zone-fill); border-top: 1px solid var(--zone-edge); border-bottom: 1px solid var(--zone-edge); pointer-events: none; }
+.zone-band--htf { border-style: dashed; }
+.zone-band--faded { opacity: 0.45; }
+.zone-band-label { position: absolute; right: 6px; pointer-events: auto; cursor: pointer; font-size: 10.5px; line-height: 1.2; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); background: rgba(7, 11, 22, 0.88); border: 1px solid var(--zone-edge); border-radius: 999px; padding: 2px 8px; max-width: 60%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.zone-band-label:focus-visible { outline: 2px solid var(--zone-edge); outline-offset: 2px; }
+.zone-band-offview { position: absolute; left: 8px; bottom: 8px; font-size: 11px; color: var(--text-muted); background: rgba(7, 11, 22, 0.88); padding: 2px 6px; border-radius: 6px; pointer-events: none; }

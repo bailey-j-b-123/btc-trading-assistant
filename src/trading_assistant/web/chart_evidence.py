@@ -129,9 +129,21 @@ def _pattern_item(pattern: ChartPattern, latest_ids: set[str], interval: timedel
         for point in pattern.components
     ]
     geometry = pattern.geometry
+    # Lifecycle anchors. known_at is a close boundary (e.g. 18:00 for the 17:00 candle), so it
+    # is NOT a candle open and cannot be used to place a marker. The anchor is the candle the
+    # event happened on: the last swing for "formed", the candle that closed through the
+    # neckline or the invalidation level for "confirmed"/"invalidated".
+    if pattern.state == "formed":
+        anchor = pattern.formation_timestamp
+    else:
+        anchor = pattern.known_at - interval
     return {
         "id": pattern.id,
         "evidence_kind": "pattern",
+        "anchor_time": _iso(anchor),
+        "anchor_time_ms": _ms(anchor),
+        "confirmed_at": _iso(pattern.known_at) if pattern.state == "confirmed" else None,
+        "invalidated_at": _iso(pattern.known_at) if pattern.state == "invalidated" else None,
         "pattern_id": pattern.pattern_id,
         "type": pattern.type,
         "label": PATTERN_LABELS[pattern.type],

@@ -153,6 +153,11 @@ function doubleTopPattern(state, extra = {}) {
     known_at: iso(state === "formed" ? 9 : state === "confirmed" ? 12 : 13),
     formed_at: iso(9),
     confirmation_time: state === "confirmed" ? iso(12) : null,
+    // Backend anchors (candle opens): formed -> last swing candle; confirmed/invalidated -> the
+    // candle whose close is the known_at boundary (known_at - 1 interval).
+    anchor_time: state === "formed" ? iso(6) : state === "confirmed" ? iso(11) : iso(12),
+    confirmed_at: state === "confirmed" ? iso(12) : null,
+    invalidated_at: state === "invalidated" ? iso(13) : null,
     neckline: "99.0",
     invalidation_level: "111.2",
     components,
@@ -187,7 +192,8 @@ test("a confirmed pattern ends its neckline at the confirmation candle and label
     layers: LAYERS_ON,
   });
   const neckline = model.patternLines.find((line) => line.role === "pattern-neckline");
-  assert.equal(neckline.points[1].time, toSeconds(ms(12)));
+  // The neckline stops at the candle that closed through it (open ms(11)), not at its close boundary (ms(12)).
+  assert.equal(neckline.points[1].time, toSeconds(ms(11)));
   assert.equal(model.markers.find((item) => item.text.startsWith("Double top")).text, "Double top · confirmed");
 });
 
@@ -383,4 +389,80 @@ test("breakout arrows point the way their label says; retests use a circle", () 
   assert.equal(up.position, "belowBar");
   const retest = model.markers.find((marker) => marker.shape === "circle");
   assert.ok(retest, "retest is drawn as a circle");
+});
+
+// --- Pattern timing edge cases (audit P2): the latest candle and the lifecycle -------------
+
+test("a confirmation on the latest stored candle keeps its marker even though known_at is the close boundary", () => {
+  // Stored candles 0..12; the breaking candle is 12, the latest one. known_at = ms(13) = as_of
+  // lies beyond candle 12's open. Before the fix the anchor was the boundary and the marker vanished.
+  const pattern = doubleTopPattern("confirmed");
+  pattern.known_at = iso(13);
+  pattern.confirmation_time = iso(13);
+  pattern.confirmed_at = iso(13);
+  pattern.anchor_time = iso(12);
+  const model = buildEvidenceModel({ evidence: evidence({ patterns: [pattern] }), candles: rows(13), asOfMs: ms(13), layers: LAYERS_ON });
+  const marker = model.markers.find((item) => item.text === "Double top · confirmed");
+  assert.ok(marker, "marker must still be drawn on the latest candle");
+  assert.equal(marker.time, toSeconds(ms(12)));
+  assert.equal(model.counts.patterns, 1);
+});
+
+test("a newly formed pattern on the latest candle keeps its marker, anchored on its last swing", () => {
+  const pattern = doubleTopPattern("formed");
+  pattern.known_at = iso(13);
+  pattern.formed_at = iso(13);
+  pattern.anchor_time = iso(6); // last swing candle, not the close boundary
+  const model = buildEvidenceModel({ evidence: evidence({ patterns: [pattern] }), candles: rows(13), asOfMs: ms(13), layers: LAYERS_ON });
+  const marker = model.markers.find((item) => item.text.startsWith("Double top"));
+  assert.ok(marker, "formed marker must not be dropped for a boundary timestamp");
+  assert.equal(marker.time, toSeconds(ms(6)));
+  assert.equal(model.counts.patterns, 1);
+});
+
+test("an invalidation label is placed on the invalidating candle, not at formation", () => {
+  const model = buildEvidenceModel({
+    evidence: evidence({ patterns: [doubleTopPattern("invalidated", { confirmation_time: null })] }),
+    candles: rows(20),
+    asOfMs: ms(14),
+    layers: LAYERS_ON,
+  });
+  const marker = model.markers.find((item) => item.text === "Double top · invalidated");
+  assert.ok(marker);
+  assert.equal(marker.time, toSeconds(ms(12)), "the invalidating candle");
+  assert.notEqual(marker.time, toSeconds(ms(9)), "must not look like it invalidated at formation");
+});
+
+test("an invalidated pattern's level stops at the invalidating candle", () => {
+  const model = buildEvidenceModel({
+    evidence: evidence({ patterns: [doubleTopPattern("invalidated", { confirmation_time: null })] }),
+    candles: rows(20),
+    asOfMs: ms(14),
+    layers: LAYERS_ON,
+  });
+  const level = model.patternLines.find((line) => line.role === "pattern-invalidation");
+  assert.equal(level.points[1].time, toSeconds(ms(12)));
+});
+
+test("a formed pattern's level still runs to the latest candle", () => {
+  const model = buildEvidenceModel({
+    evidence: evidence({ patterns: [doubleTopPattern("formed")] }),
+    candles: rows(20),
+    asOfMs: ms(13),
+    layers: LAYERS_ON,
+  });
+  const level = model.patternLines.find((line) => line.role === "pattern-invalidation");
+  assert.equal(level.points[1].time, toSeconds(ms(19)));
+});
+
+test("legacy payloads without anchor_time still anchor formed patterns, and never guess a confirmed anchor from a boundary", () => {
+  const legacyFormed = doubleTopPattern("formed");
+  delete legacyFormed.anchor_time;
+  const formedModel = buildEvidenceModel({ evidence: evidence({ patterns: [legacyFormed] }), candles: rows(20), asOfMs: ms(13), layers: LAYERS_ON });
+  assert.equal(formedModel.markers.find((item) => item.text.startsWith("Double top")).time, toSeconds(ms(9)));
+
+  const legacyConfirmed = doubleTopPattern("confirmed");
+  delete legacyConfirmed.anchor_time;
+  const confirmedModel = buildEvidenceModel({ evidence: evidence({ patterns: [legacyConfirmed] }), candles: rows(20), asOfMs: ms(13), layers: LAYERS_ON });
+  assert.equal(confirmedModel.markers.filter((item) => item.text.startsWith("Double top")).length, 0);
 });

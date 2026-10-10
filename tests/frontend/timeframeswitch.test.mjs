@@ -865,7 +865,7 @@ test("existing dashboard behaviour still works alongside the new UI", async () =
     assert.match(view.textContent, /No snapshot to explain\./);
     assert.equal(ids.get("topbar-symbol").textContent, SYMBOL);
     assert.equal(ids.get("topbar-timeframe").textContent, "1H");
-    assert.equal(ids.get("topbar-status").textContent, "SYSTEM OK");
+    assert.match(ids.get("topbar-status").textContent, /^DATA CURRENT · RUNNER /);
     assert.equal(chartState.charts.length, 1);
     assert.deepEqual(chartState.charts[0].candleData, toChartCandles(ENGINE_ROWS));
     assert.equal(chartState.charts[0].volumeData.length, ENGINE_ROWS.length);
@@ -908,7 +908,8 @@ test("manual S/R toggle reveals the stored structure without changing setup or h
     assert.equal(button.getAttribute("aria-pressed"), "false");
     click(button);
     assert.equal(button.getAttribute("aria-pressed"), "true");
-    assert.deepEqual(drawnLines(chartState), ["Support low@61900", "Support high@62000"]);
+    // Zones are shaded bands (zone-bands.test.mjs), never boundary price lines: the toggle adds no lines.
+    assert.deepEqual(drawnLines(chartState), []);
     assert.equal(prefWrites.length, 1);
     assert.deepEqual(chartState.charts[0].candleData, toChartCandles(ENGINE_ROWS));
     assert.equal(dashboard.qualification.state, "WATCH");

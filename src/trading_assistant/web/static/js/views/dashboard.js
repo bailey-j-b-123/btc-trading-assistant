@@ -18,7 +18,7 @@ import {
   DECISION_MEANINGS,
 } from "../decision.js";
 import {
-  addHigherTimeframeLines,
+  setZoneBands,
   applyOverlays,
   clearEvidence,
   clearOverlays,
@@ -37,7 +37,7 @@ import {
   isoMs,
   itemsAtTime,
 } from "../evidence.js";
-import { explainEvidence } from "../explain.js";
+import { explainEvidence, explainZoneBand } from "../explain.js";
 import { botWatchingCard, rawRuleRows } from "../bot-watching.js";
 import {
   directionArrow,
@@ -449,8 +449,8 @@ const CHART_LAYER_TOGGLES = Object.freeze([
   { id: "structure", label: "Structure", layer: "structure", color: "#8ea0bd", hint: "Confirmed swing labels (HH, HL, LH, LL) at their candle, shown from confirmation." },
   { id: "patterns", label: "Patterns", layer: "patterns", color: "#e8a33d", hint: "Double top/bottom and head and shoulders only: formed, confirmed or invalidated." },
   { id: "breakouts", label: "Breakouts & sweeps", layer: "breakouts", color: "#2fbf7f", hint: "Breakouts, failed breakouts, sweeps and retests that BRAIN detected." },
-  { id: "levels", label: "Support / resistance", layer: "levels", overlay: "zones", color: OVERLAY_COLORS.zones, hint: "Stored S/R zones and the active range, as price lines." },
-  { id: "htfLevels", label: "Higher-TF levels", layer: "htfLevels", color: OVERLAY_COLORS.reference, hint: "Zones from the next higher timeframe, thin and labelled with that timeframe." },
+  { id: "levels", label: "Support / resistance", layer: "levels", overlay: "zones", color: OVERLAY_COLORS.zones, hint: "Shaded support and resistance bands from stored zones, nearest first. Click a band label to inspect it." },
+  { id: "htfLevels", label: "Higher-TF levels", layer: "htfLevels", color: OVERLAY_COLORS.reference, hint: "Higher-timeframe zone bands, dashed and labelled with their timeframe. Never mixed with this chart's own levels." },
   { id: "plan", label: "Trade planning", layer: "plan", overlay: "planLevels", color: OVERLAY_COLORS.entry, hint: "Entry, stop, invalidation and targets from the engine's paper plan. Never an order." },
   { id: "candleSignals", label: "Candle shapes", layer: "candleSignals", color: "#a7b0c2", hint: "Descriptive candle shapes. Not trade signals and never part of qualification." },
   { id: "equalLevels", label: "Liquidity", overlay: "equalLevels", color: OVERLAY_COLORS.equalLevels, hint: "Equal highs and lows. Only on the engine timeframe.", legacy: true },
@@ -458,7 +458,6 @@ const CHART_LAYER_TOGGLES = Object.freeze([
 
 /** Next higher timeframe whose stored structure may be shown on this chart. */
 const HIGHER_TIMEFRAME = Object.freeze({ "5m": "15m", "15m": "1h", "1h": "4h" });
-const HIGHER_LEVEL_LIMIT = 3;
 const CHART_MARKER_KEY = "▲ breakout (green up, red down) · ▼ sweep · grey = failed breakout · ● retest · HH/HL/LH/LL swing labels · click any marker for detail";
 const CHART_EXPLAIN_HINT = "Click a candle to see what BRAIN recorded there, when it became known, and whether it influenced the current assessment.";
 
@@ -539,7 +538,7 @@ function chartCard(dashboard) {
       : { available: false, reason: "the dashboard payload did not include chart evidence" },
     candleRows: rows,
     model: null,
-    htfLines: [],
+    htfBands: [],
     htfStatus: null,
   };
   let emptyNode = null;
@@ -599,7 +598,12 @@ function chartCard(dashboard) {
       scenarioBand: scenarioBand(dashboard?.looking_for, viewed.timeframe),
       prefs,
     });
-    if (prefs.layers?.htfLevels === true) addHigherTimeframeLines(handleRef.current, viewed.htfLines);
+    // Support/resistance bands: the viewed timeframe's presented bands, plus higher-timeframe bands when that layer is on.
+    const viewedBands = prefs.overlays?.zones === true && Array.isArray(viewed.overlays?.zone_bands?.bands)
+      ? viewed.overlays.zone_bands.bands
+      : [];
+    const higherBands = prefs.layers?.htfLevels === true ? viewed.htfBands || [] : [];
+    setZoneBands(handleRef.current, [...viewedBands, ...higherBands], { onSelect: selectZoneBand });
   };
   /** Draw evidence for the viewed timeframe. Clears previous evidence first. */
   const renderEvidence = () => {
@@ -617,7 +621,11 @@ function chartCard(dashboard) {
       ? ` · ${viewed.model.hiddenFuture} item(s) not yet known at this instant are hidden`
       : "";
     const htf = layers.htfLevels === true && viewed.htfStatus ? ` · ${viewed.htfStatus}` : "";
-    evidenceMeta.textContent = `${evidenceMetaText(viewed.evidence, viewed.timeframe)} ${evidenceCountText(viewed.model)}${counts}${htf}`;
+    const zb = viewed.overlays?.zone_bands;
+    const zoneText = loadPrefs().overlays?.zones === true && zb && zb.reason !== "no_zones"
+      ? ` · S/R bands: ${zb.bands?.length ?? 0} shown, ${zb.hidden_count ?? 0} hidden, ${zb.merged_count ?? 0} merged`
+      : "";
+    evidenceMeta.textContent = `${evidenceMetaText(viewed.evidence, viewed.timeframe)} ${evidenceCountText(viewed.model)}${counts}${htf}${zoneText}`;
   };
   const showOhlc = (bar) => {
     if (!bar) {
@@ -627,6 +635,17 @@ function chartCard(dashboard) {
     const when = formatUtc(new Date(bar.time * 1000).toISOString());
     const volumeText = Number.isFinite(bar.volume) ? ` · V ${bar.volume}` : "";
     ohlcLine.textContent = `${when} · O ${bar.open} · H ${bar.high} · L ${bar.low} · C ${bar.close}${volumeText} · confirmed stored candle`;
+  };
+  /** Click a band label: explain that zone (bounds, origin, touches, last test, position vs price). */
+  const selectZoneBand = (band) => {
+    clearNode(explainBody);
+    const explanation = explainZoneBand(band, { timeframe: band.source_timeframe, close: band.latest_close ?? null });
+    if (!explanation) {
+      explainBody.append(el("p", { class: "evidence-explain-hint", text: "This zone has no complete stored bounds, so it cannot be explained." }));
+      return;
+    }
+    explainBody.append(el("div", { class: "evidence-explain-when", text: band.htf ? `Higher-timeframe zone (${band.source_timeframe})` : `Zone on the ${viewed.timeframe} chart` }));
+    explainBody.append(explanationNode(explanation));
   };
   const showExplanationAt = (timeSeconds) => {
     if (!Number.isFinite(timeSeconds)) return;
@@ -746,14 +765,14 @@ function chartCard(dashboard) {
     const generation = viewed.generation;
     const target = HIGHER_TIMEFRAME[viewed.timeframe];
     if (loadPrefs().layers?.htfLevels !== true) {
-      viewed.htfLines = [];
+      viewed.htfBands = [];
       viewed.htfStatus = null;
       applyViewedOverlays();
       renderEvidence();
       return;
     }
     if (!target) {
-      viewed.htfLines = [];
+      viewed.htfBands = [];
       viewed.htfStatus = `no higher timeframe is shown above ${viewedTimeframeLabel(viewed.timeframe)}`;
       applyViewedOverlays();
       renderEvidence();
@@ -768,25 +787,16 @@ function chartCard(dashboard) {
     }
     if (viewed.cancelled || generation !== viewed.generation) return;
     if (failure || payload?.timeframe !== target) {
-      viewed.htfLines = [];
+      viewed.htfBands = [];
       viewed.htfStatus = `${viewedTimeframeLabel(target)} levels unavailable`;
     } else {
-      const lastClose = toChartCandles(viewed.candleRows).at(-1)?.close ?? null;
-      const zones = (Array.isArray(payload.zones) ? payload.zones : [])
-        .filter((zone) => Number.isFinite(Number(zone.band_low)) && Number.isFinite(Number(zone.band_high)))
-        .sort((a, b) => (lastClose === null ? 0 : Math.abs(Number(a.center ?? a.band_low) - lastClose) - Math.abs(Number(b.center ?? b.band_low) - lastClose)))
-        .slice(0, HIGHER_LEVEL_LIMIT);
       const label = viewedTimeframeLabel(target);
-      viewed.htfLines = zones.flatMap((zone) => {
-        const role = zone.role === "support" ? "support" : zone.role === "resistance" ? "resistance" : "zone";
-        return [
-          { price: Number(zone.band_low), title: `${label} ${role} low`, color: OVERLAY_COLORS.reference },
-          { price: Number(zone.band_high), title: `${label} ${role} high`, color: OVERLAY_COLORS.reference },
-        ];
-      });
-      viewed.htfStatus = zones.length
-        ? `${label} levels: ${zones.length} zone(s)`
-        : `${label} levels: no stored zones at this instant`;
+      // Backend presentation: merged, nearest-first, classified by position relative to price.
+      const bands = Array.isArray(payload.zone_bands?.bands) ? payload.zone_bands.bands : [];
+      viewed.htfBands = bands.map((band) => ({ ...band, htf: true }));
+      viewed.htfStatus = bands.length
+        ? `${label} zones: ${bands.length} band(s) shown`
+        : `${label} zones: none stored at this instant`;
     }
     applyViewedOverlays();
     renderEvidence();
@@ -811,7 +821,7 @@ function chartCard(dashboard) {
       clearEvidence(handleRef.current);
     }
     viewed.model = null;
-    viewed.htfLines = [];
+    viewed.htfBands = [];
     viewed.htfStatus = null;
     clearNode(explainBody).append(el("p", { class: "evidence-explain-hint", text: CHART_EXPLAIN_HINT }));
     evidenceMeta.textContent = "";

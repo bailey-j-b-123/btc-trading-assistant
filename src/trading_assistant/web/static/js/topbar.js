@@ -84,27 +84,27 @@ export function runnerDetailsViewModel(forward) {
   };
 }
 
+/** Plain-language reasons for the freshness codes the backend returns (web/freshness.py). */
+const FRESHNESS_REASON_TEXT = {
+  as_of_is_not_the_current_boundary: "The displayed instant is not the newest closed-candle boundary.",
+};
+
+function freshnessReasonText(reason) {
+  if (!reason) return "Stored closed candles are not confirmed current.";
+  return FRESHNESS_REASON_TEXT[reason] || String(reason).replaceAll("_", " ");
+}
+
 /**
- * SYSTEM OK verdict. Every conjunct must hold; anything else is a warning:
+ * Health verdict as a list of specific failing conditions, each with the component it concerns.
  *
- * - dashboard.freshness.status is CURRENT (server clock says the newest
- *   boundary is covered AND the latest expected closed candle is stored);
- * - dashboard.market.complete is true (no gaps in the stored window);
- * - forward.status.market_data.data_health is CURRENT (the forward side's
- *   independent freshness verdict agrees);
- * - pending catch-up is exactly 0 (every stored closed candle processed);
- * - a runner heartbeat exists with status STARTED, PROCESSED, or IDLE and
- *   no recorded last_error.
+ * Checks (all must hold for "current"): dashboard freshness CURRENT; stored window complete;
+ * forward data_health CURRENT; no pending catch-up; runner present, STARTED/PROCESSED/IDLE and
+ * without last_error. The top bar shows the most severe condition by name instead of a generic
+ * warning. A healthy result states what was checked, never a generic all-clear.
  *
- * Never-run, stale data, a recorded runner error, a missing payload, or any
- * single pending boundary all yield SYSTEM WARNING. See web/freshness.py
- * for the exact CURRENT/STALE/HISTORICAL/UNKNOWN comparisons.
- *
- * Only the NEWEST heartbeat row feeds the runner conjunct, so a stale
- * error in the trail can never stick: the next pass overwrites the verdict
- * input. A silently dead runner still reads OK until its next boundary
- * lands unprocessed (pending catch-up or freshness flips first) — the
- * accepted blind window is one candle interval, never more.
+ * Severity: 0 = processing failure or missing payload (red), 1 = stale, missing, stopped or
+ * incomplete data (amber), 2 = catch-up backlog (amber). Only the NEWEST heartbeat feeds the runner
+ * checks, so a stale error in the trail cannot persist once the next pass overwrites it.
  */
 export function systemHealthViewModel(dashboard, forward) {
   const forwardStatus = forward?.status || {};
@@ -112,19 +112,56 @@ export function systemHealthViewModel(dashboard, forward) {
   const runner = forwardStatus.runner;
   const pending = integerOrNull(forwardStatus.sample?.pending_catch_up_boundaries) ??
     integerOrNull(runner?.pending_boundaries);
-  const runnerHealthy = Boolean(
-    runner &&
-    ["STARTED", "PROCESSED", "IDLE"].includes(runner.status) &&
-    !runner.last_error,
-  );
-  const currentData = dashboard?.freshness?.status === "CURRENT" &&
-    dashboard?.market?.complete === true &&
-    marketStatus.data_health === "CURRENT";
-  const healthy = currentData && pending === 0 && runnerHealthy;
+  const issues = [];
+  if (!dashboard) {
+    issues.push({ severity: 0, component: "Dashboard data", condition: "Not loaded",
+      detail: "The dashboard request has not returned, so no health verdict is shown." });
+  }
+  if (!runner) {
+    issues.push({ severity: 1, component: "Forward runner", condition: "Never reported",
+      detail: "The forward runner has not recorded a heartbeat, so paper observations are not being advanced." });
+  } else if (runner.last_error) {
+    issues.push({ severity: 0, component: "Forward runner", condition: "Processing failure",
+      detail: `Last error: ${runner.last_error}` });
+  } else if (!["STARTED", "PROCESSED", "IDLE"].includes(runner.status)) {
+    issues.push({ severity: 1, component: "Forward runner", condition: `Status ${runner.status || "UNKNOWN"}`,
+      detail: runner.detail || "The runner reported a status that is not a running state." });
+  }
+  if (pending === null) {
+    issues.push({ severity: 2, component: "Forward runner", condition: "Catch-up unknown",
+      detail: "The number of closed candles still to process is not reported." });
+  } else if (pending > 0) {
+    issues.push({ severity: 2, component: "Forward runner", condition: "Catch-up pending",
+      detail: `${pending} closed candle${pending === 1 ? "" : "s"} stored but not yet processed.` });
+  }
+  if (dashboard) {
+    const freshness = dashboard.freshness || {};
+    if (freshness.status !== "CURRENT") {
+      issues.push({ severity: 1, component: "Market data", condition: `Freshness ${freshness.status || "UNKNOWN"}`,
+        detail: freshnessReasonText(freshness.reason) });
+    }
+    if (dashboard.market?.complete !== true) {
+      issues.push({ severity: 1, component: "Market data", condition: "Stored window incomplete",
+        detail: "The stored candle window has gaps, so some structure may be missing." });
+    }
+  }
+  if (marketStatus.data_health !== "CURRENT") {
+    issues.push({ severity: 1, component: "Forward data health", condition: `Data health ${marketStatus.data_health || "UNKNOWN"}`,
+      detail: "The forward side's own freshness check does not confirm current data." });
+  }
+  issues.sort((a, b) => a.severity - b.severity);
+  const healthy = issues.length === 0;
+  const primary = issues[0] || null;
+  const runnerState = runner?.status ? runner.status : "not reported";
+  const label = primary
+    ? `${primary.component.toUpperCase()} · ${primary.condition.toUpperCase()}`
+    : `DATA CURRENT · RUNNER ${String(runnerState).toUpperCase()}`;
   return {
     healthy,
-    label: healthy ? "SYSTEM OK" : "SYSTEM WARNING",
-    tone: healthy ? "green" : "amber",
+    label,
+    tone: healthy ? "green" : primary.severity === 0 ? "red" : "amber",
+    primary,
+    issues,
   };
 }
 
@@ -136,8 +173,9 @@ export function setTopbarWarning() {
   if (timeframe) timeframe.textContent = "UNKNOWN";
   const status = document.getElementById("topbar-status");
   if (status) {
-    status.textContent = "SYSTEM WARNING";
+    status.textContent = "DASHBOARD UNAVAILABLE";
     status.dataset.tone = "amber";
+    status.title = "The dashboard request has not returned, so no health verdict is shown. Nothing is assumed current.";
   }
   const time = document.getElementById("topbar-candle-time");
   if (time) {
@@ -181,8 +219,8 @@ export function updateTopbar(dashboard, forward) {
     status.textContent = health.label;
     status.dataset.tone = health.tone;
     status.title = health.healthy
-      ? "Stored closed-candle data is current; no forward catch-up is pending."
-      : "One or more data/runner health checks are not current or are unavailable. Expand System details.";
+      ? "Stored closed-candle data is current, the forward runner is running and no catch-up is pending."
+      : `${health.primary.detail} Expand System details for every check.`;
   }
 }
 

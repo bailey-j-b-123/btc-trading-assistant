@@ -54,6 +54,7 @@ from trading_assistant.setup_qualification.parameters import QualificationParame
 from trading_assistant.setup_qualification.service import bounded_replay_start
 from trading_assistant.trade_planning.models import PlanState, TradePlanResult
 from trading_assistant.trade_planning.planner import plan_trade
+from trading_assistant.web.zone_presentation import present_zones
 from trading_assistant.web.freshness import FreshnessReport, evaluate_freshness
 from trading_assistant.web.state import AppState
 
@@ -357,6 +358,7 @@ class DashboardService:
             "candle_count": analysis.candle_count,
             "trend": to_jsonable(analysis.trend),
             "zones": to_jsonable(analysis.levels.zones),
+            "zone_bands": _zone_bands(analysis.levels, resolved_timeframe),
             "range": to_jsonable(analysis.detected_range),
             "swings": to_jsonable(analysis.confirmed_swings),
             "completeness": to_jsonable(snapshot.completeness),
@@ -1083,6 +1085,7 @@ class DashboardService:
         return {
             "equal_levels": equal_levels,
             "zones": to_jsonable(structure.levels.zones),
+            "zone_bands": _zone_bands(structure.levels, snapshot.timeframe if snapshot is not None else None),
             "range": to_jsonable(structure.detected_range),
             "swings": to_jsonable(structure.confirmed_swings),
             "setup_reference": setup_reference,
@@ -1374,6 +1377,21 @@ def _max_bars_for(family: SetupFamily, parameters: QualificationParameters) -> i
     if family is SetupFamily.LIQUIDITY_REVERSAL:
         return parameters.reversal_max_bars
     return parameters.range_max_bars
+
+
+def _zone_bands(levels, timeframe):
+    """Display bands for one timeframe's zones. Presentation only; zones are unchanged."""
+
+    if timeframe is None:
+        return {"timeframe": None, "bands": [], "merged_count": 0, "hidden_count": 0,
+                "total_stored": len(levels.zones), "rules": {}, "reason": "no_timeframe"}
+    close = levels.zones[0].latest_close if levels.zones else None
+    return present_zones(
+        to_jsonable(levels.zones),
+        timeframe=timeframe,
+        as_of=levels.as_of,
+        latest_close=to_jsonable(close) if close is not None else None,
+    )
 
 
 def structure_for_previous_frame(frames):

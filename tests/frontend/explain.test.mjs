@@ -122,7 +122,7 @@ test("pattern explanations show each lifecycle state with its own wording and ti
   assert.equal(confirmed.status, "Confirmed");
   assert.match(section(confirmed, "What BRAIN detected"), /high 111\.0 \(2026-10-06 02:00 UTC\) → low 99\.0/);
   assert.match(section(confirmed, "When the evidence became available"), /neckline closed through at 2026-10-06 12:00 UTC/);
-  assert.match(section(confirmed, "Confirmed or invalidated"), /closed through the neckline/);
+  assert.match(section(confirmed, "Confirmed or invalidated"), /closed beyond the neckline by more than the neckline tolerance/);
   const invalidated = explainEvidence({ ...base, state: "invalidated", confirmation_time: null }, { timeframe: "1h", qualification: qualification([]) });
   assert.equal(invalidated.status, "Invalidated");
   assert.match(section(invalidated, "Confirmed or invalidated"), /closed beyond the invalidation level/);
@@ -186,4 +186,107 @@ test("plan levels claim influence only when a backend plan supplied them", () =>
   assert.match(section(withPlan, "Did it influence the current assessment?"), /^Yes\./);
   const withoutPlan = explainPlanLevel({ label: "Stop", value: "117.00", plan: null, timeframe: "1h", planState: "NO_PLAN" });
   assert.match(section(withoutPlan, "Did it influence the current assessment?"), /^No\./);
+});
+
+// --- Support / resistance band explanations (audit P1) ------------------------------------
+
+import { explainZoneBand } from "../../src/trading_assistant/web/static/js/explain.js";
+
+/** Section body by position: 0 what, 1 why, 2 when, 3 confirmed/invalidated, 4 influence. */
+const body = (explanation, index) => explanation.sections[index].body;
+
+const baseBand = {
+  id: "1h:61500:61900",
+  position: "price_inside",
+  display_role: "price_inside",
+  band_low: "61500",
+  band_high: "61900",
+  band_width_pct: "0.65",
+  touch_count: 3,
+  swing_high_count: 2,
+  swing_low_count: 1,
+  isolated: false,
+  first_seen: "2026-10-06T04:00:00Z",
+  last_tested: "2026-10-10T15:00:00Z",
+  age_candles: 2,
+  faded: false,
+  source_timeframe: "1h",
+  source_swing_timestamps: ["2026-10-06T04:00:00Z", "2026-10-08T10:00:00Z", "2026-10-10T15:00:00Z"],
+  merged_zone_count: 1,
+  raw_roles: ["resistance"],
+  latest_close: "61700",
+};
+
+test("a band that contains the close is explained as inside, never as resistance, and says why the detector differed", () => {
+  const explanation = explainZoneBand(baseBand, { timeframe: "1h" });
+  assert.match(explanation.title, /^Price inside zone · 1H · 61500 – 61900$/);
+  assert.match(body(explanation, 0), /The latest close 61,700 is inside this band/);
+  assert.doesNotMatch(explanation.title, /resistance/i);
+  assert.match(explanation.note, /labelled this zone "resistance" because its centre sits on that side of the close/);
+});
+
+test("the explanation states touches, origin, last test and that influence is not claimed", () => {
+  const explanation = explainZoneBand(baseBand, { timeframe: "1h" });
+  assert.match(body(explanation, 3), /3 swing touches \(2 highs, 1 lows\)/);
+  assert.match(body(explanation, 1), /Built by clustering 3 confirmed swing extremes/);
+  assert.match(body(explanation, 2), /Last tested 2026-10-10 15:00 UTC \(2 candles ago\)/);
+  assert.equal(explanation.influenced, false);
+  assert.match(body(explanation, 4), /^Not established\. /);
+  assert.match(body(explanation, 4), /candidate structural target when a trade plan is produced/);
+});
+
+test("a single-swing band says it has not been tested by a second swing", () => {
+  const explanation = explainZoneBand({ ...baseBand, touch_count: 1, isolated: true, swing_high_count: 1, swing_low_count: 0 }, { timeframe: "1h" });
+  assert.equal(explanation.status, "Single swing");
+  assert.match(body(explanation, 3), /Only 1 swing touch: it has not yet been tested by a second swing/);
+});
+
+test("a merged display band reports how many detector zones it combines", () => {
+  const explanation = explainZoneBand({ ...baseBand, merged_zone_count: 3, source_timeframe: "4h" }, { timeframe: "4h" });
+  assert.match(body(explanation, 3), /Merged from 3 overlapping detector zones for display; touches are summed/);
+  assert.match(explanation.timeframe, /4H/);
+});
+
+test("a support band below price reads as support with the close above it", () => {
+  const explanation = explainZoneBand({
+    ...baseBand, position: "below_price", display_role: "support", band_low: "58000", band_high: "58200",
+    raw_roles: ["support"], latest_close: "60000",
+  }, { timeframe: "1h" });
+  assert.match(explanation.title, /^Support · 1H · 58000 – 58200$/);
+  assert.match(body(explanation, 0), /The band is below the latest close/);
+  assert.equal(explanation.note, "Display only. Showing this band does not change any zone, setup, plan or paper observation.");
+});
+
+test("a faded band is described as last tested long ago", () => {
+  const explanation = explainZoneBand({ ...baseBand, faded: true, age_candles: 180 }, { timeframe: "1h" });
+  assert.match(body(explanation, 3), /Last tested long ago, so it is drawn faded/);
+});
+
+test("missing or non-object bands produce no explanation rather than a guessed one", () => {
+  assert.equal(explainZoneBand(null), null);
+  assert.equal(explainZoneBand("zone"), null);
+});
+
+test("evidence zone items with a display position use the band wording, not the raw detector label", () => {
+  const explanation = explainEvidence(
+    { ...baseBand, kind: "zone", role: "resistance", center: "61700" },
+    { timeframe: "1h" },
+  );
+  assert.match(explanation.title, /Price inside zone/);
+  assert.doesNotMatch(explanation.title, /^Resistance/);
+});
+
+test("head and shoulders wording matches the detector geometry (five alternating swings)", async () => {
+  const { explainEvidence: explain } = await import("../../src/trading_assistant/web/static/js/explain.js");
+  const item = {
+    id: "hs-1", evidence_kind: "pattern", type: "head_and_shoulders", pattern_id: "hs-1",
+    state: "confirmed", anchor_time: "2026-10-10T10:00:00Z", confirmed_at: "2026-10-10T12:00:00Z",
+  };
+  const text = JSON.stringify(explain(item, { qualification: null }));
+  assert.match(text, /five alternating swings/);
+  assert.match(text, /three swing highs/);
+  assert.match(text, /two swing lows/);
+  assert.doesNotMatch(text, /three swing highs where the middle/);
+  assert.doesNotMatch(text, /confirmation rule is satisfied/);
+  assert.doesNotMatch(text, /no longer treats this geometry as live/);
 });

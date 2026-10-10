@@ -317,3 +317,74 @@ def test_repeat_chart_evidence_reads_reuse_the_analysis_without_changing_it(tmp_
     # A new as-of instant is a different analysis and is not served from the cache.
     service.chart_evidence(symbol=SYMBOL, timeframe="1h", as_of=as_of + INTERVAL)
     assert len(calls) == 2
+
+
+# --- Lifecycle anchors: where each pattern event is drawn (audit P2) -------------
+
+def _is_candle_open(value):
+    return (value - EPOCH) % INTERVAL == timedelta(0)
+
+
+def _latest(payload):
+    return [p for p in payload["patterns"] if p["is_latest_state"]]
+
+
+def test_formed_pattern_is_anchored_on_its_last_swing_candle_not_its_close_boundary():
+    candles = series(DOUBLE_TOP_CLOSES)
+    formed = next(p for p in evidence_at(candles, 19)["patterns"] if p["state"] == "formed")
+    anchor = _parse(formed["anchor_time"])
+    assert _is_candle_open(anchor), "anchor must be a candle open, never a close boundary"
+    assert anchor in {c.timestamp for c in candles}
+    # known_at is the close boundary of the last swing's confirmation candle: a different instant.
+    assert _parse(formed["known_at"]) != anchor
+    assert formed["confirmed_at"] is None and formed["invalidated_at"] is None
+
+
+def test_confirmed_pattern_is_anchored_on_the_candle_that_closed_through_the_neckline():
+    candles = series(DOUBLE_TOP_CLOSES)
+    confirmed = _latest(evidence_at(candles, 22))[0]
+    assert confirmed["state"] == "confirmed"
+    anchor = _parse(confirmed["anchor_time"])
+    assert _is_candle_open(anchor)
+    assert anchor == EPOCH + INTERVAL * 20, "index 20 (close 96, below the 99 neckline) is the breaking candle"
+    assert _parse(confirmed["confirmed_at"]) == EPOCH + INTERVAL * 21  # its close boundary
+    assert confirmed["invalidated_at"] is None
+
+
+def test_confirmation_on_the_latest_stored_candle_keeps_a_visible_anchor():
+    """Audit edge case: the neckline break is the latest stored candle.
+
+    Its known_at (close boundary) equals as_of and lies beyond that candle's open
+    timestamp. The projection must still place the event on that stored candle.
+    """
+
+    candles = series(DOUBLE_TOP_CLOSES[:21])  # last stored candle = index 20 (the break, close 96)
+    payload = evidence_at(candles, 21)
+    latest = _latest(payload)
+    assert [p["state"] for p in latest] == ["confirmed"]
+    confirmed = latest[0]
+    assert _parse(confirmed["known_at"]) == EPOCH + INTERVAL * 21 == _parse(payload["as_of"])
+    stored_opens = {c.timestamp for c in candles}
+    assert _parse(confirmed["anchor_time"]) in stored_opens
+    assert _parse(confirmed["anchor_time"]) == candles[-1].timestamp
+
+
+def test_invalidation_is_anchored_on_the_invalidating_candle_not_on_formation():
+    candles = series(INVALIDATED_CLOSES)
+    latest = _latest(evidence_at(candles, 23))
+    assert {p["state"] for p in latest} == {"invalidated"}
+    record = latest[0]
+    anchor = _parse(record["anchor_time"])
+    assert anchor == EPOCH + INTERVAL * 22, "index 22 closed above the invalidation level"
+    assert anchor != _parse(record["formed_at"]), "invalidation must not be placed at formation"
+    assert _parse(record["invalidated_at"]) == EPOCH + INTERVAL * 23
+    assert record["confirmed_at"] is None
+
+
+def test_invalidation_on_the_latest_stored_candle_is_visible():
+    candles = series(INVALIDATED_CLOSES[:23])
+    payload = evidence_at(candles, 23)
+    record = _latest(payload)[0]
+    assert record["state"] == "invalidated"
+    assert _parse(record["anchor_time"]) == candles[-1].timestamp
+    assert _parse(record["invalidated_at"]) == _parse(payload["as_of"])

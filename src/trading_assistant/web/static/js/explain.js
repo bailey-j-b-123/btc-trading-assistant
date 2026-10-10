@@ -37,15 +37,15 @@ const SWING_MEANINGS = {
 
 const PATTERN_STATE_STATUS = {
   formed: ["Formed", "amber", "The geometry is complete, but the neckline has not been closed through yet."],
-  confirmed: ["Confirmed", "green", "A candle closed through the neckline, so the pattern's confirmation rule is satisfied."],
-  invalidated: ["Invalidated", "red", "A candle closed beyond the invalidation level, so BRAIN no longer treats this geometry as live."],
+  confirmed: ["Confirmed", "green", "A candle closed beyond the neckline by more than the neckline tolerance. Confirmation is shown from the next candle open."],
+  invalidated: ["Invalidated", "red", "A candle closed beyond the invalidation level by more than the invalidation tolerance. The pattern is no longer tracked as live."],
 };
 
 const PATTERN_TEXT = {
   double_top: "Double top — two swing highs of similar height with a swing low between them.",
   double_bottom: "Double bottom — two swing lows of similar depth with a swing high between them.",
-  head_and_shoulders: "Head and shoulders — three swing highs where the middle (head) is the highest and the outer peaks are similar.",
-  inverse_head_and_shoulders: "Inverse head and shoulders — three swing lows where the middle (head) is the lowest and the outer troughs are similar.",
+  head_and_shoulders: "Head and shoulders — five alternating swings: three swing highs (the middle head is higher than both shoulders, and the shoulders agree within tolerance) and two swing lows that form a horizontal neckline.",
+  inverse_head_and_shoulders: "Inverse head and shoulders — five alternating swings: three swing lows (the middle head is lower than both shoulders, and the shoulders agree within tolerance) and two swing highs that form a horizontal neckline.",
 };
 
 const SHAPE_TEXT = {
@@ -129,7 +129,7 @@ function result({ kind, title, status, tone, timeframe, what, why, when, state, 
       { heading: "Why it was detected", body: why },
       { heading: "When the evidence became available", body: when },
       { heading: "Confirmed or invalidated", body: state },
-      { heading: "Did it influence the current assessment?", body: influence.used ? `Yes. ${influence.detail}` : `No. ${influence.detail}` },
+      { heading: "Did it influence the current assessment?", body: influence.used ? `Yes. ${influence.detail}` : `${influence.unknown ? "Not established" : "No"}. ${influence.detail}` },
     ],
     influenced: influence.used === true,
     rows,
@@ -351,7 +351,8 @@ export function explainEvidence(item, context = {}) {
   if (kind === "failed_breakout") return explainFailedBreakout(item, ctx);
   if (kind === "sweep") return explainSweep(item, ctx);
   if (kind === "retest") return explainRetest(item, ctx);
-  if (kind === "zone") return explainZone(item, ctx);
+  // Display bands carry a position relative to price; their label must not use the detector's raw role.
+  if (kind === "zone") return item.position ? explainZoneBand(item, { timeframe: ctx.timeframe, close: ctx.close ?? null }) : explainZone(item, ctx);
   if (kind === "range") return explainRange(item, ctx);
   if (kind === "equal_level") return explainEqual(item, ctx);
   if (kind === "candle_shape") return explainCandleShape(item, ctx);
@@ -378,5 +379,84 @@ export function explainPlanLevel({ label, value, plan, timeframe, planState }) {
       ? { used: true, detail: "It is part of the plan the engine calculated for the selected setup." }
       : { used: false, detail: "No plan was supplied for this level, so it is not part of any calculated plan." },
     rows: [{ label, value: price(value) }],
+  });
+}
+
+// --- Support / resistance zones (display bands from the backend's zone_bands) -------------
+
+function utcText(iso) {
+  if (typeof iso !== "string" || !iso) return "unknown";
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(iso);
+  return match ? `${match[1]} ${match[2]} UTC` : iso;
+}
+
+function zonePositionSentence(band, close) {
+  const at = close ? ` the latest close ${price(close)}` : " the latest close";
+  if (band.position === "price_inside") return `The latest close${close ? ` ${price(close)}` : ""} is inside this band.`;
+  if (band.position === "above_price") return `The band is above${at}, so price would have to rise into it.`;
+  if (band.position === "below_price") return `The band is below${at}, so price would have to fall into it.`;
+  return "Price position relative to this band is unknown.";
+}
+
+/** Explains the detector label when it disagrees with where the band actually sits. */
+function detectorLabelNote(band) {
+  const raw = Array.isArray(band.raw_roles) ? band.raw_roles.find((role) => role && role !== "at_price") : null;
+  if (!raw || band.display_role === "price_inside") {
+    return band.display_role === "price_inside" && raw
+      ? `The detector's rule labelled this zone "${raw}" because its centre sits on that side of the close. The band itself spans the close, so it is shown as inside.`
+      : null;
+  }
+  const mapped = raw === "support" ? "support" : raw === "resistance" ? "resistance" : null;
+  if (mapped && mapped !== band.display_role) {
+    return `The detector's centre rule labelled this zone "${raw}", but the band sits ${band.display_role === "support" ? "below" : "above"} the close, so it is shown as ${band.display_role}.`;
+  }
+  return null;
+}
+
+/**
+ * Explanation for one support/resistance display band. The position comes from the band edges
+ * against the detector's close, so a band that contains price is never called support or resistance.
+ * Zones feed the engine's higher-timeframe context as neutral evidence; this explanation does not
+ * claim a link to any specific rule (the qualification snapshot holds that link, if any).
+ */
+export function explainZoneBand(band, { close = band?.latest_close ?? null, timeframe = null } = {}) {
+  if (!band || typeof band !== "object") return null;
+  const tf = band.source_timeframe || timeframe || "";
+  const tfLabel = tf ? tf.toUpperCase() : "";
+  const kindWord = band.display_role === "support" ? "Support" : band.display_role === "resistance" ? "Resistance" : "Price inside zone";
+  const bounds = `${band.band_low} – ${band.band_high}`;
+  const swingCount = Array.isArray(band.source_swing_timestamps) ? band.source_swing_timestamps.length : 0;
+  const age = Number.isFinite(band.age_candles) ? ` (${band.age_candles} candle${band.age_candles === 1 ? "" : "s"} ago)` : "";
+  const touches = band.isolated
+    ? `Only ${band.touch_count} swing touch: it has not yet been tested by a second swing.`
+    : `${band.touch_count} swing touches (${band.swing_high_count} highs, ${band.swing_low_count} lows).`;
+  const merged = band.merged_zone_count > 1
+    ? ` Merged from ${band.merged_zone_count} overlapping detector zones for display; touches are summed.`
+    : "";
+  const faded = band.faded ? " Last tested long ago, so it is drawn faded." : "";
+  const note = detectorLabelNote(band);
+  return result({
+    kind: "zone",
+    title: `${kindWord}${tfLabel ? ` · ${tfLabel}` : ""} · ${bounds}`,
+    status: band.isolated ? "Single swing" : band.display_role === "price_inside" ? "Price inside" : "Tested",
+    tone: band.display_role === "support" ? "green" : band.display_role === "resistance" ? "red" : "amber",
+    timeframe: timeframeText(tf),
+    what: `${kindWord} band ${bounds} on the ${tfLabel || "viewed"} chart. ${zonePositionSentence(band, close)}`,
+    why: `Built by clustering ${swingCount} confirmed swing extreme${swingCount === 1 ? "" : "s"} whose prices sit within the detector's tolerance. The band runs from the lowest to the highest of those swings.`,
+    when: `First seen ${utcText(band.first_seen)}. Last tested ${utcText(band.last_tested)}${age}. Source swings are drawn only from their confirmation time onward.`,
+    state: `${touches}${merged}${faded}`,
+    influence: {
+      used: false,
+      unknown: true,
+      detail: "This band is a display of the detector's zone. The zone is neutral evidence in the higher-timeframe context. It is also a reference that breakout, sweep and retest detection can use, and a candidate structural target when a trade plan is produced. Whether a specific setup used it is recorded in that setup's rules, not on this band.",
+    },
+    rows: [
+      { label: "Bounds", value: bounds },
+      { label: "Position", value: band.position === "price_inside" ? "price inside" : band.position === "above_price" ? "above price" : "below price" },
+      { label: "Touches", value: String(band.touch_count) },
+      { label: "Last tested", value: utcText(band.last_tested) },
+      { label: "Source timeframe", value: tfLabel || "unknown" },
+    ],
+    note: note || "Display only. Showing this band does not change any zone, setup, plan or paper observation.",
   });
 }

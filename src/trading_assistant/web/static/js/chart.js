@@ -163,6 +163,9 @@ export function createPriceChart(container, { height } = {}) {
     eventUnsubscribers: [],
     resizeObserver: null,
     resizeListener: null,
+    zoneLayer: null,
+    zoneBandsState: null,
+    zoneUnsubscribers: [],
     destroyed: false,
   };
   const resize = () => {
@@ -170,6 +173,7 @@ export function createPriceChart(container, { height } = {}) {
     const width = Number(container.clientWidth) || 0;
     const nextHeight = Number(container.clientHeight) || 0;
     if (width > 0 && nextHeight > 0) chart.resize(width, nextHeight);
+    renderZoneBands(handle);
   };
 
   if (typeof ResizeObserver === "function") {
@@ -233,6 +237,7 @@ export function setCandles(handle, payload) {
     });
   }
   if (handle.volume && typeof handle.volume.setData === "function") handle.volume.setData(volumeRows);
+  renderZoneBands(handle);
 }
 
 /** Temporary, explicitly unconfirmed overlay. Never touches handle.series or volume. */
@@ -294,6 +299,7 @@ export function destroyPriceChart(handle) {
   if (!handle || handle.destroyed) return;
   clearOverlays(handle);
   clearEvidence(handle);
+  clearZoneBands(handle);
   unsubscribeChartEvents(handle);
   handle.destroyed = true;
   handle.resizeObserver?.disconnect();
@@ -348,13 +354,9 @@ export function applyOverlays(handle, payload = {}) {
     byPrice.clear();
   };
 
-  if (prefs.zones === true) {
-    for (const zone of Array.isArray(overlays.zones) ? overlays.zones : []) {
-      const role = zone.role === "support" ? "Support" : zone.role === "resistance" ? "Resistance" : "Zone";
-      add(zone.band_low, { color: OVERLAY_COLORS.zones, title: `${role} low`, style: 1 });
-      add(zone.band_high, { color: OVERLAY_COLORS.zones, title: `${role} high`, style: 1 });
-    }
-  }
+  // Support/resistance zones are drawn as shaded bands by setZoneBands(), from the backend's
+  // display bands. They are no longer drawn as boundary price lines, which read as clutter and
+  // used the detector's centre-vs-close label (a band spanning the close was called resistance).
 
   if (prefs.range === true && overlays.range && typeof overlays.range === "object") {
     add(overlays.range.range_low, { color: OVERLAY_COLORS.range, title: "Range low", style: 3 });
@@ -535,5 +537,144 @@ export function addHigherTimeframeLines(handle, entries) {
       style: 3,
       width: 1,
     })));
+  }
+}
+
+// --- Support / resistance bands ---------------------------------------------------------
+//
+// Lightweight Charts v4 (vendored, unmodified) has no series primitives here, so each band is
+// a plain element positioned from series.priceToCoordinate(). Bands re-position on range
+// changes, crosshair moves and resizes. They never change candles or the price scale, and
+// pointer events are off except on each band's label, so candles under a band stay clickable.
+
+const ZONE_LABEL_MIN_GAP_PX = 16;
+const ZONE_STYLE = {
+  support: { fill: "rgba(46, 196, 182, 0.13)", edge: "#2ec4b6", short: "S" },
+  resistance: { fill: "rgba(239, 83, 80, 0.13)", edge: "#ef5350", short: "R" },
+  price_inside: { fill: "rgba(245, 166, 35, 0.16)", edge: "#f5a623", short: "IN" },
+};
+
+function createZoneLayer(handle) {
+  const container = handle.container;
+  if (typeof document === "undefined" || !container || handle.zoneLayer) return;
+  if (typeof globalThis.getComputedStyle === "function" && globalThis.getComputedStyle(container).position === "static") {
+    container.style.position = "relative";
+  }
+  const layer = document.createElement("div");
+  layer.className = "zone-band-layer";
+  container.appendChild(layer);
+  handle.zoneLayer = layer;
+  const timeScale = handle.chart?.timeScale?.();
+  const render = () => renderZoneBands(handle);
+  if (timeScale && typeof timeScale.subscribeVisibleLogicalRangeChange === "function") {
+    timeScale.subscribeVisibleLogicalRangeChange(render);
+    handle.zoneUnsubscribers.push(() => timeScale.unsubscribeVisibleLogicalRangeChange?.(render));
+  }
+  if (typeof handle.chart?.subscribeCrosshairMove === "function") {
+    handle.chart.subscribeCrosshairMove(render);
+    handle.zoneUnsubscribers.push(() => handle.chart.unsubscribeCrosshairMove?.(render));
+  }
+}
+
+/**
+ * Draw shaded support/resistance bands. `bands` are the backend's display bands (already merged,
+ * selected and classified); each may carry `htf: true` for higher-timeframe bands, drawn dashed.
+ * `onSelect(band)` runs when a band's label is clicked or activated by keyboard.
+ */
+export function setZoneBands(handle, bands, { onSelect } = {}) {
+  if (!handle || handle.destroyed || !handle.container) return;
+  // Feature-detect the DOM it needs; without it, bands are skipped and the chart still renders.
+  if (typeof handle.container.appendChild !== "function" || typeof document === "undefined" || typeof document.createElement !== "function") return;
+  createZoneLayer(handle);
+  handle.zoneBandsState = {
+    bands: Array.isArray(bands) ? bands.filter((band) => band && typeof band === "object") : [],
+    onSelect: typeof onSelect === "function" ? onSelect : null,
+  };
+  renderZoneBands(handle);
+}
+
+/** Remove every band and its listeners. Safe to call repeatedly. */
+export function clearZoneBands(handle) {
+  if (!handle) return;
+  for (const unsubscribe of handle.zoneUnsubscribers || []) {
+    try {
+      unsubscribe();
+    } catch {
+      // The chart may already be removed; nothing else to release.
+    }
+  }
+  handle.zoneUnsubscribers = [];
+  handle.zoneBandsState = null;
+  if (handle.zoneLayer) {
+    handle.zoneLayer.remove?.();
+    handle.zoneLayer = null;
+  }
+}
+
+/** Position every band and label from the current coordinates. Pure reads; no data change. */
+export function renderZoneBands(handle) {
+  if (!handle || handle.destroyed || !handle.zoneLayer || !handle.zoneBandsState) return;
+  const series = handle.series;
+  if (!series || typeof series.priceToCoordinate !== "function") return;
+  const layer = handle.zoneLayer;
+  const height = Number(handle.container?.clientHeight) || 0;
+  const { bands, onSelect } = handle.zoneBandsState;
+  layer.textContent = "";
+  let offView = 0;
+  const labels = [];
+  for (const band of bands) {
+    // Position is where the band sits relative to price; the style key is the display role.
+    const styleKey = band.position === "below_price" ? "support" : band.position === "above_price" ? "resistance" : "price_inside";
+    const style = ZONE_STYLE[styleKey];
+    const high = Number(band.band_high);
+    const low = Number(band.band_low);
+    if (!Number.isFinite(high) || !Number.isFinite(low)) continue;
+    const yHigh = series.priceToCoordinate(high);
+    const yLow = series.priceToCoordinate(low);
+    if (yHigh === null || yLow === null || yHigh === undefined || yLow === undefined) continue;
+    const top = Math.min(yHigh, yLow);
+    const bottom = Math.max(yHigh, yLow);
+    if (bottom < 0 || top > height) {
+      offView += 1;
+      continue;
+    }
+    const clampedTop = Math.max(0, top);
+    const clampedBottom = Math.min(height || bottom, bottom);
+    const node = document.createElement("div");
+    node.className = `zone-band zone-band--${band.position || "price_inside"}${band.htf ? " zone-band--htf" : ""}${band.faded ? " zone-band--faded" : ""}`;
+    node.setAttribute?.("aria-hidden", "true");
+    node.style.top = `${clampedTop}px`;
+    node.style.height = `${Math.max(2, clampedBottom - clampedTop)}px`;
+    node.style.setProperty("--zone-fill", style.fill);
+    node.style.setProperty("--zone-edge", style.edge);
+    layer.appendChild(node);
+    labels.push({ band, style, y: clampedTop + 2 });
+  }
+  // Label collision: stack labels that would overlap, keeping the nearest to its band edge first.
+  labels.sort((a, b) => a.y - b.y);
+  let previous = -Infinity;
+  for (const entry of labels) {
+    const y = Math.max(entry.y, previous + ZONE_LABEL_MIN_GAP_PX);
+    previous = y;
+    const { band, style } = entry;
+    const label = document.createElement("button");
+    label.type = "button";
+    label.className = "zone-band-label";
+    label.style.top = `${y}px`;
+    label.style.setProperty("--zone-edge", style.edge);
+    const tf = band.source_timeframe ? String(band.source_timeframe).toUpperCase() : "";
+    label.textContent = `${style.short}${tf ? ` ${tf}` : ""} · ${band.touch_count ?? "?"}×`;
+    label.setAttribute("aria-label", `${band.display_role || band.position} zone ${band.band_low} to ${band.band_high}, ${tf || "viewed timeframe"}, ${band.touch_count ?? "unknown"} touches. Open explanation.`);
+    label.addEventListener("click", (event) => {
+      event.stopPropagation();
+      onSelect?.(band);
+    });
+    layer.appendChild(label);
+  }
+  if (offView) {
+    const note = document.createElement("div");
+    note.className = "zone-band-offview";
+    note.textContent = `${offView} zone${offView === 1 ? "" : "s"} outside the visible price range`;
+    layer.appendChild(note);
   }
 }

@@ -173,6 +173,17 @@ function makeMarker(time, { position, shape, color, text, size = 1 }) {
   return { time, position, shape, color, text, size };
 }
 
+/**
+ * The candle a pattern event is drawn on, in seconds. Uses the backend's anchor_time,
+ * which is always a candle open. Falls back only for older payloads that lack it.
+ * known_at / confirmation_time are close boundaries and are never used to place a marker.
+ */
+export function patternAnchorSeconds(pattern) {
+  if (pattern && pattern.anchor_time) return toSeconds(isoMs(pattern.anchor_time));
+  if (pattern?.state === "formed") return toSeconds(isoMs(pattern.formed_at));
+  return null;
+}
+
 function patternLines(pattern, { lastTime, candleSet }) {
   const points = (pattern.components || [])
     .map((point) => ({ time: toSeconds(point.time_ms), value: Number(point.price) }))
@@ -193,11 +204,11 @@ function patternLines(pattern, { lastTime, candleSet }) {
   }
   const start = points.length ? points[0].time : null;
   const neckline = Number(pattern.neckline);
-  const confirmedAt = toSeconds(isoMs(pattern.confirmation_time));
+  const anchor = patternAnchorSeconds(pattern);
+  const anchorOnChart = anchor !== null && candleSet.has(anchor) ? anchor : null;
   if (start !== null && Number.isFinite(neckline)) {
-    const end = pattern.state === "confirmed" && confirmedAt !== null && candleSet.has(confirmedAt)
-      ? confirmedAt
-      : lastTime;
+    // A confirmed neckline stops at the candle that broke it; otherwise it runs to the latest candle.
+    const end = pattern.state === "confirmed" && anchorOnChart !== null ? anchorOnChart : lastTime;
     if (end !== null && end > start) {
       lines.push({
         id: `${pattern.id}:neckline`,
@@ -211,7 +222,9 @@ function patternLines(pattern, { lastTime, candleSet }) {
     }
   }
   const invalidation = Number(pattern.invalidation_level);
-  if (start !== null && Number.isFinite(invalidation) && lastTime !== null && lastTime > start) {
+  // An invalidated pattern's level stops at the candle that invalidated it; before that it runs to the latest candle.
+  const invalidationEnd = pattern.state === "invalidated" && anchorOnChart !== null ? anchorOnChart : lastTime;
+  if (start !== null && Number.isFinite(invalidation) && invalidationEnd !== null && invalidationEnd > start) {
     lines.push({
       id: `${pattern.id}:invalidation`,
       role: "pattern-invalidation",
@@ -219,7 +232,7 @@ function patternLines(pattern, { lastTime, candleSet }) {
       color: INVALIDATION,
       lineStyle: 1,
       lineWidth: 1,
-      points: [{ time: start, value: invalidation }, { time: lastTime, value: invalidation }],
+      points: [{ time: start, value: invalidation }, { time: invalidationEnd, value: invalidation }],
     });
   }
   return lines;
@@ -292,9 +305,7 @@ export function buildEvidenceModel({ evidence, candles, asOfMs, layers }) {
       const top = pattern.side === "top";
       const lines = patternLines(pattern, { lastTime, candleSet });
       model.patternLines.push(...lines);
-      const anchorSource = pattern.state === "confirmed" && pattern.confirmation_time
-        ? toSeconds(isoMs(pattern.confirmation_time))
-        : toSeconds(isoMs(pattern.formed_at));
+      const anchorSource = patternAnchorSeconds(pattern);
       const anchor = anchorSource !== null && candleSet.has(anchorSource) ? anchorSource : null;
       if (anchor !== null) {
         model.markers.push(makeMarker(anchor, {
