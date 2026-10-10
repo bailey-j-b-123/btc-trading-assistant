@@ -1487,3 +1487,41 @@ def test_version_change_pins_floor_but_passes_stay_correct():
             assert len(rows) == 1
             assert rows[0].setup_ended_at == mate.ended_at
             assert rows[0].setup_terminal_reason == mate.terminal_reason
+
+
+def test_later_passes_advance_past_an_unfinished_close_without_conflict_or_churn() -> None:
+    """Regression: a pass after new closes must not re-run complete closes.
+
+    Before the fix, the pending range restarted at the earliest unfinished close,
+    re-ran complete closes from data that had since changed, and the append-only
+    check refused the pass with ForwardConflict. Now: complete closes are skipped,
+    unfinished closes are retried, identical retries add no row, and a close
+    whose data changed gets its own versioned row.
+    """
+
+    harness = harness_with_a_paper_plan()
+    # Pass 1: the qualifying close is complete; the next close has no candle yet
+    # (an unfinished, missing-candle cycle).
+    harness.advance_to(QUALIFYING_BOUNDARY + INTERVAL)
+    first = harness.run(refresh_market_data=False)
+    assert first.status is HeartbeatStatus.PROCESSED
+    rows_after_first = len(harness.cycles())
+
+    # Pass 2: three more closes arrive. This is exactly the pass that used to raise.
+    harness.step(
+        (bar(21, 126, low=123), bar(22, 130, low=124), bar(23, 132, low=125)),
+        refresh_market_data=False,
+    )
+    second_rows = len(harness.cycles())
+    assert second_rows > rows_after_first
+    complete_at_qualifying = [
+        cycle
+        for cycle in harness.cycles()
+        if cycle.as_of == QUALIFYING_BOUNDARY and cycle.complete
+    ]
+    assert len(complete_at_qualifying) == 1  # the complete close was never re-run
+
+    # Pass 3 with nothing new: IDLE, and no row is appended for any close.
+    idle = harness.run(refresh_market_data=False)
+    assert idle.status is HeartbeatStatus.IDLE
+    assert len(harness.cycles()) == second_rows

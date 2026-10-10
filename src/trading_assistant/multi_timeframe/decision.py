@@ -126,6 +126,25 @@ def gate_decision(
             tuple(invalidated_if),
         )
 
+    # Incomplete or stale required data is never a verdict: it must come before
+    # any "no setup" conclusion. Otherwise a missing candle that happens to sit
+    # in a non-qualifying window would show NO SETUP, which is only legitimate
+    # when the complete data was evaluated and no trade qualified.
+    data_reasons, data_waiting, data_decision = _data_quality_issues(
+        context, setup, confirmation, execution
+    )
+    if data_decision is not None:
+        reasons.extend(data_reasons)
+        waiting_for.extend(data_waiting)
+        return (
+            data_decision,
+            tuple(dict.fromkeys(reasons)),
+            "incomplete",
+            counter_trend,
+            tuple(dict.fromkeys(waiting_for)),
+            tuple(invalidated_if),
+        )
+
     if not setup.has_active_setup:
         if setup.is_terminal:
             reasons.append(f"setup_terminal:{setup.terminal_reason}")

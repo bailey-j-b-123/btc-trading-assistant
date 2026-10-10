@@ -238,3 +238,6 @@ __marimo__/
 *.sqlite-*
 *.sqlite3
 *.sqlite3-*
+
+# Single-instance ingestion lock file (pid marker, never committed)
+/data/ingestion.lock

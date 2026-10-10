@@ -36,7 +36,6 @@ from __future__ import annotations
 import json
 import logging
 import threading
-import time
 from bisect import bisect_left
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
