@@ -180,8 +180,8 @@ test("a formed pattern draws a dashed zigzag, neckline and invalidation at backe
   assert.equal(neckline.points[1].time, toSeconds(ms(19)), "unbroken neckline runs to the last candle on screen, never beyond it");
   const invalidation = model.patternLines.find((line) => line.role === "pattern-invalidation");
   assert.equal(invalidation.points[0].value, 111.2);
-  const marker = model.markers.find((item) => item.text.startsWith("Double top"));
-  assert.equal(marker.text, "Double top · formed");
+  const marker = model.markers.find((item) => item.text.startsWith("DT"));
+  assert.equal(marker.text, "DT · formed");
 });
 
 test("a confirmed pattern ends its neckline at the confirmation candle and labels the state", () => {
@@ -194,7 +194,7 @@ test("a confirmed pattern ends its neckline at the confirmation candle and label
   const neckline = model.patternLines.find((line) => line.role === "pattern-neckline");
   // The neckline stops at the candle that closed through it (open ms(11)), not at its close boundary (ms(12)).
   assert.equal(neckline.points[1].time, toSeconds(ms(11)));
-  assert.equal(model.markers.find((item) => item.text.startsWith("Double top")).text, "Double top · confirmed");
+  assert.equal(model.markers.find((item) => item.text.startsWith("DT")).text, "DT · confirmed");
 });
 
 test("only the latest state of a pattern is drawn; history stays in the explanation", () => {
@@ -206,9 +206,9 @@ test("only the latest state of a pattern is drawn; history stays in the explanat
     asOfMs: ms(13),
     layers: LAYERS_ON,
   });
-  const labels = model.markers.filter((item) => item.text.startsWith("Double top"));
+  const labels = model.markers.filter((item) => item.text.startsWith("DT"));
   assert.equal(labels.length, 1);
-  assert.equal(labels[0].text, "Double top · confirmed");
+  assert.equal(labels[0].text, "DT · confirmed");
 });
 
 test("invalidated patterns use the muted dotted zigzag and never claim confirmation", () => {
@@ -220,7 +220,7 @@ test("invalidated patterns use the muted dotted zigzag and never claim confirmat
   });
   const zigzag = model.patternLines.find((line) => line.role === "pattern-zigzag");
   assert.equal(zigzag.lineStyle, 1);
-  assert.equal(model.markers.find((item) => item.text.startsWith("Double top")).text, "Double top · invalidated");
+  assert.equal(model.markers.find((item) => item.text.startsWith("DT")).text, "DT · invalidated");
 });
 
 test("pattern components unknown to the candle series are dropped rather than bridged", () => {
@@ -269,7 +269,9 @@ test("candle shapes are opt-in and show one primary marker per candle by priorit
   const shapeMarkers = onModel.markers.filter((m) => m.size === 0.8);
   assert.equal(shapeMarkers.length, 2, "one marker per candle, not per shape");
   assert.equal(shapeMarkers[0].text, "Bull engulf", "engulfing outranks a strong body on the same candle");
-  assert.equal(shapeMarkers[1].text, "Indecision");
+  // Two candles apart is closer than the label spacing: the second keeps its dot but loses its text.
+  assert.equal(shapeMarkers[1].text, "", "a label closer than LABEL_GAP_CANDLES is hidden, not overlapped");
+  assert.ok(onModel.labelsRemoved >= 1, "at least the close shape label is removed (fixtures may add other labelled items)");
 });
 
 test("clicking a candle returns its evidence in priority order", () => {
@@ -402,7 +404,7 @@ test("a confirmation on the latest stored candle keeps its marker even though kn
   pattern.confirmed_at = iso(13);
   pattern.anchor_time = iso(12);
   const model = buildEvidenceModel({ evidence: evidence({ patterns: [pattern] }), candles: rows(13), asOfMs: ms(13), layers: LAYERS_ON });
-  const marker = model.markers.find((item) => item.text === "Double top · confirmed");
+  const marker = model.markers.find((item) => item.text === "DT · confirmed");
   assert.ok(marker, "marker must still be drawn on the latest candle");
   assert.equal(marker.time, toSeconds(ms(12)));
   assert.equal(model.counts.patterns, 1);
@@ -414,7 +416,7 @@ test("a newly formed pattern on the latest candle keeps its marker, anchored on 
   pattern.formed_at = iso(13);
   pattern.anchor_time = iso(6); // last swing candle, not the close boundary
   const model = buildEvidenceModel({ evidence: evidence({ patterns: [pattern] }), candles: rows(13), asOfMs: ms(13), layers: LAYERS_ON });
-  const marker = model.markers.find((item) => item.text.startsWith("Double top"));
+  const marker = model.markers.find((item) => item.text.startsWith("DT"));
   assert.ok(marker, "formed marker must not be dropped for a boundary timestamp");
   assert.equal(marker.time, toSeconds(ms(6)));
   assert.equal(model.counts.patterns, 1);
@@ -427,7 +429,7 @@ test("an invalidation label is placed on the invalidating candle, not at formati
     asOfMs: ms(14),
     layers: LAYERS_ON,
   });
-  const marker = model.markers.find((item) => item.text === "Double top · invalidated");
+  const marker = model.markers.find((item) => item.text === "DT · invalidated");
   assert.ok(marker);
   assert.equal(marker.time, toSeconds(ms(12)), "the invalidating candle");
   assert.notEqual(marker.time, toSeconds(ms(9)), "must not look like it invalidated at formation");
@@ -459,10 +461,87 @@ test("legacy payloads without anchor_time still anchor formed patterns, and neve
   const legacyFormed = doubleTopPattern("formed");
   delete legacyFormed.anchor_time;
   const formedModel = buildEvidenceModel({ evidence: evidence({ patterns: [legacyFormed] }), candles: rows(20), asOfMs: ms(13), layers: LAYERS_ON });
-  assert.equal(formedModel.markers.find((item) => item.text.startsWith("Double top")).time, toSeconds(ms(9)));
+  assert.equal(formedModel.markers.find((item) => item.text.startsWith("DT")).time, toSeconds(ms(9)));
 
   const legacyConfirmed = doubleTopPattern("confirmed");
   delete legacyConfirmed.anchor_time;
   const confirmedModel = buildEvidenceModel({ evidence: evidence({ patterns: [legacyConfirmed] }), candles: rows(20), asOfMs: ms(13), layers: LAYERS_ON });
-  assert.equal(confirmedModel.markers.filter((item) => item.text.startsWith("Double top")).length, 0);
+  assert.equal(confirmedModel.markers.filter((item) => item.text.startsWith("DT")).length, 0);
+});
+
+// --- Chart label collisions (audit P4) -----------------------------------------------------
+
+import { describeEvidenceItem, evidenceItemRows, gateMarkerLabels, LABEL_GAP_CANDLES, patternMarkerText } from "../../src/trading_assistant/web/static/js/evidence.js";
+
+test("pattern labels use short names with the lifecycle state", () => {
+  assert.equal(patternMarkerText({ type: "double_top", state: "confirmed", label: "Double top" }), "DT · confirmed");
+  assert.equal(patternMarkerText({ type: "double_bottom", state: "invalidated" }), "DB · invalidated");
+  assert.equal(patternMarkerText({ type: "head_and_shoulders", state: "formed" }), "H&S · formed");
+  assert.equal(patternMarkerText({ type: "inverse_head_and_shoulders", state: "confirmed" }), "iH&S · confirmed");
+});
+
+test("gateMarkerLabels keeps the highest-priority label and removes only conflicting neighbours on the same side", () => {
+  const marker = (position, text) => ({ position, text, time: 0 });
+  const pattern = marker("aboveBar", "DT · confirmed");
+  const swingNear = marker("aboveBar", "HH");
+  const swingFar = marker("aboveBar", "LH");
+  const swingOtherSide = marker("belowBar", "HL");
+  const removed = gateMarkerLabels([
+    { marker: swingNear, priority: 2, index: 10 },
+    { marker: pattern, priority: 0, index: 12 },
+    { marker: swingFar, priority: 2, index: 12 + LABEL_GAP_CANDLES },
+    { marker: swingOtherSide, priority: 2, index: 11 },
+  ]);
+  assert.equal(pattern.text, "DT · confirmed", "patterns are placed first and always keep their label");
+  assert.equal(swingNear.text, "", "a swing within the gap of the pattern on the same side loses its text");
+  assert.equal(swingFar.text, "LH", "exactly the gap away is allowed");
+  assert.equal(swingOtherSide.text, "HL", "the opposite side is independent");
+  assert.equal(removed, 1);
+});
+
+test("gateMarkerLabels is deterministic: the same input gives the same output", () => {
+  const build = () => Array.from({ length: 12 }, (_, i) => ({ marker: { position: "aboveBar", text: `L${i}` }, priority: i % 3, index: i * 2 }));
+  const first = build();
+  const second = build();
+  gateMarkerLabels(first);
+  gateMarkerLabels(second);
+  assert.deepEqual(first.map((c) => c.marker.text), second.map((c) => c.marker.text));
+});
+
+test("dense swings keep a bounded number of readable labels on the chart", () => {
+  const swings = Array.from({ length: 40 }, (_, i) => ({
+    id: `sw${i}`, kind: i % 2 ? "low" : "high", label: i % 2 ? "HL" : "HH",
+    time_ms: ms(i), time: iso(i), known_at: iso(i + 1), price: String(100 + i),
+  }));
+  const model = buildEvidenceModel({ evidence: evidence({ swings }), candles: rows(60), asOfMs: ms(59), layers: LAYERS_ON });
+  const labelled = model.markers.filter((m) => m.text);
+  assert.ok(labelled.length <= Math.ceil(40 / LABEL_GAP_CANDLES) * 2, `labelled=${labelled.length}`);
+  assert.ok(model.markers.length === 40, "every swing keeps its dot");
+  assert.ok(model.labelsRemoved > 0);
+});
+
+test("the item list names every drawn item, including those whose chart label was hidden", () => {
+  const swings = [
+    { id: "a", kind: "high", label: "HH", time_ms: ms(4), time: iso(4), known_at: iso(5), price: "104" },
+    { id: "b", kind: "low", label: "HL", time_ms: ms(5), time: iso(5), known_at: iso(6), price: "101" },
+  ];
+  const model = buildEvidenceModel({ evidence: evidence({ swings }), candles: rows(12), asOfMs: ms(11), layers: LAYERS_ON });
+  const rows2 = evidenceItemRows(model);
+  assert.equal(rows2.length, 2);
+  assert.equal(rows2[0].name, "Swing HH (high)");
+  assert.equal(rows2[1].name, "Swing HL (low)");
+  assert.equal(describeEvidenceItem({ group: "patterns", type: "double_bottom", state: "formed" }), "Double bottom · formed");
+});
+
+// Regression (PR #38 P4): every drawn chart item must be reachable as text, not only by clicking the canvas.
+test("the dashboard renders the evidence item list and the marker key names the pattern abbreviations", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(
+    new URL("../../src/trading_assistant/web/static/js/views/dashboard.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /evidenceItemRows\(model\)/);
+  assert.match(source, /class: "chart-items"/);
+  assert.match(source, /onclick: \(\) => showExplanationAt\(row\.timeSeconds\)/);
+  assert.match(source, /DT double top, DB double bottom, H&S head and shoulders, iH&S inverse H&S/);
 });

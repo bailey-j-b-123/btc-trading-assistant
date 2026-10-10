@@ -169,6 +169,47 @@ export function knownBy(item, asOfMs) {
   return known <= asOfMs;
 }
 
+/** Minimum candle spacing between two text labels on the same side of the chart. Closer labels keep their dot. */
+export const LABEL_GAP_CANDLES = 5;
+
+/** Short, unambiguous pattern names for chart labels. The full name is in the explanation and the item list. */
+export const PATTERN_SHORT_NAME = Object.freeze({
+  double_top: "DT",
+  double_bottom: "DB",
+  head_and_shoulders: "H&S",
+  inverse_head_and_shoulders: "iH&S",
+});
+
+/** Chart label for a pattern marker: short name plus lifecycle state, e.g. "DT · confirmed". */
+export function patternMarkerText(pattern) {
+  const name = PATTERN_SHORT_NAME[pattern.type] || pattern.label || "Pattern";
+  return `${name} · ${PATTERN_STATE_TEXT[pattern.state] || pattern.state}`;
+}
+
+/**
+ * Decide which markers keep their text label. Candidates are {marker, priority, index}, where index is the
+ * candle index. Higher-priority labels are placed first; a label is removed (dot kept) when another kept label
+ * on the same side is closer than LABEL_GAP_CANDLES. Returns the number of labels removed. Deterministic.
+ */
+export function gateMarkerLabels(candidates) {
+  const ordered = candidates
+    .filter((c) => c.marker.text)
+    .sort((a, b) => a.priority - b.priority || a.index - b.index);
+  const kept = { aboveBar: [], belowBar: [] };
+  let removed = 0;
+  for (const candidate of ordered) {
+    const side = kept[candidate.marker.position] || kept.aboveBar;
+    const clash = side.some((index) => Math.abs(index - candidate.index) < LABEL_GAP_CANDLES);
+    if (clash) {
+      candidate.marker.text = "";
+      removed += 1;
+    } else {
+      side.push(candidate.index);
+    }
+  }
+  return removed;
+}
+
 function makeMarker(time, { position, shape, color, text, size = 1 }) {
   return { time, position, shape, color, text, size };
 }
@@ -262,6 +303,8 @@ export function buildEvidenceModel({ evidence, candles, asOfMs, layers }) {
   const candleSet = candleTimes(candles);
   if (candleSet.size === 0) return model;
   const sortedTimes = [...candleSet].sort((a, b) => a - b);
+  const candleIndex = new Map(sortedTimes.map((time, index) => [time, index]));
+  const labelCandidates = [];
   const lastTime = sortedTimes[sortedTimes.length - 1];
   const recentFrom = sortedTimes[Math.max(0, sortedTimes.length - RECENT_EVENT_CANDLES)];
   const inRecentWindow = (time) => time >= recentFrom;
@@ -286,13 +329,15 @@ export function buildEvidenceModel({ evidence, candles, asOfMs, layers }) {
       const tone = STRUCTURE_TONE[swing.label] || "neutral";
       const color = tone === "bull" ? STRUCTURE_BULL : tone === "bear" ? STRUCTURE_BEAR : STRUCTURE_NEUTRAL;
       const high = swing.kind === "high";
-      model.markers.push(makeMarker(time, {
+      const marker = makeMarker(time, {
         position: high ? "aboveBar" : "belowBar",
         shape: "circle",
         color,
         text: swing.label,
         size: 1,
-      }));
+      });
+      model.markers.push(marker);
+      labelCandidates.push({ marker, priority: 2, index: candleIndex.get(time) ?? -1 });
       register(swing, time, "structure");
       model.counts.structure += 1;
     }
@@ -308,13 +353,15 @@ export function buildEvidenceModel({ evidence, candles, asOfMs, layers }) {
       const anchorSource = patternAnchorSeconds(pattern);
       const anchor = anchorSource !== null && candleSet.has(anchorSource) ? anchorSource : null;
       if (anchor !== null) {
-        model.markers.push(makeMarker(anchor, {
+        const marker = makeMarker(anchor, {
           position: top ? "aboveBar" : "belowBar",
           shape: "square",
           color: pattern.state === "invalidated" ? INVALIDATION : top ? PATTERN_TOP : PATTERN_BOTTOM,
-          text: `${pattern.label} · ${PATTERN_STATE_TEXT[pattern.state] || pattern.state}`,
+          text: patternMarkerText(pattern),
           size: 1,
-        }));
+        });
+        model.markers.push(marker);
+        labelCandidates.push({ marker, priority: 0, index: candleIndex.get(anchor) ?? -1 });
         register(pattern, anchor, "patterns");
         model.counts.patterns += 1;
       }
@@ -384,18 +431,21 @@ export function buildEvidenceModel({ evidence, candles, asOfMs, layers }) {
       shapes.sort((a, b) => SHAPE_PRIORITY.indexOf(a.kind) - SHAPE_PRIORITY.indexOf(b.kind));
       const primary = shapes[0];
       const color = primary.direction === "bullish" ? SHAPE_BULL : primary.direction === "bearish" ? SHAPE_BEAR : SHAPE_NEUTRAL;
-      model.markers.push(makeMarker(time, {
+      const marker = makeMarker(time, {
         position: primary.direction === "bearish" ? "aboveBar" : "belowBar",
         shape: "circle",
         color,
         text: SHAPE_TEXT[primary.kind] || primary.kind,
         size: 0.8,
-      }));
+      });
+      model.markers.push(marker);
+      labelCandidates.push({ marker, priority: 1, index: candleIndex.get(time) ?? -1 });
       for (const shape of shapes) register(shape, time, "candleSignals");
       model.counts.candleSignals += 1;
     }
   }
 
+  model.labelsRemoved = gateMarkerLabels(labelCandidates);
   model.markers.sort((a, b) => a.time - b.time);
   model.patternLines.sort((a, b) => a.id.localeCompare(b.id));
   return model;
@@ -431,4 +481,51 @@ export function evidenceCountText(model) {
   const older = (model.hiddenOlder?.breakouts || 0) + (model.hiddenOlder?.candleSignals || 0);
   if (older) parts.push(`${older} older event${older === 1 ? "" : "s"} not drawn (outside the last ${RECENT_EVENT_CANDLES} candles)`);
   return parts.length ? parts.join(" · ") : "No evidence drawn for the enabled layers at this candle window.";
+}
+
+const PATTERN_FULL_NAME = Object.freeze({
+  double_top: "Double top",
+  double_bottom: "Double bottom",
+  head_and_shoulders: "Head and shoulders",
+  inverse_head_and_shoulders: "Inverse head and shoulders",
+});
+
+const GROUP_NAME = Object.freeze({
+  structure: "Structure",
+  patterns: "Pattern",
+  breakouts: "Breakout, sweep or retest",
+  candleSignals: "Candle shape",
+});
+
+/**
+ * Full, plain-language name for one drawn evidence item. Used by the accessible item list so
+ * every event stays available even when its chart label is hidden to avoid covering candles.
+ */
+export function describeEvidenceItem(item) {
+  if (!item || typeof item !== "object") return "Evidence";
+  if (item.group === "structure") {
+    const side = item.kind === "high" ? "high" : item.kind === "low" ? "low" : "";
+    return `Swing ${item.label || ""}${side ? ` (${side})` : ""}`.trim();
+  }
+  if (item.group === "patterns") {
+    const name = PATTERN_FULL_NAME[item.type] || item.label || "Pattern";
+    return `${name} · ${PATTERN_STATE_TEXT[item.state] || item.state || "state unknown"}`;
+  }
+  if (item.group === "candleSignals") return SHAPE_TEXT[item.kind] || String(item.kind || "Candle shape");
+  const kind = String(item.kind || item.type || GROUP_NAME[item.group] || "event").replaceAll("_", " ");
+  const state = item.state ? ` · ${item.state}` : "";
+  const direction = item.direction ? ` (${item.direction})` : "";
+  return `${kind.charAt(0).toUpperCase()}${kind.slice(1)}${direction}${state}`;
+}
+
+/** The items in view, oldest first, with time and a plain name. Empty when no evidence model exists. */
+export function evidenceItemRows(model) {
+  if (!model || !Array.isArray(model.items)) return [];
+  return [...model.items]
+    .sort((a, b) => a.timeSeconds - b.timeSeconds)
+    .map((item) => ({
+      timeSeconds: item.timeSeconds,
+      group: item.group,
+      name: describeEvidenceItem(item),
+    }));
 }

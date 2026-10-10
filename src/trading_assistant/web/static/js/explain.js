@@ -419,7 +419,7 @@ function detectorLabelNote(band) {
  * Zones feed the engine's higher-timeframe context as neutral evidence; this explanation does not
  * claim a link to any specific rule (the qualification snapshot holds that link, if any).
  */
-export function explainZoneBand(band, { close = band?.latest_close ?? null, timeframe = null } = {}) {
+export function explainZoneBand(band, { close = band?.viewed_close ?? band?.latest_close ?? null, timeframe = null } = {}) {
   if (!band || typeof band !== "object") return null;
   const tf = band.source_timeframe || timeframe || "";
   const tfLabel = tf ? tf.toUpperCase() : "";
@@ -434,6 +434,11 @@ export function explainZoneBand(band, { close = band?.latest_close ?? null, time
     ? ` Merged from ${band.merged_zone_count} overlapping detector zones for display; touches are summed.`
     : "";
   const faded = band.faded ? " Last tested long ago, so it is drawn faded." : "";
+  const basisNote = band.position_changed
+    ? ` Its position on the ${tfLabel || "source"} chart was ${band.source_position === "above_price" ? "above" : band.source_position === "below_price" ? "below" : "inside"} the ${tfLabel || "source"} close ${price(band.source_close)}; on this chart it is shown against the viewed close ${price(close)}. The source evidence is kept, and the display follows the viewed chart.`
+    : band.position_basis === "source"
+      ? " The viewed chart's close was unavailable, so this position is the source timeframe's own and is not verified against this chart."
+      : "";
   const note = detectorLabelNote(band);
   return result({
     kind: "zone",
@@ -441,7 +446,7 @@ export function explainZoneBand(band, { close = band?.latest_close ?? null, time
     status: band.isolated ? "Single swing" : band.display_role === "price_inside" ? "Price inside" : "Tested",
     tone: band.display_role === "support" ? "green" : band.display_role === "resistance" ? "red" : "amber",
     timeframe: timeframeText(tf),
-    what: `${kindWord} band ${bounds} on the ${tfLabel || "viewed"} chart. ${zonePositionSentence(band, close)}`,
+    what: `${kindWord} band ${bounds} on the ${tfLabel || "viewed"} chart. ${zonePositionSentence(band, close)}${basisNote}`,
     why: `Built by clustering ${swingCount} confirmed swing extreme${swingCount === 1 ? "" : "s"} whose prices sit within the detector's tolerance. The band runs from the lowest to the highest of those swings.`,
     when: `First seen ${utcText(band.first_seen)}. Last tested ${utcText(band.last_tested)}${age}. Source swings are drawn only from their confirmation time onward.`,
     state: `${touches}${merged}${faded}`,

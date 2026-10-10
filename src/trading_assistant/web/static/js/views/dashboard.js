@@ -34,10 +34,12 @@ import {
 import {
   buildEvidenceModel,
   evidenceCountText,
+  evidenceItemRows,
   isoMs,
   itemsAtTime,
 } from "../evidence.js";
 import { explainEvidence, explainZoneBand } from "../explain.js";
+import { lastConfirmedClose, relocateBands } from "../zone-position.js";
 import { botWatchingCard, rawRuleRows } from "../bot-watching.js";
 import {
   directionArrow,
@@ -458,7 +460,7 @@ const CHART_LAYER_TOGGLES = Object.freeze([
 
 /** Next higher timeframe whose stored structure may be shown on this chart. */
 const HIGHER_TIMEFRAME = Object.freeze({ "5m": "15m", "15m": "1h", "1h": "4h" });
-const CHART_MARKER_KEY = "▲ breakout (green up, red down) · ▼ sweep · grey = failed breakout · ● retest · HH/HL/LH/LL swing labels · click any marker for detail";
+const CHART_MARKER_KEY = "▲ breakout (green up, red down) · ▼ sweep · grey = failed breakout · ● retest · HH/HL/LH/LL swings · patterns: DT double top, DB double bottom, H&S head and shoulders, iH&S inverse H&S (labels give the lifecycle state) · a dot with no label = label hidden to avoid collisions · click any marker for detail";
 const CHART_EXPLAIN_HINT = "Click a candle to see what BRAIN recorded there, when it became known, and whether it influenced the current assessment.";
 
 function evidenceMetaText(evidence, timeframe) {
@@ -517,6 +519,10 @@ function chartCard(dashboard) {
   const confirmedStatus = el("div", { class: "chart-note", text: "Last confirmed stored close: unavailable" });
   const ohlcLine = el("div", { class: "chart-ohlc", "aria-live": "off", text: "Move over a candle for its confirmed OHLC." });
   const evidenceMeta = el("div", { class: "chart-evidence-meta", role: "note", text: "" });
+  // Text alternative to the chart markers: every drawn item, reachable without hovering or clicking the canvas.
+  const itemListBody = el("div", { class: "chart-items-body" });
+  const itemListSummary = el("summary", { text: "Evidence items on this chart" });
+  const itemList = el("details", { class: "chart-items" }, [itemListSummary, itemListBody]);
   // Key for the textless arrow and circle markers. Labels (HH, LL, Double top…) stay on the chart.
   const markerKey = el("div", { class: "chart-marker-key", "aria-label": "Marker key", text: CHART_MARKER_KEY });
   const explainBody = el("div", { class: "evidence-explain-body", "aria-live": "polite" }, [
@@ -599,10 +605,13 @@ function chartCard(dashboard) {
       prefs,
     });
     // Support/resistance bands: the viewed timeframe's presented bands, plus higher-timeframe bands when that layer is on.
+    // Every band is positioned against the VIEWED chart's last confirmed close, not the close of the timeframe
+    // that produced it. The source close and source position stay on the band as evidence.
+    const viewedClose = lastConfirmedClose(viewed.candleRows);
     const viewedBands = prefs.overlays?.zones === true && Array.isArray(viewed.overlays?.zone_bands?.bands)
-      ? viewed.overlays.zone_bands.bands
+      ? relocateBands(viewed.overlays.zone_bands.bands, viewedClose)
       : [];
-    const higherBands = prefs.layers?.htfLevels === true ? viewed.htfBands || [] : [];
+    const higherBands = prefs.layers?.htfLevels === true ? relocateBands(viewed.htfBands || [], viewedClose) : [];
     setZoneBands(handleRef.current, [...viewedBands, ...higherBands], { onSelect: selectZoneBand });
   };
   /** Draw evidence for the viewed timeframe. Clears previous evidence first. */
@@ -626,6 +635,30 @@ function chartCard(dashboard) {
       ? ` · S/R bands: ${zb.bands?.length ?? 0} shown, ${zb.hidden_count ?? 0} hidden, ${zb.merged_count ?? 0} merged`
       : "";
     evidenceMeta.textContent = `${evidenceMetaText(viewed.evidence, viewed.timeframe)} ${evidenceCountText(viewed.model)}${counts}${htf}${zoneText}`;
+    renderItemList(viewed.model);
+  };
+  /** One button per drawn evidence item; selecting it opens the same click-to-explain panel as a chart click. */
+  const renderItemList = (model) => {
+    clearNode(itemListBody);
+    const rows = evidenceItemRows(model);
+    itemListSummary.textContent = rows.length
+      ? `Evidence items on this chart (${rows.length}) — select one to explain it`
+      : "Evidence items on this chart (none in the loaded window)";
+    if (!rows.length) return;
+    const list = el("ul", { class: "chart-items-list", role: "list" });
+    for (const row of rows) {
+      list.append(el("li", {}, [
+        el("button", {
+          type: "button",
+          class: "chart-item-button",
+          onclick: () => showExplanationAt(row.timeSeconds),
+        }, [
+          el("span", { class: "chart-item-time mono", text: formatUtc(new Date(row.timeSeconds * 1000).toISOString()) }),
+          el("span", { class: "chart-item-name", text: row.name }),
+        ]),
+      ]));
+    }
+    itemListBody.append(list);
   };
   const showOhlc = (bar) => {
     if (!bar) {
@@ -639,7 +672,7 @@ function chartCard(dashboard) {
   /** Click a band label: explain that zone (bounds, origin, touches, last test, position vs price). */
   const selectZoneBand = (band) => {
     clearNode(explainBody);
-    const explanation = explainZoneBand(band, { timeframe: band.source_timeframe, close: band.latest_close ?? null });
+    const explanation = explainZoneBand(band, { timeframe: band.source_timeframe, close: band.viewed_close ?? band.latest_close ?? null });
     if (!explanation) {
       explainBody.append(el("p", { class: "evidence-explain-hint", text: "This zone has no complete stored bounds, so it cannot be explained." }));
       return;
@@ -825,6 +858,8 @@ function chartCard(dashboard) {
     viewed.htfStatus = null;
     clearNode(explainBody).append(el("p", { class: "evidence-explain-hint", text: CHART_EXPLAIN_HINT }));
     evidenceMeta.textContent = "";
+    clearNode(itemListBody);
+    itemListSummary.textContent = "Evidence items on this chart";
     showOhlc(null);
     viewNote.textContent = `Loading stored ${label} closed candles…`;
 
@@ -960,9 +995,9 @@ function chartCard(dashboard) {
     formingStatus,
     confirmedStatus,
     ohlcLine,
-    lookingForCard(dashboard),
     host,
     evidenceMeta,
+    itemList,
     markerKey,
     explainPanel,
     viewNote,
@@ -1006,17 +1041,6 @@ function chartCard(dashboard) {
   };
 }
 
-function candidateCounts(model) {
-  const countNode = (value, label) => el("div", { class: "candidate-count" }, [
-    el("div", { class: "value", text: value === null ? "—" : String(value) }),
-    el("div", { class: "label", text: label }),
-  ]);
-  return el("div", { class: "candidate-counts", "aria-label": "Candidate counts" }, [
-    countNode(model.watchCount, "On watch"),
-    countNode(model.qualifiedCount, "Qualified"),
-    countNode(model.plannedCount, "Plannable"),
-  ]);
-}
 
 function decisionCard(dashboard) {
   const availability = decisionAvailability(dashboard);
@@ -1125,56 +1149,6 @@ function openDecisionConfirmation(dashboard, decision) {
   };
 }
 
-function verdictCard(dashboard, forward) {
-  const model = verdictViewModel(dashboard, forward);
-  const direction = model.direction
-    ? `${directionArrow(model.direction)} ${directionLabel(model.direction)}`
-    : "Direction UNKNOWN";
-  const family = model.family ? familyLabel(model.family) : "Setup UNKNOWN";
-  const qualification = dashboard?.qualification || {};
-  const technical = [
-    `backend state: ${qualification.state || "UNKNOWN"} (snapshot status: ${qualification.status || "UNKNOWN"})`,
-    `selected setup: ${qualification.selected_setup_id || "none"}`,
-    ...backendReasons(qualification.reasons).map((reason) => `snapshot reason: ${reason}`),
-    ...rawRuleRows(model.candidate),
-  ];
-  if (qualification.rules_version) technical.push(`rules version: ${qualification.rules_version}`);
-  if (qualification.config_fingerprint) technical.push(`config fingerprint: ${qualification.config_fingerprint}`);
-  return el("section", {
-    class: "card terminal-card verdict-card",
-    "aria-label": "Current verdict",
-  }, [
-    el("div", { class: "verdict-kicker", text: "Current verdict" }),
-    el("div", {
-      class: model.plannable ? "verdict-state verdict-state-plan" : "verdict-state",
-      dataset: { tone: model.tone },
-      role: "status",
-      text: model.state,
-    }),
-    model.planStatus
-      ? el("div", { class: "verdict-plan-status", dataset: { tone: model.tone }, text: model.planStatus })
-      : null,
-    model.hierarchyGate
-      ? el("div", {
-          class: "hierarchy-gate",
-          dataset: { tone: model.hierarchyReady ? "ready" : "waiting" },
-          role: "status",
-          "aria-label": "Multi-timeframe hierarchy gate",
-        }, [
-          el("span", { class: "hierarchy-gate-label", text: "Hierarchy gate" }),
-          el("strong", { class: "hierarchy-gate-state", text: model.hierarchyGate }),
-        ])
-      : null,
-    el("div", { class: "verdict-identity" }, [
-      el("span", { class: "verdict-direction", text: direction }),
-      el("span", { class: "tag verdict-family", text: family }),
-    ]),
-    el("p", { class: "verdict-summary", text: model.explanation }),
-    decisionCard(dashboard),
-    candidateCounts(model),
-    technicalDetails("Technical details", technical),
-  ]);
-}
 
 function planLevel(label, value, tone = null, { numeric = true, decimals = 2 } = {}) {
   const content = numeric ? roundedSpan(value, decimals) : el("span", { text: displayOrUnknown(value) });
@@ -1520,86 +1494,6 @@ export function decisionCentreStatus(dashboard) {
   return { key: "unavailable", label: "UNAVAILABLE", tone: "neutral" };
 }
 
-function decisionLane({ lane, title, status, tone, rows, note }) {
-  return el("div", { class: "decision-lane", dataset: { lane, tone: tone || "neutral" } }, [
-    el("div", { class: "decision-lane-head" }, [
-      el("span", { class: "decision-lane-kicker", text: title }),
-      el("span", { class: "decision-lane-status", text: status }),
-    ]),
-    ...rows.map(([label, value]) => el("div", { class: "decision-row" }, [
-      el("span", { class: "decision-row-label", text: label }),
-      el("span", { class: "decision-row-value" }, [value]),
-    ])),
-    note ? el("p", { class: "decision-lane-note", text: note }) : null,
-  ]);
-}
-
-function decisionCentreCard(dashboard, forward) {
-  const status = decisionCentreStatus(dashboard);
-  const verdict = verdictViewModel(dashboard, forward);
-  const qualification = dashboard?.qualification || {};
-  const plan = hasValidTradePlan(dashboard) ? dashboard.plan : null;
-  const planning = dashboard?.planning || {};
-  const badge = freshnessBadge(dashboard?.freshness);
-  const direction = verdict.direction ? `${directionArrow(verdict.direction)} ${directionLabel(verdict.direction)}` : "UNKNOWN";
-  const setup = verdict.family ? familyLabel(verdict.family) : "No setup named by the backend";
-  const reasons = backendReasons(qualification.reasons);
-  const targetText = plan && Array.isArray(plan.targets) && plan.targets.length
-    ? plan.targets.map((target, index) => `T${index + 1} ${displayOrUnknown(target?.level?.value)}${isMissing(target?.r_multiple) ? "" : ` (${displayRounded(target.r_multiple, 2).display} R)`}`).join(" · ")
-    : "UNKNOWN";
-  const observationRows = [
-    ["Status", status.label],
-    ["Direction", direction],
-    ["Setup", setup],
-    ["Backend state", qualification.state || "UNKNOWN"],
-  ];
-  const planRows = plan
-    ? [
-        ["Direction", directionLabel(plan.direction)],
-        ["Entry", displayOrUnknown(plan.entry?.value)],
-        ["Stop", displayOrUnknown(plan.stop?.value)],
-        ["Invalidation", displayOrUnknown(plan.invalidation?.value)],
-        ["Targets · R:R", targetText],
-      ]
-    : [["Plan", "No plan — the backend did not build one"]];
-  const orders = forward?.execution_disabled === true
-    ? "NONE · execution disabled"
-    : "UNKNOWN";
-  return el("section", { class: "card terminal-card decision-centre", "aria-label": "Decision centre" }, [
-    el("div", { class: "section-title-row" }, [
-      el("h2", { class: "card-title", text: "Decision centre" }),
-      el("span", { class: "freshness-badge", dataset: { tone: badge.tone }, title: badge.detail, text: badge.label }),
-    ]),
-    el("div", { class: "decision-status", dataset: { tone: status.tone }, role: "status", text: status.label }),
-    el("p", { class: "decision-asof", text: asOfLine(dashboard?.meta, dashboard?.freshness) }),
-    decisionLane({
-      lane: "observation",
-      title: "1 · Observation (BRAIN evidence)",
-      status: verdict.state,
-      tone: verdict.tone,
-      rows: observationRows,
-      note: reasons.length
-        ? `Backend rejection reasons: ${reasons.join("; ")}`
-        : "No rejection reasons were recorded by the backend for this instant.",
-    }),
-    decisionLane({
-      lane: "plan",
-      title: "2 · Proposed paper plan",
-      status: plan ? "PAPER PLAN" : planStateLabel(planning.state) || "NO PLAN",
-      tone: plan ? "green" : "neutral",
-      rows: planRows,
-      note: plan ? "Deterministic paper plan · not an order, fill, position, or profit." : planningReason(dashboard),
-    }),
-    decisionLane({
-      lane: "orders",
-      title: "3 · Actual orders",
-      status: orders,
-      tone: "neutral",
-      rows: [["Real orders placed", forward?.execution_disabled === true ? "0 — none by design" : "UNKNOWN"]],
-      note: "BRAIN places no orders. Observations and plans above are paper records only.",
-    }),
-  ]);
-}
 
 /** Paper observations: active and completed plans, outcome status, ambiguous and unscored counts, with limitations. */
 export function paperObservationsViewModel(forward) {
@@ -2154,6 +2048,167 @@ function multiTimeframeCard(dashboard) {
   ]);
 }
 
+// ---------------------------------------------------------------------------
+// Dashboard layout (PR #38, P3). One BRAIN decision with its reasons, one chart with
+// the multi-timeframe and nearby-zone context beside it, what BRAIN is waiting for,
+// the paper ledger, and collapsed diagnostics. Every value comes from the backend
+// payload; this layer only arranges and labels it. Nothing here changes a decision.
+// ---------------------------------------------------------------------------
+
+function heroFact(label, value) {
+  return el("div", { class: "hero-fact" }, [
+    el("dt", { text: label }),
+    el("dd", { text: String(value) }),
+  ]);
+}
+
+/** The single BRAIN decision: state, reason, what it waits for, and the trust boundary. */
+function decisionHero(dashboard, forward) {
+  const model = verdictViewModel(dashboard, forward);
+  const status = decisionCentreStatus(dashboard);
+  const direction = model.direction ? `${directionArrow(model.direction)} ${directionLabel(model.direction)}` : null;
+  const family = model.family ? familyLabel(model.family) : null;
+  const freshness = dashboard?.freshness || {};
+  const asOf = dashboard?.meta?.as_of ? formatUtc(dashboard.meta.as_of) : "UNKNOWN";
+  const latest = freshness.latest_stored ? formatUtc(freshness.latest_stored) : "UNKNOWN";
+  const symbol = dashboard?.meta?.symbol || "BTC/USDT";
+  const engine = dashboard?.meta?.timeframe ? String(dashboard.meta.timeframe).toUpperCase() : "";
+  return el("section", { class: "card hero-card verdict-card", "aria-label": "BRAIN decision" }, [
+    el("div", { class: "hero-main" }, [
+      el("div", { class: "hero-kicker", text: `BRAIN decision · ${symbol}${engine ? ` · ${engine} engine` : ""}` }),
+      el("h2", {
+        class: "hero-state",
+        dataset: { tone: model.tone },
+        role: "status",
+        text: model.state,
+      }),
+      el("div", { class: "hero-identity" }, [
+        direction ? el("span", { class: "hero-direction", text: direction }) : null,
+        family ? el("span", { class: "tag", text: family }) : null,
+        !direction && !family ? el("span", { class: "hero-muted", text: "No directional candidate" }) : null,
+      ]),
+      el("p", { class: "hero-reason", text: model.explanation }),
+      model.planStatus
+        ? el("p", { class: "hero-plan-status", dataset: { tone: model.tone }, text: model.planStatus })
+        : null,
+      model.hierarchyGate
+        ? el("div", {
+            class: "hierarchy-gate",
+            dataset: { tone: model.hierarchyReady ? "ready" : "waiting" },
+            role: "status",
+            "aria-label": "Multi-timeframe hierarchy gate",
+          }, [
+            el("span", { class: "hierarchy-gate-label", text: "Hierarchy gate" }),
+            el("strong", { class: "hierarchy-gate-state", text: model.hierarchyGate }),
+          ])
+        : null,
+    ]),
+    el("div", { class: "hero-side" }, [
+      el("span", { class: "hero-status", dataset: { tone: status.tone }, text: status.label }),
+      el("dl", { class: "hero-facts" }, [
+        heroFact("Paper plan", model.plannable ? "Calculated by the backend — see Trade plan" : "None — the backend did not build one"),
+        heroFact("Real orders", "0 — none by design; execution is disabled"),
+      ]),
+      el("p", { class: "hero-data", text: `As of ${asOf} · latest stored candle ${latest}` }),
+    ]),
+    el("div", { class: "hero-journal" }, [decisionCard(dashboard)]),
+  ]);
+}
+
+function zoneRow(band) {
+  const above = band.position === "above_price";
+  const below = band.position === "below_price";
+  const role = above ? "Resistance" : below ? "Support" : "Price inside";
+  const tone = above ? "red" : below ? "green" : "amber";
+  const tf = band.source_timeframe ? String(band.source_timeframe).toUpperCase() : "";
+  const touches = Number.isFinite(band.touch_count) ? `${band.touch_count} touch${band.touch_count === 1 ? "" : "es"}` : "touches unknown";
+  const meta = [tf && `${tf} zone`, touches, band.faded ? "older, faded" : null].filter(Boolean).join(" · ");
+  return el("li", { class: "zone-row", dataset: { tone } }, [
+    el("div", { class: "zone-row-head" }, [
+      el("strong", { class: "zone-role", text: role }),
+      el("span", { class: "mono zone-bounds", text: `${band.band_low} – ${band.band_high}` }),
+    ]),
+    el("div", { class: "zone-meta", text: meta }),
+    band.position_changed
+      ? el("div", {
+          class: "zone-note",
+          text: `${tf || "Source"} close placed it on the other side; shown against this chart's close.`,
+        })
+      : null,
+  ]);
+}
+
+/** Nearby support and resistance for the engine timeframe, positioned against the latest confirmed close. */
+function nearbyZonesCard(dashboard) {
+  const zb = dashboard?.overlays?.zone_bands;
+  const close = lastConfirmedClose(dashboard?.market?.candles);
+  const bands = relocateBands(Array.isArray(zb?.bands) ? zb.bands : [], close);
+  const tf = String(zb?.timeframe || dashboard?.meta?.timeframe || "").toUpperCase();
+  const hidden = Number.isFinite(zb?.hidden_count) ? zb.hidden_count : 0;
+  const merged = Number.isFinite(zb?.merged_count) ? zb.merged_count : 0;
+  return el("section", { class: "card context-card", "aria-label": "Nearby support and resistance" }, [
+    el("div", { class: "card-kicker", text: `Nearby zones${tf ? ` · ${tf}` : ""}` }),
+    bands.length === 0
+      ? el("p", {
+          class: "muted",
+          text: zb?.reason === "no_zones" ? "No support or resistance zones are stored at this instant." : "No zone bands to show.",
+        })
+      : el("ul", { class: "zone-list" }, bands.map(zoneRow)),
+    el("p", {
+      class: "hint",
+      text: `${hidden} further zone(s) hidden · ${merged} merged for display. Zones are context; they do not change decisions.`,
+    }),
+  ]);
+}
+
+/** What BRAIN is waiting for: the watched area, what it needs, what blocks it, and when the idea is void. */
+function waitingCard(dashboard, forward) {
+  const model = verdictViewModel(dashboard, forward);
+  const blockers = model.candidate ? blockingRuleSentences(model.candidate).slice(0, 4) : [];
+  const counts = [
+    model.watchCount !== null ? `${model.watchCount} watching` : null,
+    model.qualifiedCount !== null ? `${model.qualifiedCount} qualified` : null,
+  ].filter(Boolean).join(" · ");
+  return el("section", { class: "card waiting-card", "aria-label": "What BRAIN is waiting for" }, [
+    lookingForCard(dashboard),
+    blockers.length
+      ? el("div", { class: "waiting-blockers" }, [
+          el("div", { class: "waiting-subhead", text: "Blocked by" }),
+          el("ul", {}, blockers.map((text) => el("li", { text }))),
+        ])
+      : el("p", { class: "muted", text: model.candidate ? "No blocking rule is reported." : "No candidate setup is being tracked." }),
+    el("p", { class: "hint", text: counts ? `Setups: ${counts}. Full list in Diagnostics.` : "Full setup list in Diagnostics." }),
+  ]);
+}
+
+/** Paper observations, recent decisions and measured performance, grouped as one ledger. */
+function paperSection(dashboard, forward) {
+  return el("section", { class: "paper-section", "aria-label": "Paper trading results" }, [
+    el("div", { class: "section-head" }, [
+      el("h2", { text: "Paper trading" }),
+      el("p", { class: "muted", text: "Observations and plans on stored candles. No real orders are placed; these are records, not performance claims." }),
+    ]),
+    el("div", { class: "paper-grid" }, [
+      paperObservationsCard(forward),
+      recentDecisionsCard(forward),
+      performanceCard(forward, dashboard?.meta || {}),
+    ]),
+  ]);
+}
+
+/** Expandable diagnostics: every setup, the raw technical record, and system details. Nothing is removed. */
+function diagnosticsSection(dashboard, forward) {
+  return el("details", { class: "card diagnostics", "aria-label": "Diagnostics" }, [
+    el("summary", { text: "Diagnostics — every setup, the technical record and system checks" }),
+    el("div", { class: "diagnostics-body" }, [
+      multiTimeframeCard(dashboard),
+      botWatchingCard(dashboard),
+      explanationCard(dashboard),
+      systemDetailsCard(dashboard, forward),
+    ]),
+  ]);
+}
+
 export async function renderDashboard(view) {
   const generation = ++renderGeneration;
   if (activeChart) activeChart.destroy();
@@ -2185,32 +2240,21 @@ export async function renderDashboard(view) {
 
   const chart = chartCard(dashboard);
   clearNode(view).append(
-    el("div", { class: "primary-layout" }, [
-      el("div", { class: "chart-stack" }, [
-        chart.node,
+    decisionHero(dashboard, forward),
+    el("div", { class: "dash-main" }, [
+      el("div", { class: "dash-chart" }, [chart.node]),
+      el("aside", { class: "dash-context", "aria-label": "Multi-timeframe and zone context" }, [
         compactHierarchyStrip(dashboard),
-      ]),
-      // Fix #2: the side stack answers "what is the bot focused on" at a
-      // glance — verdict (overall state) → Bot is watching (the one primary
-      // setup + grouped others) → Trade plan (exact levels).
-      el("div", { class: "side-stack" }, [
-        decisionCentreCard(dashboard, forward),
-        verdictCard(dashboard, forward),
-        botWatchingCard(dashboard),
-        planCard(dashboard),
+        nearbyZonesCard(dashboard),
       ]),
     ]),
-    multiTimeframeCard(dashboard),
-    el("div", { class: "tertiary-grid" }, [
+    el("div", { class: "dash-row" }, [
+      waitingCard(dashboard, forward),
+      planCard(dashboard),
       marketNowCard(dashboard),
-      explanationCard(dashboard),
     ]),
-    paperObservationsCard(forward),
-    el("div", { class: "secondary-grid" }, [
-      recentDecisionsCard(forward),
-      performanceCard(forward, dashboard.meta || {}),
-    ]),
-    systemDetailsCard(dashboard, forward),
+    paperSection(dashboard, forward),
+    diagnosticsSection(dashboard, forward),
   );
   chart.mount();
   activeChart = chart;

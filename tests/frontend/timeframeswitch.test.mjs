@@ -663,9 +663,10 @@ test("compactHierarchyViewModel projects the backend payload without recomputing
 test("the compact strip sits next to the chart and shows every engine role", async () => {
   await withDashboard({ dashboard: dashboardFixture(), forward: forwardFixture() }, async ({ view }) => {
     await renderDashboard(view);
-    const stack = findOne(view, (node) => (node.className || "").split(" ").includes("chart-stack"));
+    // The strip is the single multi-timeframe view, in the context column beside the chart (PR #38 redesign).
+    const stack = findOne(view, (node) => (node.className || "").split(" ").includes("dash-context"));
     assert.ok(stack);
-    assert.equal(stack.children[1].getAttribute("aria-label"), "Multi-timeframe status");
+    assert.equal(stack.children[0].getAttribute("aria-label"), "Multi-timeframe status");
     const strip = stripNode(view);
     assert.ok(strip);
     const text = strip.textContent;

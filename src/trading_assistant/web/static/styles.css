@@ -14,8 +14,9 @@
   --border-strong: #2d3d62;
   --text: #e9edf4;
   --text-dim: #a9b4cb;
-  --text-muted: #7d8aa8;
-  --text-faint: #56627f;
+  /* Raised for legibility on the dark panels (WCAG AA for body text). */
+  --text-muted: #94a1bb;
+  --text-faint: #7480a0;
 
   --green: #2fbf7f;
   --green-dim: rgba(47, 191, 127, 0.14);
@@ -1395,3 +1396,184 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .zone-band-label { position: absolute; right: 6px; pointer-events: auto; cursor: pointer; font-size: 10.5px; line-height: 1.2; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); background: rgba(7, 11, 22, 0.88); border: 1px solid var(--zone-edge); border-radius: 999px; padding: 2px 8px; max-width: 60%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .zone-band-label:focus-visible { outline: 2px solid var(--zone-edge); outline-offset: 2px; }
 .zone-band-offview { position: absolute; left: 8px; bottom: 8px; font-size: 11px; color: var(--text-muted); background: rgba(7, 11, 22, 0.88); padding: 2px 6px; border-radius: 6px; pointer-events: none; }
+
+
+/* ==========================================================================
+   Dashboard layout (PR #38 redesign): one decision, one chart with its context,
+   what BRAIN is waiting for, the paper ledger, and collapsed diagnostics.
+   ========================================================================== */
+
+.terminal-dashboard { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.terminal-dashboard > * { min-width: 0; }
+.terminal-dashboard .card { min-width: 0; }
+
+/* --- The one decision ---------------------------------------------------- */
+.hero-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr);
+  gap: 18px 28px;
+  padding: 26px 30px;
+  border: 1px solid var(--border-strong);
+  background: linear-gradient(135deg, var(--panel-2) 0%, var(--panel) 62%);
+}
+.hero-main, .hero-side { min-width: 0; }
+.hero-card .hero-journal { grid-column: 1 / -1; }
+.hero-kicker {
+  font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.hero-state {
+  margin: 8px 0 10px;
+  font-size: clamp(2.6rem, 5.2vw, 4.25rem);
+  font-weight: 750;
+  line-height: 1.02;
+  letter-spacing: -0.025em;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.hero-state[data-tone="amber"] { color: var(--amber); }
+.hero-state[data-tone="green"] { color: var(--green); }
+.hero-state[data-tone="red"] { color: var(--red); }
+.hero-identity { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.hero-direction { font-size: 18px; font-weight: 700; }
+.hero-muted { color: var(--text-muted); font-size: 16px; }
+.hero-reason {
+  margin: 0; max-width: 62ch; font-size: 17px; line-height: 1.55; color: var(--text-dim);
+}
+.hero-plan-status { margin: 12px 0 0; font-size: 15px; color: var(--text-dim); }
+.hero-side { display: flex; flex-direction: column; gap: 12px; align-content: start; }
+.hero-status {
+  align-self: flex-start;
+  padding: 6px 12px; border-radius: 999px;
+  font-size: 13px; font-weight: 700; letter-spacing: 0.04em;
+  background: var(--blue-dim); color: var(--text);
+  border: 1px solid var(--border-strong);
+  max-width: 100%; overflow-wrap: anywhere;
+}
+.hero-status[data-tone="amber"] { background: var(--amber-dim); }
+.hero-status[data-tone="green"] { background: var(--green-dim); }
+.hero-status[data-tone="red"] { background: var(--red-dim); }
+.hero-facts { margin: 0; display: grid; gap: 10px; }
+.hero-fact { display: grid; gap: 2px; }
+.hero-fact dt { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+.hero-fact dd { margin: 0; font-size: 16px; color: var(--text); overflow-wrap: anywhere; }
+.hero-data { margin: 4px 0 0; font-size: 13px; color: var(--text-muted); }
+.hero-journal { border-top: 1px solid var(--border); padding-top: 12px; }
+.hero-journal details { margin: 0; }
+.hero-journal summary { cursor: pointer; font-weight: 600; color: var(--text-dim); min-height: var(--touch); display: flex; align-items: center; }
+
+/* --- Chart with context ---------------------------------------------------- */
+.dash-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: 18px;
+  align-items: start;
+}
+.dash-chart, .dash-context { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.dash-chart > .card { height: auto; }
+.dash-context .card { margin: 0; }
+.context-card { display: flex; flex-direction: column; gap: 10px; }
+.card-kicker {
+  font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted);
+}
+.zone-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.zone-row {
+  padding: 12px 14px; border-radius: var(--radius-sm);
+  background: var(--panel-2); border-left: 3px solid var(--text-muted);
+}
+.zone-row[data-tone="red"] { border-left-color: var(--red); }
+.zone-row[data-tone="green"] { border-left-color: var(--teal); }
+.zone-row[data-tone="amber"] { border-left-color: var(--amber); }
+.zone-row-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; align-items: baseline; }
+.zone-role { font-size: 15px; }
+.zone-bounds { font-size: 15px; overflow-wrap: anywhere; }
+.zone-meta { margin-top: 4px; font-size: 13px; color: var(--text-muted); }
+.zone-note { margin-top: 6px; font-size: 13px; color: var(--text-dim); }
+
+/* --- What BRAIN waits for, plan, what it sees ----------------------------------- */
+.dash-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+.waiting-card { display: flex; flex-direction: column; gap: 12px; }
+.waiting-blockers ul { margin: 6px 0 0; padding-left: 18px; color: var(--text-dim); }
+.waiting-blockers li { margin-bottom: 6px; }
+.waiting-subhead { font-size: 13px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.04em; }
+
+/* --- Paper ledger ----------------------------------------------------------------- */
+.paper-section { display: flex; flex-direction: column; gap: 12px; }
+.section-head h2 { margin: 0; font-size: 22px; letter-spacing: -0.01em; }
+.section-head p { margin: 4px 0 0; font-size: 14px; }
+.paper-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+/* --- Diagnostics ----------------------------------------------------------------- */
+.diagnostics > summary {
+  cursor: pointer; font-weight: 700; color: var(--text-dim);
+  min-height: var(--touch); display: flex; align-items: center; padding: 4px 0;
+}
+.diagnostics-body { display: grid; gap: 18px; margin-top: 16px; }
+.diagnostics-body > * { min-width: 0; }
+
+/* --- Responsive ----------------------------------------------------------------- */
+@media (max-width: 1180px) {
+  .dash-main { grid-template-columns: minmax(0, 1fr); }
+  .dash-context { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  .dash-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-row > :last-child { grid-column: 1 / -1; }
+  .paper-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .paper-grid > :last-child { grid-column: 1 / -1; }
+}
+@media (max-width: 900px) {
+  .hero-card { grid-template-columns: minmax(0, 1fr); padding: 22px 20px; }
+  .dash-context { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .dash-row, .paper-grid { grid-template-columns: minmax(0, 1fr); }
+  .dash-row > *, .paper-grid > * { grid-column: auto; }
+  .hero-state { font-size: 2.5rem; }
+  .hero-reason { font-size: 16px; }
+}
+
+/* Compact 4-TF strip inside the context column: two tiles per row so each
+   state label has room and never breaks mid-word. */
+.dash-context .mtf-compact-rows { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+.dash-context .mtf-compact-row { min-width: 0; }
+.dash-context .mtf-compact-state,
+.dash-context .mtf-compact-label,
+.dash-context .mtf-compact-meta { overflow-wrap: anywhere; word-break: normal; hyphens: none; }
+.dash-context .mtf-compact-state { font-size: 15px; line-height: 1.3; }
+.dash-context .mtf-compact-label { font-size: 12px; letter-spacing: 0.04em; white-space: normal; }
+
+/* Tablet band (761–1040px): the topbar holds brand, market, status and refresh.
+   Tighten gaps so nothing pushes the page wider than the viewport. */
+@media (min-width: 761px) and (max-width: 1040px) {
+  .topbar { gap: 12px; padding: 0 14px; }
+  .topbar-meta { gap: 8px; min-width: 0; }
+  .brand-name { font-size: 13.5px; }
+  .refresh-button { padding: 0 8px; }
+}
+
+/* Text alternative to chart markers: each drawn item is a button that explains it. */
+.chart-items { margin-top: 8px; }
+.chart-items > summary {
+  cursor: pointer; font-size: 14px; font-weight: 600; color: var(--text-dim);
+  min-height: var(--touch); display: flex; align-items: center;
+}
+.chart-items-body { max-height: 280px; overflow-y: auto; margin-top: 6px; }
+.chart-items-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.chart-item-button {
+  width: 100%; display: flex; gap: 12px; align-items: baseline; text-align: left;
+  min-height: var(--touch); padding: 8px 10px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
+}
+.chart-item-button:hover, .chart-item-button:focus-visible { border-color: var(--blue); }
+.chart-item-time { flex: none; color: var(--text-muted); font-size: 13px; }
+.chart-item-name { min-width: 0; overflow-wrap: anywhere; }
