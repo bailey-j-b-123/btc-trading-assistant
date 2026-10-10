@@ -46,10 +46,11 @@ test("clean defaults hide historical diagnostics but retain an actual scenario b
   applyOverlays(handle, { ...snapshot, prefs: { overlays: {
     zones: true, range: true, equalLevels: true, swings: true, planLevels: true,
   } } });
-  for (const name of ["Zone low", "Range low", "Equal lows", "Swing high", "Entry"]) {
+  for (const name of ["Range low", "Equal lows", "Swing high", "Entry"]) {
     assert.ok(names(handle).some((value) => value.includes(name)), name);
   }
-  assert.equal(handle.lines.size, 11); // diagnostic detail remains available, never deleted
+  // Zones are shaded bands now, not price lines: 2 range + 1 equal + entry, stop, T1 and the rest = 9.
+  assert.equal(handle.lines.size, 9); // diagnostic detail remains available, never deleted
 });
 
 test("LOOKING FOR is a compact projection of backend setup and hierarchy facts", () => {

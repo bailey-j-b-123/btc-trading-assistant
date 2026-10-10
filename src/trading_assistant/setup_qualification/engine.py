@@ -40,9 +40,24 @@ from trading_assistant.setup_qualification.rules import evaluate_rules, rule
 
 
 def _validate_available(
-    value: object, now: datetime, instrument: tuple[str, str, str]
+    value: object,
+    now: datetime,
+    instrument: tuple[str, str, str],
+    _seen: set[int] | None = None,
 ) -> None:
-    """Reject inconsistent hand-built inputs, including nested future references."""
+    """Reject inconsistent hand-built inputs, including nested future references.
+
+    Each shared dataclass or tuple node is checked once per call: the checks
+    depend only on (node, now, instrument), so revisiting an already-validated
+    object cannot change the outcome. ``_seen`` holds ids of nodes that are
+    alive for the whole call (they are reachable from the root).
+    """
+    if _seen is None:
+        _seen = set()
+    if (is_dataclass(value) and not isinstance(value, type)) or isinstance(value, tuple):
+        if id(value) in _seen:
+            return
+        _seen.add(id(value))
     if isinstance(value, Candle):
         if (value.exchange, value.symbol, value.timeframe) != instrument:
             raise ValueError("source candle instrument does not match frame")
@@ -61,10 +76,10 @@ def _validate_available(
                 and require_utc_datetime(item, field_name=field.name) > now
             ):
                 raise ValueError(f"source {field.name} is after frame as_of")
-            _validate_available(item, now, instrument)
+            _validate_available(item, now, instrument, _seen)
     elif isinstance(value, tuple):
         for item in value:
-            _validate_available(item, now, instrument)
+            _validate_available(item, now, instrument, _seen)
 
 
 def _validate_context_timestamps(context: TimeframeStructureAnalysis) -> None:

@@ -1,20 +1,22 @@
 /* ==========================================================================
    Trading Assistant — premium dark terminal design system
-   Near-black canvas, restrained shadows, semantic colour only.
+   Midnight-blue canvas, restrained shadows, semantic colour only.
    ========================================================================== */
 
 :root {
-  --bg: #0b0e13;
-  --bg-elevated: #10141b;
-  --panel: #121722;
-  --panel-2: #171d2a;
-  --panel-3: #1d2433;
-  --border: #222b3b;
-  --border-strong: #2e394e;
+  /* Midnight-blue canvas with charcoal-blue panels. Semantic colours stay restrained. */
+  --bg: #070b16;
+  --bg-elevated: #0b1222;
+  --panel: #0f1729;
+  --panel-2: #142039;
+  --panel-3: #1a2846;
+  --border: #1f2c47;
+  --border-strong: #2d3d62;
   --text: #e9edf4;
-  --text-dim: #a7b0c2;
-  --text-muted: #707b91;
-  --text-faint: #525d72;
+  --text-dim: #a9b4cb;
+  /* Raised for legibility on the dark panels (WCAG AA for body text). */
+  --text-muted: #94a1bb;
+  --text-faint: #7480a0;
 
   --green: #2fbf7f;
   --green-dim: rgba(47, 191, 127, 0.14);
@@ -24,7 +26,11 @@
   --amber-dim: rgba(232, 163, 61, 0.14);
   --blue: #5b9bd5;
   --blue-dim: rgba(91, 155, 213, 0.14);
-  --neutral-chip: #262f40;
+  --teal: #2ec4b6;
+  --teal-dim: rgba(46, 196, 182, 0.13);
+  --violet: #a78bfa;
+  --violet-dim: rgba(167, 139, 250, 0.13);
+  --neutral-chip: #1f2a44;
 
   --radius-sm: 8px;
   --radius: 12px;
@@ -1035,7 +1041,7 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   .verdict-state { font-size: 34px; }
   .candidate-count .value { font-size: 16px; }
   .terminal-chart-wrap { height: 350px; }
-  .chart-toolbar { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 3px; scrollbar-width: thin; }
+  .chart-toolbar { flex-wrap: wrap; }
   .overlay-toggle { min-height: 40px; }
   .evidence-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .system-details-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1196,3 +1202,389 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   .mtf-compact-rows { grid-template-columns: minmax(0, 1fr); }
   .tf-button { min-height: 40px; min-width: 52px; }
 }
+
+/* ==========================================================================
+   Chart intelligence, decision centre and paper observations
+   Display only: nothing here changes how BRAIN decides.
+   ========================================================================== */
+
+/* --- Chart: OHLC readout, toggles, legend ---------------------------------- */
+.chart-ohlc {
+  min-height: 18px;
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.chart-toolbar-sep { width: 1px; height: 20px; background: var(--border); margin: 0 2px; }
+.layer-toggle {
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.layer-toggle[aria-pressed="true"] {
+  border-color: rgba(46, 196, 182, 0.42);
+  background: var(--teal-dim);
+  color: var(--text);
+}
+.layer-toggle:disabled { opacity: 0.45; cursor: not-allowed; }
+.layer-toggle:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+.chart-evidence-meta {
+  margin-top: 6px;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+/* --- Click-to-explain ------------------------------------------------------ */
+.evidence-explain {
+  margin-top: 10px;
+  padding: 11px 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.evidence-explain-hint { margin: 0; color: var(--text-faint); font-size: 11px; }
+.evidence-explain-title { font-size: 13px; font-weight: 700; color: var(--text); overflow-wrap: anywhere; }
+.evidence-explain-when { color: var(--text-muted); font-size: 11px; }
+.evidence-explain-body { color: var(--text-dim); font-size: 12px; line-height: 1.5; }
+
+.evidence-item {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.012);
+  min-width: 0;
+}
+.evidence-item[data-tone="green"] { border-left-color: var(--green); }
+.evidence-item[data-tone="red"] { border-left-color: var(--red); }
+.evidence-item[data-tone="amber"] { border-left-color: var(--amber); }
+.evidence-item[data-tone="blue"] { border-left-color: var(--blue); }
+.evidence-item[data-tone="purple"] { border-left-color: var(--violet); }
+.evidence-item-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.evidence-item-title { font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
+.evidence-item-meta { color: var(--text-faint); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+.evidence-status {
+  padding: 2px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.evidence-status[data-tone="green"] { color: var(--green); border-color: rgba(47, 191, 127, 0.4); background: var(--green-dim); }
+.evidence-status[data-tone="red"] { color: var(--red); border-color: rgba(224, 86, 91, 0.4); background: var(--red-dim); }
+.evidence-status[data-tone="amber"] { color: var(--amber); border-color: rgba(232, 163, 61, 0.4); background: var(--amber-dim); }
+.evidence-status[data-tone="blue"] { color: var(--blue); border-color: rgba(91, 155, 213, 0.4); background: var(--blue-dim); }
+.evidence-status[data-tone="purple"] { color: var(--violet); border-color: rgba(167, 139, 250, 0.4); background: var(--violet-dim); }
+.evidence-what { margin: 0; color: var(--text-dim); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.evidence-details summary { cursor: pointer; color: var(--text-muted); font-size: 11px; font-weight: 650; }
+.evidence-details[open] summary { color: var(--text-dim); margin-bottom: 6px; }
+.evidence-section { padding: 6px 0; border-top: 1px solid var(--border); }
+.evidence-section-title { color: var(--text-faint); font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.evidence-section-body { margin-top: 2px; color: var(--text-dim); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.evidence-disclaimer { margin: 4px 0 0; color: var(--text-faint); font-size: 10px; font-style: italic; line-height: 1.4; }
+
+/* --- Decision centre -------------------------------------------------------- */
+.decision-centre { display: flex; flex-direction: column; gap: 10px; }
+.decision-status {
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.decision-status[data-tone="green"] { color: var(--green); border-color: rgba(47, 191, 127, 0.45); background: var(--green-dim); }
+.decision-status[data-tone="amber"] { color: var(--amber); border-color: rgba(232, 163, 61, 0.45); background: var(--amber-dim); }
+.decision-status[data-tone="blue"] { color: var(--blue); border-color: rgba(91, 155, 213, 0.45); background: var(--blue-dim); }
+.decision-status[data-tone="red"] { color: var(--red); border-color: rgba(224, 86, 91, 0.45); background: var(--red-dim); }
+.decision-asof { margin: 0; color: var(--text-faint); font-size: 11px; line-height: 1.45; }
+.decision-lane {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.012);
+  min-width: 0;
+}
+.decision-lane[data-tone="green"] { border-left-color: var(--green); }
+.decision-lane[data-tone="amber"] { border-left-color: var(--amber); }
+.decision-lane[data-tone="blue"] { border-left-color: var(--blue); }
+.decision-lane[data-lane="orders"] { border-style: dashed; border-left-style: solid; }
+.decision-lane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.decision-lane-kicker { color: var(--text-muted); font-size: 10px; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; }
+.decision-lane-status {
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  overflow-wrap: anywhere;
+}
+.decision-row { display: grid; grid-template-columns: minmax(92px, 0.4fr) minmax(0, 1fr); gap: 8px; align-items: baseline; font-size: 12px; }
+.decision-row-label { color: var(--text-faint); }
+.decision-row-value { color: var(--text); font-family: var(--mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.decision-lane-note { margin: 2px 0 0; color: var(--text-faint); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+
+/* --- Paper observations ----------------------------------------------------- */
+.paper-observations .paper-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.paper-table { min-width: 620px; }
+.paper-table th:nth-child(n + 3),
+.paper-table td:nth-child(n + 3) { white-space: nowrap; }
+.paper-limitations { margin-top: 10px; color: var(--text-muted); font-size: 11px; }
+.paper-limitations summary { cursor: pointer; }
+.paper-limitations ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.5; }
+.paper-limitations li { margin-bottom: 3px; overflow-wrap: anywhere; }
+
+/* --- Responsive ------------------------------------------------------------- */
+@media (max-width: 1040px) {
+  .terminal-chart-wrap { height: 460px; }
+  /* Keep brand, instrument, mode and price on one line; the time captions stay in the candle panel. */
+  .topbar-caption, .topbar-candle-time { display: none; }
+}
+@media (max-width: 760px) {
+  .terminal-chart-wrap { height: 380px; }
+  .chart-toolbar { gap: 6px; }
+  .chart-toolbar-sep { display: none; }
+  .decision-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .paper-observations .paper-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+  .terminal-chart-wrap { height: 340px; }
+  .layer-toggle { min-height: 40px; }
+  .evidence-explain { padding: 10px 11px; }
+  .paper-observations .paper-summary { grid-template-columns: minmax(0, 1fr); }
+}
+@media (pointer: coarse) {
+  .layer-toggle { min-height: 40px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .layer-toggle { transition: none; }
+}
+
+
+/* Marker key under the chart: small, muted, wraps on narrow screens. */
+.chart-marker-key { font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
+
+/* Support / resistance bands on the chart. The bands are decorative and never take
+   pointer events, so candles under them stay clickable; only the labels are controls. */
+.zone-band-layer { position: absolute; inset: 0; pointer-events: none; z-index: 2; overflow: hidden; }
+.zone-band { position: absolute; left: 0; right: 0; background: var(--zone-fill); border-top: 1px solid var(--zone-edge); border-bottom: 1px solid var(--zone-edge); pointer-events: none; }
+.zone-band--htf { border-style: dashed; }
+.zone-band--faded { opacity: 0.45; }
+.zone-band-label { position: absolute; right: 6px; pointer-events: auto; cursor: pointer; font-size: 10.5px; line-height: 1.2; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); background: rgba(7, 11, 22, 0.88); border: 1px solid var(--zone-edge); border-radius: 999px; padding: 2px 8px; max-width: 60%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.zone-band-label:focus-visible { outline: 2px solid var(--zone-edge); outline-offset: 2px; }
+.zone-band-offview { position: absolute; left: 8px; bottom: 8px; font-size: 11px; color: var(--text-muted); background: rgba(7, 11, 22, 0.88); padding: 2px 6px; border-radius: 6px; pointer-events: none; }
+
+
+/* ==========================================================================
+   Dashboard layout (PR #38 redesign): one decision, one chart with its context,
+   what BRAIN is waiting for, the paper ledger, and collapsed diagnostics.
+   ========================================================================== */
+
+.terminal-dashboard { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.terminal-dashboard > * { min-width: 0; }
+.terminal-dashboard .card { min-width: 0; }
+
+/* --- The one decision ---------------------------------------------------- */
+.hero-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr);
+  gap: 18px 28px;
+  padding: 26px 30px;
+  border: 1px solid var(--border-strong);
+  background: linear-gradient(135deg, var(--panel-2) 0%, var(--panel) 62%);
+}
+.hero-main, .hero-side { min-width: 0; }
+.hero-card .hero-journal { grid-column: 1 / -1; }
+.hero-kicker {
+  font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.hero-state {
+  margin: 8px 0 10px;
+  font-size: clamp(2.6rem, 5.2vw, 4.25rem);
+  font-weight: 750;
+  line-height: 1.02;
+  letter-spacing: -0.025em;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.hero-state[data-tone="amber"] { color: var(--amber); }
+.hero-state[data-tone="green"] { color: var(--green); }
+.hero-state[data-tone="red"] { color: var(--red); }
+.hero-identity { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.hero-direction { font-size: 18px; font-weight: 700; }
+.hero-muted { color: var(--text-muted); font-size: 16px; }
+.hero-reason {
+  margin: 0; max-width: 62ch; font-size: 17px; line-height: 1.55; color: var(--text-dim);
+}
+.hero-plan-status { margin: 12px 0 0; font-size: 15px; color: var(--text-dim); }
+.hero-side { display: flex; flex-direction: column; gap: 12px; align-content: start; }
+.hero-status {
+  align-self: flex-start;
+  padding: 6px 12px; border-radius: 999px;
+  font-size: 13px; font-weight: 700; letter-spacing: 0.04em;
+  background: var(--blue-dim); color: var(--text);
+  border: 1px solid var(--border-strong);
+  max-width: 100%; overflow-wrap: anywhere;
+}
+.hero-status[data-tone="amber"] { background: var(--amber-dim); }
+.hero-status[data-tone="green"] { background: var(--green-dim); }
+.hero-status[data-tone="red"] { background: var(--red-dim); }
+.hero-facts { margin: 0; display: grid; gap: 10px; }
+.hero-fact { display: grid; gap: 2px; }
+.hero-fact dt { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+.hero-fact dd { margin: 0; font-size: 16px; color: var(--text); overflow-wrap: anywhere; }
+.hero-data { margin: 4px 0 0; font-size: 13px; color: var(--text-muted); }
+.hero-journal { border-top: 1px solid var(--border); padding-top: 12px; }
+.hero-journal details { margin: 0; }
+.hero-journal summary { cursor: pointer; font-weight: 600; color: var(--text-dim); min-height: var(--touch); display: flex; align-items: center; }
+
+/* --- Chart with context ---------------------------------------------------- */
+.dash-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: 18px;
+  align-items: start;
+}
+.dash-chart, .dash-context { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.dash-chart > .card { height: auto; }
+.dash-context .card { margin: 0; }
+.context-card { display: flex; flex-direction: column; gap: 10px; }
+.card-kicker {
+  font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted);
+}
+.zone-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.zone-row {
+  padding: 12px 14px; border-radius: var(--radius-sm);
+  background: var(--panel-2); border-left: 3px solid var(--text-muted);
+}
+.zone-row[data-tone="red"] { border-left-color: var(--red); }
+.zone-row[data-tone="green"] { border-left-color: var(--teal); }
+.zone-row[data-tone="amber"] { border-left-color: var(--amber); }
+.zone-row-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; align-items: baseline; }
+.zone-role { font-size: 15px; }
+.zone-bounds { font-size: 15px; overflow-wrap: anywhere; }
+.zone-meta { margin-top: 4px; font-size: 13px; color: var(--text-muted); }
+.zone-note { margin-top: 6px; font-size: 13px; color: var(--text-dim); }
+
+/* --- What BRAIN waits for, plan, what it sees ----------------------------------- */
+.dash-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+.waiting-card { display: flex; flex-direction: column; gap: 12px; }
+.waiting-blockers ul { margin: 6px 0 0; padding-left: 18px; color: var(--text-dim); }
+.waiting-blockers li { margin-bottom: 6px; }
+.waiting-subhead { font-size: 13px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.04em; }
+
+/* --- Paper ledger ----------------------------------------------------------------- */
+.paper-section { display: flex; flex-direction: column; gap: 12px; }
+.section-head h2 { margin: 0; font-size: 22px; letter-spacing: -0.01em; }
+.section-head p { margin: 4px 0 0; font-size: 14px; }
+.paper-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+/* --- Diagnostics ----------------------------------------------------------------- */
+.diagnostics > summary {
+  cursor: pointer; font-weight: 700; color: var(--text-dim);
+  min-height: var(--touch); display: flex; align-items: center; padding: 4px 0;
+}
+.diagnostics-body { display: grid; gap: 18px; margin-top: 16px; }
+.diagnostics-body > * { min-width: 0; }
+
+/* --- Responsive ----------------------------------------------------------------- */
+@media (max-width: 1180px) {
+  .dash-main { grid-template-columns: minmax(0, 1fr); }
+  .dash-context { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  .dash-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-row > :last-child { grid-column: 1 / -1; }
+  .paper-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .paper-grid > :last-child { grid-column: 1 / -1; }
+}
+@media (max-width: 900px) {
+  .hero-card { grid-template-columns: minmax(0, 1fr); padding: 22px 20px; }
+  .dash-context { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .dash-row, .paper-grid { grid-template-columns: minmax(0, 1fr); }
+  .dash-row > *, .paper-grid > * { grid-column: auto; }
+  .hero-state { font-size: 2.5rem; }
+  .hero-reason { font-size: 16px; }
+}
+
+/* Compact 4-TF strip inside the context column: two tiles per row so each
+   state label has room and never breaks mid-word. */
+.dash-context .mtf-compact-rows { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+.dash-context .mtf-compact-row { min-width: 0; }
+.dash-context .mtf-compact-state,
+.dash-context .mtf-compact-label,
+.dash-context .mtf-compact-meta { overflow-wrap: anywhere; word-break: normal; hyphens: none; }
+.dash-context .mtf-compact-state { font-size: 15px; line-height: 1.3; }
+.dash-context .mtf-compact-label { font-size: 12px; letter-spacing: 0.04em; white-space: normal; }
+
+/* Tablet band (761–1040px): the topbar holds brand, market, status and refresh.
+   Tighten gaps so nothing pushes the page wider than the viewport. */
+@media (min-width: 761px) and (max-width: 1040px) {
+  .topbar { gap: 12px; padding: 0 14px; }
+  .topbar-meta { gap: 8px; min-width: 0; }
+  .brand-name { font-size: 13.5px; }
+  .refresh-button { padding: 0 8px; }
+}
+
+/* Text alternative to chart markers: each drawn item is a button that explains it. */
+.chart-items { margin-top: 8px; }
+.chart-items > summary {
+  cursor: pointer; font-size: 14px; font-weight: 600; color: var(--text-dim);
+  min-height: var(--touch); display: flex; align-items: center;
+}
+.chart-items-body { max-height: 280px; overflow-y: auto; margin-top: 6px; }
+.chart-items-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.chart-item-button {
+  width: 100%; display: flex; gap: 12px; align-items: baseline; text-align: left;
+  min-height: var(--touch); padding: 8px 10px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
+}
+.chart-item-button:hover, .chart-item-button:focus-visible { border-color: var(--blue); }
+.chart-item-time { flex: none; color: var(--text-muted); font-size: 13px; }
+.chart-item-name { min-width: 0; overflow-wrap: anywhere; }
+
+/* Calmer S/R bands (PR #38 follow-up): candles stay the focus.
+   Edges are softened; higher-timeframe bands are dashed with no fill so they read as a
+   separate layer from this chart's own bands. */
+.zone-band { border-top-color: color-mix(in srgb, var(--zone-edge) 55%, transparent); border-bottom-color: color-mix(in srgb, var(--zone-edge) 55%, transparent); }
+.zone-band--htf { background: transparent; border-style: dashed; border-width: 1px 0; }
+
+/* Empty paper ledger: one statement, not a grid of zeros. */
+.paper-empty { max-width: 760px; display: flex; flex-direction: column; gap: 10px; }
+.paper-empty .card-title { margin: 0; font-size: 18px; }
+.paper-empty-text { margin: 0; font-size: 16px; line-height: 1.55; color: var(--text-dim); max-width: 64ch; }

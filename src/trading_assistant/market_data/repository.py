@@ -107,6 +107,21 @@ class CandleRepository:
             )
         return timestamp
 
+    def earliest_timestamp(self, *, exchange: str, symbol: str, timeframe: str) -> datetime | None:
+        """Oldest stored open time for one series (read-only; used for coverage reporting)."""
+        with self._sessions() as session:
+            timestamp = session.scalar(
+                select(OHLCVCandleRecord.timestamp)
+                .where(
+                    OHLCVCandleRecord.exchange == exchange,
+                    OHLCVCandleRecord.symbol == symbol,
+                    OHLCVCandleRecord.timeframe == timeframe,
+                )
+                .order_by(OHLCVCandleRecord.timestamp.asc())
+                .limit(1)
+            )
+        return timestamp
+
     def insert_unchanged_or_new(self, candles: Iterable[Candle]) -> tuple[int, int]:
         """Insert missing keys, count exact repeats, and roll back value conflicts."""
 

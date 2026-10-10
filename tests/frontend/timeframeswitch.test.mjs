@@ -663,9 +663,10 @@ test("compactHierarchyViewModel projects the backend payload without recomputing
 test("the compact strip sits next to the chart and shows every engine role", async () => {
   await withDashboard({ dashboard: dashboardFixture(), forward: forwardFixture() }, async ({ view }) => {
     await renderDashboard(view);
-    const stack = findOne(view, (node) => (node.className || "").split(" ").includes("chart-stack"));
+    // The strip is the single multi-timeframe view, in the context column beside the chart (PR #38 redesign).
+    const stack = findOne(view, (node) => (node.className || "").split(" ").includes("dash-context"));
     assert.ok(stack);
-    assert.equal(stack.children[1].getAttribute("aria-label"), "Multi-timeframe status");
+    assert.equal(stack.children[0].getAttribute("aria-label"), "Multi-timeframe status");
     const strip = stripNode(view);
     assert.ok(strip);
     const text = strip.textContent;
@@ -865,7 +866,7 @@ test("existing dashboard behaviour still works alongside the new UI", async () =
     assert.match(view.textContent, /No snapshot to explain\./);
     assert.equal(ids.get("topbar-symbol").textContent, SYMBOL);
     assert.equal(ids.get("topbar-timeframe").textContent, "1H");
-    assert.equal(ids.get("topbar-status").textContent, "SYSTEM OK");
+    assert.match(ids.get("topbar-status").textContent, /^DATA CURRENT · RUNNER /);
     assert.equal(chartState.charts.length, 1);
     assert.deepEqual(chartState.charts[0].candleData, toChartCandles(ENGINE_ROWS));
     assert.equal(chartState.charts[0].volumeData.length, ENGINE_ROWS.length);
@@ -908,7 +909,8 @@ test("manual S/R toggle reveals the stored structure without changing setup or h
     assert.equal(button.getAttribute("aria-pressed"), "false");
     click(button);
     assert.equal(button.getAttribute("aria-pressed"), "true");
-    assert.deepEqual(drawnLines(chartState), ["Support low@61900", "Support high@62000"]);
+    // Zones are shaded bands (zone-bands.test.mjs), never boundary price lines: the toggle adds no lines.
+    assert.deepEqual(drawnLines(chartState), []);
     assert.equal(prefWrites.length, 1);
     assert.deepEqual(chartState.charts[0].candleData, toChartCandles(ENGINE_ROWS));
     assert.equal(dashboard.qualification.state, "WATCH");
