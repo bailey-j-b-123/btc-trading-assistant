@@ -15,7 +15,6 @@ import pytest
 from test_setup_qualification import breakout, frame, held, result
 from web_fixtures import (
     EPOCH,
-    EXCHANGE,
     INTERVAL,
     SYMBOL,
     insert_candles,
@@ -122,7 +121,7 @@ def test_qualified_renders_with_exact_plan_levels(qualified_client):
     state = qualified_client.app.state.services
     service = DashboardService(state)
     snapshot, frame_, _frames = service._evaluate(
-        exchange=EXCHANGE, symbol=SYMBOL, timeframe="1h", as_of=qualified_clock()
+        exchange="binance", symbol=SYMBOL, timeframe="1h", as_of=qualified_clock()
     )
     expected = plan_trade(snapshot=snapshot, frame=frame_, setup_id=selected)
     assert plan == expected.to_json_dict(), (

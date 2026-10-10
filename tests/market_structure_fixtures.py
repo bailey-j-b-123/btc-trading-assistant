@@ -20,7 +20,7 @@ from trading_assistant.market_structure.swings import (
 
 EPOCH = datetime(2024, 1, 1, tzinfo=UTC)
 INTERVAL = timedelta(hours=1)
-EXCHANGE = "mock-exchange"
+EXCHANGE = "binance"
 SYMBOL = "BTC/USDT"
 TIMEFRAME = "1h"
 

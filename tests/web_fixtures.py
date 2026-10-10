@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from decimal import Decimal as D
+from dataclasses import replace
 from pathlib import Path
 
 from alembic import command
@@ -103,13 +104,22 @@ def migrated_engine(
 
 
 def make_settings(database_url: str, **overrides) -> Settings:
-    return Settings(
-        symbol=SYMBOL, exchange=EXCHANGE, database_url=database_url, **overrides
-    )
+    overrides.setdefault("exchange", "binance")
+    return Settings(_env_file=None, symbol=SYMBOL, database_url=database_url, **overrides)
 
 
 def insert_candles(engine, candles) -> None:
-    CandleRepository(engine).insert_unchanged_or_new(candles)
+    """Store normal dashboard fixtures under the active Binance identity.
+
+    Explicit legacy identities (for example Kraken in migration/isolation
+    regressions) are preserved exactly as provided.
+    """
+
+    binance_candles = tuple(
+        replace(candle, exchange="binance") if candle.exchange == "mock-exchange" else candle
+        for candle in candles
+    )
+    CandleRepository(engine).insert_unchanged_or_new(binance_candles)
 
 
 def make_client(engine, settings, *, clock: datetime):

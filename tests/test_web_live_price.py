@@ -12,7 +12,7 @@ from web_fixtures import (
 from trading_assistant.web import live_price as module
 
 
-def test_public_quote_only_validates_positive_last_trade(monkeypatch):
+def test_binance_spot_quote_validates_the_public_btcusdt_ticker(monkeypatch):
     class Response:
         def __enter__(self):
             return self
@@ -21,28 +21,43 @@ def test_public_quote_only_validates_positive_last_trade(monkeypatch):
             pass
 
     response = Response()
-    monkeypatch.setattr(module, "urlopen", lambda url, timeout: response)
-    assert module.KRAKEN_TICKER_URL.endswith("pair=XBTUSDT")
+    calls = []
+    monkeypatch.setattr(module, "urlopen", lambda url, timeout: calls.append((url, timeout)) or response)
+    assert module.BINANCE_TICKER_URL == "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
     assert module.CACHE_SECONDS >= 15
     assert module.STALE_SECONDS > module.CACHE_SECONDS
-    monkeypatch.setattr(
-        module.json,
-        "load",
-        lambda _: {"error": [], "result": {"XBTUSDT": {"c": ["82512.40"]}}},
-    )
-    assert module._fetch_price() == "82512.40"
-    for bad in ["NaN", "-1", "0", "Infinity"]:
-        monkeypatch.setattr(
-            module.json,
-            "load",
-            lambda _, bad=bad: {"error": [], "result": {"XBTUSDT": {"c": [bad]}}},
-        )
+    monkeypatch.setattr(module.json, "load", lambda _: {"symbol": "BTCUSDT", "price": "82512.40"})
+    assert module._fetch_binance_price() == "82512.40"
+    assert calls == [(module.BINANCE_TICKER_URL, 3)]
+
+    invalid_payloads = [
+        {"symbol": "ETHUSDT", "price": "82512.40"},
+        {"symbol": "BTCUSDT"},
+        {"symbol": "BTCUSDT", "price": None},
+        {"symbol": "BTCUSDT", "price": 82512.40},
+        {"symbol": "BTCUSDT", "price": ""},
+        ["not", "a", "ticker"],
+    ]
+    for payload in invalid_payloads:
+        monkeypatch.setattr(module.json, "load", lambda _, payload=payload: payload)
         try:
-            module._fetch_price()
+            module._fetch_binance_price()
         except ValueError:
             pass
         else:
-            raise AssertionError("invalid live quote accepted")
+            raise AssertionError("invalid Binance quote accepted")
+    for bad in ["NaN", "-1", "0", "Infinity", "-Infinity"]:
+        monkeypatch.setattr(
+            module.json,
+            "load",
+            lambda _, bad=bad: {"symbol": "BTCUSDT", "price": bad},
+        )
+        try:
+            module._fetch_binance_price()
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("invalid Binance quote accepted")
 
 
 def test_quote_failure_and_staleness_never_change_closed_engine(tmp_path, monkeypatch):
@@ -55,14 +70,16 @@ def test_quote_failure_and_staleness_never_change_closed_engine(tmp_path, monkey
         monkeypatch.setattr(module, "_cached", None)
         monkeypatch.setattr(module, "_last_failed", False)
         monkeypatch.setattr(module, "_last_attempt", 0.0)
-        monkeypatch.setattr(module, "_fetch_price", lambda: "82512.40")
+        monkeypatch.setattr(module, "_fetch_binance_price", lambda: "82512.40")
         first = client.get("/api/market/live-price").json()
         assert first["status"] == "CURRENT"
         assert first["price"] == "82512.40"
+        assert first["exchange"] == "binance"
+        assert first["source"] == "Binance Spot public ticker"
         assert first["display_only"] is True
         # A failed refresh and a frozen old quote are explicitly stale.
         monkeypatch.setattr(
-            module, "_fetch_price", lambda: (_ for _ in ()).throw(TimeoutError())
+            module, "_fetch_binance_price", lambda: (_ for _ in ()).throw(TimeoutError())
         )
         monkeypatch.setattr(module, "_last_attempt", 0.0)
         immediate = client.get("/api/market/live-price").json()

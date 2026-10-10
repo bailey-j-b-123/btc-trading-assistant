@@ -51,7 +51,7 @@ def configured_settings(tmp_path: Path, *, default_timeframe: str = TIMEFRAME) -
         symbol="BTC/USDT",
         base_asset="BTC",
         quote_asset="USDT",
-        exchange="mock-exchange",
+        exchange="binance",
         default_timeframe=default_timeframe,
         supported_timeframes=("15m", "1h", "4h", "1d"),
         raw_data_dir=tmp_path / "raw",
@@ -105,7 +105,7 @@ def test_snapshot_contains_every_section_and_is_reproducible(tmp_path):
     try:
         snapshot = service.snapshot(as_of=as_of)
 
-        assert snapshot.exchange == "mock-exchange"
+        assert snapshot.exchange == "binance"
         assert snapshot.symbol == "BTC/USDT"
         assert snapshot.timeframe == "1h"
         assert snapshot.as_of == as_of
@@ -407,7 +407,7 @@ def test_defaults_come_from_settings_and_can_be_overridden(tmp_path):
     try:
         default_snapshot = service.snapshot(as_of=closed_at(len(hourly) - 1))
         assert (default_snapshot.exchange, default_snapshot.symbol, default_snapshot.timeframe) == (
-            "mock-exchange",
+            "binance",
             "BTC/USDT",
             "1h",
         )
@@ -418,7 +418,7 @@ def test_defaults_come_from_settings_and_can_be_overridden(tmp_path):
         )
         insert(engine, eth_candles)
         eth_snapshot = service.snapshot(
-            exchange="mock-exchange",
+            exchange="binance",
             symbol="ETH/USDT",
             timeframe="15m",
             as_of=closed_at(len(hourly) - 1),

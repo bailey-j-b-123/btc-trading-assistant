@@ -128,7 +128,8 @@ def test_security_headers_on_every_response(app):
         assert response.status_code == 200, path
         csp = response.headers.get("content-security-policy", "")
         assert "default-src 'self'" in csp, path
-        assert "connect-src 'self' wss://ws.kraken.com" in csp, path
+        assert "connect-src 'self' wss://stream.binance.com:9443" in csp, path
+        assert "kraken" not in csp.lower(), path
         assert "'unsafe-inline'" not in csp, path
         assert "'unsafe-eval'" not in csp, path
         assert response.headers.get("x-content-type-options") == "nosniff", path

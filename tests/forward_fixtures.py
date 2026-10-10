@@ -177,16 +177,14 @@ class FakeExchange:
 
 @dataclass
 class RollingWindowExchange:
-    """A Kraken-shaped public OHLCV source: the newest page only.
+    """Generic public OHLCV source with a bounded rolling response window.
 
-    Public OHLC endpoints such as Kraken's return at most ``max_ohlcv_limit`` of
-    their *newest* entries no matter how old ``since`` is, and the last entry is
-    the interval that is still forming.  This fake models exactly that: it never
-    serves pre-window history (so unavailable older ranges stay explicit gaps)
-    and it does include the unfinished candle, which the closed-candle rules must
-    keep out of both storage and analysis.  Like ``CCXTMarketDataSource``, it
-    advertises the cap so callers can plan for it; a rolling window is never
-    date-paginated.
+    This offline test double serves only its newest ``max_ohlcv_limit`` rows,
+    independent of the requested cursor, and may include the interval still
+    forming. The generic market-data service must report unavailable history as
+    gaps, exclude the unfinished candle from storage/analysis, and avoid
+    date-paginating a source that declares a rolling window. It is not a model
+    of the active Binance adapter, which uses date-bounded klines.
     """
 
     exchange_id: str = EXCHANGE
@@ -234,8 +232,8 @@ class RollingWindowExchange:
             and datetime_to_milliseconds(self.forming.timestamp) >= since_ms
         ):
             rows.append(ohlcv_row(self.forming))
-        # Exactly like Kraken: only the newest ``max_ohlcv_limit`` entries can
-        # ever come back, however far back the caller asked to start.
+        # A declared rolling source returns at most its newest page regardless
+        # of how far back the caller asked to start.
         return rows[-min(limit, self.max_ohlcv_limit) :]
 
     def close(self) -> None:  # pragma: no cover - nothing to close

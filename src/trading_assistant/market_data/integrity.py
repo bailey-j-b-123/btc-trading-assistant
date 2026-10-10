@@ -27,7 +27,7 @@ this evaluation contiguous?" — with no I/O, no clock, and no fabrication:
   reports the exact missing open times.
 
 Leading shortfall (the required window starts before the first stored candle:
-a cold start, a Kraken rolling-window truncation, genuine short history) is
+a cold start, a source-window truncation, or genuinely short history) is
 reported as ``truncated_before`` but never blocks: short history is already
 handled by the engines' explicit insufficient-data states and the runner
 minimum-history preconditions. Only a hole *inside* the stored span blocks.

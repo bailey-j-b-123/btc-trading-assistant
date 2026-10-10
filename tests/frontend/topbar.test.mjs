@@ -14,7 +14,7 @@ const TIMESTAMP = "2026-10-06T12:00:00Z";
 
 function headerDashboard() {
   return {
-    meta: { exchange: "kraken", symbol: "BTC/USDT", timeframe: "1h", as_of: TIMESTAMP },
+    meta: { exchange: "binance", symbol: "BTC/USDT", timeframe: "1h", as_of: TIMESTAMP },
     market: {
       latest_closed_candle: {
         timestamp: TIMESTAMP,

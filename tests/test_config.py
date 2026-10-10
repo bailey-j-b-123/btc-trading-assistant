@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from trading_assistant.config import Settings
 
 _SETTINGS_ENV_VARS = (
@@ -29,10 +31,11 @@ def test_settings_use_documented_defaults(monkeypatch):
     assert settings.quote_asset == "USDT"
     assert settings.database_url == "sqlite:///data/trading_assistant.sqlite3"
     assert settings.log_level == "INFO"
-    assert settings.exchange == "kraken"
+    assert settings.exchange == "binance"
     assert settings.default_timeframe == "1h"
-    assert settings.supported_timeframes == ("5m", "15m", "1h", "4h", "1d")
+    assert settings.supported_timeframes == ("5m", "15m", "1h", "4h")
     assert settings.raw_data_dir == Path("data/raw")
+    assert settings.market_data_page_limit == 1_000
     assert settings.exchange_timeout_ms == 10_000
 
 
@@ -54,3 +57,10 @@ def test_instrument_storage_and_market_data_can_be_configured_from_environment(m
     assert settings.default_timeframe == "30m"
     assert settings.supported_timeframes == ("5m", "30m")
     assert settings.raw_data_dir == tmp_path / "exchange-raw"
+
+
+@pytest.mark.parametrize("exchange", ["kraken", "coinbase", ""])
+def test_runtime_configuration_rejects_non_binance_exchange_ids(monkeypatch, exchange):
+    monkeypatch.setenv("TRADING_ASSISTANT_EXCHANGE", exchange)
+    with pytest.raises(ValueError, match="binance"):
+        Settings(_env_file=None)

@@ -154,7 +154,7 @@ def test_renderer_records_every_cited_value() -> None:
 
 def test_hierarchy_ladder_uses_recorded_timeframes() -> None:
     snapshot, planning_frame, _setup, _plan = plannable_scenario()
-    base = _mtf_snapshot()
+    base = replace(_mtf_snapshot(), exchange=snapshot.exchange)
     custom = replace(
         base,
         hierarchy=TimeframeHierarchy(

@@ -380,7 +380,7 @@ def test_runner_pass_fails_within_the_bounded_network_deadline() -> None:
     class _BlockingClient:
         id = EXCHANGE
         timeframes = {"1h": "60"}
-        markets = {"BTC/USDT": {"id": "XBTUSDT"}}
+        markets = {"BTC/USDT": {"id": "BTCUSDT"}}
         number = float
         last_http_response = None
 
@@ -396,7 +396,7 @@ def test_runner_pass_fails_within_the_bounded_network_deadline() -> None:
     source.exchange_id = EXCHANGE
     source.last_http_response = None
     source._timeout_ms = 1_000  # 3s watchdog deadline (3 x the 1s CCXT timeout)
-    source._exchange_class = ccxt.kraken
+    source._exchange_class = ccxt.binance
 
     harness = make_harness(
         series=labelled_series(),
@@ -481,9 +481,9 @@ def test_transient_network_failures_never_stop_the_runner() -> None:
 @pytest.mark.parametrize(
     "error",
     [
-        ccxt.RequestTimeout("kraken: request timed out"),
-        ccxt.ExchangeNotAvailable("kraken: temporarily unavailable"),
-        ccxt.NetworkError("kraken: connection lost"),
+        ccxt.RequestTimeout("binance: request timed out"),
+        ccxt.ExchangeNotAvailable("binance: temporarily unavailable"),
+        ccxt.NetworkError("binance: connection lost"),
         ConnectionError("connection reset by peer"),
         socket.gaierror(-2, "temporary failure in name resolution"),
     ],

@@ -6,7 +6,8 @@
  */
 
 import { api } from "../api.js";
-import { canShowForming, createFormingStream } from "../forming-display.js";
+import { canShowForming } from "../forming-display.js";
+import { createBinanceFormingStream } from "../binance-forming-display.js";
 import { lookingForCard, scenarioBand } from "../looking-for.js";
 import {
   buildDecisionRequest,
@@ -377,7 +378,9 @@ export const CHART_TIMEFRAMES = [
 ];
 
 const CHART_CANDLE_LIMIT = 500;
-const ENGINE_CHART_NOTE = "Confirmed history is stored closed candles only. Any ghost forming candle is public Kraken data, display only; it is never confirmed here.";
+const ENGINE_CHART_NOTE = "Confirmed history is stored closed candles only. Any ghost forming candle is public Binance Spot data, display only; it is never confirmed here.";
+const BINANCE_EXCHANGE_ID = "binance";
+const BINANCE_FORMING_LABEL = "BINANCE SPOT KLINE";
 
 function viewedTimeframeLabel(timeframe) {
   const known = CHART_TIMEFRAMES.find((entry) => entry.id === timeframe);
@@ -431,6 +434,7 @@ function chartHeadingMeta(viewedTimeframe, engineTimeframe) {
 function chartCard(dashboard, initialPrefs) {
   const meta = dashboard?.meta || {};
   const symbol = meta.symbol || "UNKNOWN";
+  const exchange = typeof meta.exchange === "string" ? meta.exchange.toLowerCase() : "";
   const engineTimeframe = typeof meta.timeframe === "string" && meta.timeframe ? meta.timeframe : "1h";
   const decisionAsOf = typeof meta.as_of === "string" && meta.as_of ? meta.as_of : null;
   const rows = Array.isArray(dashboard?.market?.candles) ? dashboard.market.candles : [];
@@ -481,17 +485,20 @@ function chartCard(dashboard, initialPrefs) {
       : "Last confirmed stored close: unavailable";
     formingStatus.dataset.freshness = "UNAVAILABLE";
     formingStatus.textContent = `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY`;
-    if (!handleRef.current || symbol !== "BTC/USDT" || !latest ||
+    if (!handleRef.current || exchange !== BINANCE_EXCHANGE_ID || symbol !== "BTC/USDT" || !latest ||
         !canShowForming(timeframe, latest.time * 1000, Date.now())) return;
-    // This socket is bound ONLY to the selected chart view, never the setup snapshot.
-    formingStream = createFormingStream({
-      timeframe, confirmedOpenMs: latest.time * 1000,
+    // This public display-only socket is bound ONLY to the selected chart view,
+    // never the setup snapshot or any BRAIN/paper-trading input.
+    formingStream = createBinanceFormingStream({
+      symbol,
+      timeframe,
+      confirmedOpenMs: latest.time * 1000,
       onCandle: (candle) => setFormingCandle(handleRef.current, candle),
       onStatus: (status, receivedAt) => {
         formingStatus.dataset.freshness = status;
         formingStatus.textContent = status === "CURRENT"
-          ? `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY · KRAKEN OHLC CURRENT · last update ${new Date(receivedAt).toISOString().slice(11, 19)} UTC`
-          : `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY · KRAKEN OHLC ${status} · stored chart unchanged`;
+          ? `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY · ${BINANCE_FORMING_LABEL} CURRENT · last update ${new Date(receivedAt).toISOString().slice(11, 19)} UTC`
+          : `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY · ${BINANCE_FORMING_LABEL} ${status} · stored chart unchanged`;
       },
     });
     formingStream.start();

@@ -136,13 +136,13 @@ cp .env.example .env
 
 The Step 10 dashboard (`python -m trading_assistant.web`) is served by the same install: `fastapi` and `uvicorn` are core dependencies, and `httpx` (dev extra) powers its offline API tests. The dashboard UI has no build step and no runtime Node dependency; see the Step 10 section for local usage.
 
-The instrument remains configurable with `TRADING_ASSISTANT_SYMBOL`, `TRADING_ASSISTANT_BASE_ASSET`, and `TRADING_ASSISTANT_QUOTE_ASSET` (defaults: `BTC/USDT`, `BTC`, `USDT`). The default local database URL remains `sqlite:///data/trading_assistant.sqlite3`. The default exchange is `kraken`, configurable with `TRADING_ASSISTANT_EXCHANGE`. Initial configured timeframes are `5m`, `15m`, `1h`, `4h`, and `1d`; `TRADING_ASSISTANT_SUPPORTED_TIMEFRAMES` and `TRADING_ASSISTANT_DEFAULT_TIMEFRAME` can be changed. Fixed-duration seconds/minutes/hours/days/weeks are supported by the timeframe parser, so the configured set can be extended without treating the initial list as exhaustive. The raw archive root is configurable with `TRADING_ASSISTANT_RAW_DATA_DIR` and defaults to `data/raw/`.
+The instrument remains configurable with `TRADING_ASSISTANT_SYMBOL`, `TRADING_ASSISTANT_BASE_ASSET`, and `TRADING_ASSISTANT_QUOTE_ASSET` (defaults: `BTC/USDT`, `BTC`, `USDT`). The default local database URL remains `sqlite:///data/trading_assistant.sqlite3`. **Binance Spot is the only supported active market-data provider**; `TRADING_ASSISTANT_EXCHANGE`, if explicitly set, accepts only `binance`. A legacy Kraken or other exchange override is rejected at startup, never silently substituted. The browser's live ticker and forming-kline display are intentionally BTC/USDT-only; switching the configured BRAIN symbol does not redirect them to another pair. The default analytical timeframes are `5m`, `15m`, `1h`, and `4h`; `TRADING_ASSISTANT_SUPPORTED_TIMEFRAMES` and `TRADING_ASSISTANT_DEFAULT_TIMEFRAME` remain configurable. Fixed-duration seconds/minutes/hours/days/weeks are supported by the timeframe parser. The raw archive root is configurable with `TRADING_ASSISTANT_RAW_DATA_DIR` and defaults to `data/raw/`.
 
 ## Market-data behavior
 
 ### Downloading and incremental updates
 
-Run `alembic upgrade head` before using the database-backed service. For an initial historical download, pass an explicit timezone-aware UTC start time. A later `update_history` call starts after the latest stored candle; without existing history, it requires an explicit start time. Pagination uses CCXT's `since` and configured page limit, advancing by the requested timeframe. Empty or truncated exchange responses are reported through gaps; pagination stalls and exchange/network errors fail clearly. Rolling-window endpoints — Kraken's public OHLC route returns only its newest 720 entries, whatever `since` is — are requested **without** a date cursor: such a cursor cannot retrieve older candles there, so the requested start bounds the local range check and gap report instead of the exchange request. Every returned row still passes the same filtering, closed-candle and gap validation, and the requested `since` is still recorded in the raw archive.
+Run `alembic upgrade head` before using the database-backed service. For an initial historical download, pass an explicit timezone-aware UTC start time. A later `update_history` call starts after the latest stored candle; without existing history, it requires an explicit start time. Binance Spot klines are date-bounded: CCXT receives the UTC-aligned millisecond `since` cursor and the configured page limit, capped at Binance's 1000-candle maximum, then pagination advances by one requested timeframe. Empty or truncated responses are reported through exact gaps; pagination stalls and exchange/network errors fail clearly. Every returned row passes exact timestamp, OHLCV, alignment, closed-candle and gap validation, and the raw archive records the exact request cursor.
 
 Example from the project root after installation and migration:
 
@@ -763,7 +763,7 @@ history = enumerate_qualifications(
 # This reads locally stored candles only, never an exchange or network.
 service = QualificationService(engine)
 snapshot = service.snapshot(
-    exchange="kraken", symbol="ETH/USD", timeframe="1h",
+    exchange="binance", symbol="ETH/USD", timeframe="1h",
     as_of=closed_at, parameters=parameters,
 )
 json_safe = snapshot.to_json_dict()
@@ -1441,8 +1441,11 @@ python -m trading_assistant.web          # http://127.0.0.1:8040
 
 Without seed data the dashboard is honest about emptiness: it shows **NO TRADE**, an
 `UNKNOWN` freshness badge, and "No stored candles / No journal entries" empty states
-rather than fabricated demo candles. To work with real data, download candles first
-(Step 2 `MarketDataService.update_history`).
+rather than fabricated demo candles. The optional seeder writes synthetic candles and
+a clearly labelled demo journal decision only for a local preview; it refuses to run
+if BTC/USDT candles already exist under any exchange identity or timeframe. Use an
+empty, disposable local database—never a database containing user or production history.
+To work with real data, download candles first (Step 2 `MarketDataService.update_history`).
 
 ### Desktop and mobile behaviour
 
@@ -1628,7 +1631,7 @@ from trading_assistant.historical_validation import (
 )
 
 report = HistoricalValidationService(engine).validate(
-    exchange="kraken",
+    exchange="binance",
     symbol="BTC/USDT",
     timeframe="1h",
     config=ValidationConfig(
@@ -1730,7 +1733,7 @@ PERFORMANCE.**
 ### Architecture and data flow
 
 ```text
-public OHLCV (kraken, no API key, closed candles only)
+public Binance Spot OHLCV (BTC/USDT, no API key, closed candles only)
         │  Step 2 MarketDataService  (dedupe / paginate / gap report / raw archive)
         ▼
 ohlcv_candles (Step 2 storage, unchanged, never rewritten)
@@ -1755,12 +1758,18 @@ decision journal, and the Step 11 validation report. Step 12 never writes to
 `journal_records`/`journal_decisions`/`journal_outcomes`/`journal_outcome_events`,
 never modifies a stored candle, and never rewrites an earlier forward row.
 
+This provider change does **not** migrate, rewrite, delete or relabel existing
+market-data or ledger rows. Historical candles tagged `exchange="kraken"` and
+their raw archives remain intact under their original identity. The configured
+runtime now fetches and reads the Binance identity only; new Binance observations
+are not joined with Kraken history.
+
 ### Closed-candle policy and market data
 
 * Only candles whose **full interval has closed** are ever analysed. The runner
   never inspects or concludes from the candle still forming.
-* Data is **public only** (Kraken public OHLCV through the existing Step 2
-  adapter). No API key, secret, or private endpoint is required or read.
+* Data is **public only** (Binance Spot public klines through the existing Step 2
+  CCXT adapter). No API key, secret, or private endpoint is required or read.
 * Candles come through the existing Step 2 service and storage: duplicate
   de-duplication, closed-candle filtering, raw-response archiving, and gap
   reporting are inherited unchanged. No new fetch, parsing, or storage path was
@@ -1775,16 +1784,15 @@ never modifies a stored candle, and never rewrites an earlier forward row.
   The downloaded range and counts (including `excluded_open_count` for the
   still-forming candle) are recorded on the pass heartbeat.
 * UTC datetimes and exact `Decimal` prices are preserved end to end.
-* Every public exchange request runs under a **finite, project-controlled
+* Every Binance public request runs under a **finite, project-controlled
   timeout** (`TRADING_ASSISTANT_EXCHANGE_TIMEOUT_MS`, default 10000 ms, bounded
-  to `[1000, 60000]` ms, CCXT millisecond semantics, covering the market-metadata
-  load and the OHLCV fetch; no credentials involved). Because a socket timeout
-  cannot bound DNS resolution, each network call additionally runs under a
-  watchdog deadline of 3x the configured timeout: a request that exceeds it is
-  abandoned, the exchange client is rebuilt, and a transient
-  `ExchangeNetworkTimeout` is raised. The runner can therefore never sit
-  indefinitely inside a network operation, and a shutdown waits at most one
-  network deadline.
+  to `[1000, 60000]` ms, CCXT millisecond semantics, covering market metadata
+  and OHLCV; no credentials involved). Because a socket timeout cannot bound
+  DNS resolution, each network call additionally runs under a watchdog deadline
+  of 3x the configured timeout: a request that exceeds it is abandoned, the
+  Binance client is rebuilt, and a transient `ExchangeNetworkTimeout` is raised.
+  The runner therefore cannot sit indefinitely inside a network operation, and
+  a shutdown waits at most one network deadline.
 * Network/rate-limit failures are retried conservatively (default: 3 attempts
   with backoff). If the refresh still fails, the pass processes only candles that
   are **already stored**, records the error on the heartbeat and status, and says
@@ -2011,13 +2019,12 @@ candles from the public endpoint before processing the latest close, so
 `run --once` works on a fresh database instead of reporting `NO_DATA`. This
 changes only how far back the *download* starts — every downloaded row still
 passes the unchanged Step 2 validation, gaps stay explicit, and the
-still-forming candle is still excluded before anything is stored. On a
-rolling-window endpoint (Kraken public OHLC) the requested start bounds that
-local validation rather than the exchange request: the endpoint is asked for its
-newest 720 entries without a date cursor, so the oldest part of a longer window
-is reported as an explicit gap instead of failing the whole pass. Once history
-exists, each pass requests only the newly closed candles after the latest stored
-one. Deeper history can be requested explicitly with `--backfill-start`; note
+still-forming candle is still excluded before anything is stored. Binance
+Spot klines receive the UTC millisecond date cursor, so backfill and incremental
+requests use the same pagination path; Binance's per-request 1000-candle limit
+is applied before each call and any missing opens remain explicit gaps. Once
+history exists, each pass requests only the newly closed candles after the latest
+stored one. Deeper history can be requested explicitly with `--backfill-start`; note
 that the first pass replays the whole stored history through the unchanged
 Step 5 qualification engine, so a deep backfill makes that first pass
 correspondingly slower.
@@ -2273,11 +2280,11 @@ fingerprint of the evaluation content (including the hierarchy fingerprint), so:
 
 ### Data acquisition, dashboard and explanation
 
-* **Acquisition** extends the existing public Kraken path: one managed
-  market-data service refreshes 4h/1h/15m/5m through a single client
-  (`update_history_all` / `download_history_all`), preserving metadata-before-
-  Decimal ordering, closed-candle filtering, pagination/backfill, rolling-window
-  handling, duplicate safety, raw archiving and idempotent storage.
+* **Acquisition** uses Binance Spot public klines: one managed market-data
+  service refreshes 4h/1h/15m/5m through a single client
+  (`update_history_all` / `download_history_all`), preserving exact Decimal
+  parsing, closed-candle filtering, UTC cursor pagination/backfill, duplicate
+  safety, raw archiving and idempotent storage.
 * **Dashboard** adds one compact **MULTI-TIMEFRAME LADDER** card (4H CONTEXT →
   1H SETUP → 15M CONFIRMATION → 5M EXECUTION → OVERALL) in plain English — no
   internal enum names, no redesign, no scenario-arrow chart visualisation.
@@ -2348,13 +2355,13 @@ source audit).
 | Variable | Default | Meaning |
 |---|---|---|
 | `TRADING_ASSISTANT_SYMBOL` | `BTC/USDT` | Instrument |
-| `TRADING_ASSISTANT_EXCHANGE` | `kraken` | Public-data source id |
+| `TRADING_ASSISTANT_EXCHANGE` | `binance` (fixed) | The only supported public-data source id |
 | `TRADING_ASSISTANT_DATABASE_URL` | `sqlite:///data/trading_assistant.sqlite3` | App database |
 | `TRADING_ASSISTANT_SQLITE_BUSY_TIMEOUT_MS` | `5000` | Finite SQLite busy timeout (max `60000`); a secondary defence, not a lock repair |
 | `TRADING_ASSISTANT_DEFAULT_TIMEFRAME` | `1h` | Base timeframe |
-| `TRADING_ASSISTANT_SUPPORTED_TIMEFRAMES` | `5m,15m,1h,4h,1d` | Accepted timeframes |
+| `TRADING_ASSISTANT_SUPPORTED_TIMEFRAMES` | `5m,15m,1h,4h` | Accepted analytical timeframes |
 | `TRADING_ASSISTANT_RAW_DATA_DIR` | `data/raw` | Raw exchange payloads |
-| `TRADING_ASSISTANT_MARKET_DATA_PAGE_LIMIT` | `720` | Download page size |
+| `TRADING_ASSISTANT_MARKET_DATA_PAGE_LIMIT` | `1000` | Download page size (Binance Spot maximum) |
 | `TRADING_ASSISTANT_MARKET_DATA_MAX_PAGES` | `10000` | Download page cap |
 | `TRADING_ASSISTANT_EXCHANGE_TIMEOUT_MS` | `10000` | Finite CCXT timeout in milliseconds for every public exchange request (market-metadata load and OHLCV fetch); bounded to `[1000, 60000]`. DNS resolution is bounded separately by a per-request watchdog (3x this value) because a socket timeout cannot cover it |
 | `TRADING_ASSISTANT_LOG_LEVEL` | `INFO` | Logging verbosity |
@@ -2449,7 +2456,7 @@ responses are dynamic JSON and carry no cache headers. Covered by
 
 ### Daily operation
 
-1. Refresh market data (public Kraken candles only), then run the forward
+1. Refresh market data (public Binance Spot candles only), then run the forward
    tester continuously (`python -m trading_assistant.forward_testing run`)
    or once per close (`... run --once`). Each confirmed closed candle is
    recorded exactly once; restarts are safe and idempotent.
@@ -2495,8 +2502,9 @@ desktop and 360px widths and confirm the chart draws.
 
 ### Information gaps (what the system cannot tell you)
 
-- Live public Kraken ticker prices are **display only**; only stored confirmed
-  closed candles are ever analysed. A separate ghost forming candle is display only.
+- Live public Binance Spot ticker prices are **display only**; only stored
+  confirmed closed candles are ever analysed. A separate ghost forming candle
+  is also display only.
 - No win rate, expectancy, drawdown, or realised P&L: only denominated
   outcome observations and raw/friction-adjusted observational R, by design.
 - A fresh forward ledger starts empty: the N≥30 reporting floor needs
@@ -2536,27 +2544,26 @@ buttons read stored chart data only; they do not rerun the engine. The hierarchy
 (4H → 1H → 15M → 5M) remains independent of chart selection.
 
 `GET /api/market/live-price` remains available to API clients and reads
-Kraken's public XBTUSDT last-trade ticker without keys, DB access or an engine
-dependency. The normal chart UI no longer requests or displays this REST quote;
-its single live visual status belongs to the forming WebSocket feed. The endpoint
-still uses a 15-second server cache and 3-second upstream timeout. Its
-`fetched_at` is the **server receipt time**, not an exchange tick timestamp.
-The quote never reaches candle history, structure, qualification, the
-hierarchy, planning, or forward/historical testing. No forming candle is drawn
-by the REST ticker. The chart's **separate ghost series** uses public Kraken
-WebSocket v2 `ohlc` snapshots and trade-event updates for BTC/USDT at
-5/15/60/240 minutes. Its UTC `interval_begin` must match the current
-epoch-anchored bucket, and the last stored closed candle must be adjacent (at
-most two intervals behind). It is removed on stale/invalid data, disconnect or
-a new time boundary; it is **never promoted** to the stored confirmed series or
-database. Switching views closes the old subscription and opens one for the
-viewed interval. The strict CSP permits only
-`wss://ws.kraken.com` in addition to the same-origin API. Public Kraken
-connectivity is required for this optional display; it can fail while the
-stored-candle chart continues to work. OHLC updates arrive on trades, not at a fixed cadence: a quiet interval
-remains unchanged and becomes stale after 45 seconds without a trade update.
-A resting market at the same price cannot be distinguished from an exchange
-ticker frozen upstream without an exchange-side tick timestamp. A refresh is
+Binance Spot's public BTCUSDT last-trade ticker without keys, DB access or an
+engine dependency. The isolated `/api/v3/ticker/price` request uses a 15-second
+server cache and 3-second upstream timeout; its `fetched_at` is the **server
+receipt time**, not an exchange tick timestamp. The response declares
+`exchange: "binance"`, `source: "Binance Spot public ticker"`, and
+`display_only: true`. No fallback venue or fabricated quote is used. The quote
+never reaches candle history, structure, qualification, the hierarchy, planning,
+or forward/historical testing. It does not draw a forming candle.
+
+The chart's **separate ghost series** uses Binance Spot's public raw kline
+WebSocket streams (`wss://stream.binance.com:9443/ws/btcusdt@kline_<interval>`)
+for BTC/USDT at 5m/15m/1h/4h. Only a valid `x: false` kline for the currently
+forming, epoch-aligned UTC bucket is accepted, and the latest stored candle
+must be aligned and no more than two intervals behind. Invalid, stale, closed,
+disconnected or boundary-crossing data is removed; it is **never promoted** to
+the stored confirmed series or database. Switching chart timeframes closes the
+old subscription and opens the viewed interval. The strict CSP permits only
+`wss://stream.binance.com:9443` in addition to the same-origin API. This
+optional public connection can fail while the stored-candle chart continues to
+work. An update must arrive within 45 seconds to remain fresh. A refresh is
 still required to acquire a newly stored confirmed candle; the ghost is never
 used as a substitute while ingestion catches up.
 

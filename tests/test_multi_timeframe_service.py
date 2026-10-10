@@ -94,7 +94,7 @@ def test_multi_timeframe_acquisition_uses_one_client_for_all_timeframes(tmp_path
 
     engine, url = migrated_engine(tmp_path, "acquire.sqlite3")
     source = FakeExchange()
-    source.exchange_id = "kraken"
+    source.exchange_id = "binance"
     source.set_candles(
         list(one_hour_candles())
         + list(four_hour_candles(aligned=True))
@@ -148,7 +148,7 @@ def test_multi_timeframe_acquisition_uses_one_client_for_all_timeframes(tmp_path
     repository = CandleRepository(engine)
     for timeframe in ("4h", "1h", "15m", "5m"):
         result = repository.get_candles(
-            exchange="kraken", symbol=SYMBOL, timeframe=timeframe
+            exchange="binance", symbol=SYMBOL, timeframe=timeframe
         )
         assert result.candles, timeframe
         assert result.missing_candle_count == 0, timeframe
@@ -157,7 +157,7 @@ def test_multi_timeframe_acquisition_uses_one_client_for_all_timeframes(tmp_path
 def test_download_history_all_backfills_all_timeframes_through_one_service(tmp_path):
     engine, url = migrated_engine(tmp_path, "backfill.sqlite3")
     source = FakeExchange()
-    source.exchange_id = "kraken"
+    source.exchange_id = "binance"
     source.set_candles(list(one_hour_candles()) + list(four_hour_candles(aligned=True)))
     settings = _acquisition_settings(url, tmp_path)
     service = MarketDataService(
@@ -182,7 +182,7 @@ def test_download_history_all_backfills_all_timeframes_through_one_service(tmp_p
 def test_update_history_all_rejects_duplicate_and_unsupported_timeframes(tmp_path):
     engine, url = migrated_engine(tmp_path, "reject.sqlite3")
     source = FakeExchange()
-    source.exchange_id = "kraken"
+    source.exchange_id = "binance"
     settings = _acquisition_settings(url, tmp_path)
     service = MarketDataService(
         engine,
@@ -709,7 +709,13 @@ def test_service_version_isolation_between_hierarchies(aligned_engine):
             TimeframeStep(role=TimeframeRole.EXECUTION, timeframe="15m"),
         )
     )
-    other_service = make_service(engine, hierarchy=other_hierarchy)
+    other_service = make_service(
+        engine,
+        hierarchy=other_hierarchy,
+        settings=make_settings(
+            str(engine.url), supported_timeframes=("5m", "15m", "1h", "4h", "1d")
+        ),
+    )
     snapshot_other = other_service.evaluate(decision_time=DECISION_TIME)
     observation_other, created_other = other_service.record(
         snapshot_other, recorded_at=DECISION_TIME

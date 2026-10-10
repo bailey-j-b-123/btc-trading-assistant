@@ -97,12 +97,14 @@ test("missing or mismatched facts draw no scenario; no future coordinates or pro
 
 test("public quote is validated and becomes visibly stale; it is never a candle", () => {
   const now = Date.parse("2026-10-06T12:00:00Z");
-  const payload = { price: "83512.40", status: "CURRENT", fetched_at: new Date(now).toISOString() };
+  const payload = { price: "83512.40", status: "CURRENT", exchange: "binance", fetched_at: new Date(now).toISOString() };
   assert.equal(liveQuoteModel(payload, now).status, "CURRENT");
   assert.equal(liveQuoteModel(payload, now + LIVE_STALE_MS).status, "STALE");
   for (const price of [null, "NaN", "Infinity", "-1", "0"]) {
     assert.equal(liveQuoteModel({ ...payload, price }, now).status, "UNAVAILABLE");
   }
+  assert.equal(liveQuoteModel({ ...payload, exchange: "kraken" }, now).status, "UNAVAILABLE");
+  assert.equal(liveQuoteModel({ ...payload, exchange: undefined }, now).status, "UNAVAILABLE");
   const handle = chart();
   const stored = [[now - 3600000, "100", "102", "99", "101", "5"]];
   setCandles(handle, stored);
@@ -157,7 +159,8 @@ test("browser disconnect immediately labels the last valid quote stale without d
   globalThis.fetch = async () => {
     if (++requests > 1) throw new Error("Disconnected");
     return { ok: true, json: async () => ({
-      status: "CURRENT", price: "82512.40", fetched_at: new Date().toISOString(),
+      status: "CURRENT", price: "82512.40", exchange: "binance",
+      source: "Binance Spot public ticker", fetched_at: new Date().toISOString(),
     }) };
   };
   const display = mountLiveDisplay("BTC/USDT");
@@ -165,6 +168,7 @@ test("browser disconnect immediately labels the last valid quote stale without d
     display.start();
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(display.node.dataset.freshness, "CURRENT");
+    assert.match(display.node.textContent, /Binance Spot public ticker/);
     ticks[0]();
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(display.node.dataset.freshness, "STALE");
