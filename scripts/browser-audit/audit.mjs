@@ -69,9 +69,9 @@ async function launchBrowser(width, height) {
 async function waitForDashboardState(page, timeoutMs) {
   const handle = await page.waitForFunction(
     () => {
-      const alert = document.querySelector('[role="alert"]');
-      if (alert && /Something went wrong/.test(alert.textContent || "")) {
-        return { state: "error", message: (alert.textContent || "").slice(0, 300) };
+      const failure = document.querySelector(".dashboard-failure");
+      if (failure) {
+        return { state: "error", message: (failure.textContent || "").slice(0, 300) };
       }
       const busy = document.querySelector('[aria-busy="true"]');
       if (document.querySelector(".hero-card") && !busy) return { state: "ready" };

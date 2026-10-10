@@ -11,13 +11,44 @@ export class ApiError extends Error {
   }
 }
 
-async function request(method, path, body) {
+/**
+ * Client-side limit for the dashboard decision request. The server computes the decision on each
+ * request, which can take tens of seconds on a large database; past this limit the page reports a
+ * timeout with a retry instead of an unexplained failure. The server is not stopped and no stored
+ * data is changed.
+ */
+export const DASHBOARD_TIMEOUT_MS = 180000;
+
+/**
+ * Fetch JSON with an optional time limit. Failures are typed so the page can say what happened:
+ * ``timeout`` (no response within the limit), ``network_error`` (no response at all, e.g. the
+ * connection was closed) or the server's own error code.
+ */
+export async function fetchJson(method, path, body, { timeoutMs = 0, fetchImpl = globalThis.fetch } = {}) {
   const options = { method, headers: { Accept: "application/json" } };
   if (body !== undefined) {
     options.headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(body);
   }
-  const response = await fetch(path, options);
+  let timer = null;
+  let timedOut = false;
+  if (timeoutMs > 0) {
+    const controller = new AbortController();
+    options.signal = controller.signal;
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+  }
+  let response;
+  try {
+    response = await fetchImpl(path, options);
+  } catch (error) {
+    if (timedOut) throw new ApiError(0, "timeout", `No response within ${Math.round(timeoutMs / 1000)} seconds.`);
+    throw new ApiError(0, "network_error", error?.message || "The request did not complete.");
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
   let payload = null;
   try {
     payload = await response.json();
@@ -38,10 +69,53 @@ async function request(method, path, body) {
   return payload;
 }
 
+function request(method, path, body, options) {
+  return fetchJson(method, path, body, options);
+}
+
+/**
+ * Plain-language description of a failed request, with whether a retry can help. Used instead of a
+ * generic "Something went wrong" so the reader knows whether to wait, retry or check the server.
+ */
+export function describeRequestFailure(error) {
+  if (error instanceof ApiError && error.code === "timeout") {
+    return {
+      title: "The decision is still being calculated",
+      detail:
+        "The server did not return the dashboard within the time limit. Stored data is unchanged. Retry; if it repeats, the database is large and the calculation is slow.",
+      retryable: true,
+    };
+  }
+  if (error instanceof ApiError && error.code === "network_error") {
+    return {
+      title: "The dashboard server could not be reached",
+      detail:
+        "The browser got no response, so the connection was closed or the server is not running. Check that the dashboard server is running, then retry.",
+      retryable: true,
+    };
+  }
+  if (error instanceof ApiError && error.status >= 500) {
+    return {
+      title: "The dashboard server reported an error",
+      detail: `HTTP ${error.status}${error.code ? ` (${error.code})` : ""}. ${error.message}`,
+      retryable: true,
+    };
+  }
+  if (error instanceof ApiError) {
+    return { title: "The dashboard request was rejected", detail: error.message, retryable: false };
+  }
+  return {
+    title: "The dashboard could not be loaded",
+    detail: error?.message || "The backend returned an unexpected error.",
+    retryable: true,
+  };
+}
+
 export const api = {
   meta: () => request("GET", "/api/meta"),
   settings: () => request("GET", "/api/settings"),
-  dashboard: (params = {}) => request("GET", `/api/dashboard${queryString(params)}`),
+  dashboard: (params = {}) =>
+    request("GET", `/api/dashboard${queryString(params)}`, undefined, { timeoutMs: DASHBOARD_TIMEOUT_MS }),
   candles: (params = {}) => request("GET", `/api/market/candles${queryString(params)}`),
   structure: (params = {}) => request("GET", `/api/market/structure${queryString(params)}`),
   annotations: (params = {}) => request("GET", `/api/market/annotations${queryString(params)}`),

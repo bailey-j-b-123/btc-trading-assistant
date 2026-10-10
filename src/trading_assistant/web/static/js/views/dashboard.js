@@ -5,7 +5,7 @@
  * candles, outcomes, or performance metrics.
  */
 
-import { api } from "../api.js";
+import { api, describeRequestFailure } from "../api.js";
 import { canShowForming } from "../forming-display.js";
 import { asOfLine, freshnessBadge } from "../freshness.js";
 import { createBinanceFormingStream } from "../binance-forming-display.js";
@@ -2232,6 +2232,15 @@ function diagnosticsSection(dashboard, forward) {
   ]);
 }
 
+/** Failure state for the decision request: says what happened and offers a retry when one can help. */
+function dashboardFailureNode(failure, onRetry) {
+  return el("div", { class: "state-block dashboard-failure", role: "alert" }, [
+    el("div", { class: "big", text: failure.title }),
+    el("div", { text: failure.detail }),
+    failure.retryable ? el("button", { type: "button", class: "btn btn-primary", text: "Retry", onclick: onRetry }) : null,
+  ]);
+}
+
 export async function renderDashboard(view) {
   const generation = ++renderGeneration;
   if (activeChart) activeChart.destroy();
@@ -2252,7 +2261,7 @@ export async function renderDashboard(view) {
 
   if (dashboardResult.status === "rejected") {
     view.className = "view";
-    clearNode(view).append(errorState(dashboardResult.reason?.message || "Dashboard data is unavailable."));
+    clearNode(view).append(dashboardFailureNode(describeRequestFailure(dashboardResult.reason), () => renderDashboard(view)));
     setTopbarWarning();
     return;
   }
