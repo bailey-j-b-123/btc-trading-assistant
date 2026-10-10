@@ -136,7 +136,7 @@ cp .env.example .env
 
 The Step 10 dashboard (`python -m trading_assistant.web`) is served by the same install: `fastapi` and `uvicorn` are core dependencies, and `httpx` (dev extra) powers its offline API tests. The dashboard UI has no build step and no runtime Node dependency; see the Step 10 section for local usage.
 
-The instrument remains configurable with `TRADING_ASSISTANT_SYMBOL`, `TRADING_ASSISTANT_BASE_ASSET`, and `TRADING_ASSISTANT_QUOTE_ASSET` (defaults: `BTC/USDT`, `BTC`, `USDT`). The default local database URL remains `sqlite:///data/trading_assistant.sqlite3`. **Binance Spot is the only supported active market-data provider**; `TRADING_ASSISTANT_EXCHANGE`, if explicitly set, accepts only `binance`. A legacy Kraken or other exchange override is rejected at startup, never silently substituted. The browser's live ticker and forming-kline display are intentionally BTC/USDT-only; switching the configured BRAIN symbol does not redirect them to another pair. The default analytical timeframes are `5m`, `15m`, `1h`, and `4h`; `TRADING_ASSISTANT_SUPPORTED_TIMEFRAMES` and `TRADING_ASSISTANT_DEFAULT_TIMEFRAME` remain configurable. Fixed-duration seconds/minutes/hours/days/weeks are supported by the timeframe parser. The raw archive root is configurable with `TRADING_ASSISTANT_RAW_DATA_DIR` and defaults to `data/raw/`.
+The instrument remains configurable with `TRADING_ASSISTANT_SYMBOL`, `TRADING_ASSISTANT_BASE_ASSET`, and `TRADING_ASSISTANT_QUOTE_ASSET` (defaults: `BTC/USDT`, `BTC`, `USDT`). The default local database URL remains `sqlite:///data/trading_assistant.sqlite3`. **Binance Spot is the only supported active market-data provider**; `TRADING_ASSISTANT_EXCHANGE`, if explicitly set, accepts only `binance`. A legacy Kraken or other exchange override is rejected at startup, never silently substituted. The browser's live ticker and forming-kline display are intentionally BTC/USDT-only; switching the configured BRAIN symbol does not redirect them to another pair. The default analytical timeframes are `5m`, `15m`, `1h`, and `4h`; since Phase 3 the supported set also includes `1m`, which is acquisition/storage-only ordering evidence for forward outcome resolution (never a planning timeframe). `TRADING_ASSISTANT_SUPPORTED_TIMEFRAMES` and `TRADING_ASSISTANT_DEFAULT_TIMEFRAME` remain configurable. Fixed-duration seconds/minutes/hours/days/weeks are supported by the timeframe parser. The raw archive root is configurable with `TRADING_ASSISTANT_RAW_DATA_DIR` and defaults to `data/raw/`.
 
 ## Market-data behavior
 
@@ -1932,6 +1932,59 @@ outcome semantics over subsequent **closed** candles only:
 A paper observation is never described as an executed trade, a fill, a position
 or realised P&L.
 
+### Phase 3 — 1-minute ordering evidence (`journal-outcome-v2`)
+
+Forward outcome observations recorded since Phase 3 run under a new evaluation
+policy version, `journal-outcome-v2`, fingerprinted into the forward cycle
+version stamp so v1 (`journal-outcome-v1`) and v2 outcomes are never mixed.
+The only behavioural change is where ordering evidence comes from when the base
+candle alone cannot order touches:
+
+* **Ambiguity re-check, not re-planning.** When a base-timeframe candle is
+  `AMBIGUOUS` (entry+exit or stop+target in one candle) and the plan belongs to
+  the configured active exchange/symbol, the runner consults **stored, closed
+  Binance 1-minute candles** for exactly that candle's span, downloaded on
+  demand through the unchanged Step 2 pipeline (date-bounded cursor,
+  1000-candle pages, exact gap validation, raw archive, no synthesis). The
+  identical Step 7 touch/ordering rules are replayed over the minutes of each
+  ambiguous candle. The original higher-timeframe plan, entry, stop, targets,
+  planning timestamp and mandatory 1R floor are never touched, and 1-minute
+  candles never influence the planning decision — only the ordering of events
+  inside a candle that was already ambiguous under v1 rules.
+* **Never invented.** If the 1-minute evidence is missing, incomplete,
+  inconsistent with the base candle, or still ambiguous at minute granularity
+  (e.g. entry and stop co-touched inside one 1-minute candle), the outcome
+  stays the explicitly unscored `AMBIGUOUS` with a machine-readable reason
+  (`resolution_no_candles`, `resolution_coverage_incomplete`,
+  `resolution_consistency_conflict`, `resolution_same_minute_ambiguous`). The
+  favourable interpretation is still never chosen.
+* **Append-only re-checks.** Missing-evidence ambiguities are re-checked on
+  later passes; when the minutes arrive, the resolution is recorded as a **new
+  outcome version superseding** the ambiguous one — the earlier row stays
+  byte-for-byte recoverable. Same-minute ambiguities are final: the evidence
+  was present and insufficient, so they are never re-checked or rewritten.
+  `journal-outcome-v1` rows are never re-observed, and plans recorded under a
+  legacy exchange identity are never substituted with Binance 1-minute
+  evidence.
+* **Guarantees preserved.** Resolution adds no lookahead (only closed candles
+  at or before the observation window), no synthetic fills, no duplicated
+  outcomes, no favourable bias, and no change to PR-level safeguards: the
+  instrument-wide one-active-paper-trade rule, the occupancy horizon for
+  unscored ambiguities, same-cycle plan-id locks, and every reporting
+  denominator behave exactly as before — a resolved outcome simply settles the
+  slot with its proved status, and resolved events carry their genuine 1-minute
+  bar open times (`resolution_timeframe: 1m`).
+* **1m is evidence, never a planning timeframe.** `1m` is accepted in
+  `supported_timeframes` for acquisition/storage only; the forward runner and
+  the journal refuse it as a base/planning timeframe (plans on ≤1m have no
+  finer evidence to order them). Historical validation (Step 11) remains
+  `journal-outcome-v1` and is unaffected.
+
+The resolution attempt itself is recorded on every v2 observation:
+`resolution_attempted`, `resolution_used`, `resolution_reason`, the expected /
+present / missing 1-minute candle counts, and any missing minute ranges — so
+every scored or unscored outcome states exactly which evidence decided it.
+
 ### Friction semantics
 
 Friction reuses the existing, versioned Step 11 `FrictionAssumptions`
@@ -2359,7 +2412,7 @@ source audit).
 | `TRADING_ASSISTANT_DATABASE_URL` | `sqlite:///data/trading_assistant.sqlite3` | App database |
 | `TRADING_ASSISTANT_SQLITE_BUSY_TIMEOUT_MS` | `5000` | Finite SQLite busy timeout (max `60000`); a secondary defence, not a lock repair |
 | `TRADING_ASSISTANT_DEFAULT_TIMEFRAME` | `1h` | Base timeframe |
-| `TRADING_ASSISTANT_SUPPORTED_TIMEFRAMES` | `5m,15m,1h,4h` | Accepted analytical timeframes |
+| `TRADING_ASSISTANT_SUPPORTED_TIMEFRAMES` | `1m,5m,15m,1h,4h` | Accepted timeframes (`1m` is Phase 3 ordering evidence only; never a planning/base timeframe) |
 | `TRADING_ASSISTANT_RAW_DATA_DIR` | `data/raw` | Raw exchange payloads |
 | `TRADING_ASSISTANT_MARKET_DATA_PAGE_LIMIT` | `1000` | Download page size (Binance Spot maximum) |
 | `TRADING_ASSISTANT_MARKET_DATA_MAX_PAGES` | `10000` | Download page cap |

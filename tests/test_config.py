@@ -33,7 +33,9 @@ def test_settings_use_documented_defaults(monkeypatch):
     assert settings.log_level == "INFO"
     assert settings.exchange == "binance"
     assert settings.default_timeframe == "1h"
-    assert settings.supported_timeframes == ("5m", "15m", "1h", "4h")
+    # ``1m`` is outcome-ordering evidence only (journal-outcome-v2); it is not
+    # a planning timeframe. The forward runner refuses it as a base timeframe.
+    assert settings.supported_timeframes == ("1m", "5m", "15m", "1h", "4h")
     assert settings.raw_data_dir == Path("data/raw")
     assert settings.market_data_page_limit == 1_000
     assert settings.exchange_timeout_ms == 10_000

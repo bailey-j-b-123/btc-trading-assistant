@@ -51,7 +51,13 @@ class Settings(BaseSettings):
     # than silently changing the source used by analysis and paper observations.
     exchange: Literal["binance"] = "binance"
     default_timeframe: str = "1h"
-    supported_timeframes: tuple[str, ...] = ("5m", "15m", "1h", "4h")
+    #: ``1m`` is stored exclusively as outcome-ordering evidence: genuine,
+    #: confirmed 1-minute candles let the journal-outcome-v2 observation rules
+    #: order events inside an ambiguous higher-timeframe candle. It is never a
+    #: planning/analysis timeframe — the forward runner refuses any base
+    #: timeframe at or below the resolution granularity, and planning keeps the
+    #: mandatory 1R rules on the engine timeframe.
+    supported_timeframes: tuple[str, ...] = ("1m", "5m", "15m", "1h", "4h")
     raw_data_dir: Path = Path("data/raw")
     market_data_page_limit: int = Field(default=1_000, gt=0)
     market_data_max_pages: int = Field(default=10_000, gt=0)
