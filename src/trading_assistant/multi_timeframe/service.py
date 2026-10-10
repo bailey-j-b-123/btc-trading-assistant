@@ -652,9 +652,23 @@ class MultiTimeframeService:
         processed: list[datetime] = []
         recorded = 0
         created = 0
+        held_at: datetime | None = None
+        held_waiting: tuple[str, ...] = ()
         for open_time in to_process:
             boundary_instant = open_time + interval
             snapshot = self.evaluate(symbol=resolved_symbol, decision_time=boundary_instant)
+            if snapshot.status != "evaluated":
+                held_waiting = self._timeframes_awaiting_candles(
+                    exchange=exchange,
+                    symbol=resolved_symbol,
+                    decision_time=boundary_instant,
+                )
+                if held_waiting or market_error_transient:
+                    # The data for this boundary may still arrive. Recording it
+                    # now would freeze an incomplete verdict in an append-only
+                    # row, so hold it and stop: boundaries stay chronological.
+                    held_at = boundary_instant
+                    break
             _, was_created = self.record(snapshot, recorded_at=instant)
             recorded += 1
             created += 1 if was_created else 0
@@ -671,6 +685,35 @@ class MultiTimeframeService:
                         "created": was_created,
                     }
                 },
+            )
+        if held_at is not None:
+            remaining = len(opens) - len(processed)
+            reason = (
+                f"stored closed candles still missing for {', '.join(held_waiting)}"
+                if held_waiting
+                else "market data could not be refreshed"
+            )
+            return MultiTimeframeRunResult(
+                status=RunnerStatus.PROCESSED if processed else RunnerStatus.IDLE,
+                detail=(
+                    f"held decision boundary {held_at.isoformat()}: {reason}; the "
+                    "incomplete evaluation is not recorded and is retried on the "
+                    "next pass"
+                    + (f"; {len(processed)} boundary(ies) recorded before it" if processed else "")
+                    + (f"; {remaining} boundary(ies) pending" if remaining else "")
+                    + ("" if market_error is None else f"; market-data error: {market_error}")
+                ),
+                exchange=exchange,
+                symbol=resolved_symbol,
+                processed_boundaries=tuple(processed),
+                observations_recorded=recorded,
+                observations_created=created,
+                pending_boundaries=remaining,
+                latest_decision_time=processed[-1] if processed else None,
+                market_data_json=market_data_json,
+                market_data_error=market_error,
+                market_data_error_type=market_error_type,
+                market_data_error_transient=market_error_transient,
             )
 
         return MultiTimeframeRunResult(
@@ -785,6 +828,39 @@ class MultiTimeframeService:
                 service, symbol=symbol, timeframe=timeframe, as_of=as_of, depth=depth
             )
         return updates, backfills
+
+    def ingest_timeframe(
+        self, *, symbol: str, timeframe: str, as_of: datetime
+    ) -> tuple[Any, dict[str, Any]]:
+        """Refresh ONE timeframe and repair its required window (public ingestion step).
+
+        Used by the dedicated ingestion process so that every required timeframe
+        is refreshed independently: a failure on one timeframe is reported by the
+        caller and never stops the others. Returns ``(update, backfill)``.
+        """
+
+        service = self._market_data_service()
+        depth = required_trailing_depth(
+            structure=self.structure_parameters,
+            pattern=self.pattern_parameters,
+            qualification=self.qualification_parameters,
+        )
+        update = self._refresh_timeframe(
+            service, symbol=symbol, timeframe=timeframe, as_of=as_of
+        )
+        backfill = self._backfill_required_window(
+            service, symbol=symbol, timeframe=timeframe, as_of=as_of, depth=depth
+        )
+        return update, backfill
+
+    def required_depth(self) -> int:
+        """Closed candles per timeframe the hierarchy gate needs at one boundary."""
+
+        return required_trailing_depth(
+            structure=self.structure_parameters,
+            pattern=self.pattern_parameters,
+            qualification=self.qualification_parameters,
+        )
 
     def _backfill_required_window(
         self,
@@ -959,64 +1035,78 @@ class MultiTimeframeService:
         symbol: str,
         target_boundary: datetime,
     ) -> tuple[datetime, ...]:
-        """Execution-candle open times whose close boundary is pending."""
+        """Execution-candle open times whose decision boundary is still unrecorded.
 
-        execution_tf = self.hierarchy.execution.timeframe
-        interval = interval_for_timeframe(execution_tf)
-        last_open = target_boundary - interval
-        start_boundary = self._start_boundary(
-            exchange=exchange, symbol=symbol
-        )
-        start_open = last_open if start_boundary is None else start_boundary - interval
-        if start_open > last_open:
-            return ()
-        count = int((last_open - start_open) // interval) + 1
-        return tuple(start_open + index * interval for index in range(count))
-
-    def _start_boundary(self, *, exchange: str, symbol: str) -> datetime | None:
-        """The first decision boundary this pass must (re)process.
-
-        Boundaries recorded as ``incomplete`` are retried: when missing candles
-        later arrive, the boundary is re-evaluated and the recovered conclusion
-        is recorded as its own row — the earlier row is never rewritten. A
-        boundary that already has a complete observation is never recomputed.
+        A decision boundary is recorded exactly once, when its evaluation is
+        final. The hierarchy ledger has one row per boundary and hierarchy
+        version (unique on the decision time), so a recorded boundary is never
+        re-run; re-running it with newer data would collide with that row. An
+        incomplete evaluation whose data may still arrive is HELD (not recorded)
+        by ``run_once`` and retried on the next pass instead.
         """
 
         execution_tf = self.hierarchy.execution.timeframe
         interval = interval_for_timeframe(execution_tf)
+        last_open = target_boundary - interval
         fingerprint = self.hierarchy.fingerprint()
-        complete: set[datetime] = set()
-        unfinished: set[datetime] = set()
-        for observation in self.ledger.observations(
-            exchange=exchange, symbol=symbol
-        ):
-            if observation.hierarchy_fingerprint != fingerprint:
-                continue
-            if observation.status == "evaluated":
-                complete.add(observation.decision_time)
-            else:
-                unfinished.add(observation.decision_time)
-        if complete:
-            next_boundary = max(complete) + interval
+        recorded = {
+            observation.decision_time
+            for observation in self.ledger.observations(
+                exchange=exchange, symbol=symbol
+            )
+            if observation.hierarchy_fingerprint == fingerprint
+        }
+        if recorded:
+            start_boundary = max(recorded) + interval
         elif self.ledger_start is not None:
             latest_closed = latest_closed_candle_open_time(
                 self.ledger_start, execution_tf
             )
-            next_boundary = (
+            start_boundary = (
                 self.ledger_start
                 if latest_closed + interval == self.ledger_start
                 else latest_closed + interval
             )
         else:
-            next_boundary = None
-        retryable = [
-            boundary
-            for boundary in sorted(unfinished)
-            if next_boundary is None or boundary < next_boundary
-        ]
-        if retryable:
-            return retryable[0]
-        return next_boundary
+            start_boundary = last_open + interval
+        start_open = start_boundary - interval
+        if start_open > last_open:
+            return ()
+        count = int((last_open - start_open) // interval) + 1
+        opens = (start_open + index * interval for index in range(count))
+        return tuple(
+            open_time
+            for open_time in opens
+            if open_time + interval not in recorded
+        )
+
+    def _timeframes_awaiting_candles(
+        self, *, exchange: str, symbol: str, decision_time: datetime
+    ) -> tuple[str, ...]:
+        """Hierarchy timeframes whose newest closed candle has not been stored yet.
+
+        An incomplete evaluation can only change if a required candle is still
+        to arrive. That is true only at the TAIL of the stored series: the candle
+        that closed by the decision time is absent and nothing stored at or after
+        it exists. A candle missing in the middle of history is a permanent gap,
+        and a candle missing before the first stored candle is insufficient
+        history; both are final verdicts, so neither is held.
+        """
+
+        awaiting: list[str] = []
+        for timeframe in self.hierarchy.timeframes:
+            step = interval_for_timeframe(timeframe)
+            expected = latest_closed_candle_open_time(decision_time, timeframe)
+            stored = self.candles.get_candles(
+                exchange=exchange,
+                symbol=symbol,
+                timeframe=timeframe,
+                start_time=expected,
+                end_time=expected + step,
+            )
+            if not stored.candles:
+                awaiting.append(timeframe)
+        return tuple(awaiting)
 
     def _pending_boundaries(
         self, *, exchange: str, symbol: str, target_boundary: datetime
