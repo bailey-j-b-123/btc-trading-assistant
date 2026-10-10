@@ -18,8 +18,8 @@
  *   --fail-dashboard    test hook: abort /api/dashboard so the app shows its error state
  *
  * Browser: set CHROME_PATH to a local Chrome/Chromium (for example on macOS:
- * /Applications/Google Chrome.app/Contents/MacOS/Google Chrome). Without it, the
- * @sparticuz/chromium package is used (sandbox fallback; needs LD_LIBRARY_PATH if it ships libs).
+ * /Applications/Google Chrome.app/Contents/MacOS/Google Chrome). Without it, the optional
+ * @sparticuz/chromium package is used (sandbox only; install it with --no-save).
  *
  * Exit codes: 0 ready and no overflow or page errors; 1 otherwise. The JSON report is printed.
  */
@@ -127,7 +127,15 @@ async function main() {
   });
 
   const timeoutMs = args.timeout * 1000;
-  await page.goto(args.url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
+  try {
+    await page.goto(args.url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
+  } catch (error) {
+    await browser.close();
+    throw new Error(
+      `could not open ${args.url} (${error.message}). Is the dashboard server running on that port? ` +
+        "Check with: lsof -nP -iTCP -sTCP:LISTEN | grep -E ':(8040|8041)'",
+    );
+  }
 
   let outcome;
   try {
