@@ -2631,6 +2631,104 @@ responses are dynamic JSON and carry no cache headers. Covered by
    `migrations/versions/` chain (`0001`→`0004`); to repair a database,
    migrate a fresh file and copy rows over — never hand-edit alembic state.
 
+### First paper trade: read-only forensic report
+
+`python -m trading_assistant.trade_forensics` explains one recorded paper trade
+from BRAIN's existing records. It is a reporter, not a strategy: it re-runs no
+detector, re-qualifies no setup, re-plans no trade, backfills no candle, and
+writes nothing. The existing forward ledger, dashboard, and `forward_testing
+status` already show current state; this report adds the per-trade timeline
+they do not join to the stored candles.
+
+The default arguments match the first genuine BTC/USDT paper trade (signal
+2026-10-11 17:00 UTC, entry 83916.01, stop 83606.01, target 84379.31). Override
+`--signal`, `--entry`, `--stop`, `--target`, `--timeframe`, `--exchange`,
+`--symbol`, or `--database-url` for any other stored plan. Use
+`--paper-plan-id` if several plans match.
+
+Sections, in order:
+
+1. Identity: plan, setup, frozen observation, ledger write time and lag.
+2. Breakout candle and reference level (frozen band, plan invalidation).
+3. Retest: when the held retest was recorded and when it first passed.
+4. Setup state timeline: first recorded WATCH, QUALIFIED, and PLANNABLE closes.
+5. Entry: source (`step3_volatility_latest_close`), the planning candle check,
+   and the stored lows and highs in the window, labelled as context only.
+6. Breakout, retest, and entry candles: exact-open OHLC, volume, and ATR.
+7. Competing setups in the same close, earlier paper plans, and whether the
+   instrument-wide slot was free when the plan was recorded.
+8. 4H, 15M, and 5M: hierarchy evaluations known at the paper plan (decision
+   time at or before the signal and `recorded_at` at or before the plan's
+   `recorded_at`), plus candle coverage. Coverage counts are candles stored now;
+   the database cannot prove what was available at the time.
+9. Stop: the outcome versions and the candle that touched the stop. This is
+   labelled **POST-DECISION** because a stop can only be observed after entry.
+10. Audit only: hierarchy rows whose decision time is at or before the signal
+    but which were written after the paper plan. Labelled **POST-DECISION**;
+    no finding in sections 1–8 uses them.
+
+Anti-lookahead rule. Sections 1–8 use only ledger rows recorded at or before the
+planning instant and only candles whose full interval had closed by then.
+Changing or appending candles after the signal cannot change those sections;
+`tests/test_trade_forensics.py` checks this. Every value carries a status:
+`[RECORDED]` (stored ledger or Step 5/6 JSON), `[STORED]` (an OHLCV candle at an
+exact open time), `[COMPUTED]` (arithmetic on the values shown), or
+`UNAVAILABLE` (not in the database; never estimated or filled from a neighbour).
+
+Known gaps, reported as `UNAVAILABLE` rather than inferred:
+
+- Absolute ATR is not stored; only ATR as a percent of price at the planning close.
+- Touch-only retests and any state before the ledger's first cycle are not
+  recorded. A held retest confirmed earlier than the first cycle is flagged.
+- The reference type (swing, zone, range) is not stored; the band values are
+  read from the location rule's reason text.
+- The forward ledger analyses 1H only. A hierarchy evaluation counts as known
+  at the time only if BRAIN stored it at or before the paper plan's
+  `recorded_at`, however old its `decision_time`. Later-written rows appear
+  only in section 10.
+- `ohlcv_candles` has no insertion time, so the coverage counts show candles
+  stored now. The report says so rather than claiming they were available when
+  the plan was recorded.
+- No alternative entry (pullback, limit, retest price) was modelled, so the
+  report cannot say whether a lower price would have filled.
+
+**Read-only mechanics.** The database is opened with SQLite `mode=ro` behind an
+authorizer that denies every action except reads, copied once into memory with
+the backup API, and then analysed. Source file bytes (the database and its
+`-wal`) are fingerprinted before and after. A change during the read exits 4
+and prints no report; re-run when the runner is idle. SQLite may create or
+update the `-shm` index and a zero-byte `-wal` when a WAL database is opened;
+neither holds ledger content, and neither is deleted by this tool. Memory use is
+roughly the size of the database file.
+
+Exit codes: `0` report produced (missing data is reported inside it), `2`
+invalid arguments, no matching plan, or an ambiguous match, `3` database missing,
+not SQLite, or without the forward-ledger tables, `4` source changed during the
+read. The Markdown goes to stdout and errors to stderr.
+
+**Mac command** (valid after PR #41 is merged into `main`; run from the repository root):
+
+```bash
+cd ~/btc-trading-assistant && git pull --ff-only && . .venv/bin/activate && python -m trading_assistant.trade_forensics | tee data/processed/first-paper-trade-forensics.md
+```
+
+The output file stays under the gitignored `data/processed/`. The database is
+never copied, uploaded, or committed.
+
+**Testing PR #41 before it is merged.** A local checkout on another branch (for
+example `brain-test-pr39`) does not contain this code, so `git pull` alone is not
+enough. This command checks the working tree is clean, then fetches the PR
+branch and switches to it **detached**. No local branch is created or changed,
+and no database file is touched (`data/` is gitignored):
+
+```bash
+cd ~/btc-trading-assistant && test -z "$(git status --porcelain --untracked-files=no)" && git fetch origin arena/3f2f252e-btc-trading-assistant && git switch --detach FETCH_HEAD && . .venv/bin/activate && python -m trading_assistant.trade_forensics | tee data/processed/first-paper-trade-forensics.md
+```
+
+If the `test` step fails, your tree has local edits: commit or stash them first.
+When you are done, return with `git switch brain-test-pr39` (or `git switch main
+&& git pull --ff-only` after the merge).
+
 ### Smoke procedure, results, and visual-test status
 
 Procedure (2026-10-06, sandbox without usable network, so exchange download
