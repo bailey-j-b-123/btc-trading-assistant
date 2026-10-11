@@ -154,10 +154,39 @@ def get_forward(
         "friction_from_recorded_plans": friction_is_recorded,
         "friction_fingerprint": recorded_friction.fingerprint(),
         "status": status,
+        # The persistent Active/Recent paper-trade tracker: recorded plans and
+        # their latest outcome versions straight from the ledger, unchanged by
+        # whatever the newest assessment concluded.
+        "paper_tracker": service.paper_tracker_payload(
+            symbol=resolved_symbol, timeframe=resolved_timeframe
+        ),
         "observations": observations,
         "report": report.to_json_dict(),
         "limitations": list(FORWARD_REPORT_LIMITATIONS),
     }
+
+
+@router.get("/paper-tracker")
+def get_forward_paper_tracker(
+    request: Request,
+    symbol: str | None = Query(default=None, min_length=1, max_length=128),
+    timeframe: str | None = Query(default=None, min_length=1, max_length=32),
+    limit: int = Query(default=5, ge=1, le=100),
+) -> dict[str, object]:
+    """Lightweight read-only poll for the persistent dashboard tracker card.
+
+    The dashboard refreshes its expensive analysis when a new candle is
+    stored, but the forward runner records outcome versions afterwards. This
+    endpoint returns only the tracker block of the ledger so the card can pick
+    up new or updated outcomes (entry reached, stopped, targets, ...) between
+    candle refreshes. It fetches no candles, runs no analysis, and writes
+    nothing — the exact same ``paper_tracker`` projection as ``GET /api/forward``.
+    """
+
+    state, resolved_symbol, resolved_timeframe = _resolve(request, symbol, timeframe)
+    return state.forward.paper_tracker_payload(
+        symbol=resolved_symbol, timeframe=resolved_timeframe, limit=limit
+    )
 
 
 @router.get("/comparison")

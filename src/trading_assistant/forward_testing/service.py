@@ -565,6 +565,122 @@ class ForwardTestService:
             ],
         }
 
+    def paper_tracker_payload(
+        self,
+        *,
+        symbol: str | None = None,
+        timeframe: str | None = None,
+        limit: int = 5,
+    ) -> dict[str, Any]:
+        """Read-only Active/Recent paper-trade tracker view of the ledger.
+
+        The tracker answers "what is the most recent recorded paper trade and
+        where does it stand?" straight from stored rows: the newest recorded
+        paper plans, each with its latest outcome version, whether entry was
+        reached, the outcome timestamp, and the engine's own settled/unresolved
+        verdicts (``paper_outcome_is_settled`` / ``paper_trade_occupies_slot``).
+        It adds no state, computes no level, and consults no live price.
+
+        A recorded plan stays listed whatever later assessments say: a "no
+        trade" conclusion at a later close never hides a plan that the engine
+        actually recorded, and outcome versions are only ever appended, never
+        rewritten, so the tracker shows the newest version plus how many exist.
+        ``latest_assessment`` carries the newest cycle's own verdict so the
+        dashboard can show both facts side by side instead of merging them.
+        """
+
+        if limit < 1 or limit > 100:
+            raise ValueError("limit must be between 1 and 100")
+        exchange, resolved_symbol, resolved_timeframe = self.resolve_instrument(
+            symbol=symbol, timeframe=timeframe
+        )
+        interval = interval_for_timeframe(resolved_timeframe)
+        target_boundary = (
+            latest_closed_candle_open_time(self._clock(), resolved_timeframe) + interval
+        )
+        paper_plans = self.ledger.paper_plans(
+            exchange=exchange,
+            symbol=resolved_symbol,
+            timeframe=resolved_timeframe,
+            limit=limit,
+            newest_first=True,
+        )
+        latest_outcomes = {
+            outcome.paper_plan_id: outcome
+            for outcome in self.ledger.latest_outcomes(
+                exchange=exchange,
+                symbol=resolved_symbol,
+                timeframe=resolved_timeframe,
+            )
+        }
+        latest_cycle = self.ledger.latest_cycle(
+            exchange=exchange, symbol=resolved_symbol, timeframe=resolved_timeframe
+        )
+        occupying = [
+            plan.paper_plan_id
+            for plan in paper_plans
+            if paper_trade_occupies_slot(
+                latest_outcomes.get(plan.paper_plan_id), plan, now=target_boundary
+            )
+        ]
+        tracked = [
+            _tracked_plan_view(
+                plan,
+                latest_outcomes.get(plan.paper_plan_id),
+                outcome_version_count=len(
+                    self.ledger.outcome_versions(plan.paper_plan_id)
+                ),
+                now=target_boundary,
+            )
+            for plan in paper_plans
+        ]
+        return to_jsonable(
+            {
+                "label": "PAPER OBSERVATION — NO REAL ORDER",
+                "disclaimer": (
+                    "The tracker lists recorded paper plans and their recorded "
+                    "outcome versions only. No live price changes any recorded "
+                    "state, and nothing here is an executed trade."
+                ),
+                "exchange": exchange,
+                "symbol": resolved_symbol,
+                "timeframe": resolved_timeframe,
+                "as_of": target_boundary,
+                "active_paper_plan_id": occupying[0] if occupying else None,
+                "unresolved_paper_plan_count": len(occupying),
+                "recorded_paper_plan_count": self.ledger.counts(
+                    exchange=exchange,
+                    symbol=resolved_symbol,
+                    timeframe=resolved_timeframe,
+                )["paper_plans"],
+                "latest_assessment": {
+                    "available": latest_cycle is not None,
+                    "unavailable_reason": (
+                        None
+                        if latest_cycle is not None
+                        else "the forward runner has not recorded any candle close yet"
+                    ),
+                    "as_of": None if latest_cycle is None else latest_cycle.as_of,
+                    "recorded_at": (
+                        None if latest_cycle is None else latest_cycle.recorded_at
+                    ),
+                    "cycle_status": (
+                        None if latest_cycle is None else latest_cycle.status.value
+                    ),
+                    "setup_state": (
+                        None
+                        if latest_cycle is None or latest_cycle.snapshot_state is None
+                        else latest_cycle.snapshot_state.value
+                    ),
+                    "explanation_headline": (
+                        None if latest_cycle is None else latest_cycle.explanation_headline
+                    ),
+                },
+                "tracked_plans": tracked,
+                "limitations": FORWARD_LIMITATIONS,
+            }
+        )
+
     def ledger_snapshot(
         self, *, exchange: str, symbol: str, timeframe: str
     ) -> ForwardLedger:
@@ -2849,6 +2965,68 @@ FORWARD_LIMITATIONS: tuple[str, ...] = (
     "Forward results are separated by the exact recorded strategy/config "
     "version fingerprints that produced them.",
 )
+
+
+def _tracked_plan_view(
+    plan: PaperPlan,
+    outcome: PaperOutcome | None,
+    *,
+    outcome_version_count: int,
+    now: datetime,
+) -> dict[str, Any]:
+    """One ledger-backed tracker row: the frozen plan plus its latest outcome.
+
+    Every field is copied from stored rows; ``settled`` and ``occupies_slot``
+    reuse the engine's own settlement and slot-occupancy definitions, so the
+    dashboard cannot disagree with the ledger about whether a paper trade is
+    still unresolved. An entry/level is never recomputed and an outcome is
+    never re-interpreted: only the newest version's recorded facts appear.
+    """
+
+    observation = None if outcome is None else outcome.observation
+    return {
+        "paper_plan_id": plan.paper_plan_id,
+        "observation_id": plan.observation_id,
+        "cycle_id": plan.cycle_id,
+        "setup_id": plan.setup_id,
+        "family": plan.family.value,
+        "direction": plan.direction,
+        "timeframe": plan.timeframe,
+        "plan_as_of": plan.plan_as_of,
+        "recorded_at": plan.recorded_at,
+        "entry": plan.entry,
+        "stop": plan.stop,
+        "invalidation": plan.invalidation,
+        "risk_per_unit": plan.risk_per_unit,
+        "targets": list(plan.targets),
+        "target_r_multiples": list(plan.target_r_multiples),
+        "observation_horizon_candles": plan.observation_horizon_candles,
+        "entry_reached": None if observation is None else observation.entry_reached,
+        "entry_timestamp": (
+            None if observation is None else observation.entry_timestamp
+        ),
+        "settled": (
+            False if outcome is None else paper_outcome_is_settled(outcome, plan)
+        ),
+        "occupies_slot": paper_trade_occupies_slot(outcome, plan, now=now),
+        "outcome_version_count": outcome_version_count,
+        "outcome": None
+        if outcome is None
+        else {
+            "outcome_id": outcome.outcome_id,
+            "sequence": outcome.sequence,
+            "status": observation.status.value,
+            "entry_reached": observation.entry_reached,
+            "entry_timestamp": observation.entry_timestamp,
+            "stop_reached": observation.stop_reached,
+            "targets_reached": list(observation.targets_reached),
+            "observed_through": observation.observed_through,
+            "recorded_at": outcome.recorded_at,
+            "ambiguous": observation.ambiguous,
+            "incomplete": observation.incomplete,
+            "missing_candle_count": observation.missing_candle_count,
+        },
+    }
 
 
 def _plan_targets(plan: TradePlanResult) -> tuple[tuple[Any, ...], tuple[Any, ...]]:

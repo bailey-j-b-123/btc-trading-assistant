@@ -132,6 +132,10 @@ export const api = {
   rollingStatistics: (params = {}) => request("GET", `/api/statistics/rolling${queryString(params)}`),
   validation: (params = {}) => request("GET", `/api/validation${queryString(params)}`),
   forward: (params = {}) => request("GET", `/api/forward${queryString(params)}`),
+  // Lightweight read-only tracker poll: the ledger's paper_tracker block only,
+  // so the dashboard card can pick up new/updated outcome versions without
+  // re-requesting the full forward report or the dashboard analysis.
+  forwardTracker: (params = {}) => request("GET", `/api/forward/paper-tracker${queryString(params)}`),
   forwardComparison: (params = {}) =>
     request("GET", `/api/forward/comparison${queryString(params)}`),
 };

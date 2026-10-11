@@ -44,6 +44,7 @@ import {
   isoMs,
   itemsAtTime,
 } from "../evidence.js";
+import { createTrackerRefresher, paperTrackerCard } from "../paper-tracker.js";
 import { explainEvidence, explainZoneBand } from "../explain.js";
 import {
   CHART_PAGE_SIZE,
@@ -2389,10 +2390,12 @@ function dashboardFailureNode(failure, onRetry) {
   ]);
 }
 
-// Session state for automatic updates. One live quote, one boundary poller and one status line,
-// released by disposeDashboard (main.js calls it on every route change).
+// Session state for automatic updates. One live quote, one boundary poller, one tracker poller
+// and one status line, released by disposeDashboard (main.js calls it on every route change).
 let liveQuote = null;
 let updater = null;
+let trackerRefresher = null;
+let trackerCardNode = null;
 let dashboardView = null;
 let dashboardMeta = null;
 let currentAsOf = null;
@@ -2474,6 +2477,44 @@ function startAutomaticUpdates() {
 }
 
 /**
+ * Swap the tracker card for one built from a fresh ledger read. Only the
+ * tracker node changes: the chart, its zoom/scroll, and the rest of the page
+ * are untouched, and no dashboard analysis is re-requested.
+ */
+function applyTrackerUpdate(tracker) {
+  const existing = trackerCardNode;
+  if (!existing || !existing.parentNode || !dashboardView) return;
+  const next = paperTrackerCard({ paper_label: tracker?.label, paper_tracker: tracker });
+  existing.replaceWith(next);
+  trackerCardNode = next;
+}
+
+/**
+ * Lightweight, read-only tracker polling, independent of candle/chart
+ * refreshes: the forward runner records outcome versions AFTER the candle is
+ * stored (and after the dashboard refresh that noticed it), so the tracker
+ * must pick up new or updated outcomes on its own cadence. Cheap endpoint,
+ * signature-compared, no analysis rerun; `initialTracker` seeds the signature
+ * so the first poll after a full refresh never re-renders unchanged data.
+ */
+function startTrackerUpdates(initialTracker) {
+  if (trackerRefresher) {
+    trackerRefresher.sync(initialTracker || null);
+    return;
+  }
+  trackerRefresher = createTrackerRefresher({
+    fetchTracker: () => api.forwardTracker({
+      symbol: dashboardMeta?.symbol || undefined,
+      timeframe: dashboardMeta?.timeframe || undefined,
+    }),
+    applyTracker: applyTrackerUpdate,
+    // A dialog or a hidden tab pauses polls; they resume on return.
+    isBlocked: () => document.hidden || Boolean(document.getElementById("modal-root")?.childElementCount),
+  });
+  trackerRefresher.start(initialTracker || null);
+}
+
+/**
  * Render the dashboard. `refresh: true` re-requests the snapshot into the EXISTING page: the chart
  * instance (zoom, pan, timeframe, overlays, loaded history) is updated in place, the rest of the
  * page is rebuilt, and the scroll position and open disclosures are restored. Without `refresh`
@@ -2533,12 +2574,18 @@ export async function renderDashboard(view, { refresh = false } = {}) {
 
   // Build every child first. Moving the chart node into the new layout must happen before the old
   // children are cleared, so the chart keeps its handle and its canvas.
+  const trackerCard = paperTrackerCard(forward);
+  trackerCardNode = trackerCard;
   const children = [
     el("section", { class: "dash-live-strip", "aria-label": "Live price and automatic update status" }, [
       live.node,
       updateStatusNode,
     ]),
     decisionHero(dashboard, forward),
+    // Prominent, persistent Active/Recent paper-trade tracker: recorded plans
+    // and outcomes from the ledger, kept visible even when the newest
+    // assessment says "No trade".
+    trackerCard,
     el("div", { class: "dash-main" }, [
       el("div", { class: "dash-chart" }, [chart.node]),
       el("aside", { class: "dash-context", "aria-label": "Multi-timeframe and zone context" }, [
@@ -2563,6 +2610,9 @@ export async function renderDashboard(view, { refresh = false } = {}) {
   dashboardView = view;
   currentAsOf = typeof meta.as_of === "string" ? meta.as_of : null;
   startAutomaticUpdates();
+  // Independent, read-only tracker poll: catches outcome versions the runner
+  // records AFTER this refresh, without waiting for the next candle.
+  startTrackerUpdates(dashboard?.paper_tracker || null);
   return true;
 }
 
@@ -2572,6 +2622,9 @@ export function disposeDashboard() {
   activeChart = null;
   updater?.stop();
   updater = null;
+  trackerRefresher?.stop();
+  trackerRefresher = null;
+  trackerCardNode = null;
   if (visibilityListener) document.removeEventListener("visibilitychange", visibilityListener);
   visibilityListener = null;
   liveQuote?.destroy();

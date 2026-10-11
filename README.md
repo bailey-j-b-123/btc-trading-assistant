@@ -2258,6 +2258,20 @@ shows:
 * a user-triggered **historical vs forward** comparison with both sides labelled
   and both denominators, plus warnings and limitations.
 
+The dashboard home also carries a prominent, persistent **paper trade tracker**
+(the `paper_tracker` block of `GET /api/forward`). It lists the newest recorded
+paper plans with their exact levels, whether entry was reached (and when), the
+latest outcome version with its status and recorded timestamp, how many outcome
+versions exist, and the engine's own settled/unresolved verdicts
+(`paper_outcome_is_settled` / `paper_trade_occupies_slot`). The tracker mirrors
+the ledger only: a recorded plan stays listed when a later assessment concludes
+"No trade" (both facts are shown side by side), older outcome versions are never
+overwritten, and no live display price changes any recorded state. Between
+candle refreshes the card refreshes itself from the lightweight read-only
+`GET /api/forward/paper-tracker` poll (signature-compared, backoff on failure),
+so an outcome the runner records after a dashboard refresh — with no new candle
+— is picked up without re-running any analysis or touching the chart.
+
 The Step 12 endpoints are strictly read-only: they never fetch candles, never run
 a forward pass, never write to the ledger, and accept no strategy thresholds.
 Stale or broken data is visually obvious (tone-coded status banner) and no fake
