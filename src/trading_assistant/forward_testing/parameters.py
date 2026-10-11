@@ -135,7 +135,7 @@ class HeartbeatStatus(StrEnum):
 
     A heartbeat is a statement about the *process*, never about the market. The
     dashboard shows the newest heartbeat (including its server-computed age)
-    and derives the SYSTEM OK/WARNING verdict from freshness, completeness,
+    and derives the named health condition from freshness, completeness,
     pending catch-up, and heartbeat status plus the absence of a recorded
     error — heartbeat age is displayed, never decisive.
     """

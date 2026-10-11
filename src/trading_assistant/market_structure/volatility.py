@@ -19,6 +19,7 @@ from trading_assistant.market_data.timeframes import require_utc_datetime
 from trading_assistant.market_data.types import Candle
 from trading_assistant.market_structure.candles import (
     candles_closed_by,
+    closed_prefix_of_validated,
     require_positive_interval,
 )
 from trading_assistant.market_structure.numeric import (
@@ -106,13 +107,19 @@ def calculate_volatility(
     interval: timedelta,
     as_of: datetime,
     parameters: VolatilityParameters | None = None,
+    trusted: bool = False,
 ) -> VolatilityContext:
     """Calculate True Range and Wilder ATR from candles closed by ``as_of``."""
 
     resolved = parameters if parameters is not None else VolatilityParameters()
     resolved_interval = require_positive_interval(interval)
     as_of_utc = require_utc_datetime(as_of, field_name="as_of")
-    ordered = candles_closed_by(candles, interval=resolved_interval, as_of=as_of_utc)
+    # ``trusted`` means the caller passed a tuple it already validated (see
+    # closed_prefix_of_validated); the result is identical, only the repeated check is skipped.
+    if trusted:
+        ordered = closed_prefix_of_validated(candles, interval=resolved_interval, as_of=as_of_utc)
+    else:
+        ordered = candles_closed_by(candles, interval=resolved_interval, as_of=as_of_utc)
     required = resolved.period + 1
 
     if not ordered:

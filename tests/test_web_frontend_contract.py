@@ -52,9 +52,13 @@ def test_terminal_verdict_and_system_status_use_explicit_text():
     assert 'role: "status"' in js
     # The header health words live in exactly one module: the topbar is the
     # single source of truth for the global header on every route.
+    # Health is named by component and condition (P5). The generic all-clear and
+    # generic warning words are gone from every frontend module.
     topbar = read(STATIC_DIR / "js/topbar.js")
-    assert "SYSTEM OK" in topbar and "SYSTEM WARNING" in topbar
-    assert "SYSTEM OK" not in js and "SYSTEM WARNING" not in js
+    assert "DATA CURRENT" in topbar and "DASHBOARD UNAVAILABLE" in topbar
+    assert "Forward runner" in topbar and "Market data" in topbar
+    for source in (js, topbar):
+        assert "SYSTEM OK" not in source and "SYSTEM WARNING" not in source
 
 
 def test_no_inline_scripts_and_csp_allowlist_match():

@@ -5,9 +5,12 @@
  * candles, outcomes, or performance metrics.
  */
 
-import { api } from "../api.js";
+import { api, describeRequestFailure } from "../api.js";
 import { canShowForming } from "../forming-display.js";
+import { asOfLine, freshnessBadge } from "../freshness.js";
 import { createBinanceFormingStream } from "../binance-forming-display.js";
+import { mountLiveDisplay } from "../live-display.js";
+import { createDashboardUpdater, dataStatus, mergeCandleRows } from "../live-updates.js";
 import { lookingForCard, scenarioBand } from "../looking-for.js";
 import {
   buildDecisionRequest,
@@ -17,15 +20,41 @@ import {
   DECISION_MEANINGS,
 } from "../decision.js";
 import {
+  captureChartView,
+  restoreChartView,
+  setZoneBands,
   applyOverlays,
+  clearEvidence,
   clearOverlays,
   createPriceChart,
   destroyPriceChart,
   OVERLAY_COLORS,
   setCandles,
+  setCandlesPreservingView,
+  setHistoryListener,
+  setEvidence,
   setFormingCandle,
+  subscribeChartEvents,
   toChartCandles,
 } from "../chart.js";
+import {
+  buildEvidenceModel,
+  evidenceCountText,
+  evidenceItemRows,
+  isoMs,
+  itemsAtTime,
+} from "../evidence.js";
+import { explainEvidence, explainZoneBand } from "../explain.js";
+import {
+  CHART_PAGE_SIZE,
+  MAX_EMPTY_PAGE_CHAIN,
+  historyNote,
+  historyState,
+  isoFromMs,
+  mergeOlderRows,
+  shouldLoadOlder,
+} from "../chart_history.js";
+import { capBandsForDisplay, lastConfirmedClose, relocateBands } from "../zone-position.js";
 import { botWatchingCard, rawRuleRows } from "../bot-watching.js";
 import {
   directionArrow,
@@ -73,6 +102,7 @@ import {
   loadPrefs,
   openModal,
   savePrefs,
+  setLayerPref,
   spinner,
   toast,
 } from "../util.js";
@@ -377,7 +407,6 @@ export const CHART_TIMEFRAMES = [
   { id: "4h", label: "4H" },
 ];
 
-const CHART_CANDLE_LIMIT = 500;
 const ENGINE_CHART_NOTE = "Confirmed history is stored closed candles only. Any ghost forming candle is public Binance Spot data, display only; it is never confirmed here.";
 const BINANCE_EXCHANGE_ID = "binance";
 const BINANCE_FORMING_LABEL = "BINANCE SPOT KLINE";
@@ -431,35 +460,114 @@ function chartHeadingMeta(viewedTimeframe, engineTimeframe) {
   return `View only — ${viewed} stored candles with ${viewed} structure · engine hierarchy unchanged · plan levels from the ${engine} engine plan`;
 }
 
-function chartCard(dashboard, initialPrefs) {
+/** Layer toggles on the chart. `overlay` keeps the legacy overlay key pinned by existing tests. */
+const CHART_LAYER_TOGGLES = Object.freeze([
+  { id: "structure", label: "Structure", layer: "structure", color: "#8ea0bd", hint: "Confirmed swing labels (HH, HL, LH, LL) at their candle, shown from confirmation." },
+  { id: "patterns", label: "Patterns", layer: "patterns", color: "#e8a33d", hint: "Double top/bottom and head and shoulders only: formed, confirmed or invalidated." },
+  { id: "breakouts", label: "Breakouts & sweeps", layer: "breakouts", color: "#2fbf7f", hint: "Breakouts, failed breakouts, sweeps and retests that BRAIN detected." },
+  { id: "levels", label: "Support / resistance", layer: "levels", overlay: "zones", color: OVERLAY_COLORS.zones, hint: "Shaded support and resistance bands from stored zones, nearest first. Click a band label to inspect it." },
+  { id: "htfLevels", label: "Higher-TF levels", layer: "htfLevels", color: OVERLAY_COLORS.reference, hint: "Higher-timeframe zone bands, dashed and labelled with their timeframe. Never mixed with this chart's own levels." },
+  { id: "plan", label: "Trade planning", layer: "plan", overlay: "planLevels", color: OVERLAY_COLORS.entry, hint: "Entry, stop, invalidation and targets from the engine's paper plan. Never an order." },
+  { id: "candleSignals", label: "Candle shapes", layer: "candleSignals", color: "#a7b0c2", hint: "Descriptive candle shapes. Not trade signals and never part of qualification." },
+  { id: "equalLevels", label: "Liquidity", overlay: "equalLevels", color: OVERLAY_COLORS.equalLevels, hint: "Equal highs and lows. Only on the engine timeframe.", legacy: true },
+]);
+
+/** Next higher timeframe whose stored structure may be shown on this chart. */
+const HIGHER_TIMEFRAME = Object.freeze({ "5m": "15m", "15m": "1h", "1h": "4h" });
+const CHART_MARKER_KEY = "▲ breakout (green up, red down) · ▼ sweep · grey = failed breakout · ● retest · HH/HL/LH/LL swings · patterns: DT double top, DB double bottom, H&S head and shoulders, iH&S inverse H&S (labels give the lifecycle state) · a dot with no label = label hidden to avoid collisions · click any marker for detail";
+const CHART_EXPLAIN_HINT = "Click a candle to see what BRAIN recorded there, when it became known, and whether it influenced the current assessment.";
+
+function evidenceMetaText(evidence, timeframe) {
+  const label = viewedTimeframeLabel(timeframe);
+  if (!evidence || evidence.available !== true) {
+    const reason = evidence && typeof evidence.reason === "string" && evidence.reason.trim() ? ` (${evidence.reason.trim()})` : "";
+    return `Chart evidence unavailable for ${label}${reason}. No substitute markers are drawn.`;
+  }
+  const window = evidence.evidence_window && typeof evidence.evidence_window === "object" ? evidence.evidence_window : {};
+  const count = Number.isInteger(window.candle_count) ? window.candle_count : "UNKNOWN";
+  const limit = Number.isInteger(window.candle_limit) ? window.candle_limit : "UNKNOWN";
+  const excluded = Number.isInteger(evidence.excluded_future_count) ? evidence.excluded_future_count : "UNKNOWN";
+  return `Evidence window: last ${count} closed ${label} candles (limit ${limit}) · ${excluded} later item(s) excluded. Display only: the chart does not change qualification, plans or observations.`;
+}
+
+function explanationNode(explanation) {
+  const [what, ...rest] = explanation.sections;
+  return el("article", {
+    class: "evidence-item",
+    dataset: { tone: explanation.tone || "neutral", kind: explanation.kind || "evidence" },
+  }, [
+    el("div", { class: "evidence-item-head" }, [
+      el("strong", { class: "evidence-item-title", text: explanation.title }),
+      el("span", { class: "evidence-status", dataset: { tone: explanation.tone || "neutral" }, text: explanation.status }),
+    ]),
+    el("div", { class: "evidence-item-meta", text: [explanation.kindTitle, explanation.timeframe].filter(Boolean).join(" · ") }),
+    el("p", { class: "evidence-what", text: what ? what.body : "UNKNOWN" }),
+    el("details", { class: "evidence-details" }, [
+      el("summary", { text: "Why, timing and influence" }),
+      ...rest.map((section) => el("div", { class: "evidence-section" }, [
+        el("div", { class: "evidence-section-title", text: section.heading }),
+        el("div", { class: "evidence-section-body", text: section.body }),
+      ])),
+    ]),
+    explanation.note ? el("p", { class: "evidence-disclaimer", text: explanation.note }) : null,
+  ]);
+}
+
+function chartCard(initialDashboard) {
+  let dashboard = initialDashboard;
   const meta = dashboard?.meta || {};
   const symbol = meta.symbol || "UNKNOWN";
   const exchange = typeof meta.exchange === "string" ? meta.exchange.toLowerCase() : "";
   const engineTimeframe = typeof meta.timeframe === "string" && meta.timeframe ? meta.timeframe : "1h";
-  const decisionAsOf = typeof meta.as_of === "string" && meta.as_of ? meta.as_of : null;
-  const rows = Array.isArray(dashboard?.market?.candles) ? dashboard.market.candles : [];
-  const validCandles = toChartCandles(rows);
+  let decisionAsOf = typeof meta.as_of === "string" && meta.as_of ? meta.as_of : null;
+  let decisionAsOfMs = isoMs(decisionAsOf);
+  let rows = Array.isArray(dashboard?.market?.candles) ? dashboard.market.candles : [];
+  let validCandles = toChartCandles(rows);
   const host = el("div", {
     class: "chart-wrap terminal-chart-wrap",
     "aria-label": `${symbol} ${viewedTimeframeLabel(engineTimeframe)} candlestick chart`,
   });
-  const toolbar = el("div", { class: "chart-toolbar", role: "group", "aria-label": "Chart timeframe and overlays" });
+  const toolbar = el("div", { class: "chart-toolbar", role: "group", "aria-label": "Chart timeframe and layers" });
   const handleRef = { current: null };
   const formingStatus = el("div", { class: "forming-status", role: "status",
     "aria-label": "Forming candle display only", text: "FORMING — DISPLAY ONLY" });
   const confirmedStatus = el("div", { class: "chart-note", text: "Last confirmed stored close: unavailable" });
+  const ohlcLine = el("div", { class: "chart-ohlc", "aria-live": "off", text: "Move over a candle for its confirmed OHLC." });
+  const evidenceMeta = el("div", { class: "chart-evidence-meta", role: "note", text: "" });
+  // Text alternative to the chart markers: every drawn item, reachable without hovering or clicking the canvas.
+  const itemListBody = el("div", { class: "chart-items-body" });
+  const itemListSummary = el("summary", { text: "Evidence items on this chart" });
+  const itemList = el("details", { class: "chart-items" }, [itemListSummary, itemListBody]);
+  // Key for the textless arrow and circle markers. Labels (HH, LL, Double top…) stay on the chart.
+  const markerKey = el("div", { class: "chart-marker-key", "aria-label": "Marker key", text: CHART_MARKER_KEY });
+  const explainBody = el("div", { class: "evidence-explain-body", "aria-live": "polite" }, [
+    el("p", { class: "evidence-explain-hint", text: CHART_EXPLAIN_HINT }),
+  ]);
+  const explainPanel = el("section", { class: "evidence-explain", "aria-label": "Click-to-explain evidence" }, [
+    el("div", { class: "evidence-explain-title", text: "Click-to-explain" }),
+    explainBody,
+  ]);
   let formingStream = null;
+  let eventRelease = null;
   const viewed = {
     timeframe: engineTimeframe,
     generation: 0,
     cancelled: false,
     overlays: dashboard?.overlays && typeof dashboard.overlays === "object" ? dashboard.overlays : emptyOverlays(),
+    evidence: dashboard?.chart_evidence && typeof dashboard.chart_evidence === "object"
+      ? dashboard.chart_evidence
+      : { available: false, reason: "the dashboard payload did not include chart evidence" },
+    candleRows: rows,
+    model: null,
+    htfBands: [],
+    htfStatus: null,
   };
   let emptyNode = null;
 
   const headingTitle = el("div", { class: "chart-heading-title", text: `${symbol} · ${viewedTimeframeLabel(engineTimeframe)} chart` });
   const headingMeta = el("div", { class: "chart-heading-meta", text: chartHeadingMeta(engineTimeframe, engineTimeframe) });
   const viewNote = el("div", { class: "chart-note terminal-chart-note chart-view-note", text: ENGINE_CHART_NOTE });
+  const historyNoteEl = el("div", { class: "chart-note chart-history-note", "aria-live": "polite", text: "" });
 
   const showChartOverlay = (node) => {
     if (emptyNode) emptyNode.remove();
@@ -505,12 +613,111 @@ function chartCard(dashboard, initialPrefs) {
   }
   const applyViewedOverlays = () => {
     if (!handleRef.current) return;
+    const prefs = loadPrefs();
     applyOverlays(handleRef.current, {
       overlays: viewed.overlays || {},
       plan: planForOverlays(),
       scenarioBand: scenarioBand(dashboard?.looking_for, viewed.timeframe),
-      prefs: loadPrefs(),
+      prefs,
     });
+    // Support/resistance bands: the viewed timeframe's presented bands, plus higher-timeframe bands when that layer is on.
+    // Every band is positioned against the VIEWED chart's last confirmed close, not the close of the timeframe
+    // that produced it. The source close and source position stay on the band as evidence.
+    const viewedClose = lastConfirmedClose(viewed.candleRows);
+    // Calm default: at most the nearest band per side plus one containing price, per timeframe. The
+    // rest are still stored and listed in the nearby-zones card; they are simply not painted on candles.
+    const viewedBands = prefs.overlays?.zones === true && Array.isArray(viewed.overlays?.zone_bands?.bands)
+      ? capBandsForDisplay(relocateBands(viewed.overlays.zone_bands.bands, viewedClose)).shown
+      : [];
+    const higherBands = prefs.layers?.htfLevels === true
+      ? capBandsForDisplay(relocateBands(viewed.htfBands || [], viewedClose)).shown
+      : [];
+    setZoneBands(handleRef.current, [...viewedBands, ...higherBands], { onSelect: selectZoneBand });
+  };
+  /** Draw evidence for the viewed timeframe. Clears previous evidence first. */
+  const renderEvidence = () => {
+    const handle = handleRef.current;
+    if (!handle) return;
+    const layers = loadPrefs().layers;
+    viewed.model = buildEvidenceModel({
+      evidence: viewed.evidence,
+      candles: viewed.candleRows,
+      asOfMs: decisionAsOfMs,
+      layers,
+    });
+    setEvidence(handle, viewed.model);
+    const counts = viewed.model.hiddenFuture
+      ? ` · ${viewed.model.hiddenFuture} item(s) not yet known at this instant are hidden`
+      : "";
+    const htf = layers.htfLevels === true && viewed.htfStatus ? ` · ${viewed.htfStatus}` : "";
+    const zb = viewed.overlays?.zone_bands;
+    const zoneText = loadPrefs().overlays?.zones === true && zb && zb.reason !== "no_zones"
+      ? ` · S/R bands: ${zb.bands?.length ?? 0} shown, ${zb.hidden_count ?? 0} hidden, ${zb.merged_count ?? 0} merged`
+      : "";
+    evidenceMeta.textContent = `${evidenceMetaText(viewed.evidence, viewed.timeframe)} ${evidenceCountText(viewed.model)}${counts}${htf}${zoneText}`;
+    renderItemList(viewed.model);
+  };
+  /** One button per drawn evidence item; selecting it opens the same click-to-explain panel as a chart click. */
+  const renderItemList = (model) => {
+    clearNode(itemListBody);
+    const rows = evidenceItemRows(model);
+    itemListSummary.textContent = rows.length
+      ? `Evidence items on this chart (${rows.length}) — select one to explain it`
+      : "Evidence items on this chart (none in the loaded window)";
+    if (!rows.length) return;
+    const list = el("ul", { class: "chart-items-list", role: "list" });
+    for (const row of rows) {
+      list.append(el("li", {}, [
+        el("button", {
+          type: "button",
+          class: "chart-item-button",
+          onclick: () => showExplanationAt(row.timeSeconds),
+        }, [
+          el("span", { class: "chart-item-time mono", text: formatUtc(new Date(row.timeSeconds * 1000).toISOString()) }),
+          el("span", { class: "chart-item-name", text: row.name }),
+        ]),
+      ]));
+    }
+    itemListBody.append(list);
+  };
+  const showOhlc = (bar) => {
+    if (!bar) {
+      ohlcLine.textContent = "Move over a candle for its confirmed OHLC.";
+      return;
+    }
+    const when = formatUtc(new Date(bar.time * 1000).toISOString());
+    const volumeText = Number.isFinite(bar.volume) ? ` · V ${bar.volume}` : "";
+    ohlcLine.textContent = `${when} · O ${bar.open} · H ${bar.high} · L ${bar.low} · C ${bar.close}${volumeText} · confirmed stored candle`;
+  };
+  /** Click a band label: explain that zone (bounds, origin, touches, last test, position vs price). */
+  const selectZoneBand = (band) => {
+    clearNode(explainBody);
+    const explanation = explainZoneBand(band, { timeframe: band.source_timeframe, close: band.viewed_close ?? band.latest_close ?? null });
+    if (!explanation) {
+      explainBody.append(el("p", { class: "evidence-explain-hint", text: "This zone has no complete stored bounds, so it cannot be explained." }));
+      return;
+    }
+    explainBody.append(el("div", { class: "evidence-explain-when", text: band.htf ? `Higher-timeframe zone (${band.source_timeframe})` : `Zone on the ${viewed.timeframe} chart` }));
+    explainBody.append(explanationNode(explanation));
+  };
+  const showExplanationAt = (timeSeconds) => {
+    if (!Number.isFinite(timeSeconds)) return;
+    clearNode(explainBody);
+    const when = formatUtc(new Date(timeSeconds * 1000).toISOString());
+    if (!viewed.model) {
+      explainBody.append(el("p", { class: "evidence-explain-hint", text: `No chart evidence is loaded for this view (${when}).` }));
+      return;
+    }
+    const items = itemsAtTime(viewed.model, timeSeconds);
+    const explained = items
+      .map((item) => explainEvidence(item, { timeframe: viewed.timeframe, qualification: dashboard?.qualification || null }))
+      .filter(Boolean);
+    explainBody.append(el("div", { class: "evidence-explain-when", text: `Candle opened ${when}` }));
+    if (!explained.length) {
+      explainBody.append(el("p", { class: "evidence-explain-hint", text: "Nothing BRAIN recorded at this candle for the layers you have switched on." }));
+      return;
+    }
+    for (const explanation of explained) explainBody.append(explanationNode(explanation));
   };
   const ensureChart = () => {
     if (handleRef.current || viewed.cancelled) return handleRef.current;
@@ -521,6 +728,7 @@ function chartCard(dashboard, initialPrefs) {
         return null;
       }
       handleRef.current = handle;
+      eventRelease = subscribeChartEvents(handle, { onClick: showExplanationAt, onCrosshair: showOhlc });
       return handle;
     } catch {
       handleRef.current = null;
@@ -549,46 +757,192 @@ function chartCard(dashboard, initialPrefs) {
   toolbar.append(switcher);
   toolbar.append(el("span", { class: "chart-toolbar-sep", "aria-hidden": "true" }));
 
-  const overlayControls = [
-    ["zones", "S/R levels", OVERLAY_COLORS.zones],
-    ["range", "Range", OVERLAY_COLORS.range],
-    ["equalLevels", "Liquidity", OVERLAY_COLORS.equalLevels],
-    ["planLevels", "Plan", OVERLAY_COLORS.entry],
-    ["swings", "Swing points", OVERLAY_COLORS.swings],
-  ];
-  const overlayButtons = new Map();
-  for (const [key, label, color] of overlayControls) {
-    const button = el("button", {
-      class: "overlay-toggle",
+  // Layer toggles. Each button either flips a layer (persisted with its legacy
+  // overlay keys together) or a legacy overlay key directly (Liquidity).
+  const layerButtons = new Map();
+  for (const toggle of CHART_LAYER_TOGGLES) {
+    const attributes = {
+      class: "overlay-toggle layer-toggle",
       type: "button",
-      "data-overlay": key,
-      "aria-pressed": String(initialPrefs.overlays?.[key] === true),
-      "aria-label": `${label} chart overlay`,
-      style: { "--swatch": color },
-      onclick: () => {
-        const next = loadPrefs();
-        next.overlays[key] = next.overlays[key] === false;
-        savePrefs(next);
-        button.setAttribute("aria-pressed", String(next.overlays[key]));
-        // Toggles re-apply the overlays of the timeframe currently being
-        // viewed — never the engine overlays onto another timeframe.
-        applyViewedOverlays();
-      },
-    }, [el("span", { class: "swatch", "aria-hidden": "true" }), label]);
-    overlayButtons.set(key, button);
+      "aria-label": `${toggle.label} ${toggle.legacy ? "overlay" : "layer"}`,
+      title: toggle.hint,
+      onclick: () => { void toggleLayer(toggle); },
+    };
+    if (toggle.overlay) attributes["data-overlay"] = toggle.overlay;
+    if (toggle.layer) attributes["data-layer"] = toggle.layer;
+    const button = el("button", attributes, [el("span", { class: "swatch", "aria-hidden": "true" }), toggle.label]);
+    // Custom properties need setProperty (Object.assign on CSSStyleDeclaration ignores them).
+    if (typeof button.style?.setProperty === "function") button.style.setProperty("--swatch", toggle.color);
+    layerButtons.set(toggle.id, button);
     toolbar.append(button);
   }
+  const refreshLayerButtons = () => {
+    const prefs = loadPrefs();
+    for (const toggle of CHART_LAYER_TOGGLES) {
+      const button = layerButtons.get(toggle.id);
+      if (!button) continue;
+      const pressed = toggle.layer ? prefs.layers?.[toggle.layer] === true : prefs.overlays?.[toggle.overlay] === true;
+      button.setAttribute("aria-pressed", String(pressed));
+    }
+  };
   const updateLiquidityToggle = () => {
-    const button = overlayButtons.get("equalLevels");
+    const button = layerButtons.get("equalLevels");
     if (!button) return;
     const engineView = viewed.timeframe === engineTimeframe;
     button.disabled = !engineView;
-    if (engineView) button.removeAttribute("title");
+    if (engineView) button.title = CHART_LAYER_TOGGLES.find((entry) => entry.id === "equalLevels").hint;
     else button.title = `Equal-level overlays are only available on the engine timeframe (${viewedTimeframeLabel(engineTimeframe)})`;
   };
+  async function toggleLayer(toggle) {
+    const button = layerButtons.get(toggle.id);
+    if (button?.disabled) return;
+    const prefs = loadPrefs();
+    if (toggle.layer) {
+      setLayerPref(prefs, toggle.layer, prefs.layers?.[toggle.layer] !== true);
+    } else {
+      // Liquidity: its own persisted key, never driven by a layer.
+      prefs.overlays = { ...prefs.overlays, equalLevels: prefs.overlays?.equalLevels !== true };
+      savePrefs(prefs);
+    }
+    refreshLayerButtons();
+    if (toggle.layer === "htfLevels") {
+      await refreshHigherLevels();
+      return;
+    }
+    applyViewedOverlays();
+    renderEvidence();
+  }
 
-  async function showTimeframe(timeframe) {
-    if (timeframe === viewed.timeframe || viewed.cancelled) return;
+  /** Higher-timeframe zones: fetched only when the layer is on, cached per view, never mixed into the viewed timeframe's levels. */
+  async function refreshHigherLevels() {
+    const generation = viewed.generation;
+    const target = HIGHER_TIMEFRAME[viewed.timeframe];
+    if (loadPrefs().layers?.htfLevels !== true) {
+      viewed.htfBands = [];
+      viewed.htfStatus = null;
+      applyViewedOverlays();
+      renderEvidence();
+      return;
+    }
+    if (!target) {
+      viewed.htfBands = [];
+      viewed.htfStatus = `no higher timeframe is shown above ${viewedTimeframeLabel(viewed.timeframe)}`;
+      applyViewedOverlays();
+      renderEvidence();
+      return;
+    }
+    let payload = null;
+    let failure = null;
+    try {
+      payload = await api.structure({ symbol, timeframe: target, as_of: decisionAsOf || undefined });
+    } catch (error) {
+      failure = error;
+    }
+    if (viewed.cancelled || generation !== viewed.generation) return;
+    if (failure || payload?.timeframe !== target) {
+      viewed.htfBands = [];
+      viewed.htfStatus = `${viewedTimeframeLabel(target)} levels unavailable`;
+    } else {
+      const label = viewedTimeframeLabel(target);
+      // Backend presentation: merged, nearest-first, classified by position relative to price.
+      const bands = Array.isArray(payload.zone_bands?.bands) ? payload.zone_bands.bands : [];
+      viewed.htfBands = bands.map((band) => ({ ...band, htf: true }));
+      viewed.htfStatus = bands.length
+        ? `${label} zones: ${bands.length} band(s) shown`
+        : `${label} zones: none stored at this instant`;
+    }
+    applyViewedOverlays();
+    renderEvidence();
+  }
+
+  function updateHistoryNote() {
+    const label = viewedTimeframeLabel(viewed.timeframe);
+    historyNoteEl.textContent = viewed.history ? historyNote(label, viewed.history) : "";
+  }
+
+  /** Start paging for the loaded rows: the stored span and whether older candles exist. */
+  function attachHistory(handle, payload, timeframe, generation) {
+    const state = historyState({ payload, rows: viewed.candleRows });
+    viewed.history = { ...state, symbol, timeframe, decisionAsOf, generation };
+    setHistoryListener(handle, (range) => {
+      if (shouldLoadOlder(viewed.history, range)) void loadOlderCandles(0);
+    });
+    updateHistoryNote();
+  }
+
+  /**
+   * Engine view: rows come from the dashboard snapshot. A read-only page at the same decision
+   * instant supplies the stored span and any older candles, so the chart and its paging agree.
+   */
+  async function attachEngineHistory(handle, timeframe, generation) {
+    let payload = null;
+    let error = null;
+    try {
+      payload = await api.candles({ symbol, timeframe, limit: CHART_PAGE_SIZE, end_time: decisionAsOf || undefined });
+    } catch (caught) {
+      error = caught;
+    }
+    if (viewed.cancelled || generation !== viewed.generation || timeframe !== viewed.timeframe) return;
+    if (error || !payload || payload.timeframe !== timeframe || !Array.isArray(payload.candles)) {
+      viewed.history = {
+        earliestMs: null, latestMs: null, cursorMs: null, hasOlder: false, earliestReached: false,
+        loading: false, error: error ? error.message : "the backend returned no stored span",
+        symbol, timeframe, decisionAsOf, generation,
+      };
+      updateHistoryNote();
+      return;
+    }
+    const merged = mergeOlderRows(viewed.candleRows, payload.candles);
+    viewed.candleRows = merged.rows;
+    if (merged.added > 0) setCandlesPreservingView(handle, merged.rows, merged.added);
+    attachHistory(handle, payload, timeframe, generation);
+  }
+
+  /** Load the page strictly older than the oldest checked instant, then merge it without moving the view. */
+  async function loadOlderCandles(chain) {
+    const state = viewed.history;
+    if (!state || state.loading || !state.hasOlder || viewed.cancelled) return;
+    const handle = handleRef.current;
+    if (!handle || handle.destroyed) return;
+    const { generation, timeframe } = state;
+    if (generation !== viewed.generation || timeframe !== viewed.timeframe) return;
+    state.loading = true;
+    state.error = null;
+    updateHistoryNote();
+    let payload = null;
+    let error = null;
+    try {
+      payload = await api.candles({
+        symbol,
+        timeframe,
+        limit: CHART_PAGE_SIZE,
+        end_time: decisionAsOf || undefined,
+        before: isoFromMs(state.cursorMs),
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    if (viewed.cancelled || viewed.history !== state || generation !== viewed.generation) return;
+    if (error || !payload || payload.timeframe !== timeframe || !Array.isArray(payload.candles)) {
+      state.loading = false;
+      state.error = error ? error.message : "the backend returned no older candles page";
+      updateHistoryNote();
+      return;
+    }
+    const merged = mergeOlderRows(viewed.candleRows, payload.candles);
+    viewed.candleRows = merged.rows;
+    setCandlesPreservingView(handle, merged.rows, merged.added);
+    viewed.history = { ...historyState({ payload, rows: merged.rows }), symbol, timeframe, decisionAsOf, generation };
+    updateHistoryNote();
+    // An empty page (a window of stored holes) adds nothing visible. Keep going while the edge is still in view.
+    if (merged.added === 0 && chain < MAX_EMPTY_PAGE_CHAIN) {
+      const range = handle.chart?.timeScale?.().getVisibleLogicalRange?.();
+      if (shouldLoadOlder(viewed.history, range)) void loadOlderCandles(chain + 1);
+    }
+  }
+
+  async function showTimeframe(timeframe, { force = false, keepView = null } = {}) {
+    if ((!force && timeframe === viewed.timeframe) || viewed.cancelled) return;
     const generation = ++viewed.generation;
     const label = viewedTimeframeLabel(timeframe);
     viewed.timeframe = timeframe;
@@ -599,9 +953,22 @@ function chartCard(dashboard, initialPrefs) {
     updateLiquidityToggle();
     removeChartOverlay();
     stopForming(); // remove the old temporary candle immediately, before any read
-    // No stale overlays: the previous timeframe's levels leave the chart
-    // before any new data is requested.
-    if (handleRef.current) clearOverlays(handleRef.current);
+    // No stale evidence or levels: the previous timeframe's markers, pattern
+    // lines, price lines, and explanation leave the chart before any read.
+    if (handleRef.current) {
+      clearOverlays(handleRef.current);
+      clearEvidence(handleRef.current);
+    }
+    viewed.model = null;
+    viewed.history = null;
+    historyNoteEl.textContent = "";
+    viewed.htfBands = [];
+    viewed.htfStatus = null;
+    clearNode(explainBody).append(el("p", { class: "evidence-explain-hint", text: CHART_EXPLAIN_HINT }));
+    evidenceMeta.textContent = "";
+    clearNode(itemListBody);
+    itemListSummary.textContent = "Evidence items on this chart";
+    showOhlc(null);
     viewNote.textContent = `Loading stored ${label} closed candles…`;
 
     // The engine view restores the exact dashboard snapshot (no refetch, no
@@ -611,6 +978,10 @@ function chartCard(dashboard, initialPrefs) {
       viewed.overlays = dashboard?.overlays && typeof dashboard.overlays === "object"
         ? dashboard.overlays
         : emptyOverlays();
+      viewed.evidence = dashboard?.chart_evidence && typeof dashboard.chart_evidence === "object"
+        ? dashboard.chart_evidence
+        : { available: false, reason: "the dashboard payload did not include chart evidence" };
+      viewed.candleRows = rows;
       const engineValid = toChartCandles(rows);
       if (!engineValid.length) {
         if (handleRef.current) setCandles(handleRef.current, []);
@@ -627,12 +998,15 @@ function chartCard(dashboard, initialPrefs) {
       if (!handle || generation !== viewed.generation || viewed.cancelled) return;
       setCandles(handle, rows);
       startForming(timeframe, rows);
+      renderEvidence();
       applyViewedOverlays();
       viewNote.textContent = ENGINE_CHART_NOTE;
+      void attachEngineHistory(handle, timeframe, generation);
+      if (loadPrefs().layers?.htfLevels === true) await refreshHigherLevels();
       return;
     }
 
-    // Any other timeframe: two read-only GETs at the dashboard's own decision
+    // Any other timeframe: read-only GETs at the dashboard's own decision
     // instant, so the viewed chart can never run ahead of the verdict.
     let candlesPayload = null;
     let candlesError = null;
@@ -640,7 +1014,7 @@ function chartCard(dashboard, initialPrefs) {
       candlesPayload = await api.candles({
         symbol,
         timeframe,
-        limit: CHART_CANDLE_LIMIT,
+        limit: CHART_PAGE_SIZE,
         end_time: decisionAsOf || undefined,
       });
     } catch (error) {
@@ -650,6 +1024,7 @@ function chartCard(dashboard, initialPrefs) {
     const timeframeEcho = candlesPayload?.timeframe;
     if (candlesError || timeframeEcho !== timeframe) {
       viewed.overlays = emptyOverlays();
+      viewed.evidence = { available: false, reason: "no candles for this timeframe" };
       if (handleRef.current) setCandles(handleRef.current, []);
       const detail = candlesError
         ? `${candlesError.message} No substitute data is shown.`
@@ -661,6 +1036,7 @@ function chartCard(dashboard, initialPrefs) {
     const fetchedRows = Array.isArray(candlesPayload.candles) ? candlesPayload.candles : [];
     if (!toChartCandles(fetchedRows).length) {
       viewed.overlays = emptyOverlays();
+      viewed.evidence = { available: false, reason: "no stored closed candles at this decision time" };
       if (handleRef.current) setCandles(handleRef.current, []);
       const returned = Number.isInteger(candlesPayload.returned_count) ? candlesPayload.returned_count : fetchedRows.length;
       showChartOverlay(chartEmpty(
@@ -672,8 +1048,27 @@ function chartCard(dashboard, initialPrefs) {
     }
     const handle = ensureChart();
     if (!handle || generation !== viewed.generation || viewed.cancelled) return;
+    viewed.candleRows = fetchedRows;
     setCandles(handle, fetchedRows);
+    restoreChartView(handle, keepView);
     startForming(timeframe, fetchedRows);
+    attachHistory(handle, candlesPayload, timeframe, generation);
+
+    // Evidence for this timeframe, computed by the backend at the same instant.
+    let evidencePayload = null;
+    let evidenceError = null;
+    try {
+      evidencePayload = await api.annotations({ symbol, timeframe, as_of: decisionAsOf || undefined });
+    } catch (error) {
+      evidenceError = error;
+    }
+    if (generation !== viewed.generation || viewed.cancelled) return;
+    viewed.evidence = evidenceError
+      ? { available: false, reason: `${evidenceError.message}` }
+      : evidencePayload && typeof evidencePayload === "object"
+        ? evidencePayload
+        : { available: false, reason: "the backend returned no evidence" };
+    renderEvidence();
 
     let structurePayload = null;
     let structureError = null;
@@ -686,6 +1081,7 @@ function chartCard(dashboard, initialPrefs) {
     if (structureError || structurePayload?.timeframe !== timeframe) {
       viewed.overlays = emptyOverlays();
       applyViewedOverlays();
+      renderEvidence();
       viewNote.textContent = structureError
         ? `${label} candles shown · ${label} structure unavailable (${structureError.message}) — levels hidden, candles only.`
         : `${label} candles shown · the backend returned ${structurePayload?.timeframe || "unlabelled"} structure for a ${label} request — levels hidden, candles only.`;
@@ -696,6 +1092,52 @@ function chartCard(dashboard, initialPrefs) {
     const zoneCount = Array.isArray(viewed.overlays.zones) ? viewed.overlays.zones.length : 0;
     const returned = Number.isInteger(candlesPayload.returned_count) ? candlesPayload.returned_count : fetchedRows.length;
     viewNote.textContent = `${label} stored closed candles (${returned}) · ${label} structure (${zoneCount} zone(s)${viewed.overlays.range ? " · range shown" : ""}) · plan levels from the engine plan · liquidity overlays unavailable on this view.`;
+    if (loadPrefs().layers?.htfLevels === true) await refreshHigherLevels();
+  }
+
+  /**
+   * Apply a newer dashboard snapshot to this chart without recreating it. The zoom and place, the
+   * viewed timeframe, the overlays the user switched on, and older pages already loaded are kept.
+   * Unfinished (forming) candles are restarted from the new confirmed close; they are never merged
+   * into the stored rows.
+   */
+  function update(next) {
+    dashboard = next;
+    const nextMeta = next?.meta || {};
+    decisionAsOf = typeof nextMeta.as_of === "string" && nextMeta.as_of ? nextMeta.as_of : null;
+    decisionAsOfMs = isoMs(decisionAsOf);
+    rows = Array.isArray(next?.market?.candles) ? next.market.candles : [];
+    validCandles = toChartCandles(rows);
+    const handle = handleRef.current;
+    const keep = captureChartView(handle);
+    if (viewed.timeframe !== engineTimeframe) {
+      // Another timeframe is read again at the newer decision instant; its own view is kept.
+      void showTimeframe(viewed.timeframe, { force: true, keepView: keep });
+      return;
+    }
+    viewed.overlays = next?.overlays && typeof next.overlays === "object" ? next.overlays : emptyOverlays();
+    viewed.evidence = next?.chart_evidence && typeof next.chart_evidence === "object"
+      ? next.chart_evidence
+      : { available: false, reason: "the dashboard payload did not include chart evidence" };
+    // Keep older pages the user scrolled back to; the newer snapshot wins on any shared open time.
+    viewed.candleRows = mergeCandleRows(viewed.candleRows, rows).rows;
+    if (handle && !handle.destroyed && toChartCandles(viewed.candleRows).length) {
+      setCandles(handle, viewed.candleRows);
+      restoreChartView(handle, keep);
+      startForming(engineTimeframe, viewed.candleRows);
+      void attachEngineHistory(handle, engineTimeframe, viewed.generation);
+    }
+    renderEvidence();
+    applyViewedOverlays();
+  }
+
+  /** True when this chart can be updated in place (same symbol, exchange and engine timeframe, live handle). */
+  function canUpdate(next) {
+    const nextMeta = next?.meta || {};
+    const nextExchange = typeof nextMeta.exchange === "string" ? nextMeta.exchange.toLowerCase() : "";
+    return Boolean(handleRef.current) && !viewed.cancelled &&
+      nextMeta.symbol === symbol && nextExchange === exchange &&
+      (nextMeta.timeframe || "1h") === engineTimeframe;
   }
 
   const card = el("section", {
@@ -708,11 +1150,18 @@ function chartCard(dashboard, initialPrefs) {
     ]),
     formingStatus,
     confirmedStatus,
-    lookingForCard(dashboard),
+    ohlcLine,
     host,
+    evidenceMeta,
+    itemList,
+    markerKey,
+    explainPanel,
     viewNote,
+    historyNoteEl,
   ]);
 
+  refreshLayerButtons();
+  updateLiquidityToggle();
   if (!validCandles.length) {
     showChartOverlay(chartEmpty(
       "Candle data unavailable",
@@ -724,35 +1173,34 @@ function chartCard(dashboard, initialPrefs) {
 
   return {
     node: card,
+    update,
+    canUpdate,
     mount() {
-      if (!validCandles.length) return;
+      if (!validCandles.length) {
+        renderEvidence();
+        return;
+      }
       const handle = ensureChart();
       if (!handle) return;
       setCandles(handle, rows);
       startForming(engineTimeframe, rows);
+      void attachEngineHistory(handle, engineTimeframe, viewed.generation);
       applyViewedOverlays();
+      renderEvidence();
+      if (loadPrefs().layers?.htfLevels === true) void refreshHigherLevels();
     },
     destroy() {
       stopForming();
       viewed.cancelled = true;
       viewed.generation += 1;
+      eventRelease?.();
+      eventRelease = null;
       destroyPriceChart(handleRef.current);
       handleRef.current = null;
     },
   };
 }
 
-function candidateCounts(model) {
-  const countNode = (value, label) => el("div", { class: "candidate-count" }, [
-    el("div", { class: "value", text: value === null ? "—" : String(value) }),
-    el("div", { class: "label", text: label }),
-  ]);
-  return el("div", { class: "candidate-counts", "aria-label": "Candidate counts" }, [
-    countNode(model.watchCount, "On watch"),
-    countNode(model.qualifiedCount, "Qualified"),
-    countNode(model.plannedCount, "Plannable"),
-  ]);
-}
 
 function decisionCard(dashboard) {
   const availability = decisionAvailability(dashboard);
@@ -861,56 +1309,6 @@ function openDecisionConfirmation(dashboard, decision) {
   };
 }
 
-function verdictCard(dashboard, forward) {
-  const model = verdictViewModel(dashboard, forward);
-  const direction = model.direction
-    ? `${directionArrow(model.direction)} ${directionLabel(model.direction)}`
-    : "Direction UNKNOWN";
-  const family = model.family ? familyLabel(model.family) : "Setup UNKNOWN";
-  const qualification = dashboard?.qualification || {};
-  const technical = [
-    `backend state: ${qualification.state || "UNKNOWN"} (snapshot status: ${qualification.status || "UNKNOWN"})`,
-    `selected setup: ${qualification.selected_setup_id || "none"}`,
-    ...backendReasons(qualification.reasons).map((reason) => `snapshot reason: ${reason}`),
-    ...rawRuleRows(model.candidate),
-  ];
-  if (qualification.rules_version) technical.push(`rules version: ${qualification.rules_version}`);
-  if (qualification.config_fingerprint) technical.push(`config fingerprint: ${qualification.config_fingerprint}`);
-  return el("section", {
-    class: "card terminal-card verdict-card",
-    "aria-label": "Current verdict",
-  }, [
-    el("div", { class: "verdict-kicker", text: "Current verdict" }),
-    el("div", {
-      class: model.plannable ? "verdict-state verdict-state-plan" : "verdict-state",
-      dataset: { tone: model.tone },
-      role: "status",
-      text: model.state,
-    }),
-    model.planStatus
-      ? el("div", { class: "verdict-plan-status", dataset: { tone: model.tone }, text: model.planStatus })
-      : null,
-    model.hierarchyGate
-      ? el("div", {
-          class: "hierarchy-gate",
-          dataset: { tone: model.hierarchyReady ? "ready" : "waiting" },
-          role: "status",
-          "aria-label": "Multi-timeframe hierarchy gate",
-        }, [
-          el("span", { class: "hierarchy-gate-label", text: "Hierarchy gate" }),
-          el("strong", { class: "hierarchy-gate-state", text: model.hierarchyGate }),
-        ])
-      : null,
-    el("div", { class: "verdict-identity" }, [
-      el("span", { class: "verdict-direction", text: direction }),
-      el("span", { class: "tag verdict-family", text: family }),
-    ]),
-    el("p", { class: "verdict-summary", text: model.explanation }),
-    decisionCard(dashboard),
-    candidateCounts(model),
-    technicalDetails("Technical details", technical),
-  ]);
-}
 
 function planLevel(label, value, tone = null, { numeric = true, decimals = 2 } = {}) {
   const content = numeric ? roundedSpan(value, decimals) : el("span", { text: displayOrUnknown(value) });
@@ -1230,6 +1628,130 @@ function explanationCard(dashboard) {
   ]);
 }
 
+// ---------------------------------------------------------------------------
+// Decision centre: three lanes that are never merged.
+//   1. Observation  — what BRAIN's qualification currently says (backend).
+//   2. Proposed paper plan — the deterministic plan, only when the backend built one.
+//   3. Actual orders — none. The backend reports execution disabled.
+// ---------------------------------------------------------------------------
+
+/** Real status for the decision, from backend fields only. Exported for tests. */
+export function decisionCentreStatus(dashboard) {
+  const freshness = dashboard?.freshness;
+  const qualification = dashboard?.qualification || {};
+  const candles = Array.isArray(dashboard?.market?.candles) ? dashboard.market.candles : [];
+  if (candles.length === 0) return { key: "waiting", label: "WAITING FOR DATA", tone: "neutral" };
+  if (qualification.available !== true) return { key: "unavailable", label: "UNAVAILABLE", tone: "neutral" };
+  if (freshness && freshness.status === "STALE") return { key: "stale", label: "STALE — DECISION MAY BE OUT OF DATE", tone: "amber" };
+  if (freshness && freshness.status === "HISTORICAL") return { key: "historical", label: "HISTORICAL INSTANT", tone: "blue" };
+  if (qualification.state === "QUALIFIED") {
+    return hasValidTradePlan(dashboard)
+      ? { key: "qualified-plan", label: "QUALIFIED · PLAN CALCULATED", tone: "green" }
+      : { key: "qualified", label: "QUALIFIED · NO PLAN", tone: "amber" };
+  }
+  if (qualification.state === "WATCH") return { key: "watching", label: "WATCHING · WAITING FOR CONFIRMATION", tone: "amber" };
+  if (qualification.state === "NO_SETUP") return { key: "no-setup", label: "NO QUALIFIED SETUP", tone: "neutral" };
+  return { key: "unavailable", label: "UNAVAILABLE", tone: "neutral" };
+}
+
+
+/** Paper observations: active and completed plans, outcome status, ambiguous and unscored counts, with limitations. */
+export function paperObservationsViewModel(forward) {
+  const model = performanceViewModel(forward);
+  const metrics = model.combinedAvailable ? forward?.report?.metrics || null : null;
+  const plans = Array.isArray(forward?.observations?.paper_plans) ? forward.observations.paper_plans : [];
+  return {
+    available: Boolean(forward),
+    paperPlans: model.paperPlans,
+    active: model.unresolvedOutcomes,
+    completed: model.resolvedOutcomes,
+    ambiguous: integerOrNull(metrics?.ambiguous_count),
+    unscored: integerOrNull(metrics?.incomplete_data_count),
+    withOutcome: integerOrNull(metrics?.paper_plans_with_outcome),
+    averageObservedR: model.averageObservedR,
+    eligibleRSample: model.eligibleRSample,
+    consideredRSample: model.consideredRSample,
+    versionSeparated: model.versionSeparated,
+    limitations: Array.isArray(forward?.limitations) ? forward.limitations.filter((item) => typeof item === "string") : [],
+    disclaimer: model.disclaimer,
+    plans: plans.slice(0, 8).map((plan) => {
+      const outcome = plan.latest_outcome && typeof plan.latest_outcome === "object" ? plan.latest_outcome : null;
+      const statusValue = outcome?.observation?.status ?? outcome?.status ?? null;
+      return {
+        id: plan.paper_plan_id || null,
+        planTime: plan.plan_as_of || null,
+        direction: plan.direction || null,
+        entry: plan.entry ?? null,
+        stop: plan.stop ?? null,
+        targets: Array.isArray(plan.targets) ? plan.targets : [],
+        status: statusValue,
+        outcomeVersions: integerOrNull(plan.outcome_version_count),
+      };
+    }),
+  };
+}
+
+function paperObservationsCard(forward) {
+  const model = paperObservationsViewModel(forward);
+  const count = (value) => (value === null ? "UNKNOWN" : String(value));
+  const summary = el("div", { class: "paper-summary" }, [
+    performanceMetric("Paper plans", count(model.paperPlans)),
+    performanceMetric("Active (unresolved)", count(model.active)),
+    performanceMetric("Completed", count(model.completed)),
+    performanceMetric("Ambiguous", count(model.ambiguous), "Outcome could not be ordered from candles"),
+    performanceMetric("Unscored · incomplete data", count(model.unscored), "Not scored; excluded from R"),
+    performanceMetric("Sample for R", model.eligibleRSample === null || model.consideredRSample === null
+      ? "UNKNOWN"
+      : `${model.eligibleRSample} / ${model.consideredRSample}`, "eligible / considered"),
+  ]);
+  const rows = model.plans.map((plan) => el("tr", {}, [
+    el("td", { class: "mono", text: formatUtc(plan.planTime) }),
+    el("td", { text: directionLabel(plan.direction) }),
+    el("td", { class: "mono", text: displayOrUnknown(plan.entry) }),
+    el("td", { class: "mono", text: displayOrUnknown(plan.stop) }),
+    el("td", { class: "mono", text: plan.targets.length ? plan.targets.map((t) => displayOrUnknown(t)).join(" / ") : "UNKNOWN" }),
+    el("td", { class: "state-cell", text: plan.status ? outcomeStatusText(plan.status) : "No outcome recorded yet" }),
+  ]));
+  let body;
+  if (!model.available) {
+    body = emptyState("Paper observation data unavailable", "Forward report did not load, so every figure stays UNKNOWN.");
+  } else if (!model.plans.length) {
+    body = emptyState("No paper plans recorded yet", "No paper plan has been recorded for this symbol and timeframe.");
+  } else {
+    body = el("div", { class: "recent-table-wrap" }, [
+      el("table", { class: "recent-table paper-table" }, [
+        el("thead", {}, [el("tr", {}, [
+          el("th", { scope: "col", text: "Plan time" }),
+          el("th", { scope: "col", text: "Direction" }),
+          el("th", { scope: "col", text: "Entry" }),
+          el("th", { scope: "col", text: "Stop" }),
+          el("th", { scope: "col", text: "Targets" }),
+          el("th", { scope: "col", text: "Outcome" }),
+        ])]),
+        el("tbody", {}, rows),
+      ]),
+    ]);
+  }
+  return el("section", { class: "card terminal-card paper-observations", "aria-label": "Paper observations" }, [
+    el("div", { class: "section-title-row" }, [
+      el("h2", { class: "card-title", text: "Paper observations" }),
+      el("span", { class: "card-hint", text: forward?.paper_label || "PAPER OBSERVATION — NO REAL ORDER" }),
+    ]),
+    summary,
+    body,
+    model.averageObservedR === null
+      ? null
+      : el("p", { class: "performance-caveat", text: `Mean observed R ${displayRounded(model.averageObservedR, 2).display} · descriptive OHLC observation, not expectancy or realised P&L.` }),
+    model.limitations.length
+      ? el("details", { class: "paper-limitations" }, [
+          el("summary", { text: `Limitations (${model.limitations.length})` }),
+          el("ul", {}, model.limitations.map((item) => el("li", { text: item }))),
+        ])
+      : null,
+    el("p", { class: "performance-caveat", text: model.disclaimer }),
+  ]);
+}
+
 function recentDecisionsCard(forward) {
   const observations = Array.isArray(forward?.observations?.observations)
     ? forward.observations.observations.slice(0, 6)
@@ -1486,14 +2008,6 @@ function systemDetailsCard(dashboard, forward) {
   ]);
 }
 
-export function disposeDashboard() {
-  renderGeneration += 1;
-  if (activeChart) activeChart.destroy();
-  activeChart = null;
-  // The header is owned by the topbar module now: the dashboard view resets
-  // and repopulates it during its own render, and every other route goes
-  // through refreshTopbar. Disposal must not blank what it cannot refill.
-}
 
 // ---------------------------------------------------------------------------
 // Step 13: multi-timeframe ladder (4H context → 1H setup → 15M confirmation →
@@ -1686,13 +2200,296 @@ function multiTimeframeCard(dashboard) {
   ]);
 }
 
-export async function renderDashboard(view) {
+// ---------------------------------------------------------------------------
+// Dashboard layout (PR #38, P3). One BRAIN decision with its reasons, one chart with
+// the multi-timeframe and nearby-zone context beside it, what BRAIN is waiting for,
+// the paper ledger, and collapsed diagnostics. Every value comes from the backend
+// payload; this layer only arranges and labels it. Nothing here changes a decision.
+// ---------------------------------------------------------------------------
+
+function heroFact(label, value) {
+  return el("div", { class: "hero-fact" }, [
+    el("dt", { text: label }),
+    el("dd", { text: String(value) }),
+  ]);
+}
+
+/** The single BRAIN decision: state, reason, what it waits for, and the trust boundary. */
+function decisionHero(dashboard, forward) {
+  const model = verdictViewModel(dashboard, forward);
+  const status = decisionCentreStatus(dashboard);
+  const direction = model.direction ? `${directionArrow(model.direction)} ${directionLabel(model.direction)}` : null;
+  const family = model.family ? familyLabel(model.family) : null;
+  const freshness = dashboard?.freshness || {};
+  const asOf = dashboard?.meta?.as_of ? formatUtc(dashboard.meta.as_of) : "UNKNOWN";
+  const latest = freshness.latest_stored ? formatUtc(freshness.latest_stored) : "UNKNOWN";
+  const symbol = dashboard?.meta?.symbol || "BTC/USDT";
+  const engine = dashboard?.meta?.timeframe ? String(dashboard.meta.timeframe).toUpperCase() : "";
+  return el("section", { class: "card hero-card verdict-card", "aria-label": "BRAIN decision" }, [
+    el("div", { class: "hero-main" }, [
+      el("div", { class: "hero-kicker", text: `BRAIN decision · ${symbol}${engine ? ` · ${engine} engine` : ""}` }),
+      el("h2", {
+        class: "hero-state",
+        dataset: { tone: model.tone },
+        role: "status",
+        text: model.state,
+      }),
+      el("div", { class: "hero-identity" }, [
+        direction ? el("span", { class: "hero-direction", text: direction }) : null,
+        family ? el("span", { class: "tag", text: family }) : null,
+        !direction && !family ? el("span", { class: "hero-muted", text: "No directional candidate" }) : null,
+      ]),
+      el("p", { class: "hero-reason", text: model.explanation }),
+      model.planStatus
+        ? el("p", { class: "hero-plan-status", dataset: { tone: model.tone }, text: model.planStatus })
+        : null,
+      model.hierarchyGate
+        ? el("div", {
+            class: "hierarchy-gate",
+            dataset: { tone: model.hierarchyReady ? "ready" : "waiting" },
+            role: "status",
+            "aria-label": "Multi-timeframe hierarchy gate",
+          }, [
+            el("span", { class: "hierarchy-gate-label", text: "Hierarchy gate" }),
+            el("strong", { class: "hierarchy-gate-state", text: model.hierarchyGate }),
+          ])
+        : null,
+    ]),
+    el("div", { class: "hero-side" }, [
+      el("span", { class: "hero-status", dataset: { tone: status.tone }, text: status.label }),
+      el("dl", { class: "hero-facts" }, [
+        heroFact("Paper plan", model.plannable ? "Calculated by the backend — see Trade plan" : "None — the backend did not build one"),
+        heroFact("Real orders", "0 — none by design; execution is disabled"),
+      ]),
+      el("p", { class: "hero-data", text: `As of ${asOf} · latest stored candle ${latest}` }),
+    ]),
+    el("div", { class: "hero-journal" }, [decisionCard(dashboard)]),
+  ]);
+}
+
+function zoneRow(band) {
+  const above = band.position === "above_price";
+  const below = band.position === "below_price";
+  const role = above ? "Resistance" : below ? "Support" : "Price inside";
+  const tone = above ? "red" : below ? "green" : "amber";
+  const tf = band.source_timeframe ? String(band.source_timeframe).toUpperCase() : "";
+  const touches = Number.isFinite(band.touch_count) ? `${band.touch_count} touch${band.touch_count === 1 ? "" : "es"}` : "touches unknown";
+  const meta = [tf && `${tf} zone`, touches, band.faded ? "older, faded" : null].filter(Boolean).join(" · ");
+  return el("li", { class: "zone-row", dataset: { tone } }, [
+    el("div", { class: "zone-row-head" }, [
+      el("strong", { class: "zone-role", text: role }),
+      el("span", { class: "mono zone-bounds", text: `${displayRounded(band.band_low, 2).display} – ${displayRounded(band.band_high, 2).display}` }),
+    ]),
+    el("div", { class: "zone-meta", text: meta }),
+    band.position_changed
+      ? el("div", {
+          class: "zone-note",
+          text: `${tf || "Source"} close placed it on the other side; shown against this chart's close.`,
+        })
+      : null,
+  ]);
+}
+
+/** Nearby support and resistance for the engine timeframe, positioned against the latest confirmed close. */
+function nearbyZonesCard(dashboard) {
+  const zb = dashboard?.overlays?.zone_bands;
+  const close = lastConfirmedClose(dashboard?.market?.candles);
+  const bands = relocateBands(Array.isArray(zb?.bands) ? zb.bands : [], close);
+  const tf = String(zb?.timeframe || dashboard?.meta?.timeframe || "").toUpperCase();
+  const hidden = Number.isFinite(zb?.hidden_count) ? zb.hidden_count : 0;
+  const merged = Number.isFinite(zb?.merged_count) ? zb.merged_count : 0;
+  return el("section", { class: "card context-card", "aria-label": "Nearby support and resistance" }, [
+    el("div", { class: "card-kicker", text: `Nearby zones${tf ? ` · ${tf}` : ""}` }),
+    bands.length === 0
+      ? el("p", {
+          class: "muted",
+          text: zb?.reason === "no_zones" ? "No support or resistance zones are stored at this instant." : "No zone bands to show.",
+        })
+      : el("ul", { class: "zone-list" }, bands.map(zoneRow)),
+    el("p", {
+      class: "hint",
+      text: `${hidden} further zone(s) hidden · ${merged} merged for display. Zones are context; they do not change decisions.`,
+    }),
+  ]);
+}
+
+/** What BRAIN is waiting for: the watched area, what it needs, what blocks it, and when the idea is void. */
+function waitingCard(dashboard, forward) {
+  const model = verdictViewModel(dashboard, forward);
+  const blockers = model.candidate ? blockingRuleSentences(model.candidate).slice(0, 4) : [];
+  const counts = [
+    model.watchCount !== null ? `${model.watchCount} watching` : null,
+    model.qualifiedCount !== null ? `${model.qualifiedCount} qualified` : null,
+  ].filter(Boolean).join(" · ");
+  return el("section", { class: "card waiting-card", "aria-label": "What BRAIN is waiting for" }, [
+    lookingForCard(dashboard),
+    blockers.length
+      ? el("div", { class: "waiting-blockers" }, [
+          el("div", { class: "waiting-subhead", text: "Blocked by" }),
+          el("ul", {}, blockers.map((text) => el("li", { text }))),
+        ])
+      : el("p", { class: "muted", text: model.candidate ? "No blocking rule is reported." : "No candidate setup is being tracked." }),
+    el("p", { class: "hint", text: counts ? `Setups: ${counts}. Full list in Diagnostics.` : "Full setup list in Diagnostics." }),
+  ]);
+}
+
+/**
+ * Empty ledger: one plain statement instead of three panels of zeros. Only shown when the forward
+ * report confirms zero paper plans; the engine builds a plan only from a qualified setup.
+ */
+function paperEmptyCard(forward) {
+  return el("section", { class: "card terminal-card paper-empty", "aria-label": "No paper plans" }, [
+    el("h2", { class: "card-title", text: "No paper plans recorded yet" }),
+    el("p", {
+      class: "paper-empty-text",
+      text: "BRAIN records a paper plan only when its engine builds one from a qualified setup. None has been recorded for this symbol and timeframe, so there are no outcomes, R-multiples or performance figures to show.",
+    }),
+    el("p", { class: "performance-caveat", text: forward?.paper_label || "PAPER OBSERVATION — NO REAL ORDER" }),
+  ]);
+}
+
+/** Paper observations, recent decisions and measured performance, grouped as one ledger. */
+export function paperSection(dashboard, forward) {
+  const model = paperObservationsViewModel(forward);
+  const empty = model.available === true && model.paperPlans === 0;
+  return el("section", { class: "paper-section", "aria-label": "Paper trading results" }, [
+    el("div", { class: "section-head" }, [
+      el("h2", { text: "Paper trading" }),
+      el("p", { class: "muted", text: "Observations and plans on stored candles. No real orders are placed; these are records, not performance claims." }),
+    ]),
+    empty
+      ? paperEmptyCard(forward)
+      : el("div", { class: "paper-grid" }, [
+          paperObservationsCard(forward),
+          recentDecisionsCard(forward),
+          performanceCard(forward, dashboard?.meta || {}),
+        ]),
+  ]);
+}
+
+/** Expandable diagnostics: every setup, the raw technical record, and system details. Nothing is removed. */
+function diagnosticsSection(dashboard, forward) {
+  return el("details", { class: "card diagnostics", "aria-label": "Diagnostics" }, [
+    el("summary", { text: "Diagnostics — every setup, the technical record and system checks" }),
+    el("div", { class: "diagnostics-body" }, [
+      multiTimeframeCard(dashboard),
+      botWatchingCard(dashboard),
+      explanationCard(dashboard),
+      systemDetailsCard(dashboard, forward),
+    ]),
+  ]);
+}
+
+/** Failure state for the decision request: says what happened and offers a retry when one can help. */
+function dashboardFailureNode(failure, onRetry) {
+  return el("div", { class: "state-block dashboard-failure", role: "alert" }, [
+    el("div", { class: "big", text: failure.title }),
+    el("div", { text: failure.detail }),
+    failure.retryable ? el("button", { type: "button", class: "btn btn-primary", text: "Retry", onclick: onRetry }) : null,
+  ]);
+}
+
+// Session state for automatic updates. One live quote, one boundary poller and one status line,
+// released by disposeDashboard (main.js calls it on every route change).
+let liveQuote = null;
+let updater = null;
+let dashboardView = null;
+let dashboardMeta = null;
+let currentAsOf = null;
+let updateStatus = { tone: "pending", label: "CHECKING", detail: "Checking for newly stored closed candles…" };
+let updateStatusNode = null;
+let visibilityListener = null;
+
+function utcClock(ms = Date.now()) {
+  return new Date(ms).toISOString().slice(11, 19);
+}
+
+function paintUpdateStatus() {
+  if (!updateStatusNode) return;
+  updateStatusNode.dataset.tone = updateStatus.tone;
+  clearNode(updateStatusNode).append(
+    el("span", { class: "dash-update-label", text: updateStatus.label }),
+    el("span", { class: "dash-update-detail", text: updateStatus.detail }),
+  );
+}
+
+function setUpdateStatus(model) {
+  updateStatus = model;
+  paintUpdateStatus();
+}
+
+/** The live quote is created once per dashboard session and its node moves into each render. */
+function ensureLiveQuote(symbol) {
+  if (!liveQuote) {
+    liveQuote = mountLiveDisplay(symbol);
+    liveQuote.start();
+  }
+  return liveQuote;
+}
+
+/** Scroll position and disclosure state of the page, kept across an in-place refresh. */
+function capturePageState(view) {
+  return {
+    scrollY: window.scrollY,
+    details: [...view.querySelectorAll("details")].map((node) => node.open),
+  };
+}
+
+function restorePageState(view, state) {
+  if (!state) return;
+  const nodes = [...view.querySelectorAll("details")];
+  if (nodes.length === state.details.length) {
+    nodes.forEach((node, index) => { node.open = state.details[index]; });
+  }
+  window.scrollTo({ top: state.scrollY });
+}
+
+/** Re-request the expensive snapshot once a newer closed candle is stored. Throws on failure. */
+async function refreshDashboardPage(latest) {
+  if (!dashboardView || !activeChart) return false;
+  const applied = await renderDashboard(dashboardView, { refresh: true });
+  if (!applied) return false;
+  const model = dataStatus(latest, { now: Date.now() });
+  setUpdateStatus({ ...model, detail: `${model.detail} Page updated ${utcClock()} UTC.` });
+  return true;
+}
+
+function startAutomaticUpdates() {
+  if (updater) return;
+  updater = createDashboardUpdater({
+    fetchLatest: () => api.latestClosed({ symbol: dashboardMeta?.symbol, timeframe: dashboardMeta?.timeframe }),
+    getCurrentAsOf: () => currentAsOf,
+    refreshDashboard: (latest) => refreshDashboardPage(latest),
+    onStatus: setUpdateStatus,
+    // A dialog or a hidden tab pauses the expensive refresh; the cheap check keeps running.
+    isBlocked: () => document.hidden || Boolean(document.getElementById("modal-root")?.childElementCount),
+  });
+  // Register the listener before recording it, so disposal only removes a listener that exists.
+  const onVisibility = () => {
+    if (!document.hidden) updater?.checkNow();
+  };
+  document.addEventListener("visibilitychange", onVisibility);
+  visibilityListener = onVisibility;
+  updater.start();
+}
+
+/**
+ * Render the dashboard. `refresh: true` re-requests the snapshot into the EXISTING page: the chart
+ * instance (zoom, pan, timeframe, overlays, loaded history) is updated in place, the rest of the
+ * page is rebuilt, and the scroll position and open disclosures are restored. Without `refresh`
+ * the page is built from scratch.
+ */
+export async function renderDashboard(view, { refresh = false } = {}) {
+  if (refresh && (view !== dashboardView || !activeChart)) return false;
   const generation = ++renderGeneration;
-  if (activeChart) activeChart.destroy();
-  activeChart = null;
-  view.className = "view terminal-dashboard";
-  clearNode(view).append(spinner("Loading stored market data and deterministic state…"));
-  setTopbarWarning();
+  const preserved = refresh ? capturePageState(view) : null;
+  if (!refresh) {
+    if (activeChart) activeChart.destroy();
+    activeChart = null;
+    view.className = "view terminal-dashboard";
+    clearNode(view).append(spinner("Loading stored market data and deterministic state…"));
+    setTopbarWarning();
+  }
 
   const prefs = loadPrefs();
   const [dashboardResult, forwardResult] = await Promise.allSettled([
@@ -1702,46 +2499,88 @@ export async function renderDashboard(view) {
     }),
     api.forward({ limit: 8 }),
   ]);
-  if (generation !== renderGeneration) return;
+  if (generation !== renderGeneration) return false;
 
   if (dashboardResult.status === "rejected") {
+    // A failed refresh keeps the page as it was; the updater reports it and backs off.
+    if (refresh) throw dashboardResult.reason;
     view.className = "view";
-    clearNode(view).append(errorState(dashboardResult.reason?.message || "Dashboard data is unavailable."));
+    clearNode(view).append(dashboardFailureNode(describeRequestFailure(dashboardResult.reason), () => renderDashboard(view)));
     setTopbarWarning();
-    return;
+    return false;
   }
 
   const dashboard = dashboardResult.value || {};
   const forward = forwardResult.status === "fulfilled" ? forwardResult.value : null;
   updateTopbar(dashboard, forward);
+  const meta = dashboard?.meta || {};
+  dashboardMeta = { symbol: meta.symbol, timeframe: meta.timeframe };
 
-  const chart = chartCard(dashboard, prefs);
-  clearNode(view).append(
-    el("div", { class: "primary-layout" }, [
-      el("div", { class: "chart-stack" }, [
-        chart.node,
+  const reusedChart = Boolean(refresh && activeChart && activeChart.canUpdate(dashboard));
+  let chart;
+  if (reusedChart) {
+    chart = activeChart;
+    chart.update(dashboard);
+  } else {
+    if (activeChart) activeChart.destroy();
+    activeChart = null;
+    chart = chartCard(dashboard);
+  }
+
+  const live = ensureLiveQuote(meta.symbol || "BTC/USDT");
+  updateStatusNode = el("div", { class: "dash-update-status", role: "status", "aria-live": "polite" });
+  paintUpdateStatus();
+
+  // Build every child first. Moving the chart node into the new layout must happen before the old
+  // children are cleared, so the chart keeps its handle and its canvas.
+  const children = [
+    el("section", { class: "dash-live-strip", "aria-label": "Live price and automatic update status" }, [
+      live.node,
+      updateStatusNode,
+    ]),
+    decisionHero(dashboard, forward),
+    el("div", { class: "dash-main" }, [
+      el("div", { class: "dash-chart" }, [chart.node]),
+      el("aside", { class: "dash-context", "aria-label": "Multi-timeframe and zone context" }, [
         compactHierarchyStrip(dashboard),
-      ]),
-      // Fix #2: the side stack answers "what is the bot focused on" at a
-      // glance — verdict (overall state) → Bot is watching (the one primary
-      // setup + grouped others) → Trade plan (exact levels).
-      el("div", { class: "side-stack" }, [
-        verdictCard(dashboard, forward),
-        botWatchingCard(dashboard),
-        planCard(dashboard),
+        nearbyZonesCard(dashboard),
       ]),
     ]),
-    multiTimeframeCard(dashboard),
-    el("div", { class: "tertiary-grid" }, [
+    el("div", { class: "dash-row" }, [
+      waitingCard(dashboard, forward),
+      planCard(dashboard),
       marketNowCard(dashboard),
-      explanationCard(dashboard),
     ]),
-    el("div", { class: "secondary-grid" }, [
-      recentDecisionsCard(forward),
-      performanceCard(forward, dashboard.meta || {}),
-    ]),
-    systemDetailsCard(dashboard, forward),
-  );
-  chart.mount();
+    paperSection(dashboard, forward),
+    diagnosticsSection(dashboard, forward),
+  ];
+  clearNode(view).append(...children);
+  // The chart mounts after it is attached, as before; a reused chart is already mounted.
+  if (!reusedChart) chart.mount();
+  restorePageState(view, preserved);
+
   activeChart = chart;
+  dashboardView = view;
+  currentAsOf = typeof meta.as_of === "string" ? meta.as_of : null;
+  startAutomaticUpdates();
+  return true;
+}
+
+export function disposeDashboard() {
+  renderGeneration += 1;
+  if (activeChart) activeChart.destroy();
+  activeChart = null;
+  updater?.stop();
+  updater = null;
+  if (visibilityListener) document.removeEventListener("visibilitychange", visibilityListener);
+  visibilityListener = null;
+  liveQuote?.destroy();
+  liveQuote = null;
+  dashboardView = null;
+  dashboardMeta = null;
+  currentAsOf = null;
+  updateStatusNode = null;
+  // The header is owned by the topbar module now: the dashboard view resets
+  // and repopulates it during its own render, and every other route goes
+  // through refreshTopbar. Disposal must not blank what it cannot refill.
 }

@@ -21,6 +21,7 @@ from trading_assistant.market_data.types import Candle
 from trading_assistant.market_structure.candles import (
     candle_span_count,
     candles_closed_by,
+    closed_prefix_of_validated,
     candles_since,
     require_positive_interval,
 )
@@ -142,13 +143,19 @@ def detect_range(
     interval: timedelta,
     as_of: datetime,
     parameters: RangeParameters | None = None,
+    trusted: bool = False,
 ) -> RangeDetectionResult:
     """Evaluate the single documented range candidate for the lookback window."""
 
     resolved = parameters if parameters is not None else RangeParameters()
     resolved_interval = require_positive_interval(interval)
     as_of_utc = require_utc_datetime(as_of, field_name="as_of")
-    ordered = candles_closed_by(candles, interval=resolved_interval, as_of=as_of_utc)
+    # ``trusted`` means the caller passed a tuple it already validated (see
+    # closed_prefix_of_validated); the result is identical, only the repeated check is skipped.
+    if trusted:
+        ordered = closed_prefix_of_validated(candles, interval=resolved_interval, as_of=as_of_utc)
+    else:
+        ordered = candles_closed_by(candles, interval=resolved_interval, as_of=as_of_utc)
     confirmed_swings = tuple(swing for swing in swings if swing.confirmed_at <= as_of_utc)
 
     if not ordered:

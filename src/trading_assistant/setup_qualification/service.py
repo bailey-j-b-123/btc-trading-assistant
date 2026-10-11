@@ -13,6 +13,7 @@ from trading_assistant.market_structure.higher_timeframe import (
     build_higher_timeframe_context,
 )
 from trading_assistant.market_structure.parameters import MarketStructureParameters
+from trading_assistant.pattern_liquidity.analysis import analyze_patterns_at
 from trading_assistant.pattern_liquidity.parameters import PatternLiquidityParameters
 from trading_assistant.pattern_liquidity.service import PatternLiquidityService
 from trading_assistant.setup_qualification.engine import enumerate_qualifications
@@ -154,15 +155,23 @@ class QualificationService:
             if start > as_of:
                 raise ValueError("start_at must not be after as_of")
             at = max(at, start)
+        boundaries: list[datetime] = []
         while at <= as_of:
-            source = self.patterns.snapshot(
-                exchange=exchange,
-                symbol=symbol,
-                timeframe=timeframe,
-                as_of=at,
-                parameters=pattern_parameters,
-                structure_parameters=sp,
-            )
+            boundaries.append(at)
+            at += interval
+        # One chronological replay yields every frame's Step 4 snapshot. Each is
+        # identical to a fresh snapshot at its own boundary (see analyze_patterns_at),
+        # so the replay is no longer repeated once per frame.
+        sources = analyze_patterns_at(
+            stored.candles,
+            exchange=exchange,
+            symbol=symbol,
+            timeframe=timeframe,
+            as_of_boundaries=boundaries,
+            parameters=pattern_parameters,
+            structure_parameters=sp,
+        )
+        for at, source in zip(boundaries, sources):
             higher = []
             for higher_timeframe in p.higher_timeframes:
                 expected = latest_closed_candle_open_time(at, higher_timeframe)
@@ -184,7 +193,6 @@ class QualificationService:
                     )
                 )
             frames.append(QualificationFrame(source, tuple(higher)))
-            at += interval
         return tuple(frames)
 
     def snapshot(

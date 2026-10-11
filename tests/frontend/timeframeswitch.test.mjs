@@ -346,6 +346,9 @@ async function withDashboard({ dashboard, forward, market = {}, failCandles = []
   };
   globalThis.document = {
     documentElement: {},
+    // The dashboard listens for tab visibility to resume automatic updates.
+    addEventListener() {},
+    removeEventListener() {},
     getElementById: (id) => ids.get(id) || null,
     createElement: (name) => new MockNode(name),
     createTextNode: (text) => {
@@ -528,13 +531,12 @@ test("switching clears the setup scenario before new data arrives", async () => 
   } });
   await withDashboard({ dashboard, forward: forwardFixture() }, async ({ view, chartState }) => {
     await renderDashboard(view);
-    assert.deepEqual(drawnLines(chartState), [
-      "Zone low@61900",
-      "Zone high@62000",
-    ]);
+    // The setup reference is a shaded band (its state is asserted in lookingfor-live.test.mjs), never a
+    // full-width price line: no Zone low/high line is drawn.
+    assert.equal(drawnLines(chartState).some((line) => /^Zone (low|high)/.test(line)), false);
     click(switchButtons(view).find((button) => button.getAttribute("data-timeframe") === "5m"));
     // Synchronously after the click — before any response lands — the
-    // previous timeframe's levels are already gone.
+    // previous timeframe's levels and setup band are already gone.
     assert.equal(chartState.charts[0].lines.size, 0);
     await flush();
     assert.deepEqual(drawnLines(chartState), []);
@@ -663,9 +665,10 @@ test("compactHierarchyViewModel projects the backend payload without recomputing
 test("the compact strip sits next to the chart and shows every engine role", async () => {
   await withDashboard({ dashboard: dashboardFixture(), forward: forwardFixture() }, async ({ view }) => {
     await renderDashboard(view);
-    const stack = findOne(view, (node) => (node.className || "").split(" ").includes("chart-stack"));
+    // The strip is the single multi-timeframe view, in the context column beside the chart (PR #38 redesign).
+    const stack = findOne(view, (node) => (node.className || "").split(" ").includes("dash-context"));
     assert.ok(stack);
-    assert.equal(stack.children[1].getAttribute("aria-label"), "Multi-timeframe status");
+    assert.equal(stack.children[0].getAttribute("aria-label"), "Multi-timeframe status");
     const strip = stripNode(view);
     assert.ok(strip);
     const text = strip.textContent;
@@ -865,7 +868,7 @@ test("existing dashboard behaviour still works alongside the new UI", async () =
     assert.match(view.textContent, /No snapshot to explain\./);
     assert.equal(ids.get("topbar-symbol").textContent, SYMBOL);
     assert.equal(ids.get("topbar-timeframe").textContent, "1H");
-    assert.equal(ids.get("topbar-status").textContent, "SYSTEM OK");
+    assert.match(ids.get("topbar-status").textContent, /^DATA CURRENT · RUNNER /);
     assert.equal(chartState.charts.length, 1);
     assert.deepEqual(chartState.charts[0].candleData, toChartCandles(ENGINE_ROWS));
     assert.equal(chartState.charts[0].volumeData.length, ENGINE_ROWS.length);
@@ -879,22 +882,25 @@ test("existing dashboard behaviour still works alongside the new UI", async () =
 });
 
 
-test("chart shows one forming-feed status and ignores the separate REST quote", async () => {
+test("chart shows one forming-feed status; the separate REST quote is display-only and never reaches the chart", async () => {
   const dashboard = dashboardFixture();
   const original = structuredClone(dashboard);
   const staleQuote = { status: "UNAVAILABLE", price: null, fetched_at: null };
   await withDashboard({ dashboard, forward: forwardFixture(), livePrice: staleQuote }, async ({ view, chartState, calls }) => {
     await renderDashboard(view);
     await flush();
+    // The live price is shown above the decision by design, labelled UNAVAILABLE when no quote is valid.
     const quote = findOne(view, (node) => (node.className || "").split(" ").includes("live-quote"));
-    assert.equal(quote, null);
+    assert.ok(quote, "the live price is on the dashboard");
+    assert.equal(quote.dataset.freshness, "UNAVAILABLE");
     const forming = findOne(view, (node) => (node.className || "").split(" ").includes("forming-status"));
     assert.ok(forming);
     assert.match(forming.textContent, /FORMING 1H — DISPLAY ONLY/);
-    assert.doesNotMatch(view.textContent, /LIVE PRICE · LAST TRADE|LIVE DATA UNAVAILABLE/);
     assert.deepEqual(chartState.charts[0].candleData, toChartCandles(ENGINE_ROWS));
     assert.deepEqual(dashboard, original);
-    assert.equal(calls.filter((call) => call.path.startsWith("/api/market/live-price")).length, 0);
+    // Only the browser's display widget reads the quote; the dashboard payload never does.
+    assert.ok(calls.filter((call) => call.path.startsWith("/api/market/live-price")).length >= 1);
+    assert.equal(calls.filter((call) => call.path.startsWith("/api/dashboard")).length, 1);
     assert.equal(calls.filter((call) => call.method !== "GET").length, 0);
   });
 });
@@ -908,7 +914,8 @@ test("manual S/R toggle reveals the stored structure without changing setup or h
     assert.equal(button.getAttribute("aria-pressed"), "false");
     click(button);
     assert.equal(button.getAttribute("aria-pressed"), "true");
-    assert.deepEqual(drawnLines(chartState), ["Support low@61900", "Support high@62000"]);
+    // Zones are shaded bands (zone-bands.test.mjs), never boundary price lines: the toggle adds no lines.
+    assert.deepEqual(drawnLines(chartState), []);
     assert.equal(prefWrites.length, 1);
     assert.deepEqual(chartState.charts[0].candleData, toChartCandles(ENGINE_ROWS));
     assert.equal(dashboard.qualification.state, "WATCH");
@@ -984,7 +991,7 @@ test("public Binance forming klines follow the 5M/15M/1H/4H chart view only, nev
         assert.match(badge.textContent, /FORMING .*DISPLAY ONLY/);
         assert.match(badge.textContent, /BINANCE SPOT KLINE CURRENT/);
         assert.doesNotMatch(badge.textContent, /LIVE DATA UNAVAILABLE/);
-        assert.equal(findOne(view, (node) => (node.className || "").split(" ").includes("live-quote")), null);
+        assert.ok(findOne(view, (node) => (node.className || "").split(" ").includes("live-quote")), "the display-only quote is on the page");
         assert.equal(badge.dataset.freshness, "CURRENT");
       }
       PublicSocket.all.at(-1).close();
@@ -993,7 +1000,7 @@ test("public Binance forming klines follow the 5M/15M/1H/4H chart view only, nev
       assert.deepEqual(fixture, before);
       assert.deepEqual(drawnLines(chartState), ["Entry@110", "Stop / Invalidation@95", "T1@125"]);
       assert.equal(calls.filter((c) => c.path.startsWith("/api/dashboard")).length, 1);
-      assert.equal(calls.filter((c) => c.path.startsWith("/api/market/live-price")).length, 0);
+      // The quote widget polls on its own cadence; the chart data assertions above prove it adds no candle.
       assert.equal(calls.filter((c) => c.method !== "GET").length, 0);
     });
   } finally { Date.now = originalNow; }

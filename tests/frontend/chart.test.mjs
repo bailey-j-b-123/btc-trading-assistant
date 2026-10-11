@@ -89,8 +89,9 @@ const PAYLOAD = {
   prefs: { overlays: { zones: true, range: true, equalLevels: true, planLevels: true, swings: false } },
 };
 
-// 2 zones + 2 range bounds + 1 equal level + entry/stop/target 1 = 8 deterministic lines.
-const EXPECTED_LINES = 8;
+// 2 range bounds + 1 equal level + entry/stop/target 3 = 6 deterministic lines.
+// Zones are NOT price lines any more: they are shaded bands (setZoneBands), tested in zone-bands.test.mjs.
+const EXPECTED_LINES = 6;
 
 test("the chart module never calls the nonexistent series.priceLines() API", () => {
   // The vendored bundle keeps public API names (createPriceLine, removePriceLine)
@@ -116,13 +117,11 @@ test("applyOverlays draws only levels present in the payload", () => {
   assert.ok(labels.includes("Stop / Invalidation")); // exact shared price, one concise axis label
   assert.ok(labels.includes("T1"));
   assert.ok(!labels.includes("T2")); // null target level -> never drawn
-  assert.equal(labels.filter((title) => title === "Support low").length, 1);
+  assert.equal(labels.filter((title) => title === "Support low").length, 0, "zones are bands, not boundary lines");
   assert.equal(labels.filter((title) => title === "Range high").length, 1);
   assert.equal(handle.lines.size, EXPECTED_LINES);
   // Deterministic values: the exact payload numbers reach the library untouched.
   assert.deepEqual(drawn(handle), [
-    "Support low@99",
-    "Support high@101",
     "Range low@98",
     "Range high@103",
     "Equal highs@102.5",
@@ -146,10 +145,11 @@ test("short chart labels preserve exact numeric levels and compact collocated la
     },
     prefs: { overlays: { planLevels: true } },
   });
+  // The setup reference is a shaded band (handle.setupBand), never a full-width price line.
+  assert.deepEqual(handle.setupBand, { low: 100.25, high: 117 });
   assert.deepEqual(drawn(handle), [
-    "Zone low@100.25",
-    "Zone high / Stop / 1 more@117",
     "Entry@124.5",
+    "Stop / Invalidation@117",
     "T1@130.75",
     "T2@135",
   ]);
@@ -414,4 +414,40 @@ test("real backend row bytes convert and reach setData in order", () => {
     assert.deepEqual(records[0].candles[0], { time: 1704067200, open: 100, high: 101, low: 99, close: 100 });
     destroyPriceChart(handle);
   });
+});
+
+test("first load shows the recent candles once; refreshes keep the user's zoom", () => {
+  const calls = [];
+  const handle = {
+    chart: {
+      timeScale: () => ({ setVisibleLogicalRange: (range) => calls.push(range) }),
+    },
+    series: { setData: () => {} },
+    volume: { setData: () => {} },
+  };
+  const rows = Array.from({ length: 300 }, (_, i) => [1704067200000 + i * 3600000, "100", "101", "99", "100", "1"]);
+  setCandles(handle, rows);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0], { from: 300 - 120, to: 299 + 3 });
+  setCandles(handle, rows);
+  assert.equal(calls.length, 1, "a refresh must not reset the view");
+});
+
+test("a short series is never given a negative default range", () => {
+  const calls = [];
+  const handle = {
+    chart: { timeScale: () => ({ setVisibleLogicalRange: (range) => calls.push(range) }) },
+    series: { setData: () => {} },
+    volume: { setData: () => {} },
+  };
+  setCandles(handle, [[1704067200000, "100", "101", "99", "100", "1"]]);
+  assert.equal(calls[0].from, 0);
+});
+
+test("price-axis labels use two decimals with thousands separators (display only)", async () => {
+  const { formatPriceAxis } = await import("../../src/trading_assistant/web/static/js/chart.js");
+  assert.equal(formatPriceAxis(89000), "89,000.00");
+  assert.equal(formatPriceAxis(82787.25), "82,787.25");
+  assert.equal(formatPriceAxis(0.5), "0.50");
+  assert.equal(formatPriceAxis(NaN), "");
 });

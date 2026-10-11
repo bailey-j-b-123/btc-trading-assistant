@@ -39,10 +39,94 @@ from trading_assistant.setup_qualification.parameters import (
 from trading_assistant.setup_qualification.rules import evaluate_rules, rule
 
 
+def _latest(a: datetime | None, b: datetime | None) -> datetime | None:
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return a if a >= b else b
+
+
+def _subtree_summary(
+    value: object,
+    instrument: tuple[str, str, str],
+    cache: dict[tuple[int, tuple[str, str, str]], tuple[object, datetime | None, bool]],
+) -> tuple[datetime | None, bool]:
+    """Return ``(latest, ok)`` for the subtree rooted at ``value``, independent of ``now``.
+
+    ``latest`` is the newest datetime that :func:`_validate_available` compares
+    with ``now`` inside the subtree (dataclass datetime fields, datetimes nested
+    in tuples, and candle close times). ``ok`` is False when that traversal would
+    raise for a reason unrelated to ``now``: an instrument mismatch, a naive
+    datetime, or an unsupported timeframe. When ``ok`` is True and
+    ``latest <= now`` the traversal cannot raise, so it may be skipped. In every
+    other case the original traversal runs and raises its usual error.
+    """
+    if isinstance(value, datetime):
+        try:
+            return require_utc_datetime(value, field_name="source timestamp"), True
+        except Exception:
+            return None, False
+    if not (isinstance(value, tuple) or (is_dataclass(value) and not isinstance(value, type))):
+        return None, True
+    key = (id(value), instrument)
+    hit = cache.get(key)
+    if hit is not None and hit[0] is value:
+        return hit[1], hit[2]
+    latest: datetime | None = None
+    ok = True
+    try:
+        if isinstance(value, Candle):
+            if (value.exchange, value.symbol, value.timeframe) != instrument:
+                ok = False
+            latest = value.timestamp + interval_for_timeframe(value.timeframe)
+        if is_dataclass(value) and not isinstance(value, type):
+            for field in fields(value):
+                item = getattr(value, field.name)
+                if isinstance(item, datetime):
+                    latest = _latest(latest, require_utc_datetime(item, field_name=field.name))
+                sub_latest, sub_ok = _subtree_summary(item, instrument, cache)
+                latest = _latest(latest, sub_latest)
+                ok = ok and sub_ok
+        else:
+            for item in value:
+                sub_latest, sub_ok = _subtree_summary(item, instrument, cache)
+                latest = _latest(latest, sub_latest)
+                ok = ok and sub_ok
+    except Exception:
+        latest, ok = None, False
+    cache[key] = (value, latest, ok)
+    return latest, ok
+
+
 def _validate_available(
-    value: object, now: datetime, instrument: tuple[str, str, str]
+    value: object,
+    now: datetime,
+    instrument: tuple[str, str, str],
+    _seen: set[int] | None = None,
+    _summaries: dict | None = None,
 ) -> None:
-    """Reject inconsistent hand-built inputs, including nested future references."""
+    """Reject inconsistent hand-built inputs, including nested future references.
+
+    Each shared dataclass or tuple node is checked once per call: the checks
+    depend only on (node, now, instrument), so revisiting an already-validated
+    object cannot change the outcome. ``_seen`` holds ids of nodes that are
+    alive for the whole call (they are reachable from the root).
+
+    ``_summaries`` (optional, one per enumeration call) lets a subtree that is
+    already known to pass be skipped. The skip is taken only when the traversal
+    provably cannot raise, so any rejection still comes from the traversal below.
+    """
+    if _summaries is not None:
+        latest, ok = _subtree_summary(value, instrument, _summaries)
+        if ok and (latest is None or latest <= now):
+            return
+    if _seen is None:
+        _seen = set()
+    if (is_dataclass(value) and not isinstance(value, type)) or isinstance(value, tuple):
+        if id(value) in _seen:
+            return
+        _seen.add(id(value))
     if isinstance(value, Candle):
         if (value.exchange, value.symbol, value.timeframe) != instrument:
             raise ValueError("source candle instrument does not match frame")
@@ -61,10 +145,10 @@ def _validate_available(
                 and require_utc_datetime(item, field_name=field.name) > now
             ):
                 raise ValueError(f"source {field.name} is after frame as_of")
-            _validate_available(item, now, instrument)
+            _validate_available(item, now, instrument, _seen, _summaries)
     elif isinstance(value, tuple):
         for item in value:
-            _validate_available(item, now, instrument)
+            _validate_available(item, now, instrument, _seen, _summaries)
 
 
 def _validate_context_timestamps(context: TimeframeStructureAnalysis) -> None:
@@ -80,7 +164,11 @@ def _validate_context_timestamps(context: TimeframeStructureAnalysis) -> None:
         raise ValueError("context metrics must share their source window/as_of")
 
 
-def _validate_frame(frame: QualificationFrame, p: QualificationParameters) -> None:
+def _validate_frame(
+    frame: QualificationFrame,
+    p: QualificationParameters,
+    summaries: dict | None = None,
+) -> None:
     s = frame.patterns
     now = require_utc_datetime(s.as_of, field_name="frame.as_of")
     interval = interval_for_timeframe(s.timeframe)
@@ -92,7 +180,7 @@ def _validate_frame(frame: QualificationFrame, p: QualificationParameters) -> No
         or s.completeness.expected_latest_closed_open_time != expected
     ):
         raise ValueError("structure/completeness must describe the frame as_of")
-    _validate_available(s, now, (s.exchange, s.symbol, s.timeframe))
+    _validate_available(s, now, (s.exchange, s.symbol, s.timeframe), None, summaries)
     _validate_context_timestamps(s.structure)
     if (
         s.structure.window_end_timestamp is not None
@@ -122,7 +210,7 @@ def _validate_frame(frame: QualificationFrame, p: QualificationParameters) -> No
                 and analysis.window_end_timestamp > expected_higher
             ):
                 raise ValueError("higher-timeframe candle was not closed")
-        _validate_available(higher, now, (s.exchange, s.symbol, higher.timeframe))
+        _validate_available(higher, now, (s.exchange, s.symbol, higher.timeframe), None, summaries)
 
 
 def _terminal_reason(
@@ -182,6 +270,7 @@ def enumerate_qualifications(
             raise ValueError("known_since must not be after as_of")
     p = parameters or QualificationParameters()
     history = []
+    summaries: dict = {}
     candidates: dict[str, tuple[Seed, SetupResult]] = {}
     source_events = {}
     instrument = None
@@ -192,7 +281,7 @@ def enumerate_qualifications(
         require_utc_datetime(s.as_of, field_name="frame.as_of")
         if s.as_of > now:
             continue
-        _validate_frame(frame, p)
+        _validate_frame(frame, p, summaries)
         current_instrument = (s.exchange, s.symbol, s.timeframe)
         if instrument is not None and current_instrument != instrument:
             raise ValueError("replay cannot mix instruments or base timeframes")

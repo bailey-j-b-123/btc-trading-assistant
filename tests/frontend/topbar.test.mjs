@@ -83,7 +83,7 @@ test("updateTopbar populates every header field from backend facts", async () =>
       assert.equal(ids.get("topbar-candle-time").textContent, "2026-10-06 12:00 UTC");
       assert.equal(ids.get("topbar-candle-time").attributes.datetime, TIMESTAMP);
       assert.equal(ids.get("topbar-price").textContent, "62,160.00");
-      assert.equal(ids.get("topbar-status").textContent, "SYSTEM OK");
+      assert.match(ids.get("topbar-status").textContent, /^DATA CURRENT · RUNNER IDLE$/);
     },
   });
 });
@@ -96,7 +96,8 @@ test("missing backend facts stay UNKNOWN instead of inventing a header", async (
       assert.equal(ids.get("topbar-timeframe").textContent, "UNKNOWN");
       assert.equal(ids.get("topbar-candle-time").textContent, "UNKNOWN");
       assert.equal(ids.get("topbar-price").textContent, "UNKNOWN");
-      assert.equal(ids.get("topbar-status").textContent, "SYSTEM WARNING");
+      // Names the component that is failing, never a generic warning.
+      assert.match(ids.get("topbar-status").textContent, /^(MARKET DATA|FORWARD RUNNER) · /);
     },
   });
 });
@@ -114,7 +115,7 @@ test("refreshTopbar fetches the same truth other routes render without", async (
       await refreshTopbar();
       assert.equal(ids.get("topbar-symbol").textContent, "BTC/USDT");
       assert.equal(ids.get("topbar-price").textContent, "62,160.00");
-      assert.equal(ids.get("topbar-status").textContent, "SYSTEM OK");
+      assert.match(ids.get("topbar-status").textContent, /^DATA CURRENT · RUNNER IDLE$/);
       assert.ok(seen.some((path) => path.startsWith("/api/dashboard")));
       assert.ok(seen.some((path) => path.startsWith("/api/forward")));
     },
@@ -160,7 +161,7 @@ test("a failed header fetch falls back to the warning header", async () => {
     run: async (ids) => {
       await refreshTopbar();
       assert.equal(ids.get("topbar-symbol").textContent, "UNKNOWN");
-      assert.equal(ids.get("topbar-status").textContent, "SYSTEM WARNING");
+      assert.equal(ids.get("topbar-status").textContent, "DASHBOARD UNAVAILABLE");
       // The exported warning reset is the same state.
       setTopbarWarning();
       assert.equal(ids.get("topbar-price").textContent, "UNKNOWN");
@@ -219,51 +220,106 @@ test("runner details distinguish unavailable, never-run, and reported", async ()
 test("system verdict needs every health conjunct; age alone never warns", () => {
   const ok = systemHealthViewModel(headerDashboard(), headerForward());
   assert.equal(ok.healthy, true);
-  assert.equal(ok.label, "SYSTEM OK");
+  assert.equal(ok.label, "DATA CURRENT · RUNNER IDLE");
   assert.equal(ok.tone, "green");
 
   // Each single failure flips the verdict to WARNING.
   const staleFreshness = headerDashboard();
   staleFreshness.freshness.status = "STALE";
-  assert.equal(systemHealthViewModel(staleFreshness, headerForward()).label, "SYSTEM WARNING");
+  assert.equal(systemHealthViewModel(staleFreshness, headerForward()).label, "MARKET DATA · FRESHNESS STALE");
 
   const gappyMarket = headerDashboard();
   gappyMarket.market.complete = false;
-  assert.equal(systemHealthViewModel(gappyMarket, headerForward()).label, "SYSTEM WARNING");
+  assert.equal(systemHealthViewModel(gappyMarket, headerForward()).label, "MARKET DATA · STORED WINDOW INCOMPLETE");
 
   const staleForward = headerForward();
   staleForward.status.market_data.data_health = "STALE";
-  assert.equal(systemHealthViewModel(headerDashboard(), staleForward).label, "SYSTEM WARNING");
+  assert.equal(systemHealthViewModel(headerDashboard(), staleForward).label, "FORWARD DATA HEALTH · DATA HEALTH STALE");
 
   const pending = headerForward();
   pending.status.sample.pending_catch_up_boundaries = 1;
-  assert.equal(systemHealthViewModel(headerDashboard(), pending).label, "SYSTEM WARNING");
+  assert.equal(systemHealthViewModel(headerDashboard(), pending).label, "FORWARD RUNNER · CATCH-UP PENDING");
 
   const errored = headerForward();
   errored.status.runner.status = "ERROR";
   errored.status.runner.last_error = "boom";
-  assert.equal(systemHealthViewModel(headerDashboard(), errored).label, "SYSTEM WARNING");
+  assert.equal(systemHealthViewModel(headerDashboard(), errored).label, "FORWARD RUNNER · PROCESSING FAILURE");
+  assert.equal(systemHealthViewModel(headerDashboard(), errored).tone, "red");
 
   const neverRun = headerForward();
   neverRun.status.runner = null;
-  assert.equal(systemHealthViewModel(headerDashboard(), neverRun).label, "SYSTEM WARNING");
+  assert.equal(systemHealthViewModel(headerDashboard(), neverRun).label, "FORWARD RUNNER · NEVER REPORTED");
 
   const noData = headerForward();
   noData.status.runner.status = "NO_DATA";
-  assert.equal(systemHealthViewModel(headerDashboard(), noData).label, "SYSTEM WARNING");
+  assert.equal(systemHealthViewModel(headerDashboard(), noData).label, "FORWARD RUNNER · STATUS NO_DATA");
 
-  assert.equal(systemHealthViewModel(null, null).label, "SYSTEM WARNING");
+  assert.equal(systemHealthViewModel(null, null).label, "DASHBOARD DATA · NOT LOADED");
 
   // Heartbeat age is displayed, never decisive: an ancient heartbeat with
   // otherwise perfect health still reads OK.
   const ancient = headerForward();
   ancient.status.runner.heartbeat_age_seconds = 99999;
-  assert.equal(systemHealthViewModel(headerDashboard(), ancient).label, "SYSTEM OK");
+  assert.equal(systemHealthViewModel(headerDashboard(), ancient).label, "DATA CURRENT · RUNNER IDLE");
 
   // Recovery clears: a healthy newest row reads OK whatever came before
   // (the backend test pins that the newest row is what the backend sends).
   const recovered = headerForward();
   recovered.status.runner.status = "PROCESSED";
   recovered.status.runner.last_error = null;
-  assert.equal(systemHealthViewModel(headerDashboard(), recovered).label, "SYSTEM OK");
+  assert.equal(systemHealthViewModel(headerDashboard(), recovered).label, "DATA CURRENT · RUNNER PROCESSED");
+});
+
+test("health labels are specific: no generic SYSTEM OK or SYSTEM WARNING can be produced", () => {
+  const cases = [
+    [headerDashboard(), headerForward()],
+    [null, null],
+    [headerDashboard(), null],
+    [{ ...headerDashboard(), freshness: { status: "HISTORICAL", reason: "as_of_is_not_the_current_boundary" } }, headerForward()],
+  ];
+  for (const [dashboard, forward] of cases) {
+    const health = systemHealthViewModel(dashboard, forward);
+    assert.doesNotMatch(health.label, /SYSTEM (OK|WARNING)/);
+  }
+});
+
+test("each failing condition is listed with its component, most severe first", () => {
+  const broken = headerForward();
+  broken.status.runner.last_error = "fetch failed";
+  broken.status.runner.status = "ERROR";
+  broken.status.sample.pending_catch_up_boundaries = 2;
+  const dashboard = headerDashboard();
+  dashboard.freshness.status = "STALE";
+  dashboard.freshness.reason = "as_of_is_not_the_current_boundary";
+  const health = systemHealthViewModel(dashboard, broken);
+  assert.equal(health.healthy, false);
+  // Processing failure, stale freshness, then catch-up backlog; forward data health is current here.
+  assert.deepEqual(health.issues.map((i) => i.severity), [0, 1, 2]);
+  assert.equal(health.primary.condition, "Processing failure");
+  assert.match(health.primary.detail, /fetch failed/);
+  assert.match(health.issues.find((i) => i.component === "Market data").detail, /not the newest closed-candle boundary/);
+  assert.equal(health.tone, "red");
+});
+
+// Regression (PR #38 follow-up): a lagging default view must name the stored end and the missing
+// candle, never "Freshness STALE" with a generic reason.
+test("a stale series names the stored end, the candle that should exist, and how far behind", () => {
+  const dashboard = {
+    ...headerDashboard(),
+    freshness: {
+      status: "STALE",
+      reason: "stored_candles_stop_before_expected_boundary",
+      latest_stored: "2026-10-10T17:00:00Z",
+      expected_latest_closed: "2026-10-10T18:00:00Z",
+      staleness_intervals: 1,
+    },
+  };
+  const issue = systemHealthViewModel(dashboard, headerForward()).issues.find(
+    (item) => item.condition === "Freshness STALE",
+  );
+  assert.ok(issue, "a STALE freshness issue is reported");
+  assert.match(issue.detail, /end at 2026-10-10 17:00 UTC/);
+  assert.match(issue.detail, /should be stored is 2026-10-10 18:00 UTC/);
+  assert.match(issue.detail, /1 candle behind the clock/);
+  assert.match(issue.detail, /Binance ingestion process/);
 });

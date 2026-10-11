@@ -82,6 +82,15 @@ export const FALLBACK_CHART_HEIGHT = 420;
  * handler below corrects to the real layout as soon as it exists. Only a
  * missing chart library or a missing container still returns null.
  */
+/** Price-axis label: two decimals with thousands separators (e.g. 89,000.00). Display only. */
+export function formatPriceAxis(price) {
+  const value = Number(price);
+  if (!Number.isFinite(value)) return "";
+  return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+const PRICE_AXIS_FORMAT = { type: "custom", minMove: 0.01, formatter: formatPriceAxis };
+
 export function createPriceChart(container, { height } = {}) {
   const library = typeof window === "undefined" ? null : window.LightweightCharts;
   if (!library || !container) return null;
@@ -132,6 +141,7 @@ export function createPriceChart(container, { height } = {}) {
       wickUpColor: UP,
       wickDownColor: DOWN,
       borderVisible: false,
+      priceFormat: PRICE_AXIS_FORMAT,
     });
     // Independent temporary series: never append/update the stored confirmed series.
     formingSeries = chart.addCandlestickSeries({
@@ -139,6 +149,7 @@ export function createPriceChart(container, { height } = {}) {
       wickUpColor: "rgba(91,155,213,0.85)", wickDownColor: "rgba(232,163,61,0.85)",
       borderVisible: true, borderUpColor: "#5b9bd5", borderDownColor: "#e8a33d",
       priceLineVisible: false, lastValueVisible: false,
+      priceFormat: PRICE_AXIS_FORMAT,
     });
     volume = chart.addHistogramSeries({
       priceFormat: { type: "volume" },
@@ -157,8 +168,18 @@ export function createPriceChart(container, { height } = {}) {
     volume,
     container,
     priceLineHandles: [],
+    // Chart evidence (markers + pattern line series) and event subscriptions are
+    // tracked separately so a timeframe switch or refresh removes exactly them.
+    evidenceSeries: [],
+    eventUnsubscribers: [],
     resizeObserver: null,
     resizeListener: null,
+    zoneLayer: null,
+    zoneBandsState: null,
+    zoneUnsubscribers: [],
+    // Raw loaded rows (ascending). Older pages are merged into these, never replaced.
+    loadedRows: [],
+    historyUnsubscribe: null,
     destroyed: false,
   };
   const resize = () => {
@@ -166,6 +187,7 @@ export function createPriceChart(container, { height } = {}) {
     const width = Number(container.clientWidth) || 0;
     const nextHeight = Number(container.clientHeight) || 0;
     if (width > 0 && nextHeight > 0) chart.resize(width, nextHeight);
+    renderZoneBands(handle);
   };
 
   if (typeof ResizeObserver === "function") {
@@ -186,11 +208,41 @@ export function createPriceChart(container, { height } = {}) {
   return handle;
 }
 
+/** Recent candles shown on first load; the user can zoom out to the full window. */
+export const DEFAULT_VISIBLE_CANDLES = 120;
+/** Phones get fewer candles so each candle and its marker stays readable. */
+export const DEFAULT_VISIBLE_CANDLES_NARROW = 60;
+
+/** Tablets get an intermediate window. Each tier is a presentation choice; the data window is unchanged. */
+export const DEFAULT_VISIBLE_CANDLES_TABLET = 90;
+
+function defaultVisibleCandles() {
+  const matches = (query) => typeof globalThis.matchMedia === "function" && globalThis.matchMedia(query).matches;
+  if (matches("(max-width: 640px)")) return DEFAULT_VISIBLE_CANDLES_NARROW;
+  if (matches("(max-width: 1040px)")) return DEFAULT_VISIBLE_CANDLES_TABLET;
+  return DEFAULT_VISIBLE_CANDLES;
+}
+
 export function setCandles(handle, payload) {
   if (!handle || handle.destroyed) return;
   const rows = rowsFromPayload(payload);
+  handle.loadedRows = rows;
   const candles = toChartCandles(rows);
+  // Bar count of the series, so a refresh can keep the same right-edge offset (see dashboard view).
+  handle.barCount = candles.length;
+  handle.lastBarTime = candles.length ? candles[candles.length - 1].time : null;
   handle.series.setData(candles);
+  // Apply the default view once per chart: later refreshes must not reset a
+  // zoom or pan the user has made.
+  if (!handle.initialRangeApplied && candles.length > 0 && handle.chart && typeof handle.chart.timeScale === "function") {
+    const timeScale = handle.chart.timeScale();
+    if (typeof timeScale.setVisibleLogicalRange === "function") {
+      const last = candles.length - 1;
+      const visible = defaultVisibleCandles();
+      timeScale.setVisibleLogicalRange({ from: Math.max(0, last - visible + 1), to: last + 3 });
+    }
+    handle.initialRangeApplied = true;
+  }
 
   const volumeRows = [];
   for (const row of rows) {
@@ -203,6 +255,78 @@ export function setCandles(handle, payload) {
     });
   }
   if (handle.volume && typeof handle.volume.setData === "function") handle.volume.setData(volumeRows);
+  renderZoneBands(handle);
+}
+
+/**
+ * Replace the loaded rows after older candles were prepended.
+ *
+ * The visible logical range is index-based, so prepending `added` candles shifts every visible
+ * index by `added`. Shifting the range by the same amount keeps the same candles on screen: the
+ * user's zoom, pan and place are preserved.
+ */
+export function setCandlesPreservingView(handle, rows, added) {
+  if (!handle || handle.destroyed) return;
+  const timeScale = handle.chart && typeof handle.chart.timeScale === "function" ? handle.chart.timeScale() : null;
+  const before = timeScale && typeof timeScale.getVisibleLogicalRange === "function"
+    ? timeScale.getVisibleLogicalRange()
+    : null;
+  setCandles(handle, rows);
+  if (before && added > 0 && timeScale && typeof timeScale.setVisibleLogicalRange === "function") {
+    timeScale.setVisibleLogicalRange({ from: before.from + added, to: before.to + added });
+  }
+}
+
+/**
+ * The viewed range in time, so a data refresh can put back the same zoom and place.
+ *
+ * Time, not bar index, is used: a rolling window shifts every index when a new candle arrives. A
+ * view at the live edge (right side at or past the newest candle) keeps following it with the same
+ * right margin. A view in history stays on the same instants.
+ */
+export function captureChartView(handle) {
+  const timeScale = handle && !handle.destroyed && handle.chart && typeof handle.chart.timeScale === "function"
+    ? handle.chart.timeScale()
+    : null;
+  if (!timeScale || typeof timeScale.getVisibleRange !== "function") return null;
+  const range = timeScale.getVisibleRange();
+  const lastBar = Number.isFinite(handle.lastBarTime) ? handle.lastBarTime : null;
+  if (!range || !Number.isFinite(range.from) || !Number.isFinite(range.to) || lastBar === null) return null;
+  return { from: range.from, to: range.to, lastBar, atEdge: range.to >= lastBar };
+}
+
+/** Put back a view captured by captureChartView, after setCandles has loaded the new data. */
+export function restoreChartView(handle, captured) {
+  const timeScale = handle && !handle.destroyed && handle.chart && typeof handle.chart.timeScale === "function"
+    ? handle.chart.timeScale()
+    : null;
+  if (!captured || !timeScale || typeof timeScale.setVisibleRange !== "function") return;
+  const newLast = Number.isFinite(handle.lastBarTime) ? handle.lastBarTime : null;
+  if (newLast === null) return;
+  if (captured.atEdge) {
+    const width = captured.to - captured.from;
+    const to = newLast + (captured.to - captured.lastBar);
+    timeScale.setVisibleRange({ from: to - width, to });
+    return;
+  }
+  timeScale.setVisibleRange({ from: captured.from, to: captured.to });
+}
+
+/**
+ * Call onNearStart(range) when the visible range moves close to the oldest loaded candle.
+ * Only one listener per chart: a later call replaces the earlier one.
+ */
+export function setHistoryListener(handle, onNearStart) {
+  if (!handle || handle.destroyed) return;
+  handle.historyUnsubscribe?.();
+  handle.historyUnsubscribe = null;
+  const timeScale = handle.chart && typeof handle.chart.timeScale === "function" ? handle.chart.timeScale() : null;
+  if (typeof onNearStart !== "function" || !timeScale || typeof timeScale.subscribeVisibleLogicalRangeChange !== "function") return;
+  const listener = (range) => {
+    if (!handle.destroyed) onNearStart(range);
+  };
+  timeScale.subscribeVisibleLogicalRangeChange(listener);
+  handle.historyUnsubscribe = () => timeScale.unsubscribeVisibleLogicalRangeChange?.(listener);
 }
 
 /** Temporary, explicitly unconfirmed overlay. Never touches handle.series or volume. */
@@ -247,7 +371,12 @@ function priceLine(price, { color, title, style = 2, width = 1 }) {
 }
 
 export function clearOverlays(handle) {
-  if (!handle || !Array.isArray(handle.priceLineHandles)) return;
+  if (!handle) return;
+  if (handle.setupBand) {
+    handle.setupBand = null;
+    renderZoneBands(handle);
+  }
+  if (!Array.isArray(handle.priceLineHandles)) return;
   const lines = handle.priceLineHandles.splice(0);
   if (!handle.series || typeof handle.series.removePriceLine !== "function") return;
   for (const line of lines) {
@@ -263,6 +392,11 @@ export function clearOverlays(handle) {
 export function destroyPriceChart(handle) {
   if (!handle || handle.destroyed) return;
   clearOverlays(handle);
+  clearEvidence(handle);
+  clearZoneBands(handle);
+  unsubscribeChartEvents(handle);
+  handle.historyUnsubscribe?.();
+  handle.historyUnsubscribe = null;
   handle.destroyed = true;
   handle.resizeObserver?.disconnect();
   if (handle.resizeListener && typeof window !== "undefined") {
@@ -316,13 +450,9 @@ export function applyOverlays(handle, payload = {}) {
     byPrice.clear();
   };
 
-  if (prefs.zones === true) {
-    for (const zone of Array.isArray(overlays.zones) ? overlays.zones : []) {
-      const role = zone.role === "support" ? "Support" : zone.role === "resistance" ? "Resistance" : "Zone";
-      add(zone.band_low, { color: OVERLAY_COLORS.zones, title: `${role} low`, style: 1 });
-      add(zone.band_high, { color: OVERLAY_COLORS.zones, title: `${role} high`, style: 1 });
-    }
-  }
+  // Support/resistance zones are drawn as shaded bands by setZoneBands(), from the backend's
+  // display bands. They are no longer drawn as boundary price lines, which read as clutter and
+  // used the detector's centre-vs-close label (a band spanning the close was called resistance).
 
   if (prefs.range === true && overlays.range && typeof overlays.range === "object") {
     add(overlays.range.range_low, { color: OVERLAY_COLORS.range, title: "Range low", style: 3 });
@@ -341,12 +471,14 @@ export function applyOverlays(handle, payload = {}) {
 
   // Ghosted bounds of a known backend reference only on its setup timeframe.
   // No series.update(), future time coordinate, generated path, or new price.
+  // The setup reference is a faint shaded band in the zone layer, not two full-width price lines.
   const band = safePayload.scenarioBand;
-  if (band && Number.isFinite(band.low) && Number.isFinite(band.high) &&
-      band.low > 0 && band.high >= band.low) {
-    add(band.low, { color: OVERLAY_COLORS.reference, title: "Zone low", style: 2 });
-    add(band.high, { color: OVERLAY_COLORS.reference, title: "Zone high", style: 2 });
-  }
+  handle.setupBand = band && Number.isFinite(band.low) && Number.isFinite(band.high) &&
+      band.low > 0 && band.high >= band.low
+    ? { low: band.low, high: band.high }
+    : null;
+  if (handle.setupBand) createZoneLayer(handle);
+  renderZoneBands(handle);
 
   if (prefs.swings === true) {
     for (const swing of Array.isArray(overlays.swings) ? overlays.swings : []) {
@@ -378,4 +510,300 @@ export function applyOverlays(handle, payload = {}) {
     });
   }
   flush();
+}
+
+// ---------------------------------------------------------------------------
+// Chart evidence: markers and pattern lines drawn from the pure evidence model
+// (evidence.js). Every object created here is tracked on the handle and removed
+// by clearEvidence(), so switching timeframe or refreshing never leaves a stale
+// marker, line series, or subscription behind.
+// ---------------------------------------------------------------------------
+
+/** Remove every evidence marker, line series and price line this module added. */
+export function clearEvidence(handle) {
+  if (!handle) return;
+  if (handle.series && typeof handle.series.setMarkers === "function") {
+    try {
+      handle.series.setMarkers([]);
+    } catch {
+      // The series may already be torn down; nothing else is tracked for it.
+    }
+  }
+  const lines = Array.isArray(handle.evidenceSeries) ? handle.evidenceSeries.splice(0) : [];
+  for (const line of lines) {
+    try {
+      handle.chart?.removeSeries?.(line);
+    } catch {
+      // Keep removing the remaining tracked series.
+    }
+  }
+}
+
+/**
+ * Draw an evidence model: markers on the confirmed candle series and one line
+ * series per pattern segment. Nothing is interpolated: points are the exact
+ * candle times that the model already verified exist on screen.
+ */
+export function setEvidence(handle, model) {
+  if (!handle || handle.destroyed) return;
+  clearEvidence(handle);
+  const markers = Array.isArray(model?.markers)
+    ? model.markers.filter((marker) => Number.isFinite(marker.time)).sort((a, b) => a.time - b.time)
+    : [];
+  if (handle.series && typeof handle.series.setMarkers === "function") {
+    handle.series.setMarkers(markers);
+  }
+  if (!handle.chart || typeof handle.chart.addLineSeries !== "function") return;
+  for (const line of Array.isArray(model?.patternLines) ? model.patternLines : []) {
+    // Lightweight Charts requires strictly ascending times: keep one point per time.
+    const byTime = new Map();
+    for (const point of line.points || []) {
+      if (Number.isFinite(point.time) && Number.isFinite(point.value)) byTime.set(point.time, point.value);
+    }
+    const data = [...byTime.entries()].sort((a, b) => a[0] - b[0]).map(([time, value]) => ({ time, value }));
+    if (data.length < 2) continue;
+    const series = handle.chart.addLineSeries({
+      color: line.color,
+      lineWidth: line.lineWidth || 1,
+      lineStyle: line.lineStyle ?? 0,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    });
+    series.setData(data);
+    handle.evidenceSeries.push(series);
+  }
+}
+
+/**
+ * Subscribe to candle clicks and crosshair moves. Returns an unsubscribe
+ * function; subscriptions are also released by destroyPriceChart().
+ * onClick receives the exact bar time (seconds) under the cursor, or null.
+ * onCrosshair receives the confirmed bar's OHLC and volume under the cursor.
+ */
+export function subscribeChartEvents(handle, { onClick, onCrosshair } = {}) {
+  if (!handle || handle.destroyed || !handle.chart) return () => {};
+  const chart = handle.chart;
+  const unsubscribers = [];
+  if (typeof onClick === "function" && typeof chart.subscribeClick === "function") {
+    const listener = (param) => {
+      const time = param && Number.isFinite(param.time) ? Number(param.time) : null;
+      onClick(time);
+    };
+    chart.subscribeClick(listener);
+    unsubscribers.push(() => chart.unsubscribeClick?.(listener));
+  }
+  if (typeof onCrosshair === "function" && typeof chart.subscribeCrosshairMove === "function") {
+    const listener = (param) => {
+      const bar = param?.seriesData?.get?.(handle.series) || null;
+      const volumeBar = handle.volume ? param?.seriesData?.get?.(handle.volume) || null : null;
+      onCrosshair(bar && Number.isFinite(bar.open)
+        ? { time: Number(param.time), open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: volumeBar?.value ?? null }
+        : null);
+    };
+    chart.subscribeCrosshairMove(listener);
+    unsubscribers.push(() => chart.unsubscribeCrosshairMove?.(listener));
+  }
+  const release = () => {
+    for (const undo of unsubscribers.splice(0)) {
+      try { undo(); } catch { /* chart already removed */ }
+    }
+  };
+  handle.eventUnsubscribers.push(release);
+  return release;
+}
+
+export function unsubscribeChartEvents(handle) {
+  if (!handle || !Array.isArray(handle.eventUnsubscribers)) return;
+  for (const release of handle.eventUnsubscribers.splice(0)) release();
+}
+
+/**
+ * Thin, tracked price lines for higher-timeframe zones. Titles carry the source
+ * timeframe so they can never be mistaken for the viewed timeframe's levels.
+ * Lines are tracked in priceLineHandles and removed by clearOverlays().
+ */
+export function addHigherTimeframeLines(handle, entries) {
+  if (!handle || handle.destroyed || !handle.series || typeof handle.series.createPriceLine !== "function") return;
+  if (!Array.isArray(handle.priceLineHandles)) handle.priceLineHandles = [];
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const price = finiteNumber(entry.price);
+    if (price === null || price <= 0) continue;
+    handle.priceLineHandles.push(handle.series.createPriceLine(priceLine(price, {
+      color: entry.color || OVERLAY_COLORS.reference,
+      title: entry.title,
+      style: 3,
+      width: 1,
+    })));
+  }
+}
+
+// --- Support / resistance bands ---------------------------------------------------------
+//
+// Lightweight Charts v4 (vendored, unmodified) has no series primitives here, so each band is
+// a plain element positioned from series.priceToCoordinate(). Bands re-position on range
+// changes, crosshair moves and resizes. They never change candles or the price scale, and
+// pointer events are off except on each band's label, so candles under a band stay clickable.
+
+const ZONE_LABEL_MIN_GAP_PX = 16;
+/** The setup reference (backend reference bounds, display only): a neutral, unlabelled-by-role band. */
+const SETUP_BAND_STYLE = { fill: "rgba(143, 166, 255, 0.07)", edge: "#8fa6ff" };
+// Fills are deliberately faint: candles must stay the focus (PR #38 follow-up). Edges are drawn at
+// reduced strength in CSS. Higher-timeframe bands use dashed edges and no fill (see styles.css).
+const ZONE_STYLE = {
+  support: { fill: "rgba(46, 196, 182, 0.06)", edge: "#2ec4b6", short: "S" },
+  resistance: { fill: "rgba(239, 83, 80, 0.06)", edge: "#ef5350", short: "R" },
+  price_inside: { fill: "rgba(245, 166, 35, 0.08)", edge: "#f5a623", short: "IN" },
+};
+
+function createZoneLayer(handle) {
+  const container = handle.container;
+  if (typeof document === "undefined" || !container || handle.zoneLayer || typeof container.appendChild !== "function") return;
+  if (typeof globalThis.getComputedStyle === "function" && globalThis.getComputedStyle(container).position === "static") {
+    container.style.position = "relative";
+  }
+  const layer = document.createElement("div");
+  layer.className = "zone-band-layer";
+  container.appendChild(layer);
+  handle.zoneLayer = layer;
+  const timeScale = handle.chart?.timeScale?.();
+  const render = () => renderZoneBands(handle);
+  if (timeScale && typeof timeScale.subscribeVisibleLogicalRangeChange === "function") {
+    timeScale.subscribeVisibleLogicalRangeChange(render);
+    handle.zoneUnsubscribers.push(() => timeScale.unsubscribeVisibleLogicalRangeChange?.(render));
+  }
+  if (typeof handle.chart?.subscribeCrosshairMove === "function") {
+    handle.chart.subscribeCrosshairMove(render);
+    handle.zoneUnsubscribers.push(() => handle.chart.unsubscribeCrosshairMove?.(render));
+  }
+}
+
+/**
+ * Draw shaded support/resistance bands. `bands` are the backend's display bands (already merged,
+ * selected and classified); each may carry `htf: true` for higher-timeframe bands, drawn dashed.
+ * `onSelect(band)` runs when a band's label is clicked or activated by keyboard.
+ */
+export function setZoneBands(handle, bands, { onSelect } = {}) {
+  if (!handle || handle.destroyed || !handle.container) return;
+  // Feature-detect the DOM it needs; without it, bands are skipped and the chart still renders.
+  if (typeof handle.container.appendChild !== "function" || typeof document === "undefined" || typeof document.createElement !== "function") return;
+  createZoneLayer(handle);
+  handle.zoneBandsState = {
+    bands: Array.isArray(bands) ? bands.filter((band) => band && typeof band === "object") : [],
+    onSelect: typeof onSelect === "function" ? onSelect : null,
+  };
+  renderZoneBands(handle);
+}
+
+/** Remove every band and its listeners. Safe to call repeatedly. */
+export function clearZoneBands(handle) {
+  if (!handle) return;
+  for (const unsubscribe of handle.zoneUnsubscribers || []) {
+    try {
+      unsubscribe();
+    } catch {
+      // The chart may already be removed; nothing else to release.
+    }
+  }
+  handle.zoneUnsubscribers = [];
+  handle.zoneBandsState = null;
+  if (handle.zoneLayer) {
+    handle.zoneLayer.remove?.();
+    handle.zoneLayer = null;
+  }
+}
+
+/** Position every band and label from the current coordinates. Pure reads; no data change. */
+export function renderZoneBands(handle) {
+  if (!handle || handle.destroyed || !handle.zoneLayer) return;
+  const series = handle.series;
+  if (!series || typeof series.priceToCoordinate !== "function") return;
+  const layer = handle.zoneLayer;
+  const height = Number(handle.container?.clientHeight) || 0;
+  const { bands, onSelect } = handle.zoneBandsState || { bands: [], onSelect: undefined };
+  layer.textContent = "";
+  let offView = 0;
+  const labels = [];
+  if (handle.setupBand) {
+    const yHigh = series.priceToCoordinate(handle.setupBand.high);
+    const yLow = series.priceToCoordinate(handle.setupBand.low);
+    if (yHigh !== null && yLow !== null && yHigh !== undefined && yLow !== undefined) {
+      const top = Math.min(yHigh, yLow);
+      const bottom = Math.max(yHigh, yLow);
+      if (bottom < 0 || top > height) {
+        offView += 1;
+      } else {
+        const clampedTop = Math.max(0, top);
+        const node = document.createElement("div");
+        node.className = "zone-band zone-band--setup";
+        node.setAttribute?.("aria-hidden", "true");
+        node.style.top = `${clampedTop}px`;
+        node.style.height = `${Math.max(2, Math.min(height || bottom, bottom) - clampedTop)}px`;
+        node.style.setProperty("--zone-fill", SETUP_BAND_STYLE.fill);
+        node.style.setProperty("--zone-edge", SETUP_BAND_STYLE.edge);
+        layer.appendChild(node);
+        const caption = document.createElement("div");
+        caption.className = "zone-band-setup-label";
+        caption.textContent = "Setup zone";
+        caption.setAttribute?.("aria-hidden", "true");
+        caption.style.top = `${clampedTop + 2}px`;
+        layer.appendChild(caption);
+      }
+    }
+  }
+  for (const band of bands) {
+    // Position is where the band sits relative to price; the style key is the display role.
+    const styleKey = band.position === "below_price" ? "support" : band.position === "above_price" ? "resistance" : "price_inside";
+    const style = ZONE_STYLE[styleKey];
+    const high = Number(band.band_high);
+    const low = Number(band.band_low);
+    if (!Number.isFinite(high) || !Number.isFinite(low)) continue;
+    const yHigh = series.priceToCoordinate(high);
+    const yLow = series.priceToCoordinate(low);
+    if (yHigh === null || yLow === null || yHigh === undefined || yLow === undefined) continue;
+    const top = Math.min(yHigh, yLow);
+    const bottom = Math.max(yHigh, yLow);
+    if (bottom < 0 || top > height) {
+      offView += 1;
+      continue;
+    }
+    const clampedTop = Math.max(0, top);
+    const clampedBottom = Math.min(height || bottom, bottom);
+    const node = document.createElement("div");
+    node.className = `zone-band zone-band--${band.position || "price_inside"}${band.htf ? " zone-band--htf" : ""}${band.faded ? " zone-band--faded" : ""}`;
+    node.setAttribute?.("aria-hidden", "true");
+    node.style.top = `${clampedTop}px`;
+    node.style.height = `${Math.max(2, clampedBottom - clampedTop)}px`;
+    node.style.setProperty("--zone-fill", style.fill);
+    node.style.setProperty("--zone-edge", style.edge);
+    layer.appendChild(node);
+    labels.push({ band, style, y: clampedTop + 2 });
+  }
+  // Label collision: stack labels that would overlap, keeping the nearest to its band edge first.
+  labels.sort((a, b) => a.y - b.y);
+  let previous = -Infinity;
+  for (const entry of labels) {
+    const y = Math.max(entry.y, previous + ZONE_LABEL_MIN_GAP_PX);
+    previous = y;
+    const { band, style } = entry;
+    const label = document.createElement("button");
+    label.type = "button";
+    label.className = "zone-band-label";
+    label.style.top = `${y}px`;
+    label.style.setProperty("--zone-edge", style.edge);
+    const tf = band.source_timeframe ? String(band.source_timeframe).toUpperCase() : "";
+    label.textContent = `${style.short}${tf ? ` ${tf}` : ""} · ${band.touch_count ?? "?"}×`;
+    label.setAttribute("aria-label", `${band.display_role || band.position} zone ${band.band_low} to ${band.band_high}, ${tf || "viewed timeframe"}, ${band.touch_count ?? "unknown"} touches. Open explanation.`);
+    label.addEventListener("click", (event) => {
+      event.stopPropagation();
+      onSelect?.(band);
+    });
+    layer.appendChild(label);
+  }
+  if (offView) {
+    const note = document.createElement("div");
+    note.className = "zone-band-offview";
+    note.textContent = `${offView} zone${offView === 1 ? "" : "s"} outside the visible price range`;
+    layer.appendChild(note);
+  }
 }

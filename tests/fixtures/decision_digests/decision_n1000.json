@@ -1,0 +1,37 @@
+{
+ "boundaries": {
+  "1000": {
+   "frames": 12,
+   "plans": 8,
+   "qualified": 8,
+   "setups": 38,
+   "sha256": "27746fc35b23bda97c90e0849c20ac88c863bcf55e4f1553fb458b4100ed8a67",
+   "state": "QUALIFIED"
+  },
+  "500": {
+   "frames": 12,
+   "plans": 0,
+   "qualified": 0,
+   "setups": 47,
+   "sha256": "8c2d2e1dc2d79d8e6871f3ebcaed19677078aa0602aadd556e4702720cc5de25",
+   "state": "WATCH"
+  },
+  "750": {
+   "frames": 12,
+   "plans": 4,
+   "qualified": 4,
+   "setups": 24,
+   "sha256": "cb9f064e9bf2a651a9e4358cf5a0b354bea2fd0b1a6f3b6e33d6ec952f2db43f",
+   "state": "QUALIFIED"
+  },
+  "900": {
+   "frames": 12,
+   "plans": 0,
+   "qualified": 0,
+   "setups": 8,
+   "sha256": "c958ed53a17803bf0452700b837c9fddb028954db92dc0b1c9aa5559d94af262",
+   "state": "WATCH"
+  }
+ },
+ "candles": 1000
+}

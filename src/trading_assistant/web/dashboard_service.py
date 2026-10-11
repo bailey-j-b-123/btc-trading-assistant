@@ -9,7 +9,9 @@ parameters, so planning and explanation consume exactly what Step 5 saw.
 
 from __future__ import annotations
 
+import copy
 import logging
+from collections import OrderedDict
 from datetime import datetime
 
 from trading_assistant.journaling.parameters import normalize_note
@@ -20,8 +22,11 @@ from trading_assistant.market_data.integrity import (
     required_trailing_depth,
 )
 from trading_assistant.market_data.timeframes import (
+    datetime_to_milliseconds,
     latest_closed_candle_open_time,
+    milliseconds_to_datetime,
     require_utc_datetime,
+    timeframe_to_milliseconds,
 )
 from trading_assistant.market_structure.candles import interval_for_timeframe
 from trading_assistant.market_structure.parameters import MarketStructureParameters
@@ -52,8 +57,13 @@ from trading_assistant.setup_qualification.parameters import QualificationParame
 from trading_assistant.setup_qualification.service import bounded_replay_start
 from trading_assistant.trade_planning.models import PlanState, TradePlanResult
 from trading_assistant.trade_planning.planner import plan_trade
+from trading_assistant.web.zone_presentation import present_zones
 from trading_assistant.web.freshness import FreshnessReport, evaluate_freshness
 from trading_assistant.web.state import AppState
+
+#: Small in-process memo for chart evidence (bounded; keyed on the exact window).
+_CHART_EVIDENCE_CACHE: "OrderedDict[tuple, dict]" = OrderedDict()
+_CHART_EVIDENCE_CACHE_LIMIT = 32
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +98,24 @@ def _candle_row(candle) -> list[object]:
     ]
 
 
+def default_as_of_from_latest(
+    *,
+    latest: datetime | None,
+    timeframe: str,
+    current_boundary: datetime,
+) -> datetime:
+    """Newest evaluable boundary given the newest stored candle open time.
+
+    Shared by ``DashboardService.dashboard`` and ``latest_closed`` so the two can never disagree.
+    With no stored candle the clock boundary is returned unchanged.
+    """
+
+    if latest is None:
+        return current_boundary
+    last_data_boundary = latest + interval_for_timeframe(timeframe)
+    return min(current_boundary, last_data_boundary)
+
+
 class DashboardService:
     """Read-only assembly of the current-market screen payload."""
 
@@ -117,6 +145,11 @@ class DashboardService:
         resolved_as_of = self._resolve_as_of(
             timeframe=resolved_timeframe, as_of=as_of, now=now
         )
+        # Freshness is judged against the clock's newest boundary for a default
+        # request, so a stored series that stops behind the clock is reported
+        # STALE (with the missing intervals), not HISTORICAL. The decision
+        # snapshot itself stays pinned to the last stored boundary below.
+        freshness_as_of = resolved_as_of
         if as_of is None:
             resolved_as_of = self._default_as_of(
                 exchange=exchange,
@@ -134,7 +167,7 @@ class DashboardService:
             exchange=exchange,
             symbol=resolved_symbol,
             timeframe=resolved_timeframe,
-            as_of=resolved_as_of,
+            as_of=freshness_as_of,
             now=now,
             market=market,
         )
@@ -258,9 +291,72 @@ class DashboardService:
             "plan": None if plan is None else plan.to_json_dict(),
             "planning": planning_payload,
             "overlays": overlays,
+            "chart_evidence": self._chart_evidence_at(
+                exchange=exchange,
+                symbol=resolved_symbol,
+                timeframe=resolved_timeframe,
+                as_of=resolved_as_of,
+            ),
             "journal": journal_payload,
             "explanation": explanation_payload,
             "multi_timeframe": multi_timeframe_payload,
+        }
+
+    def latest_closed(
+        self,
+        *,
+        symbol: str | None = None,
+        timeframe: str | None = None,
+    ) -> dict[str, object]:
+        """Cheap change detector for the open dashboard. Reads one indexed row and runs no analysis.
+
+        ``default_as_of`` is the boundary ``dashboard()`` pins to when no ``as_of`` is given (both
+        use ``default_as_of_from_latest``), so the browser re-runs the expensive snapshot only when
+        this value changes. The freshness verdict is the same pure function the dashboard uses.
+        Nothing is written. The forming candle and the live Binance quote are never read here.
+        """
+
+        state = self.state
+        resolved_symbol = state.require_symbol(symbol)
+        resolved_timeframe = (
+            state.settings.default_timeframe if timeframe is None else timeframe
+        )
+        state.require_supported_timeframe(resolved_timeframe)
+        exchange = state.settings.exchange
+        now = state.now()
+        current_boundary = state.boundary_for(resolved_timeframe, now)
+        latest = state.candles.latest_timestamp(
+            exchange=exchange, symbol=resolved_symbol, timeframe=resolved_timeframe
+        )
+        default_as_of = default_as_of_from_latest(
+            latest=latest, timeframe=resolved_timeframe, current_boundary=current_boundary
+        )
+        expected_latest_closed = latest_closed_candle_open_time(
+            current_boundary, resolved_timeframe
+        )
+        bounded_latest = (
+            latest if latest is not None and latest <= expected_latest_closed else None
+        )
+        report = evaluate_freshness(
+            timeframe=resolved_timeframe,
+            as_of=current_boundary,
+            now=now,
+            latest_stored=bounded_latest,
+        )
+        return {
+            "exchange": exchange,
+            "symbol": resolved_symbol,
+            "timeframe": resolved_timeframe,
+            "checked_at": to_jsonable(now),
+            "default_as_of": to_jsonable(default_as_of),
+            "latest_stored_open": to_jsonable(latest),
+            "expected_latest_closed_open": to_jsonable(expected_latest_closed),
+            "freshness": {
+                "status": report.status,
+                "reason": report.reason,
+                "staleness_intervals": report.staleness_intervals,
+                "is_current_boundary": report.is_current_boundary,
+            },
         }
 
     def candles(
@@ -270,7 +366,19 @@ class DashboardService:
         timeframe: str | None = None,
         limit: int = DASHBOARD_CANDLE_LIMIT,
         end_time: datetime | None = None,
+        before: datetime | None = None,
     ) -> dict[str, object]:
+        """Chart candles for one timeframe, read with a bounded query.
+
+        The page is the ``limit`` closed candles ending at the boundary (or just before ``before``
+        when paging back). Only that window is read, using the primary-key range. Gap detection is
+        unchanged inside the window: a candle missing from the window is reported. The window start
+        is clamped to the first stored candle, so history that was never stored is reported as
+        "earliest reached", not as a gap. ``series_missing_count`` counts missing candles across the
+        stored series up to the page end with a COUNT, so whole-series completeness is still known
+        without loading every row.
+        """
+
         state = self.state
         resolved_symbol = state.require_symbol(symbol)
         resolved_timeframe = (
@@ -286,27 +394,77 @@ class DashboardService:
             if end_time is not None
             else state.current_boundary(resolved_timeframe)
         )
-        expected_latest_closed = latest_closed_candle_open_time(
-            boundary, resolved_timeframe
-        )
-        # Read the full stored series so completeness reflects real gaps (never
-        # a window that starts before the first stored candle), then slice.
-        result = state.candles.get_candles(
-            exchange=exchange,
-            symbol=resolved_symbol,
-            timeframe=resolved_timeframe,
-            end_time=expected_latest_closed,
-        )
-        window = result.candles[-limit:]
-        return {
+        expected_latest_closed = latest_closed_candle_open_time(boundary, resolved_timeframe)
+        interval_ms = timeframe_to_milliseconds(resolved_timeframe)
+        newest_ms = datetime_to_milliseconds(expected_latest_closed)
+        if before is not None:
+            before_ms = datetime_to_milliseconds(require_utc_datetime(before, field_name="before"))
+            newest_ms = min(newest_ms, before_ms - interval_ms)
+        window_start_ms = newest_ms - (limit - 1) * interval_ms
+        newest = milliseconds_to_datetime(newest_ms)
+        repo = state.candles
+        earliest = repo.earliest_timestamp(exchange=exchange, symbol=resolved_symbol, timeframe=resolved_timeframe)
+        latest = repo.latest_timestamp(exchange=exchange, symbol=resolved_symbol, timeframe=resolved_timeframe)
+
+        base = {
             "exchange": exchange,
             "symbol": resolved_symbol,
             "timeframe": resolved_timeframe,
             "as_of": to_jsonable(boundary),
-            "candles": [_candle_row(candle) for candle in window],
+            "window_end": to_jsonable(newest),
+            "earliest_stored_open": to_jsonable(earliest),
+            "latest_stored_open": to_jsonable(latest),
+        }
+        if earliest is None or newest_ms < datetime_to_milliseconds(earliest):
+            # Nothing stored at or before this page: the earliest stored candle has been reached.
+            return {
+                **base,
+                "window_start": to_jsonable(newest),
+                "candles": [],
+                "gaps": [],
+                "complete": True,
+                "returned_count": 0,
+                "has_older": False,
+                "earliest_reached": True,
+                "next_before": None,
+                "series_missing_count": 0,
+            }
+
+        earliest_ms = datetime_to_milliseconds(earliest)
+        start_ms = max(window_start_ms, earliest_ms)
+        window_start = milliseconds_to_datetime(start_ms)
+        result = repo.get_candles(
+            exchange=exchange,
+            symbol=resolved_symbol,
+            timeframe=resolved_timeframe,
+            start_time=window_start,
+            end_time=newest,
+        )
+        expected_count = (newest_ms - earliest_ms) // interval_ms + 1
+        stored_count = repo.count_candles(
+            exchange=exchange,
+            symbol=resolved_symbol,
+            timeframe=resolved_timeframe,
+            start_time=earliest,
+            end_time=newest,
+        )
+        has_older = earliest_ms < window_start_ms
+        if result.candles:
+            next_before = result.candles[0].timestamp
+        else:
+            # A fully missing window still moves the cursor strictly backwards, so paging always ends.
+            next_before = window_start
+        return {
+            **base,
+            "window_start": to_jsonable(window_start),
+            "candles": [_candle_row(candle) for candle in result.candles],
             "gaps": to_jsonable(result.gaps),
             "complete": result.complete,
-            "returned_count": len(window),
+            "returned_count": len(result.candles),
+            "has_older": has_older,
+            "earliest_reached": not has_older,
+            "next_before": to_jsonable(next_before) if has_older else None,
+            "series_missing_count": int(expected_count - stored_count),
         }
 
     def structure(
@@ -345,10 +503,122 @@ class DashboardService:
             "candle_count": analysis.candle_count,
             "trend": to_jsonable(analysis.trend),
             "zones": to_jsonable(analysis.levels.zones),
+            "zone_bands": _zone_bands(analysis.levels, resolved_timeframe),
             "range": to_jsonable(analysis.detected_range),
             "swings": to_jsonable(analysis.confirmed_swings),
             "completeness": to_jsonable(snapshot.completeness),
         }
+
+    def chart_evidence(
+        self,
+        *,
+        symbol: str | None = None,
+        timeframe: str | None = None,
+        as_of: datetime | None = None,
+    ) -> dict[str, object]:
+        """Chart evidence for one timeframe at one instant (read-only).
+
+        Runs the existing Step 3/4 detectors over the last
+        ``CHART_EVIDENCE_WINDOW`` closed candles at ``as_of`` (default: the
+        current closed boundary) and projects them for the chart. It does not
+        alter the engine's qualification, plan, journal, or forward ledger.
+        """
+
+        state = self.state
+        resolved_symbol = state.require_symbol(symbol)
+        resolved_timeframe = (
+            state.settings.default_timeframe if timeframe is None else timeframe
+        )
+        state.require_supported_timeframe(resolved_timeframe)
+        exchange = state.settings.exchange
+        now = state.now()
+        if as_of is None:
+            resolved_as_of = state.current_boundary(resolved_timeframe)
+        else:
+            resolved_as_of = self._resolve_as_of(
+                timeframe=resolved_timeframe,
+                as_of=require_utc_datetime(as_of, field_name="as_of"),
+                now=now,
+            )
+        return self._chart_evidence_at(
+            exchange=exchange,
+            symbol=resolved_symbol,
+            timeframe=resolved_timeframe,
+            as_of=resolved_as_of,
+        )
+
+    def _chart_evidence_at(
+        self,
+        *,
+        exchange: str,
+        symbol: str,
+        timeframe: str,
+        as_of: datetime,
+    ) -> dict[str, object]:
+        from trading_assistant.market_data.timeframes import (
+            latest_closed_candle_open_time as _latest_open,
+        )
+        from trading_assistant.market_structure.candles import interval_for_timeframe
+        from trading_assistant.pattern_liquidity.analysis import analyze_patterns
+        from trading_assistant.web.chart_evidence import (
+            CHART_EVIDENCE_WINDOW,
+            build_chart_evidence,
+            unavailable_chart_evidence,
+        )
+
+        interval = interval_for_timeframe(timeframe)
+        stored = self.state.candles.get_candles(
+            exchange=exchange,
+            symbol=symbol,
+            timeframe=timeframe,
+            end_time=_latest_open(as_of, timeframe),
+        )
+        window = tuple(stored.candles[-CHART_EVIDENCE_WINDOW:])
+        if not window:
+            return unavailable_chart_evidence(
+                exchange=exchange,
+                symbol=symbol,
+                timeframe=timeframe,
+                as_of=as_of,
+                reason="No stored closed candles exist at this decision time.",
+            )
+        # Chart evidence is a pure function of (instant, exact candle window):
+        # the same inputs always give the same payload, so repeat reads (dashboard
+        # refreshes, switching back to a timeframe) reuse it. Failures are never cached.
+        cache_key = (exchange, symbol, timeframe, as_of, window)
+        cached = _CHART_EVIDENCE_CACHE.get(cache_key)
+        if cached is not None:
+            _CHART_EVIDENCE_CACHE.move_to_end(cache_key)
+            return copy.deepcopy(cached)
+        try:
+            snapshot = analyze_patterns(
+                window,
+                exchange=exchange,
+                symbol=symbol,
+                timeframe=timeframe,
+                as_of=as_of,
+            )
+        except ValueError as exc:
+            return unavailable_chart_evidence(
+                exchange=exchange,
+                symbol=symbol,
+                timeframe=timeframe,
+                as_of=as_of,
+                reason=f"Stored candles could not be analysed: {exc}",
+            )
+        payload = build_chart_evidence(
+            exchange=exchange,
+            symbol=symbol,
+            timeframe=timeframe,
+            as_of=as_of,
+            snapshot=snapshot,
+            candles=window,
+            interval=interval,
+        )
+        _CHART_EVIDENCE_CACHE[cache_key] = copy.deepcopy(payload)
+        while len(_CHART_EVIDENCE_CACHE) > _CHART_EVIDENCE_CACHE_LIMIT:
+            _CHART_EVIDENCE_CACHE.popitem(last=False)
+        return payload
 
     def _required_window(
         self,
@@ -547,10 +817,9 @@ class DashboardService:
         latest = self.state.candles.latest_timestamp(
             exchange=exchange, symbol=symbol, timeframe=timeframe
         )
-        if latest is None:
-            return current_boundary
-        last_data_boundary = latest + interval_for_timeframe(timeframe)
-        return min(current_boundary, last_data_boundary)
+        return default_as_of_from_latest(
+            latest=latest, timeframe=timeframe, current_boundary=current_boundary
+        )
 
     def _resolve_as_of(
         self,
@@ -960,6 +1229,7 @@ class DashboardService:
         return {
             "equal_levels": equal_levels,
             "zones": to_jsonable(structure.levels.zones),
+            "zone_bands": _zone_bands(structure.levels, snapshot.timeframe if snapshot is not None else None),
             "range": to_jsonable(structure.detected_range),
             "swings": to_jsonable(structure.confirmed_swings),
             "setup_reference": setup_reference,
@@ -1251,6 +1521,21 @@ def _max_bars_for(family: SetupFamily, parameters: QualificationParameters) -> i
     if family is SetupFamily.LIQUIDITY_REVERSAL:
         return parameters.reversal_max_bars
     return parameters.range_max_bars
+
+
+def _zone_bands(levels, timeframe):
+    """Display bands for one timeframe's zones. Presentation only; zones are unchanged."""
+
+    if timeframe is None:
+        return {"timeframe": None, "bands": [], "merged_count": 0, "hidden_count": 0,
+                "total_stored": len(levels.zones), "rules": {}, "reason": "no_timeframe"}
+    close = levels.zones[0].latest_close if levels.zones else None
+    return present_zones(
+        to_jsonable(levels.zones),
+        timeframe=timeframe,
+        as_of=levels.as_of,
+        latest_close=to_jsonable(close) if close is not None else None,
+    )
 
 
 def structure_for_previous_frame(frames):

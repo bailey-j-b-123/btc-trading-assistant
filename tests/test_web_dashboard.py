@@ -229,7 +229,12 @@ def test_freshness_current_at_boundary(tmp_path):
 
 
 def test_stale_data_is_visibly_labelled_when_clock_advances(tmp_path):
-    """Default view snaps to the newest stored boundary: HISTORICAL, never LIVE."""
+    """Default view: the decision snapshot snaps to the newest stored boundary,
+    but freshness is judged against the clock, so lagging data is STALE.
+
+    Regression (PR #38 follow-up): the screen used to say HISTORICAL while the
+    stored series was five candles behind the clock, which hid the real fault.
+    """
 
     engine, url = migrated_engine(tmp_path)
     insert_candles(engine, qualifying_candles())
@@ -238,10 +243,11 @@ def test_stale_data_is_visibly_labelled_when_clock_advances(tmp_path):
     try:
         payload = client.get("/api/dashboard").json()
         freshness = payload["freshness"]
-        assert freshness["status"] == "HISTORICAL"
+        assert freshness["status"] == "STALE"
+        assert freshness["reason"] == "stored_candles_stop_before_expected_boundary"
         assert freshness["staleness_intervals"] == 5
         assert freshness["status"] not in {"CURRENT", "UNKNOWN"}
-        # The dashboard honours the snap: as_of is the last stored boundary.
+        # The decision snapshot is unchanged: as_of is still the last stored boundary.
         assert payload["meta"]["as_of"].startswith("2024-01-01T21:00")
     finally:
         engine.dispose()

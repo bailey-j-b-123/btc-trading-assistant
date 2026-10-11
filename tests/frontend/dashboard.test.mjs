@@ -442,6 +442,9 @@ async function withDashboard(dashboard, forward, callback) {
   globalThis.localStorage = { getItem: () => null, setItem: () => {} };
   globalThis.document = {
     documentElement: {},
+    // The dashboard listens for tab visibility to resume automatic updates.
+    addEventListener() {},
+    removeEventListener() {},
     getElementById: (id) => ids.get(id) || null,
     createElement: (name) => new MockNode(name),
     createTextNode: (text) => {
@@ -475,7 +478,7 @@ test("WATCH renders with backend evidence and missing confirmation", async () =>
     assert.match(view.textContent, /Range rejection reversal/);
     assert.match(view.textContent, /A sell-side sweep was recorded\./);
     assert.match(view.textContent, /A confirming close has not been recorded\./);
-    assert.equal(ids.get("topbar-status").textContent, "SYSTEM OK");
+    assert.match(ids.get("topbar-status").textContent, /^DATA CURRENT · RUNNER /);
     // Fix #2: the one WATCH setup the backend itself resolved is the primary
     // focus of the Bot-is-watching card (Why facts + one Next requirement).
     const card = findNodes(view, (node) => (node.className || "").split(" ").includes("bot-watching-card"))[0];
@@ -851,15 +854,15 @@ test("repeated dashboard renders dispose old charts and replace, not stack, over
   });
 });
 
-test("healthy system details collapse to one compact SYSTEM OK indicator", async () => {
+test("healthy system details collapse to one compact DATA CURRENT indicator", async () => {
   await withDashboard(backendDashboard(), forwardPayload(), async ({ view, ids }) => {
     await renderDashboard(view);
-    assert.equal(ids.get("topbar-status").textContent, "SYSTEM OK");
+    assert.match(ids.get("topbar-status").textContent, /^DATA CURRENT · RUNNER /);
     const details = findNodes(view, (node) => node.tagName === "DETAILS" && node.className.includes("system-details"))[0];
     assert.ok(details);
     assert.equal(details.open, false);
     assert.match(details.textContent, /Pending catch-up/);
-    assert.match(systemHealthViewModel(backendDashboard(), forwardPayload()).label, /SYSTEM OK/);
+    assert.match(systemHealthViewModel(backendDashboard(), forwardPayload()).label, /^DATA CURRENT · RUNNER /);
   });
 });
 

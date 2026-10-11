@@ -70,6 +70,25 @@ def ordered_candles(candles: Iterable[Candle], *, interval: timedelta) -> tuple[
     return ordered
 
 
+def closed_prefix_of_validated(
+    candles: Iterable[Candle],
+    *,
+    interval: timedelta,
+    as_of: datetime,
+) -> tuple[Candle, ...]:
+    """Close-time filter for a sequence that is already proven valid.
+
+    Equal to :func:`candles_closed_by` when the input is an output of
+    ``ordered_candles`` or :func:`candles_closed_by` itself, because a filtered
+    prefix of a valid sequence is still valid. Only internal callers that hold
+    such a tuple use it. They skip the repeated O(n) validation pass.
+    """
+
+    resolved_interval = require_positive_interval(interval)
+    as_of_utc = require_utc_datetime(as_of, field_name="as_of")
+    return tuple(c for c in candles if c.timestamp + resolved_interval <= as_of_utc)
+
+
 def candles_closed_by(
     candles: Iterable[Candle],
     *,

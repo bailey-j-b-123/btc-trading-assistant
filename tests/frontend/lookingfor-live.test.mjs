@@ -42,14 +42,17 @@ test("clean defaults hide historical diagnostics but retain an actual scenario b
     invalidation: { value: "70" }, targets: [{ level: { value: "90" } }] };
   const snapshot = { overlays, plan, scenarioBand: scenarioBand(fact, "1h"), prefs: DEFAULT_PREFS };
   applyOverlays(handle, snapshot);
-  assert.deepEqual(names(handle), ["Zone low", "Zone high", "Entry", "Stop / Invalidation", "T1"]);
+  assert.deepEqual(names(handle), ["Entry", "Stop / Invalidation", "T1"]);
+  assert.deepEqual(handle.setupBand, { low: Number(fact.reference.band_low), high: Number(fact.reference.band_high) });
   applyOverlays(handle, { ...snapshot, prefs: { overlays: {
     zones: true, range: true, equalLevels: true, swings: true, planLevels: true,
   } } });
-  for (const name of ["Zone low", "Range low", "Equal lows", "Swing high", "Entry"]) {
+  for (const name of ["Range low", "Equal lows", "Swing high", "Entry"]) {
     assert.ok(names(handle).some((value) => value.includes(name)), name);
   }
-  assert.equal(handle.lines.size, 11); // diagnostic detail remains available, never deleted
+  // The setup reference is a shaded band (setupBand), not price lines. Price lines: range low/high, equal
+  // lows, swing, entry, stop, T1 and the rest = 7. Diagnostic detail remains available, never deleted.
+  assert.equal(handle.lines.size, 7);
 });
 
 test("LOOKING FOR is a compact projection of backend setup and hierarchy facts", () => {
@@ -88,7 +91,9 @@ test("missing or mismatched facts draw no scenario; no future coordinates or pro
   assert.deepEqual(band, { low: 81000, high: 81100 });
   const handle = chart();
   applyOverlays(handle, { overlays: {}, scenarioBand: band, prefs: DEFAULT_PREFS });
-  assert.deepEqual([...handle.lines].map((line) => line.options.price), [81000, 81100]);
+  // The reference is a shaded band, never a price line: no full-width Zone low/high lines are created.
+  assert.deepEqual(handle.setupBand, { low: 81000, high: 81100 });
+  assert.equal([...handle.lines].some((line) => /^Zone (low|high)$/.test(line.options.title)), false);
   assert.equal([...handle.lines].every((line) => !Object.hasOwn(line.options, "time") &&
     !Object.hasOwn(line.options, "probability")), true);
   applyOverlays(handle, { overlays: {}, scenarioBand: scenarioBand(fact, "5m"), prefs: DEFAULT_PREFS });
@@ -145,7 +150,7 @@ test("browser disconnect immediately labels the last valid quote stale without d
   const saved = ["document", "fetch", "setInterval", "clearInterval"].map((key) => [key,
     Object.hasOwn(globalThis, key), globalThis[key]]);
   class Node {
-    constructor() { this.children = []; this._text = ""; this.dataset = {}; this.style = {}; }
+    constructor() { this.nodeType = 1; this.children = []; this._text = ""; this.dataset = {}; this.style = {}; }
     set textContent(value) { this._text = String(value); this.children = []; }
     get textContent() { return this._text + this.children.map((child) => child.textContent).join(""); }
     append(...children) { this.children.push(...children); }
@@ -153,7 +158,10 @@ test("browser disconnect immediately labels the last valid quote stale without d
   }
   const ticks = [];
   let requests = 0;
-  globalThis.document = { createElement: () => new Node() };
+  globalThis.document = {
+    createElement: () => new Node(),
+    createTextNode: (text) => Object.assign(new Node(), { nodeType: 3, _text: String(text) }),
+  };
   globalThis.setInterval = (callback) => { ticks.push(callback); return ticks.length; };
   globalThis.clearInterval = () => {};
   globalThis.fetch = async () => {
@@ -168,11 +176,14 @@ test("browser disconnect immediately labels the last valid quote stale without d
     display.start();
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(display.node.dataset.freshness, "CURRENT");
-    assert.match(display.node.textContent, /Binance Spot public ticker/);
+    assert.match(display.node.textContent, /Binance Spot last trade/);
     ticks[0]();
     await new Promise((resolve) => setImmediate(resolve));
+    // The disconnect is labelled STALE in words; the last valid price stays visible but dimmed.
     assert.equal(display.node.dataset.freshness, "STALE");
-    assert.match(display.node.textContent, /LIVE DATA STALE/);
+    assert.match(display.node.textContent, /STALE/);
+    assert.match(display.node.textContent, /82,512\.40/);
+    assert.match(display.node.textContent, /not current; reconnecting/);
     assert.ok(!display.node.textContent.includes("FORMING CANDLE"));
   } finally {
     display.destroy();
