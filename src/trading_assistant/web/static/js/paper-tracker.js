@@ -69,8 +69,96 @@ export function trackerLedgerSignature(tracker) {
             plan.outcome.recorded_at || null,
           ]
         : null,
+      plan?.signal_provenance?.four_timeframe_confirmation
+        ? [
+            plan.signal_provenance.four_timeframe_confirmation.status || null,
+            plan.signal_provenance.four_timeframe_confirmation.reason || null,
+            plan.signal_provenance.four_timeframe_confirmation.observation_id || null,
+            plan.signal_provenance.four_timeframe_confirmation.recorded_at || null,
+          ]
+        : null,
     ]),
   });
+}
+
+const SIGNAL_STATUS_LABELS = {
+  confirmed: "FOUR-TIMEFRAME CONFIRMED",
+  not_confirmed: "NOT FOUR-TIMEFRAME CONFIRMED",
+  unavailable: "CONFIRMATION UNAVAILABLE",
+  incomplete: "HIERARCHY EVIDENCE INCOMPLETE",
+  stale: "HIERARCHY EVIDENCE STALE",
+  conflicting: "HIERARCHY EVIDENCE CONFLICTING",
+  not_applicable: "NOT APPLICABLE",
+};
+
+/**
+ * Presentation-only projection of the backend's immutable-record join.
+ * A `plannable` live hierarchy payload is deliberately not a substitute.
+ */
+export function signalProvenanceViewModel(provenance, { timeframe = null } = {}) {
+  const candidate = provenance?.paper_candidate && typeof provenance.paper_candidate === "object"
+    ? provenance.paper_candidate
+    : null;
+  const confirmation = provenance?.four_timeframe_confirmation && typeof provenance.four_timeframe_confirmation === "object"
+    ? provenance.four_timeframe_confirmation
+    : null;
+  let status = Object.hasOwn(SIGNAL_STATUS_LABELS, confirmation?.status)
+    ? confirmation.status
+    : "unavailable";
+  const sameBoundary = typeof candidate?.plan_as_of === "string" &&
+    candidate.plan_as_of === confirmation?.decision_time;
+  const matchingRecord = Array.isArray(confirmation?.records) &&
+    confirmation.records.some((record) =>
+      record?.observation_id === confirmation?.observation_id &&
+      record?.hierarchy_fingerprint === confirmation?.hierarchy_fingerprint &&
+      record?.recorded_at === confirmation?.recorded_at &&
+      record?.decision_time === confirmation?.decision_time &&
+      record?.decision === "plannable" &&
+      record?.status === "evaluated"
+    );
+  const planRecordedAt = Date.parse(candidate?.recorded_at || "");
+  const hierarchyRecordedAt = Date.parse(confirmation?.recorded_at || "");
+  const evidencePrecedesPlan = Number.isFinite(planRecordedAt) &&
+    Number.isFinite(hierarchyRecordedAt) && hierarchyRecordedAt <= planRecordedAt;
+  const hasStoredProof = candidate?.timeframe === "1h" &&
+    candidate?.label === "1H PAPER CANDIDATE" &&
+    candidate?.is_recorded_paper_plan === true &&
+    typeof candidate?.paper_plan_id === "string" &&
+    candidate.paper_plan_id.length > 0 &&
+    confirmation?.confirmed === true &&
+    confirmation?.matching_boundary === true &&
+    confirmation?.available_by_plan === true &&
+    confirmation?.evidence_complete === true &&
+    confirmation?.decision === "plannable" &&
+    typeof confirmation?.observation_id === "string" &&
+    typeof confirmation?.hierarchy_fingerprint === "string" &&
+    typeof confirmation?.recorded_at === "string" &&
+    sameBoundary && evidencePrecedesPlan && matchingRecord;
+  if (status === "confirmed" && !hasStoredProof) status = "conflicting";
+  const resolvedTimeframe = candidate?.timeframe || timeframe;
+  const candidateLabel = typeof candidate?.label === "string"
+    ? candidate.label
+    : resolvedTimeframe === "1h"
+      ? "1H PAPER CANDIDATE"
+      : resolvedTimeframe
+        ? `${String(resolvedTimeframe).toUpperCase()} PAPER CANDIDATE`
+        : "PAPER CANDIDATE";
+  const reason = typeof confirmation?.reason === "string" && confirmation.reason
+    ? confirmation.reason
+    : "No matching stored hierarchy decision is linked to this paper candidate.";
+  return {
+    candidateLabel,
+    confirmationStatus: status,
+    confirmationLabel: SIGNAL_STATUS_LABELS[status],
+    confirmed: status === "confirmed" && hasStoredProof,
+    reason,
+    decisionTime: confirmation?.decision_time || candidate?.plan_as_of || null,
+    recordedAt: confirmation?.recorded_at || null,
+    decision: confirmation?.decision || null,
+    observationId: confirmation?.observation_id || null,
+    matchingBoundary: confirmation?.matching_boundary === true,
+    availableByPlan: confirmation?.available_by_plan === true,
+  };
 }
 
 /**
@@ -197,6 +285,9 @@ function trackedPlanViewModel(plan) {
     settled,
     occupiesSlot: occupies,
     outcomeVersionCount: Number.isInteger(plan?.outcome_version_count) ? plan.outcome_version_count : null,
+    signalProvenance: signalProvenanceViewModel(plan?.signal_provenance, {
+      timeframe: plan?.timeframe || null,
+    }),
     outcomeStatus: outcome?.status ?? null,
     outcomeRecordedAt: outcome?.recorded_at || null,
     outcomeObservedThrough: outcome?.observed_through || null,
@@ -316,6 +407,27 @@ function assessmentText(model) {
 }
 
 /** The featured (most recent) tracked plan, levels first, ledger facts under it. */
+function signalProvenanceNode(plan) {
+  const provenance = plan.signalProvenance;
+  const timing = provenance.recordedAt
+    ? `Hierarchy decision ${provenance.decisionTime ? formatUtc(provenance.decisionTime) : UNKNOWN_TEXT} · recorded ${formatUtc(provenance.recordedAt)}`
+    : provenance.decisionTime
+      ? `Candidate boundary ${formatUtc(provenance.decisionTime)} · hierarchy record time UNKNOWN`
+      : "Candidate boundary and hierarchy record time UNKNOWN";
+  return el("div", { class: "tracker-provenance", "aria-label": "Signal provenance" }, [
+    el("div", { class: "tracker-provenance-pills" }, [
+      el("span", { class: "tracker-provenance-pill candidate", text: provenance.candidateLabel }),
+      el("span", {
+        class: "tracker-provenance-pill confirmation",
+        dataset: { status: provenance.confirmationStatus },
+        text: provenance.confirmationLabel,
+      }),
+    ]),
+    el("p", { class: "tracker-provenance-reason", text: provenance.reason }),
+    el("div", { class: "tracker-provenance-time mono", text: timing }),
+  ]);
+}
+
 function featuredPlanNode(plan) {
   return el("div", { class: "tracker-plan", dataset: { state: plan.state } }, [
     el("div", { class: "tracker-plan-head" }, [
@@ -324,6 +436,7 @@ function featuredPlanNode(plan) {
       el("span", { class: "tracker-plan-id mono", text: `PLAN ${plan.shortId}` }),
       el("span", { class: "tracker-state-pill", dataset: { tone: plan.state === "settled" ? "neutral" : plan.state === "active" ? "amber" : "blue" }, text: plan.stateLabel }),
     ]),
+    signalProvenanceNode(plan),
     el("div", { class: "tracker-levels" }, [
       trackerLevelCell("Entry", displayRounded(plan.entry, 2).display, "blue", plan.entry),
       trackerLevelCell("Stop", displayRounded(plan.stop, 2).display, "red", plan.stop),
@@ -356,6 +469,7 @@ function historyNode(plans) {
       el("thead", {}, [el("tr", {}, [
         el("th", { scope: "col", text: "Planned" }),
         el("th", { scope: "col", text: "Direction" }),
+        el("th", { scope: "col", text: "Signal provenance" }),
         el("th", { scope: "col", text: "Entry" }),
         el("th", { scope: "col", text: "Stop" }),
         el("th", { scope: "col", text: "Target" }),
@@ -366,6 +480,7 @@ function historyNode(plans) {
       el("tbody", {}, plans.map((plan) => el("tr", {}, [
         el("td", { class: "mono", text: plan.planTime ? formatUtc(plan.planTime) : UNKNOWN_TEXT }),
         el("td", { text: directionLabel(plan.direction) }),
+        el("td", { class: "tracker-provenance-cell", text: `${plan.signalProvenance.candidateLabel} · ${plan.signalProvenance.confirmationLabel}` }),
         el("td", { class: "mono", text: displayOrUnknown(plan.entry) }),
         el("td", { class: "mono", text: displayOrUnknown(plan.stop) }),
         el("td", { class: "mono", text: plan.targets.length ? plan.targets.map((target) => displayRounded(target, 2).display).join(" / ") : UNKNOWN_TEXT }),

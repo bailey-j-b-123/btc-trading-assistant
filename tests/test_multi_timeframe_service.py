@@ -930,7 +930,11 @@ def test_dashboard_ladder_payload_via_api(aligned_engine):
         ladder = payload["multi_timeframe"]
         assert ladder["available"] is True
         assert ladder["decision"] == "awaiting_execution"
-        assert ladder["overall"] == "WAITING FOR ENTRY TIMING"
+        assert ladder["overall"] == "LIVE EVALUATION · WAITING FOR ENTRY TIMING"
+        assert ladder["evaluation_source"] == "live_read_only"
+        assert ladder["decision_kind"] == "live_hierarchy_evaluation"
+        assert ladder["stored_decision_for_paper_confirmation"] is False
+        assert "not a stored hierarchy decision" in ladder["evaluation_note"]
         assert ladder["alignment"] == "aligned"
         assert ladder["counter_trend"] is False
         assert [row["label"] for row in ladder["ladder"]] == [

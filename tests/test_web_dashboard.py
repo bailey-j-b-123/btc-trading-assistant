@@ -115,6 +115,16 @@ def test_qualified_renders_with_exact_plan_levels(qualified_client):
     plan = payload["plan"]
     assert plan is not None
     assert payload["planning"]["state"] == "PLANNABLE"
+    provenance = payload["signal_provenance"]
+    assert provenance["paper_candidate"]["label"] == "1H PAPER CANDIDATE"
+    assert provenance["paper_candidate"]["is_recorded_paper_plan"] is False
+    assert provenance["four_timeframe_confirmation"]["status"] == "unavailable"
+    assert provenance["four_timeframe_confirmation"]["confirmed"] is False
+    assert "No stored 1H paper-plan row" in provenance["four_timeframe_confirmation"]["reason"]
+    if payload["multi_timeframe"].get("available") is True:
+        assert payload["multi_timeframe"]["evaluation_source"] == "live_read_only"
+        assert payload["multi_timeframe"]["stored_decision_for_paper_confirmation"] is False
+        assert "not a stored hierarchy decision" in payload["multi_timeframe"]["evaluation_note"]
 
     # Independent recomputation through Step 6 with the same deterministic
     # services: the API must not reshape or recompute any level.

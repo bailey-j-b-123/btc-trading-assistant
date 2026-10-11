@@ -272,6 +272,34 @@ class HierarchyLedgerRepository:
             ).first()
             return None if row is None else _from_row(row)
 
+    def observations_at_boundary(
+        self, *, exchange: str, symbol: str, decision_time: datetime
+    ) -> tuple[HierarchyObservation, ...]:
+        """Every stored hierarchy version at one exact decision boundary.
+
+        Signal provenance must not substitute a nearby or newer decision for
+        the boundary that produced a paper plan. Return all fingerprints at
+        that boundary so callers can detect competing stored decisions rather
+        than selecting an arbitrary one.
+        """
+
+        statement = (
+            select(ForwardHierarchyObservationRow)
+            .where(
+                ForwardHierarchyObservationRow.exchange == exchange,
+                ForwardHierarchyObservationRow.symbol == symbol,
+                ForwardHierarchyObservationRow.decision_time == decision_time,
+            )
+            .order_by(
+                ForwardHierarchyObservationRow.recorded_at.asc(),
+                ForwardHierarchyObservationRow.hierarchy_fingerprint.asc(),
+                ForwardHierarchyObservationRow.observation_id.asc(),
+            )
+        )
+        with self._sessions() as session:
+            rows = session.scalars(statement).all()
+            return tuple(_from_row(row) for row in rows)
+
     def counts(
         self, *, exchange: str, symbol: str, hierarchy_fingerprint: str | None = None
     ) -> dict[str, int]:

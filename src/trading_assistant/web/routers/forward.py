@@ -24,6 +24,7 @@ from trading_assistant.historical_validation import (
     FrictionAssumptions as ValidationFrictionAssumptions,
 )
 from trading_assistant.historical_validation import ValidationConfig
+from trading_assistant.web.signal_provenance import paper_plan_signal_provenance
 
 router = APIRouter(prefix="/api/forward", tags=["forward-testing"])
 ZERO_BPS = Decimal(0)
@@ -70,6 +71,33 @@ def _resolve(request: Request, symbol, timeframe):
     state.require_supported_timeframe(resolved_timeframe)
     resolved_symbol = state.require_symbol(symbol)
     return state, resolved_symbol, resolved_timeframe
+
+
+def _attach_signal_provenance(state, plan_payload: dict[str, object]) -> None:
+    """Add a read-only hierarchy join without touching stored ledger rows."""
+
+    paper_plan_id = plan_payload.get("paper_plan_id")
+    if not isinstance(paper_plan_id, str) or not paper_plan_id:
+        return
+    plan = state.forward.ledger.get_paper_plan(paper_plan_id)
+    hierarchy_ledger = (
+        None if state.multi_timeframe is None else state.multi_timeframe.ledger
+    )
+    plan_payload["signal_provenance"] = paper_plan_signal_provenance(
+        plan, hierarchy_ledger=hierarchy_ledger
+    )
+
+
+def _attach_payload_provenance(state, payload: dict[str, object]) -> None:
+    for plan in payload.get("paper_plans", []):
+        if isinstance(plan, dict):
+            _attach_signal_provenance(state, plan)
+
+
+def _attach_tracker_provenance(state, tracker: dict[str, object]) -> None:
+    for plan in tracker.get("tracked_plans", []):
+        if isinstance(plan, dict):
+            _attach_signal_provenance(state, plan)
 
 
 def _parameters(
@@ -122,6 +150,11 @@ def get_forward(
     observations = service.observations_payload(
         symbol=resolved_symbol, timeframe=resolved_timeframe, limit=limit
     )
+    _attach_payload_provenance(state, observations)
+    paper_tracker = service.paper_tracker_payload(
+        symbol=resolved_symbol, timeframe=resolved_timeframe
+    )
+    _attach_tracker_provenance(state, paper_tracker)
     ledger = service.ledger_snapshot(
         exchange=state.settings.exchange,
         symbol=resolved_symbol,
@@ -157,9 +190,7 @@ def get_forward(
         # The persistent Active/Recent paper-trade tracker: recorded plans and
         # their latest outcome versions straight from the ledger, unchanged by
         # whatever the newest assessment concluded.
-        "paper_tracker": service.paper_tracker_payload(
-            symbol=resolved_symbol, timeframe=resolved_timeframe
-        ),
+        "paper_tracker": paper_tracker,
         "observations": observations,
         "report": report.to_json_dict(),
         "limitations": list(FORWARD_REPORT_LIMITATIONS),
@@ -184,9 +215,11 @@ def get_forward_paper_tracker(
     """
 
     state, resolved_symbol, resolved_timeframe = _resolve(request, symbol, timeframe)
-    return state.forward.paper_tracker_payload(
+    tracker = state.forward.paper_tracker_payload(
         symbol=resolved_symbol, timeframe=resolved_timeframe, limit=limit
     )
+    _attach_tracker_provenance(state, tracker)
+    return tracker
 
 
 @router.get("/comparison")

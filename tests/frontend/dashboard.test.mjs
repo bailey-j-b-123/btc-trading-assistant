@@ -787,6 +787,9 @@ test("PLANNABLE requires the backend plan state and renders its supplied levels"
     },
     multi_timeframe: {
       available: true,
+      evaluation_source: "live_read_only",
+      decision_kind: "live_hierarchy_evaluation",
+      stored_decision_for_paper_confirmation: false,
       status: "evaluated",
       decision: "awaiting_confirmation",
       decision_label: "Trade ready",
@@ -803,34 +806,86 @@ test("PLANNABLE requires the backend plan state and renders its supplied levels"
   forward.status.current_state.as_of = "2026-10-06T11:00:00Z";
   await withDashboard(dashboard, forward, async ({ view }) => {
     await renderDashboard(view);
-    assert.match(view.textContent, /PLAN CALCULATED/);
-    assert.match(view.textContent, /Trade not confirmed yet/);
-    assert.match(view.textContent, /WAITING FOR CONFIRMATION/);
+    assert.match(view.textContent, /1H PAPER CANDIDATE/);
+    assert.match(view.textContent, /CONFIRMATION UNAVAILABLE/);
+    assert.match(view.textContent, /LIVE EVALUATION/);
     assert.doesNotMatch(view.textContent, /TRADE READY|PLAN READY|Plan ready/);
     assert.match(view.textContent, /124/);
     assert.match(view.textContent, /117/);
     assert.match(view.textContent, /138/);
     assert.match(view.textContent, /2\.00 R/);
-    assert.equal(verdictViewModel(dashboard).state, "PLAN CALCULATED");
+    assert.equal(verdictViewModel(dashboard).state, "1H PAPER CANDIDATE");
     // Fix #2: the engine-selected setup is the primary focus; its Next line is
     // the hierarchy's own waiting label, and no state is upgraded anywhere.
     const card = findNodes(view, (node) => (node.className || "").split(" ").includes("bot-watching-card"))[0];
     assert.ok(card);
     assert.match(card.textContent, /Bullish breakout → retest/);
     assert.match(card.textContent, /Qualified/);
-    assert.match(card.textContent, /NextWaiting for lower-timeframe confirmation/);
+    assert.match(card.textContent, /NextLive evaluation: Waiting for lower-timeframe confirmation/);
     assert.match(card.textContent, /Invalid ifa closed lower-timeframe candle closing below the setup reference level 117–118/);
     assert.doesNotMatch(card.textContent, /Trade ready|TRADE READY|PLAN READY/);
-    const permitted = {
+    const liveReady = {
       ...dashboard,
-      multi_timeframe: { available: true, status: "evaluated", decision: "plannable",
-        overall: "PLAN READY — HIERARCHY COMPLETE", counter_trend: false },
+      multi_timeframe: {
+        available: true,
+        evaluation_source: "live_read_only",
+        status: "evaluated",
+        decision: "plannable",
+        overall: "LIVE EVALUATION COMPLETE — NOT STORED CONFIRMATION",
+        counter_trend: false,
+      },
     };
-    assert.equal(verdictViewModel(permitted).state, "PLAN READY — HIERARCHY COMPLETE");
-    assert.equal(verdictViewModel(permitted).hierarchyReady, true);
-    assert.equal(verdictViewModel({ ...permitted,
-      multi_timeframe: { ...permitted.multi_timeframe, status: "incomplete" },
-    }).state, "PLAN CALCULATED");
+    assert.equal(verdictViewModel(liveReady).state, "1H PAPER CANDIDATE");
+    assert.equal(verdictViewModel(liveReady).hierarchyReady, false);
+
+    const storedProof = {
+      paper_candidate: {
+        label: "1H PAPER CANDIDATE",
+        timeframe: "1h",
+        plan_as_of: "2026-10-06T12:00:00Z",
+        recorded_at: "2026-10-06T12:01:00Z",
+        paper_plan_id: "paper-plan-1",
+        is_recorded_paper_plan: true,
+      },
+      four_timeframe_confirmation: {
+        status: "confirmed",
+        confirmed: true,
+        label: "FOUR-TIMEFRAME CONFIRMED",
+        reason: "A matching stored hierarchy decision was available by the paper plan.",
+        decision_time: "2026-10-06T12:00:00Z",
+        recorded_at: "2026-10-06T12:00:30Z",
+        decision: "plannable",
+        matching_boundary: true,
+        available_by_plan: true,
+        evidence_complete: true,
+        observation_id: "hierarchy-observation-1",
+        hierarchy_fingerprint: "fingerprint-1",
+        records: [{
+          observation_id: "hierarchy-observation-1",
+          hierarchy_fingerprint: "fingerprint-1",
+          decision_time: "2026-10-06T12:00:00Z",
+          recorded_at: "2026-10-06T12:00:30Z",
+          decision: "plannable",
+          status: "evaluated",
+        }],
+      },
+    };
+    const confirmed = verdictViewModel({ ...liveReady, signal_provenance: storedProof });
+    assert.equal(confirmed.state, "1H PAPER CANDIDATE");
+    assert.equal(confirmed.hierarchyReady, true);
+    assert.equal(confirmed.hierarchyStatus, "FOUR-TIMEFRAME CONFIRMED");
+
+    const liveReadyWithoutStoredRecord = {
+      ...liveReady,
+      signal_provenance: {
+        ...storedProof,
+        paper_candidate: { ...storedProof.paper_candidate, is_recorded_paper_plan: false, paper_plan_id: null },
+      },
+    };
+    assert.equal(verdictViewModel(liveReadyWithoutStoredRecord).hierarchyReady, false);
+    assert.equal(verdictViewModel({ ...liveReady,
+      multi_timeframe: { ...liveReady.multi_timeframe, status: "incomplete" },
+    }).state, "1H PAPER CANDIDATE");
     assert.deepEqual(dashboard, original);
   });
 });
