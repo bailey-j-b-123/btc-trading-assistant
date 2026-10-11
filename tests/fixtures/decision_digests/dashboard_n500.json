@@ -1,0 +1,21 @@
+{
+ "boundaries": {
+  "250": {
+   "bytes": 742456,
+   "sha256": "723c283d8e82f2321b221eaab80574694e05d95fc3b4c4705d50f8a513f55350"
+  },
+  "375": {
+   "bytes": 1252294,
+   "sha256": "851174996d9783fe0d2a91ce1913c9148c68fcdd128593a85ec0d300dcee65e1"
+  },
+  "400": {
+   "bytes": 1491030,
+   "sha256": "ab6e40e9e510bb608bd754d2d2056cabf242d22a1092effc4aa898f282e535e0"
+  },
+  "500": {
+   "bytes": 2275102,
+   "sha256": "1639f3ecafaffe540223a8048084ebf08f225b9182be0bcd4995dc721cafe0a3"
+  }
+ },
+ "candles": 500
+}

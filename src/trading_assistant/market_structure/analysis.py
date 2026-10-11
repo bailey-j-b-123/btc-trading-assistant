@@ -103,6 +103,32 @@ def _candle_key(candle: Candle) -> tuple:
     )
 
 
+#: Exact, compact identity for candle sequences. Each distinct candle content tuple
+#: gets one integer, and each prefix is interned as ``(parent_node, candle_id)``.
+#: Two sequences share a node only when their content is identical, so memo keys
+#: stay exact, while a key is one integer instead of an O(N) tuple. Storing the
+#: full tuple per memo entry made memory grow quadratically with history length.
+_CONTENT_IDS: dict[tuple, int] = {}
+_PREFIX_NODES: dict[tuple[int, int], int] = {}
+
+
+def _prefix_node(candles: tuple[Candle, ...]) -> int:
+    node = 0
+    for candle in candles:
+        content = _candle_key(candle)
+        content_id = _CONTENT_IDS.get(content)
+        if content_id is None:
+            content_id = len(_CONTENT_IDS) + 1
+            _CONTENT_IDS[content] = content_id
+        pair = (node, content_id)
+        next_node = _PREFIX_NODES.get(pair)
+        if next_node is None:
+            next_node = len(_PREFIX_NODES) + 1
+            _PREFIX_NODES[pair] = next_node
+        node = next_node
+    return node
+
+
 def analyze_candles(
     candles: Iterable[Candle],
     *,
@@ -120,7 +146,7 @@ def analyze_candles(
 
     materialized = tuple(candles)
     key = (
-        tuple(_candle_key(c) for c in materialized),
+        _prefix_node(materialized),
         interval,
         as_of,
         parameters if parameters is not None else MarketStructureParameters(),
