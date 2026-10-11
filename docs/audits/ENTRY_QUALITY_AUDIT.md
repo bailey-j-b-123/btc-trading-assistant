@@ -64,6 +64,8 @@ Pullback-anchored entry at the broken band (uses the existing `ENTRY_NOT_REACHED
 - the stop candle (wick or close), outcome versions, and whether 1m resolution was used (`forward_paper_outcomes`);
 - the 4H/15M/5M hierarchy state at the time (`forward_hierarchy_observations`, if that runner was running).
 
+The read-only report (`python -m trading_assistant.trade_forensics`, README "First paper trade: read-only forensic report") answers the items above from the Mac database. It cannot answer the reference type (only the reference id is stored), absolute ATR (only ATR as a percent of price is stored), touch-only retests, or whether a lower entry would have filled; those are reported as UNAVAILABLE.
+
 ## 7. Recommended next change (not implemented here)
 
 A **read-only paired shadow-evaluation harness for entry quality** — no rule change, no ledger writes. For every boundary where baseline BRAIN is PLANNABLE: compute decision-time features (entry distance from the band in ATR and in risk units, decision-candle range and close location, bars since breakout / held retest, first-qualified vs later bar, sibling count, 4H/15M/5M states), evaluate pre-registered candidate rules on the same events, and send baseline and candidate through the unchanged Step 7 observer.
