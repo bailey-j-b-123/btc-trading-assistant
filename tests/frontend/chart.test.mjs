@@ -442,3 +442,11 @@ test("a short series is never given a negative default range", () => {
   setCandles(handle, [[1704067200000, "100", "101", "99", "100", "1"]]);
   assert.equal(calls[0].from, 0);
 });
+
+test("price-axis labels use two decimals with thousands separators (display only)", async () => {
+  const { formatPriceAxis } = await import("../../src/trading_assistant/web/static/js/chart.js");
+  assert.equal(formatPriceAxis(89000), "89,000.00");
+  assert.equal(formatPriceAxis(82787.25), "82,787.25");
+  assert.equal(formatPriceAxis(0.5), "0.50");
+  assert.equal(formatPriceAxis(NaN), "");
+});

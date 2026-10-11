@@ -82,6 +82,15 @@ export const FALLBACK_CHART_HEIGHT = 420;
  * handler below corrects to the real layout as soon as it exists. Only a
  * missing chart library or a missing container still returns null.
  */
+/** Price-axis label: two decimals with thousands separators (e.g. 89,000.00). Display only. */
+export function formatPriceAxis(price) {
+  const value = Number(price);
+  if (!Number.isFinite(value)) return "";
+  return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+const PRICE_AXIS_FORMAT = { type: "custom", minMove: 0.01, formatter: formatPriceAxis };
+
 export function createPriceChart(container, { height } = {}) {
   const library = typeof window === "undefined" ? null : window.LightweightCharts;
   if (!library || !container) return null;
@@ -132,6 +141,7 @@ export function createPriceChart(container, { height } = {}) {
       wickUpColor: UP,
       wickDownColor: DOWN,
       borderVisible: false,
+      priceFormat: PRICE_AXIS_FORMAT,
     });
     // Independent temporary series: never append/update the stored confirmed series.
     formingSeries = chart.addCandlestickSeries({
@@ -139,6 +149,7 @@ export function createPriceChart(container, { height } = {}) {
       wickUpColor: "rgba(91,155,213,0.85)", wickDownColor: "rgba(232,163,61,0.85)",
       borderVisible: true, borderUpColor: "#5b9bd5", borderDownColor: "#e8a33d",
       priceLineVisible: false, lastValueVisible: false,
+      priceFormat: PRICE_AXIS_FORMAT,
     });
     volume = chart.addHistogramSeries({
       priceFormat: { type: "volume" },
