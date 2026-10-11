@@ -1131,6 +1131,7 @@ function chartCard(dashboard) {
       if (!handle) return;
       setCandles(handle, rows);
       startForming(engineTimeframe, rows);
+      void attachEngineHistory(handle, engineTimeframe, viewed.generation);
       applyViewedOverlays();
       renderEvidence();
       if (loadPrefs().layers?.htfLevels === true) void refreshHigherLevels();
