@@ -27,14 +27,24 @@ def get_candles(
     timeframe: str | None = Query(default=None, min_length=1, max_length=8),
     limit: int = Query(default=DASHBOARD_CANDLE_LIMIT, ge=1, le=MAX_CANDLE_LIMIT),
     end_time: str | None = Query(default=None, min_length=20, max_length=40),
+    before: str | None = Query(default=None, min_length=20, max_length=40),
 ) -> dict[str, object]:
+    """Closed candles, newest page first. ``before`` pages back: candles strictly older than it."""
+
     state = request.app.state.services
     service = DashboardService(state)
     parsed_end: datetime | None = None
     if end_time is not None:
         parsed_end = parse_utc_iso(end_time, field_name="end_time")
+    parsed_before: datetime | None = None
+    if before is not None:
+        parsed_before = parse_utc_iso(before, field_name="before")
     return service.candles(
-        symbol=symbol, timeframe=timeframe, limit=limit, end_time=parsed_end
+        symbol=symbol,
+        timeframe=timeframe,
+        limit=limit,
+        end_time=parsed_end,
+        before=parsed_before,
     )
 
 

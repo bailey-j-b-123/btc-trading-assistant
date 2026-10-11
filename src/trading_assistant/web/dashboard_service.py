@@ -22,8 +22,11 @@ from trading_assistant.market_data.integrity import (
     required_trailing_depth,
 )
 from trading_assistant.market_data.timeframes import (
+    datetime_to_milliseconds,
     latest_closed_candle_open_time,
+    milliseconds_to_datetime,
     require_utc_datetime,
+    timeframe_to_milliseconds,
 )
 from trading_assistant.market_structure.candles import interval_for_timeframe
 from trading_assistant.market_structure.parameters import MarketStructureParameters
@@ -288,7 +291,19 @@ class DashboardService:
         timeframe: str | None = None,
         limit: int = DASHBOARD_CANDLE_LIMIT,
         end_time: datetime | None = None,
+        before: datetime | None = None,
     ) -> dict[str, object]:
+        """Chart candles for one timeframe, read with a bounded query.
+
+        The page is the ``limit`` closed candles ending at the boundary (or just before ``before``
+        when paging back). Only that window is read, using the primary-key range. Gap detection is
+        unchanged inside the window: a candle missing from the window is reported. The window start
+        is clamped to the first stored candle, so history that was never stored is reported as
+        "earliest reached", not as a gap. ``series_missing_count`` counts missing candles across the
+        stored series up to the page end with a COUNT, so whole-series completeness is still known
+        without loading every row.
+        """
+
         state = self.state
         resolved_symbol = state.require_symbol(symbol)
         resolved_timeframe = (
@@ -304,27 +319,77 @@ class DashboardService:
             if end_time is not None
             else state.current_boundary(resolved_timeframe)
         )
-        expected_latest_closed = latest_closed_candle_open_time(
-            boundary, resolved_timeframe
-        )
-        # Read the full stored series so completeness reflects real gaps (never
-        # a window that starts before the first stored candle), then slice.
-        result = state.candles.get_candles(
-            exchange=exchange,
-            symbol=resolved_symbol,
-            timeframe=resolved_timeframe,
-            end_time=expected_latest_closed,
-        )
-        window = result.candles[-limit:]
-        return {
+        expected_latest_closed = latest_closed_candle_open_time(boundary, resolved_timeframe)
+        interval_ms = timeframe_to_milliseconds(resolved_timeframe)
+        newest_ms = datetime_to_milliseconds(expected_latest_closed)
+        if before is not None:
+            before_ms = datetime_to_milliseconds(require_utc_datetime(before, field_name="before"))
+            newest_ms = min(newest_ms, before_ms - interval_ms)
+        window_start_ms = newest_ms - (limit - 1) * interval_ms
+        newest = milliseconds_to_datetime(newest_ms)
+        repo = state.candles
+        earliest = repo.earliest_timestamp(exchange=exchange, symbol=resolved_symbol, timeframe=resolved_timeframe)
+        latest = repo.latest_timestamp(exchange=exchange, symbol=resolved_symbol, timeframe=resolved_timeframe)
+
+        base = {
             "exchange": exchange,
             "symbol": resolved_symbol,
             "timeframe": resolved_timeframe,
             "as_of": to_jsonable(boundary),
-            "candles": [_candle_row(candle) for candle in window],
+            "window_end": to_jsonable(newest),
+            "earliest_stored_open": to_jsonable(earliest),
+            "latest_stored_open": to_jsonable(latest),
+        }
+        if earliest is None or newest_ms < datetime_to_milliseconds(earliest):
+            # Nothing stored at or before this page: the earliest stored candle has been reached.
+            return {
+                **base,
+                "window_start": to_jsonable(newest),
+                "candles": [],
+                "gaps": [],
+                "complete": True,
+                "returned_count": 0,
+                "has_older": False,
+                "earliest_reached": True,
+                "next_before": None,
+                "series_missing_count": 0,
+            }
+
+        earliest_ms = datetime_to_milliseconds(earliest)
+        start_ms = max(window_start_ms, earliest_ms)
+        window_start = milliseconds_to_datetime(start_ms)
+        result = repo.get_candles(
+            exchange=exchange,
+            symbol=resolved_symbol,
+            timeframe=resolved_timeframe,
+            start_time=window_start,
+            end_time=newest,
+        )
+        expected_count = (newest_ms - earliest_ms) // interval_ms + 1
+        stored_count = repo.count_candles(
+            exchange=exchange,
+            symbol=resolved_symbol,
+            timeframe=resolved_timeframe,
+            start_time=earliest,
+            end_time=newest,
+        )
+        has_older = earliest_ms < window_start_ms
+        if result.candles:
+            next_before = result.candles[0].timestamp
+        else:
+            # A fully missing window still moves the cursor strictly backwards, so paging always ends.
+            next_before = window_start
+        return {
+            **base,
+            "window_start": to_jsonable(window_start),
+            "candles": [_candle_row(candle) for candle in result.candles],
             "gaps": to_jsonable(result.gaps),
             "complete": result.complete,
-            "returned_count": len(window),
+            "returned_count": len(result.candles),
+            "has_older": has_older,
+            "earliest_reached": not has_older,
+            "next_before": to_jsonable(next_before) if has_older else None,
+            "series_missing_count": int(expected_count - stored_count),
         }
 
     def structure(

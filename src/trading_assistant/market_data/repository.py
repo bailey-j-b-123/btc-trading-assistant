@@ -107,6 +107,35 @@ class CandleRepository:
             )
         return timestamp
 
+    def count_candles(
+        self,
+        *,
+        exchange: str,
+        symbol: str,
+        timeframe: str,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+    ) -> int:
+        """Number of stored candles in an inclusive open-time range (read-only; no rows loaded)."""
+
+        from sqlalchemy import func
+
+        statement = select(func.count()).select_from(OHLCVCandleRecord).where(
+            OHLCVCandleRecord.exchange == exchange,
+            OHLCVCandleRecord.symbol == symbol,
+            OHLCVCandleRecord.timeframe == timeframe,
+        )
+        if start_time is not None:
+            statement = statement.where(
+                OHLCVCandleRecord.timestamp >= require_utc_datetime(start_time, field_name="start_time")
+            )
+        if end_time is not None:
+            statement = statement.where(
+                OHLCVCandleRecord.timestamp <= require_utc_datetime(end_time, field_name="end_time")
+            )
+        with self._sessions() as session:
+            return int(session.scalar(statement) or 0)
+
     def earliest_timestamp(self, *, exchange: str, symbol: str, timeframe: str) -> datetime | None:
         """Oldest stored open time for one series (read-only; used for coverage reporting)."""
         with self._sessions() as session:
