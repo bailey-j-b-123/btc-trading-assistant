@@ -78,6 +78,21 @@ def milliseconds_to_datetime(value: int) -> datetime:
     return _EPOCH + timedelta(seconds=seconds, milliseconds=milliseconds)
 
 
+def next_candle_close_time(as_of: datetime, timeframe: str) -> datetime:
+    """Return the first candle close strictly after ``as_of``.
+
+    The candle open at or before ``as_of`` is the one still forming; its close is the next
+    boundary. At exactly a boundary the candle that just closed is already complete, so the answer
+    is the close one interval later. Always strictly greater than ``as_of``.
+    """
+
+    interval_ms = timeframe_to_milliseconds(timeframe)
+    anchor_ms = timeframe_anchor_milliseconds(timeframe)
+    as_of_ms = datetime_to_milliseconds(as_of, field_name="as_of")
+    forming_open_ms = ((as_of_ms - anchor_ms) // interval_ms) * interval_ms + anchor_ms
+    return milliseconds_to_datetime(forming_open_ms + interval_ms)
+
+
 def latest_closed_candle_open_time(as_of: datetime, timeframe: str) -> datetime:
     """Return the latest candle open time whose full interval ended by ``as_of``."""
 

@@ -38,12 +38,14 @@ from trading_assistant.forward_testing.service import (
 )
 from trading_assistant.market_data.errors import is_transient_network_error
 from trading_assistant.market_data.timeframes import (
-    latest_closed_candle_open_time,
+    next_candle_close_time,
     require_utc_datetime,
 )
-from trading_assistant.market_structure.candles import interval_for_timeframe
-
 logger = logging.getLogger(__name__)
+
+#: Seconds the runner waits after a candle close before polling, so the just-closed candle has
+#: been published by the exchange. Not a trading parameter; it changes only when we look, not what.
+CANDLE_CLOSE_GRACE_SECONDS = 1.0
 
 
 class ForwardRunner:
@@ -543,16 +545,23 @@ class ForwardRunner:
         )
 
     def _wait_for_next_check(self, timeframe: str) -> None:
-        """Sleep until the next close boundary, capped by the poll interval."""
+        """Sleep toward the next candle close, never longer than the poll interval.
 
-        interval = interval_for_timeframe(timeframe)
+        The next boundary is the close of the candle that is forming now
+        (``next_candle_close_time``). It is always in the future, so the wait is
+        positive. The runner wakes ``CANDLE_CLOSE_GRACE_SECONDS`` after that close, so the
+        just-closed candle is available to fetch. The wait is also capped by
+        ``interval_seconds``, so a long timeframe still polls at the configured rate.
+        """
+
         now = require_utc_datetime(self.service._clock())  # noqa: SLF001 - owned clock
-        next_boundary = latest_closed_candle_open_time(now, timeframe) + interval
-        seconds_to_boundary = max(
-            1.0, (next_boundary - now).total_seconds() + 1.0
+        next_close = next_candle_close_time(now, timeframe)
+        seconds_to_close = (next_close - now).total_seconds()
+        wait = min(
+            float(self.settings.interval_seconds),
+            seconds_to_close + CANDLE_CLOSE_GRACE_SECONDS,
         )
-        wait = min(float(self.settings.interval_seconds), seconds_to_boundary)
-        self._stop_event.wait(timeout=wait)
+        self._stop_event.wait(timeout=max(0.0, wait))
 
     def _wait_before_retry(self, delay: float) -> None:
         """Bounded, interruptible wait before the next retry after a transient failure.
