@@ -16,7 +16,10 @@ from trading_assistant.market_data.timeframes import (
 )
 from trading_assistant.market_data.types import Candle
 from trading_assistant.market_data.validation import validate_ohlcv_rows
-from trading_assistant.market_structure.analysis import analyze_candles
+from trading_assistant.market_structure.analysis import (
+    analyze_candles,
+    analyze_contiguous_segment,
+)
 from trading_assistant.market_structure.candles import (
     candles_closed_by,
     interval_for_timeframe,
@@ -210,7 +213,7 @@ def analyze_patterns_at(
     def finish(index: int) -> PatternLiquiditySnapshot:
         boundary = prepared[index]
         # Context is the final contiguous segment, explicitly not a cross-gap structure.
-        final_context = analyze_candles(
+        final_context = analyze_contiguous_segment(
             segment, interval=interval, as_of=boundary.as_of, parameters=sp
         )
         reasons = []
@@ -265,7 +268,7 @@ def analyze_patterns_at(
         previous = segment[-1] if segment else None
         segment = (*segment, candle)
         now = candle.timestamp + interval
-        context = analyze_candles(segment, interval=interval, as_of=now, parameters=sp)
+        context = analyze_contiguous_segment(segment, interval=interval, as_of=now, parameters=sp)
         carried_context = context
         if previous:
             for ref in _memoized_by_context("references", references, previous_context, instrument):

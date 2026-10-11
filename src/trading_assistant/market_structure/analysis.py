@@ -19,6 +19,7 @@ from trading_assistant.market_data.timeframes import require_utc_datetime
 from trading_assistant.market_data.types import Candle
 from trading_assistant.market_structure.candles import (
     candles_closed_by,
+    closed_prefix_of_validated,
     ordered_candles,
     require_positive_interval,
 )
@@ -144,7 +145,42 @@ def analyze_candles(
     the same result computed historically from data available at that instant.
     """
 
-    materialized = tuple(candles)
+    return _analyze_memoized(
+        tuple(candles), interval=interval, as_of=as_of, parameters=parameters, trusted=False
+    )
+
+
+def analyze_contiguous_segment(
+    segment: tuple[Candle, ...],
+    *,
+    interval: timedelta,
+    as_of: datetime,
+    parameters: MarketStructureParameters | None = None,
+) -> TimeframeStructureAnalysis:
+    """Same result as :func:`analyze_candles`, for a segment whose integrity is already proven.
+
+    Only the pattern replay calls this. Its segment is built candle by candle,
+    with each open exactly one ``interval`` after the previous one (a gap resets
+    it), from candles that already passed ``ordered_candles`` and the instrument
+    check. ``ordered_candles`` would therefore return the same tuple, and
+    ``candles_closed_by`` reduces to the close-time filter. Skipping the repeated
+    O(n) validation on every replay step cannot change any output. The memo is
+    shared with :func:`analyze_candles`, so the result is identical either way.
+    """
+
+    return _analyze_memoized(
+        tuple(segment), interval=interval, as_of=as_of, parameters=parameters, trusted=True
+    )
+
+
+def _analyze_memoized(
+    materialized: tuple[Candle, ...],
+    *,
+    interval: timedelta,
+    as_of: datetime,
+    parameters: MarketStructureParameters | None,
+    trusted: bool,
+) -> TimeframeStructureAnalysis:
     key = (
         _prefix_node(materialized),
         interval,
@@ -156,7 +192,7 @@ def analyze_candles(
         _ANALYSIS_MEMO.move_to_end(key)
         return cached
     result = _analyze_candles_uncached(
-        materialized, interval=interval, as_of=as_of, parameters=parameters
+        materialized, interval=interval, as_of=as_of, parameters=parameters, trusted=trusted
     )
     _ANALYSIS_MEMO[key] = result
     while len(_ANALYSIS_MEMO) > _ANALYSIS_MEMO_LIMIT:
@@ -170,12 +206,19 @@ def _analyze_candles_uncached(
     interval: timedelta,
     as_of: datetime,
     parameters: MarketStructureParameters | None = None,
+    trusted: bool = False,
 ) -> TimeframeStructureAnalysis:
     resolved = parameters if parameters is not None else MarketStructureParameters()
     resolved_interval = require_positive_interval(interval)
     as_of_utc = require_utc_datetime(as_of, field_name="as_of")
-    ordered = ordered_candles(candles, interval=resolved_interval)
-    closed = candles_closed_by(ordered, interval=resolved_interval, as_of=as_of_utc)
+    if trusted:
+        # Caller proved the sequence is ordered, spaced and same-instrument
+        # (see analyze_contiguous_segment). Same filter as candles_closed_by.
+        ordered = tuple(candles)
+        closed = closed_prefix_of_validated(ordered, interval=resolved_interval, as_of=as_of_utc)
+    else:
+        ordered = ordered_candles(candles, interval=resolved_interval)
+        closed = candles_closed_by(ordered, interval=resolved_interval, as_of=as_of_utc)
     excluded_future = len(ordered) - len(closed)
 
     swing_result = detect_swings(
@@ -191,6 +234,7 @@ def _analyze_candles_uncached(
         interval=resolved_interval,
         as_of=as_of_utc,
         parameters=resolved.ranges,
+        trusted=True,
     )
     level_result = detect_zones(
         swing_result.swings,
@@ -203,12 +247,14 @@ def _analyze_candles_uncached(
         interval=resolved_interval,
         as_of=as_of_utc,
         parameters=resolved.volatility,
+        trusted=True,
     )
     volume = calculate_volume(
         closed,
         interval=resolved_interval,
         as_of=as_of_utc,
         parameters=resolved.volume,
+        trusted=True,
     )
 
     return TimeframeStructureAnalysis(
