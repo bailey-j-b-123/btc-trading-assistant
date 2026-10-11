@@ -9,6 +9,8 @@ import { api, describeRequestFailure } from "../api.js";
 import { canShowForming } from "../forming-display.js";
 import { asOfLine, freshnessBadge } from "../freshness.js";
 import { createBinanceFormingStream } from "../binance-forming-display.js";
+import { mountLiveDisplay } from "../live-display.js";
+import { createDashboardUpdater, dataStatus, mergeCandleRows } from "../live-updates.js";
 import { lookingForCard, scenarioBand } from "../looking-for.js";
 import {
   buildDecisionRequest,
@@ -18,6 +20,8 @@ import {
   DECISION_MEANINGS,
 } from "../decision.js";
 import {
+  captureChartView,
+  restoreChartView,
   setZoneBands,
   applyOverlays,
   clearEvidence,
@@ -509,15 +513,16 @@ function explanationNode(explanation) {
   ]);
 }
 
-function chartCard(dashboard) {
+function chartCard(initialDashboard) {
+  let dashboard = initialDashboard;
   const meta = dashboard?.meta || {};
   const symbol = meta.symbol || "UNKNOWN";
   const exchange = typeof meta.exchange === "string" ? meta.exchange.toLowerCase() : "";
   const engineTimeframe = typeof meta.timeframe === "string" && meta.timeframe ? meta.timeframe : "1h";
-  const decisionAsOf = typeof meta.as_of === "string" && meta.as_of ? meta.as_of : null;
-  const decisionAsOfMs = isoMs(decisionAsOf);
-  const rows = Array.isArray(dashboard?.market?.candles) ? dashboard.market.candles : [];
-  const validCandles = toChartCandles(rows);
+  let decisionAsOf = typeof meta.as_of === "string" && meta.as_of ? meta.as_of : null;
+  let decisionAsOfMs = isoMs(decisionAsOf);
+  let rows = Array.isArray(dashboard?.market?.candles) ? dashboard.market.candles : [];
+  let validCandles = toChartCandles(rows);
   const host = el("div", {
     class: "chart-wrap terminal-chart-wrap",
     "aria-label": `${symbol} ${viewedTimeframeLabel(engineTimeframe)} candlestick chart`,
@@ -936,8 +941,8 @@ function chartCard(dashboard) {
     }
   }
 
-  async function showTimeframe(timeframe) {
-    if (timeframe === viewed.timeframe || viewed.cancelled) return;
+  async function showTimeframe(timeframe, { force = false, keepView = null } = {}) {
+    if ((!force && timeframe === viewed.timeframe) || viewed.cancelled) return;
     const generation = ++viewed.generation;
     const label = viewedTimeframeLabel(timeframe);
     viewed.timeframe = timeframe;
@@ -1045,6 +1050,7 @@ function chartCard(dashboard) {
     if (!handle || generation !== viewed.generation || viewed.cancelled) return;
     viewed.candleRows = fetchedRows;
     setCandles(handle, fetchedRows);
+    restoreChartView(handle, keepView);
     startForming(timeframe, fetchedRows);
     attachHistory(handle, candlesPayload, timeframe, generation);
 
@@ -1089,6 +1095,51 @@ function chartCard(dashboard) {
     if (loadPrefs().layers?.htfLevels === true) await refreshHigherLevels();
   }
 
+  /**
+   * Apply a newer dashboard snapshot to this chart without recreating it. The zoom and place, the
+   * viewed timeframe, the overlays the user switched on, and older pages already loaded are kept.
+   * Unfinished (forming) candles are restarted from the new confirmed close; they are never merged
+   * into the stored rows.
+   */
+  function update(next) {
+    dashboard = next;
+    const nextMeta = next?.meta || {};
+    decisionAsOf = typeof nextMeta.as_of === "string" && nextMeta.as_of ? nextMeta.as_of : null;
+    decisionAsOfMs = isoMs(decisionAsOf);
+    rows = Array.isArray(next?.market?.candles) ? next.market.candles : [];
+    validCandles = toChartCandles(rows);
+    const handle = handleRef.current;
+    const keep = captureChartView(handle);
+    if (viewed.timeframe !== engineTimeframe) {
+      // Another timeframe is read again at the newer decision instant; its own view is kept.
+      void showTimeframe(viewed.timeframe, { force: true, keepView: keep });
+      return;
+    }
+    viewed.overlays = next?.overlays && typeof next.overlays === "object" ? next.overlays : emptyOverlays();
+    viewed.evidence = next?.chart_evidence && typeof next.chart_evidence === "object"
+      ? next.chart_evidence
+      : { available: false, reason: "the dashboard payload did not include chart evidence" };
+    // Keep older pages the user scrolled back to; the newer snapshot wins on any shared open time.
+    viewed.candleRows = mergeCandleRows(viewed.candleRows, rows).rows;
+    if (handle && !handle.destroyed && toChartCandles(viewed.candleRows).length) {
+      setCandles(handle, viewed.candleRows);
+      restoreChartView(handle, keep);
+      startForming(engineTimeframe, viewed.candleRows);
+      void attachEngineHistory(handle, engineTimeframe, viewed.generation);
+    }
+    renderEvidence();
+    applyViewedOverlays();
+  }
+
+  /** True when this chart can be updated in place (same symbol, exchange and engine timeframe, live handle). */
+  function canUpdate(next) {
+    const nextMeta = next?.meta || {};
+    const nextExchange = typeof nextMeta.exchange === "string" ? nextMeta.exchange.toLowerCase() : "";
+    return Boolean(handleRef.current) && !viewed.cancelled &&
+      nextMeta.symbol === symbol && nextExchange === exchange &&
+      (nextMeta.timeframe || "1h") === engineTimeframe;
+  }
+
   const card = el("section", {
     class: "card terminal-card terminal-chart-card",
     "aria-label": `${symbol} price chart`,
@@ -1122,6 +1173,8 @@ function chartCard(dashboard) {
 
   return {
     node: card,
+    update,
+    canUpdate,
     mount() {
       if (!validCandles.length) {
         renderEvidence();
@@ -1955,14 +2008,6 @@ function systemDetailsCard(dashboard, forward) {
   ]);
 }
 
-export function disposeDashboard() {
-  renderGeneration += 1;
-  if (activeChart) activeChart.destroy();
-  activeChart = null;
-  // The header is owned by the topbar module now: the dashboard view resets
-  // and repopulates it during its own render, and every other route goes
-  // through refreshTopbar. Disposal must not blank what it cannot refill.
-}
 
 // ---------------------------------------------------------------------------
 // Step 13: multi-timeframe ladder (4H context → 1H setup → 15M confirmation →
@@ -2344,13 +2389,107 @@ function dashboardFailureNode(failure, onRetry) {
   ]);
 }
 
-export async function renderDashboard(view) {
+// Session state for automatic updates. One live quote, one boundary poller and one status line,
+// released by disposeDashboard (main.js calls it on every route change).
+let liveQuote = null;
+let updater = null;
+let dashboardView = null;
+let dashboardMeta = null;
+let currentAsOf = null;
+let updateStatus = { tone: "pending", label: "CHECKING", detail: "Checking for newly stored closed candles…" };
+let updateStatusNode = null;
+let visibilityListener = null;
+
+function utcClock(ms = Date.now()) {
+  return new Date(ms).toISOString().slice(11, 19);
+}
+
+function paintUpdateStatus() {
+  if (!updateStatusNode) return;
+  updateStatusNode.dataset.tone = updateStatus.tone;
+  clearNode(updateStatusNode).append(
+    el("span", { class: "dash-update-label", text: updateStatus.label }),
+    el("span", { class: "dash-update-detail", text: updateStatus.detail }),
+  );
+}
+
+function setUpdateStatus(model) {
+  updateStatus = model;
+  paintUpdateStatus();
+}
+
+/** The live quote is created once per dashboard session and its node moves into each render. */
+function ensureLiveQuote(symbol) {
+  if (!liveQuote) {
+    liveQuote = mountLiveDisplay(symbol);
+    liveQuote.start();
+  }
+  return liveQuote;
+}
+
+/** Scroll position and disclosure state of the page, kept across an in-place refresh. */
+function capturePageState(view) {
+  return {
+    scrollY: window.scrollY,
+    details: [...view.querySelectorAll("details")].map((node) => node.open),
+  };
+}
+
+function restorePageState(view, state) {
+  if (!state) return;
+  const nodes = [...view.querySelectorAll("details")];
+  if (nodes.length === state.details.length) {
+    nodes.forEach((node, index) => { node.open = state.details[index]; });
+  }
+  window.scrollTo({ top: state.scrollY });
+}
+
+/** Re-request the expensive snapshot once a newer closed candle is stored. Throws on failure. */
+async function refreshDashboardPage(latest) {
+  if (!dashboardView || !activeChart) return false;
+  const applied = await renderDashboard(dashboardView, { refresh: true });
+  if (!applied) return false;
+  const model = dataStatus(latest, { now: Date.now() });
+  setUpdateStatus({ ...model, detail: `${model.detail} Page updated ${utcClock()} UTC.` });
+  return true;
+}
+
+function startAutomaticUpdates() {
+  if (updater) return;
+  updater = createDashboardUpdater({
+    fetchLatest: () => api.latestClosed({ symbol: dashboardMeta?.symbol, timeframe: dashboardMeta?.timeframe }),
+    getCurrentAsOf: () => currentAsOf,
+    refreshDashboard: (latest) => refreshDashboardPage(latest),
+    onStatus: setUpdateStatus,
+    // A dialog or a hidden tab pauses the expensive refresh; the cheap check keeps running.
+    isBlocked: () => document.hidden || Boolean(document.getElementById("modal-root")?.childElementCount),
+  });
+  // Register the listener before recording it, so disposal only removes a listener that exists.
+  const onVisibility = () => {
+    if (!document.hidden) updater?.checkNow();
+  };
+  document.addEventListener("visibilitychange", onVisibility);
+  visibilityListener = onVisibility;
+  updater.start();
+}
+
+/**
+ * Render the dashboard. `refresh: true` re-requests the snapshot into the EXISTING page: the chart
+ * instance (zoom, pan, timeframe, overlays, loaded history) is updated in place, the rest of the
+ * page is rebuilt, and the scroll position and open disclosures are restored. Without `refresh`
+ * the page is built from scratch.
+ */
+export async function renderDashboard(view, { refresh = false } = {}) {
+  if (refresh && (view !== dashboardView || !activeChart)) return false;
   const generation = ++renderGeneration;
-  if (activeChart) activeChart.destroy();
-  activeChart = null;
-  view.className = "view terminal-dashboard";
-  clearNode(view).append(spinner("Loading stored market data and deterministic state…"));
-  setTopbarWarning();
+  const preserved = refresh ? capturePageState(view) : null;
+  if (!refresh) {
+    if (activeChart) activeChart.destroy();
+    activeChart = null;
+    view.className = "view terminal-dashboard";
+    clearNode(view).append(spinner("Loading stored market data and deterministic state…"));
+    setTopbarWarning();
+  }
 
   const prefs = loadPrefs();
   const [dashboardResult, forwardResult] = await Promise.allSettled([
@@ -2360,21 +2499,45 @@ export async function renderDashboard(view) {
     }),
     api.forward({ limit: 8 }),
   ]);
-  if (generation !== renderGeneration) return;
+  if (generation !== renderGeneration) return false;
 
   if (dashboardResult.status === "rejected") {
+    // A failed refresh keeps the page as it was; the updater reports it and backs off.
+    if (refresh) throw dashboardResult.reason;
     view.className = "view";
     clearNode(view).append(dashboardFailureNode(describeRequestFailure(dashboardResult.reason), () => renderDashboard(view)));
     setTopbarWarning();
-    return;
+    return false;
   }
 
   const dashboard = dashboardResult.value || {};
   const forward = forwardResult.status === "fulfilled" ? forwardResult.value : null;
   updateTopbar(dashboard, forward);
+  const meta = dashboard?.meta || {};
+  dashboardMeta = { symbol: meta.symbol, timeframe: meta.timeframe };
 
-  const chart = chartCard(dashboard);
-  clearNode(view).append(
+  const reusedChart = Boolean(refresh && activeChart && activeChart.canUpdate(dashboard));
+  let chart;
+  if (reusedChart) {
+    chart = activeChart;
+    chart.update(dashboard);
+  } else {
+    if (activeChart) activeChart.destroy();
+    activeChart = null;
+    chart = chartCard(dashboard);
+  }
+
+  const live = ensureLiveQuote(meta.symbol || "BTC/USDT");
+  updateStatusNode = el("div", { class: "dash-update-status", role: "status", "aria-live": "polite" });
+  paintUpdateStatus();
+
+  // Build every child first. Moving the chart node into the new layout must happen before the old
+  // children are cleared, so the chart keeps its handle and its canvas.
+  const children = [
+    el("section", { class: "dash-live-strip", "aria-label": "Live price and automatic update status" }, [
+      live.node,
+      updateStatusNode,
+    ]),
     decisionHero(dashboard, forward),
     el("div", { class: "dash-main" }, [
       el("div", { class: "dash-chart" }, [chart.node]),
@@ -2390,7 +2553,34 @@ export async function renderDashboard(view) {
     ]),
     paperSection(dashboard, forward),
     diagnosticsSection(dashboard, forward),
-  );
-  chart.mount();
+  ];
+  clearNode(view).append(...children);
+  // The chart mounts after it is attached, as before; a reused chart is already mounted.
+  if (!reusedChart) chart.mount();
+  restorePageState(view, preserved);
+
   activeChart = chart;
+  dashboardView = view;
+  currentAsOf = typeof meta.as_of === "string" ? meta.as_of : null;
+  startAutomaticUpdates();
+  return true;
+}
+
+export function disposeDashboard() {
+  renderGeneration += 1;
+  if (activeChart) activeChart.destroy();
+  activeChart = null;
+  updater?.stop();
+  updater = null;
+  if (visibilityListener) document.removeEventListener("visibilitychange", visibilityListener);
+  visibilityListener = null;
+  liveQuote?.destroy();
+  liveQuote = null;
+  dashboardView = null;
+  dashboardMeta = null;
+  currentAsOf = null;
+  updateStatusNode = null;
+  // The header is owned by the topbar module now: the dashboard view resets
+  // and repopulates it during its own render, and every other route goes
+  // through refreshTopbar. Disposal must not blank what it cannot refill.
 }

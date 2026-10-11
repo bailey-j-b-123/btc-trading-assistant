@@ -1590,3 +1590,53 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .paper-empty { max-width: 760px; display: flex; flex-direction: column; gap: 10px; }
 .paper-empty .card-title { margin: 0; font-size: 18px; }
 .paper-empty-text { margin: 0; font-size: 16px; line-height: 1.55; color: var(--text-dim); max-width: 64ch; }
+
+/* --- Live price and automatic updates --------------------------------------------- */
+/* Display only. These labels describe the quote and the stored-candle check; they never imply a
+   trade signal. CURRENT / STALE / UNAVAILABLE are always shown in words, not colour alone. */
+.dash-live-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+  margin-bottom: 12px;
+}
+.live-quote {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 14px 18px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+}
+.live-quote-kicker { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: space-between; }
+.live-quote-title { font-size: 12px; letter-spacing: 0.06em; color: var(--text-dim); text-transform: uppercase; }
+.live-quote-value { font-size: 30px; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--text); }
+.live-quote-value[data-stale="true"] { color: var(--text-muted); opacity: 0.75; }
+.live-quote-note { font-size: 13px; line-height: 1.45; color: var(--text-faint); }
+.live-badge {
+  display: inline-block; padding: 3px 9px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+  border: 1px solid var(--border-strong); color: var(--text-dim);
+}
+.live-badge[data-status="CURRENT"] { color: var(--green); border-color: var(--green); background: var(--green-dim); }
+.live-badge[data-status="STALE"] { color: var(--amber); border-color: var(--amber); background: var(--amber-dim); }
+.live-badge[data-status="UNAVAILABLE"] { color: var(--red); border-color: var(--red); background: var(--red-dim); }
+.dash-update-status {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 14px 18px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  font-size: 13px; line-height: 1.45; color: var(--text-dim);
+}
+.dash-update-label { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; color: var(--text-dim); }
+.dash-update-status[data-tone="current"] .dash-update-label { color: var(--green); }
+.dash-update-status[data-tone="stale"] .dash-update-label { color: var(--amber); }
+.dash-update-status[data-tone="unavailable"] .dash-update-label { color: var(--red); }
+.dash-update-status[data-tone="updating"] .dash-update-label,
+.dash-update-status[data-tone="paused"] .dash-update-label { color: var(--blue); }
+@media (max-width: 760px) {
+  .dash-live-strip { grid-template-columns: minmax(0, 1fr); }
+  .live-quote-value { font-size: 26px; }
+}
+@media (prefers-reduced-motion: reduce) { .live-quote * { transition: none; } }

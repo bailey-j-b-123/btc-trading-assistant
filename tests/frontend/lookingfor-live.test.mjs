@@ -150,7 +150,7 @@ test("browser disconnect immediately labels the last valid quote stale without d
   const saved = ["document", "fetch", "setInterval", "clearInterval"].map((key) => [key,
     Object.hasOwn(globalThis, key), globalThis[key]]);
   class Node {
-    constructor() { this.children = []; this._text = ""; this.dataset = {}; this.style = {}; }
+    constructor() { this.nodeType = 1; this.children = []; this._text = ""; this.dataset = {}; this.style = {}; }
     set textContent(value) { this._text = String(value); this.children = []; }
     get textContent() { return this._text + this.children.map((child) => child.textContent).join(""); }
     append(...children) { this.children.push(...children); }
@@ -158,7 +158,10 @@ test("browser disconnect immediately labels the last valid quote stale without d
   }
   const ticks = [];
   let requests = 0;
-  globalThis.document = { createElement: () => new Node() };
+  globalThis.document = {
+    createElement: () => new Node(),
+    createTextNode: (text) => Object.assign(new Node(), { nodeType: 3, _text: String(text) }),
+  };
   globalThis.setInterval = (callback) => { ticks.push(callback); return ticks.length; };
   globalThis.clearInterval = () => {};
   globalThis.fetch = async () => {
@@ -173,11 +176,14 @@ test("browser disconnect immediately labels the last valid quote stale without d
     display.start();
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(display.node.dataset.freshness, "CURRENT");
-    assert.match(display.node.textContent, /Binance Spot public ticker/);
+    assert.match(display.node.textContent, /Binance Spot last trade/);
     ticks[0]();
     await new Promise((resolve) => setImmediate(resolve));
+    // The disconnect is labelled STALE in words; the last valid price stays visible but dimmed.
     assert.equal(display.node.dataset.freshness, "STALE");
-    assert.match(display.node.textContent, /LIVE DATA STALE/);
+    assert.match(display.node.textContent, /STALE/);
+    assert.match(display.node.textContent, /82,512\.40/);
+    assert.match(display.node.textContent, /not current; reconnecting/);
     assert.ok(!display.node.textContent.includes("FORMING CANDLE"));
   } finally {
     display.destroy();

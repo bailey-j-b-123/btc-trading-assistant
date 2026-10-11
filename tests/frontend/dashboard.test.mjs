@@ -442,6 +442,9 @@ async function withDashboard(dashboard, forward, callback) {
   globalThis.localStorage = { getItem: () => null, setItem: () => {} };
   globalThis.document = {
     documentElement: {},
+    // The dashboard listens for tab visibility to resume automatic updates.
+    addEventListener() {},
+    removeEventListener() {},
     getElementById: (id) => ids.get(id) || null,
     createElement: (name) => new MockNode(name),
     createTextNode: (text) => {

@@ -117,6 +117,8 @@ export const api = {
   dashboard: (params = {}) =>
     request("GET", `/api/dashboard${queryString(params)}`, undefined, { timeoutMs: DASHBOARD_TIMEOUT_MS }),
   candles: (params = {}) => request("GET", `/api/market/candles${queryString(params)}`),
+  /** Cheap boundary check for automatic refresh: newest stored closed candle, no analysis. */
+  latestClosed: (params = {}) => request("GET", `/api/market/latest-closed${queryString(params)}`),
   structure: (params = {}) => request("GET", `/api/market/structure${queryString(params)}`),
   annotations: (params = {}) => request("GET", `/api/market/annotations${queryString(params)}`),
   journalList: (params = {}) => request("GET", `/api/journal/records${queryString(params)}`),

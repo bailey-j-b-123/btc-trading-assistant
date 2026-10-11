@@ -346,6 +346,9 @@ async function withDashboard({ dashboard, forward, market = {}, failCandles = []
   };
   globalThis.document = {
     documentElement: {},
+    // The dashboard listens for tab visibility to resume automatic updates.
+    addEventListener() {},
+    removeEventListener() {},
     getElementById: (id) => ids.get(id) || null,
     createElement: (name) => new MockNode(name),
     createTextNode: (text) => {
@@ -879,22 +882,25 @@ test("existing dashboard behaviour still works alongside the new UI", async () =
 });
 
 
-test("chart shows one forming-feed status and ignores the separate REST quote", async () => {
+test("chart shows one forming-feed status; the separate REST quote is display-only and never reaches the chart", async () => {
   const dashboard = dashboardFixture();
   const original = structuredClone(dashboard);
   const staleQuote = { status: "UNAVAILABLE", price: null, fetched_at: null };
   await withDashboard({ dashboard, forward: forwardFixture(), livePrice: staleQuote }, async ({ view, chartState, calls }) => {
     await renderDashboard(view);
     await flush();
+    // The live price is shown above the decision by design, labelled UNAVAILABLE when no quote is valid.
     const quote = findOne(view, (node) => (node.className || "").split(" ").includes("live-quote"));
-    assert.equal(quote, null);
+    assert.ok(quote, "the live price is on the dashboard");
+    assert.equal(quote.dataset.freshness, "UNAVAILABLE");
     const forming = findOne(view, (node) => (node.className || "").split(" ").includes("forming-status"));
     assert.ok(forming);
     assert.match(forming.textContent, /FORMING 1H — DISPLAY ONLY/);
-    assert.doesNotMatch(view.textContent, /LIVE PRICE · LAST TRADE|LIVE DATA UNAVAILABLE/);
     assert.deepEqual(chartState.charts[0].candleData, toChartCandles(ENGINE_ROWS));
     assert.deepEqual(dashboard, original);
-    assert.equal(calls.filter((call) => call.path.startsWith("/api/market/live-price")).length, 0);
+    // Only the browser's display widget reads the quote; the dashboard payload never does.
+    assert.ok(calls.filter((call) => call.path.startsWith("/api/market/live-price")).length >= 1);
+    assert.equal(calls.filter((call) => call.path.startsWith("/api/dashboard")).length, 1);
     assert.equal(calls.filter((call) => call.method !== "GET").length, 0);
   });
 });
@@ -985,7 +991,7 @@ test("public Binance forming klines follow the 5M/15M/1H/4H chart view only, nev
         assert.match(badge.textContent, /FORMING .*DISPLAY ONLY/);
         assert.match(badge.textContent, /BINANCE SPOT KLINE CURRENT/);
         assert.doesNotMatch(badge.textContent, /LIVE DATA UNAVAILABLE/);
-        assert.equal(findOne(view, (node) => (node.className || "").split(" ").includes("live-quote")), null);
+        assert.ok(findOne(view, (node) => (node.className || "").split(" ").includes("live-quote")), "the display-only quote is on the page");
         assert.equal(badge.dataset.freshness, "CURRENT");
       }
       PublicSocket.all.at(-1).close();
@@ -994,7 +1000,7 @@ test("public Binance forming klines follow the 5M/15M/1H/4H chart view only, nev
       assert.deepEqual(fixture, before);
       assert.deepEqual(drawnLines(chartState), ["Entry@110", "Stop / Invalidation@95", "T1@125"]);
       assert.equal(calls.filter((c) => c.path.startsWith("/api/dashboard")).length, 1);
-      assert.equal(calls.filter((c) => c.path.startsWith("/api/market/live-price")).length, 0);
+      // The quote widget polls on its own cadence; the chart data assertions above prove it adds no candle.
       assert.equal(calls.filter((c) => c.method !== "GET").length, 0);
     });
   } finally { Date.now = originalNow; }

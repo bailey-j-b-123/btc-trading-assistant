@@ -228,6 +228,9 @@ export function setCandles(handle, payload) {
   const rows = rowsFromPayload(payload);
   handle.loadedRows = rows;
   const candles = toChartCandles(rows);
+  // Bar count of the series, so a refresh can keep the same right-edge offset (see dashboard view).
+  handle.barCount = candles.length;
+  handle.lastBarTime = candles.length ? candles[candles.length - 1].time : null;
   handle.series.setData(candles);
   // Apply the default view once per chart: later refreshes must not reset a
   // zoom or pan the user has made.
@@ -272,6 +275,41 @@ export function setCandlesPreservingView(handle, rows, added) {
   if (before && added > 0 && timeScale && typeof timeScale.setVisibleLogicalRange === "function") {
     timeScale.setVisibleLogicalRange({ from: before.from + added, to: before.to + added });
   }
+}
+
+/**
+ * The viewed range in time, so a data refresh can put back the same zoom and place.
+ *
+ * Time, not bar index, is used: a rolling window shifts every index when a new candle arrives. A
+ * view at the live edge (right side at or past the newest candle) keeps following it with the same
+ * right margin. A view in history stays on the same instants.
+ */
+export function captureChartView(handle) {
+  const timeScale = handle && !handle.destroyed && handle.chart && typeof handle.chart.timeScale === "function"
+    ? handle.chart.timeScale()
+    : null;
+  if (!timeScale || typeof timeScale.getVisibleRange !== "function") return null;
+  const range = timeScale.getVisibleRange();
+  const lastBar = Number.isFinite(handle.lastBarTime) ? handle.lastBarTime : null;
+  if (!range || !Number.isFinite(range.from) || !Number.isFinite(range.to) || lastBar === null) return null;
+  return { from: range.from, to: range.to, lastBar, atEdge: range.to >= lastBar };
+}
+
+/** Put back a view captured by captureChartView, after setCandles has loaded the new data. */
+export function restoreChartView(handle, captured) {
+  const timeScale = handle && !handle.destroyed && handle.chart && typeof handle.chart.timeScale === "function"
+    ? handle.chart.timeScale()
+    : null;
+  if (!captured || !timeScale || typeof timeScale.setVisibleRange !== "function") return;
+  const newLast = Number.isFinite(handle.lastBarTime) ? handle.lastBarTime : null;
+  if (newLast === null) return;
+  if (captured.atEdge) {
+    const width = captured.to - captured.from;
+    const to = newLast + (captured.to - captured.lastBar);
+    timeScale.setVisibleRange({ from: to - width, to });
+    return;
+  }
+  timeScale.setVisibleRange({ from: captured.from, to: captured.to });
 }
 
 /**
