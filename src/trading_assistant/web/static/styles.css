@@ -1582,6 +1582,8 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
    Edges are softened; higher-timeframe bands are dashed with no fill so they read as a
    separate layer from this chart's own bands. */
 .zone-band { border-top-color: color-mix(in srgb, var(--zone-edge) 55%, transparent); border-bottom-color: color-mix(in srgb, var(--zone-edge) 55%, transparent); }
+.zone-band--setup { border-top-style: dashed; border-bottom-style: dashed; }
+.zone-band-setup-label { position: absolute; left: 6px; font-size: 10px; color: var(--zone-edge); pointer-events: none; }
 .zone-band--htf { background: transparent; border-style: dashed; border-width: 1px 0; }
 
 /* Empty paper ledger: one statement, not a grid of zeros. */

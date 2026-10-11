@@ -333,7 +333,12 @@ function priceLine(price, { color, title, style = 2, width = 1 }) {
 }
 
 export function clearOverlays(handle) {
-  if (!handle || !Array.isArray(handle.priceLineHandles)) return;
+  if (!handle) return;
+  if (handle.setupBand) {
+    handle.setupBand = null;
+    renderZoneBands(handle);
+  }
+  if (!Array.isArray(handle.priceLineHandles)) return;
   const lines = handle.priceLineHandles.splice(0);
   if (!handle.series || typeof handle.series.removePriceLine !== "function") return;
   for (const line of lines) {
@@ -428,12 +433,14 @@ export function applyOverlays(handle, payload = {}) {
 
   // Ghosted bounds of a known backend reference only on its setup timeframe.
   // No series.update(), future time coordinate, generated path, or new price.
+  // The setup reference is a faint shaded band in the zone layer, not two full-width price lines.
   const band = safePayload.scenarioBand;
-  if (band && Number.isFinite(band.low) && Number.isFinite(band.high) &&
-      band.low > 0 && band.high >= band.low) {
-    add(band.low, { color: OVERLAY_COLORS.reference, title: "Zone low", style: 2 });
-    add(band.high, { color: OVERLAY_COLORS.reference, title: "Zone high", style: 2 });
-  }
+  handle.setupBand = band && Number.isFinite(band.low) && Number.isFinite(band.high) &&
+      band.low > 0 && band.high >= band.low
+    ? { low: band.low, high: band.high }
+    : null;
+  if (handle.setupBand) createZoneLayer(handle);
+  renderZoneBands(handle);
 
   if (prefs.swings === true) {
     for (const swing of Array.isArray(overlays.swings) ? overlays.swings : []) {
@@ -601,6 +608,8 @@ export function addHigherTimeframeLines(handle, entries) {
 // pointer events are off except on each band's label, so candles under a band stay clickable.
 
 const ZONE_LABEL_MIN_GAP_PX = 16;
+/** The setup reference (backend reference bounds, display only): a neutral, unlabelled-by-role band. */
+const SETUP_BAND_STYLE = { fill: "rgba(143, 166, 255, 0.07)", edge: "#8fa6ff" };
 // Fills are deliberately faint: candles must stay the focus (PR #38 follow-up). Edges are drawn at
 // reduced strength in CSS. Higher-timeframe bands use dashed edges and no fill (see styles.css).
 const ZONE_STYLE = {
@@ -611,7 +620,7 @@ const ZONE_STYLE = {
 
 function createZoneLayer(handle) {
   const container = handle.container;
-  if (typeof document === "undefined" || !container || handle.zoneLayer) return;
+  if (typeof document === "undefined" || !container || handle.zoneLayer || typeof container.appendChild !== "function") return;
   if (typeof globalThis.getComputedStyle === "function" && globalThis.getComputedStyle(container).position === "static") {
     container.style.position = "relative";
   }
@@ -668,15 +677,42 @@ export function clearZoneBands(handle) {
 
 /** Position every band and label from the current coordinates. Pure reads; no data change. */
 export function renderZoneBands(handle) {
-  if (!handle || handle.destroyed || !handle.zoneLayer || !handle.zoneBandsState) return;
+  if (!handle || handle.destroyed || !handle.zoneLayer) return;
   const series = handle.series;
   if (!series || typeof series.priceToCoordinate !== "function") return;
   const layer = handle.zoneLayer;
   const height = Number(handle.container?.clientHeight) || 0;
-  const { bands, onSelect } = handle.zoneBandsState;
+  const { bands, onSelect } = handle.zoneBandsState || { bands: [], onSelect: undefined };
   layer.textContent = "";
   let offView = 0;
   const labels = [];
+  if (handle.setupBand) {
+    const yHigh = series.priceToCoordinate(handle.setupBand.high);
+    const yLow = series.priceToCoordinate(handle.setupBand.low);
+    if (yHigh !== null && yLow !== null && yHigh !== undefined && yLow !== undefined) {
+      const top = Math.min(yHigh, yLow);
+      const bottom = Math.max(yHigh, yLow);
+      if (bottom < 0 || top > height) {
+        offView += 1;
+      } else {
+        const clampedTop = Math.max(0, top);
+        const node = document.createElement("div");
+        node.className = "zone-band zone-band--setup";
+        node.setAttribute?.("aria-hidden", "true");
+        node.style.top = `${clampedTop}px`;
+        node.style.height = `${Math.max(2, Math.min(height || bottom, bottom) - clampedTop)}px`;
+        node.style.setProperty("--zone-fill", SETUP_BAND_STYLE.fill);
+        node.style.setProperty("--zone-edge", SETUP_BAND_STYLE.edge);
+        layer.appendChild(node);
+        const caption = document.createElement("div");
+        caption.className = "zone-band-setup-label";
+        caption.textContent = "Setup zone";
+        caption.setAttribute?.("aria-hidden", "true");
+        caption.style.top = `${clampedTop + 2}px`;
+        layer.appendChild(caption);
+      }
+    }
+  }
   for (const band of bands) {
     // Position is where the band sits relative to price; the style key is the display role.
     const styleKey = band.position === "below_price" ? "support" : band.position === "above_price" ? "resistance" : "price_inside";

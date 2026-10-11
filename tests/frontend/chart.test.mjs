@@ -145,10 +145,11 @@ test("short chart labels preserve exact numeric levels and compact collocated la
     },
     prefs: { overlays: { planLevels: true } },
   });
+  // The setup reference is a shaded band (handle.setupBand), never a full-width price line.
+  assert.deepEqual(handle.setupBand, { low: 100.25, high: 117 });
   assert.deepEqual(drawn(handle), [
-    "Zone low@100.25",
-    "Zone high / Stop / 1 more@117",
     "Entry@124.5",
+    "Stop / Invalidation@117",
     "T1@130.75",
     "T2@135",
   ]);

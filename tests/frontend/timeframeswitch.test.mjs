@@ -528,13 +528,12 @@ test("switching clears the setup scenario before new data arrives", async () => 
   } });
   await withDashboard({ dashboard, forward: forwardFixture() }, async ({ view, chartState }) => {
     await renderDashboard(view);
-    assert.deepEqual(drawnLines(chartState), [
-      "Zone low@61900",
-      "Zone high@62000",
-    ]);
+    // The setup reference is a shaded band (its state is asserted in lookingfor-live.test.mjs), never a
+    // full-width price line: no Zone low/high line is drawn.
+    assert.equal(drawnLines(chartState).some((line) => /^Zone (low|high)/.test(line)), false);
     click(switchButtons(view).find((button) => button.getAttribute("data-timeframe") === "5m"));
     // Synchronously after the click — before any response lands — the
-    // previous timeframe's levels are already gone.
+    // previous timeframe's levels and setup band are already gone.
     assert.equal(chartState.charts[0].lines.size, 0);
     await flush();
     assert.deepEqual(drawnLines(chartState), []);
