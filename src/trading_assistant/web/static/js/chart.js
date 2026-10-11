@@ -177,6 +177,9 @@ export function createPriceChart(container, { height } = {}) {
     zoneLayer: null,
     zoneBandsState: null,
     zoneUnsubscribers: [],
+    // Raw loaded rows (ascending). Older pages are merged into these, never replaced.
+    loadedRows: [],
+    historyUnsubscribe: null,
     destroyed: false,
   };
   const resize = () => {
@@ -223,6 +226,7 @@ function defaultVisibleCandles() {
 export function setCandles(handle, payload) {
   if (!handle || handle.destroyed) return;
   const rows = rowsFromPayload(payload);
+  handle.loadedRows = rows;
   const candles = toChartCandles(rows);
   handle.series.setData(candles);
   // Apply the default view once per chart: later refreshes must not reset a
@@ -249,6 +253,42 @@ export function setCandles(handle, payload) {
   }
   if (handle.volume && typeof handle.volume.setData === "function") handle.volume.setData(volumeRows);
   renderZoneBands(handle);
+}
+
+/**
+ * Replace the loaded rows after older candles were prepended.
+ *
+ * The visible logical range is index-based, so prepending `added` candles shifts every visible
+ * index by `added`. Shifting the range by the same amount keeps the same candles on screen: the
+ * user's zoom, pan and place are preserved.
+ */
+export function setCandlesPreservingView(handle, rows, added) {
+  if (!handle || handle.destroyed) return;
+  const timeScale = handle.chart && typeof handle.chart.timeScale === "function" ? handle.chart.timeScale() : null;
+  const before = timeScale && typeof timeScale.getVisibleLogicalRange === "function"
+    ? timeScale.getVisibleLogicalRange()
+    : null;
+  setCandles(handle, rows);
+  if (before && added > 0 && timeScale && typeof timeScale.setVisibleLogicalRange === "function") {
+    timeScale.setVisibleLogicalRange({ from: before.from + added, to: before.to + added });
+  }
+}
+
+/**
+ * Call onNearStart(range) when the visible range moves close to the oldest loaded candle.
+ * Only one listener per chart: a later call replaces the earlier one.
+ */
+export function setHistoryListener(handle, onNearStart) {
+  if (!handle || handle.destroyed) return;
+  handle.historyUnsubscribe?.();
+  handle.historyUnsubscribe = null;
+  const timeScale = handle.chart && typeof handle.chart.timeScale === "function" ? handle.chart.timeScale() : null;
+  if (typeof onNearStart !== "function" || !timeScale || typeof timeScale.subscribeVisibleLogicalRangeChange !== "function") return;
+  const listener = (range) => {
+    if (!handle.destroyed) onNearStart(range);
+  };
+  timeScale.subscribeVisibleLogicalRangeChange(listener);
+  handle.historyUnsubscribe = () => timeScale.unsubscribeVisibleLogicalRangeChange?.(listener);
 }
 
 /** Temporary, explicitly unconfirmed overlay. Never touches handle.series or volume. */
@@ -312,6 +352,8 @@ export function destroyPriceChart(handle) {
   clearEvidence(handle);
   clearZoneBands(handle);
   unsubscribeChartEvents(handle);
+  handle.historyUnsubscribe?.();
+  handle.historyUnsubscribe = null;
   handle.destroyed = true;
   handle.resizeObserver?.disconnect();
   if (handle.resizeListener && typeof window !== "undefined") {

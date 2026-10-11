@@ -26,6 +26,8 @@ import {
   destroyPriceChart,
   OVERLAY_COLORS,
   setCandles,
+  setCandlesPreservingView,
+  setHistoryListener,
   setEvidence,
   setFormingCandle,
   subscribeChartEvents,
@@ -39,6 +41,15 @@ import {
   itemsAtTime,
 } from "../evidence.js";
 import { explainEvidence, explainZoneBand } from "../explain.js";
+import {
+  CHART_PAGE_SIZE,
+  MAX_EMPTY_PAGE_CHAIN,
+  historyNote,
+  historyState,
+  isoFromMs,
+  mergeOlderRows,
+  shouldLoadOlder,
+} from "../chart_history.js";
 import { capBandsForDisplay, lastConfirmedClose, relocateBands } from "../zone-position.js";
 import { botWatchingCard, rawRuleRows } from "../bot-watching.js";
 import {
@@ -392,7 +403,6 @@ export const CHART_TIMEFRAMES = [
   { id: "4h", label: "4H" },
 ];
 
-const CHART_CANDLE_LIMIT = 500;
 const ENGINE_CHART_NOTE = "Confirmed history is stored closed candles only. Any ghost forming candle is public Binance Spot data, display only; it is never confirmed here.";
 const BINANCE_EXCHANGE_ID = "binance";
 const BINANCE_FORMING_LABEL = "BINANCE SPOT KLINE";
@@ -552,6 +562,7 @@ function chartCard(dashboard) {
   const headingTitle = el("div", { class: "chart-heading-title", text: `${symbol} · ${viewedTimeframeLabel(engineTimeframe)} chart` });
   const headingMeta = el("div", { class: "chart-heading-meta", text: chartHeadingMeta(engineTimeframe, engineTimeframe) });
   const viewNote = el("div", { class: "chart-note terminal-chart-note chart-view-note", text: ENGINE_CHART_NOTE });
+  const historyNoteEl = el("div", { class: "chart-note chart-history-note", "aria-live": "polite", text: "" });
 
   const showChartOverlay = (node) => {
     if (emptyNode) emptyNode.remove();
@@ -839,6 +850,92 @@ function chartCard(dashboard) {
     renderEvidence();
   }
 
+  function updateHistoryNote() {
+    const label = viewedTimeframeLabel(viewed.timeframe);
+    historyNoteEl.textContent = viewed.history ? historyNote(label, viewed.history) : "";
+  }
+
+  /** Start paging for the loaded rows: the stored span and whether older candles exist. */
+  function attachHistory(handle, payload, timeframe, generation) {
+    const state = historyState({ payload, rows: viewed.candleRows });
+    viewed.history = { ...state, symbol, timeframe, decisionAsOf, generation };
+    setHistoryListener(handle, (range) => {
+      if (shouldLoadOlder(viewed.history, range)) void loadOlderCandles(0);
+    });
+    updateHistoryNote();
+  }
+
+  /**
+   * Engine view: rows come from the dashboard snapshot. A read-only page at the same decision
+   * instant supplies the stored span and any older candles, so the chart and its paging agree.
+   */
+  async function attachEngineHistory(handle, timeframe, generation) {
+    let payload = null;
+    let error = null;
+    try {
+      payload = await api.candles({ symbol, timeframe, limit: CHART_PAGE_SIZE, end_time: decisionAsOf || undefined });
+    } catch (caught) {
+      error = caught;
+    }
+    if (viewed.cancelled || generation !== viewed.generation || timeframe !== viewed.timeframe) return;
+    if (error || !payload || payload.timeframe !== timeframe || !Array.isArray(payload.candles)) {
+      viewed.history = {
+        earliestMs: null, latestMs: null, cursorMs: null, hasOlder: false, earliestReached: false,
+        loading: false, error: error ? error.message : "the backend returned no stored span",
+        symbol, timeframe, decisionAsOf, generation,
+      };
+      updateHistoryNote();
+      return;
+    }
+    const merged = mergeOlderRows(viewed.candleRows, payload.candles);
+    viewed.candleRows = merged.rows;
+    if (merged.added > 0) setCandlesPreservingView(handle, merged.rows, merged.added);
+    attachHistory(handle, payload, timeframe, generation);
+  }
+
+  /** Load the page strictly older than the oldest checked instant, then merge it without moving the view. */
+  async function loadOlderCandles(chain) {
+    const state = viewed.history;
+    if (!state || state.loading || !state.hasOlder || viewed.cancelled) return;
+    const handle = handleRef.current;
+    if (!handle || handle.destroyed) return;
+    const { generation, timeframe } = state;
+    if (generation !== viewed.generation || timeframe !== viewed.timeframe) return;
+    state.loading = true;
+    state.error = null;
+    updateHistoryNote();
+    let payload = null;
+    let error = null;
+    try {
+      payload = await api.candles({
+        symbol,
+        timeframe,
+        limit: CHART_PAGE_SIZE,
+        end_time: decisionAsOf || undefined,
+        before: isoFromMs(state.cursorMs),
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    if (viewed.cancelled || viewed.history !== state || generation !== viewed.generation) return;
+    if (error || !payload || payload.timeframe !== timeframe || !Array.isArray(payload.candles)) {
+      state.loading = false;
+      state.error = error ? error.message : "the backend returned no older candles page";
+      updateHistoryNote();
+      return;
+    }
+    const merged = mergeOlderRows(viewed.candleRows, payload.candles);
+    viewed.candleRows = merged.rows;
+    setCandlesPreservingView(handle, merged.rows, merged.added);
+    viewed.history = { ...historyState({ payload, rows: merged.rows }), symbol, timeframe, decisionAsOf, generation };
+    updateHistoryNote();
+    // An empty page (a window of stored holes) adds nothing visible. Keep going while the edge is still in view.
+    if (merged.added === 0 && chain < MAX_EMPTY_PAGE_CHAIN) {
+      const range = handle.chart?.timeScale?.().getVisibleLogicalRange?.();
+      if (shouldLoadOlder(viewed.history, range)) void loadOlderCandles(chain + 1);
+    }
+  }
+
   async function showTimeframe(timeframe) {
     if (timeframe === viewed.timeframe || viewed.cancelled) return;
     const generation = ++viewed.generation;
@@ -858,6 +955,8 @@ function chartCard(dashboard) {
       clearEvidence(handleRef.current);
     }
     viewed.model = null;
+    viewed.history = null;
+    historyNoteEl.textContent = "";
     viewed.htfBands = [];
     viewed.htfStatus = null;
     clearNode(explainBody).append(el("p", { class: "evidence-explain-hint", text: CHART_EXPLAIN_HINT }));
@@ -897,6 +996,7 @@ function chartCard(dashboard) {
       renderEvidence();
       applyViewedOverlays();
       viewNote.textContent = ENGINE_CHART_NOTE;
+      void attachEngineHistory(handle, timeframe, generation);
       if (loadPrefs().layers?.htfLevels === true) await refreshHigherLevels();
       return;
     }
@@ -909,7 +1009,7 @@ function chartCard(dashboard) {
       candlesPayload = await api.candles({
         symbol,
         timeframe,
-        limit: CHART_CANDLE_LIMIT,
+        limit: CHART_PAGE_SIZE,
         end_time: decisionAsOf || undefined,
       });
     } catch (error) {
@@ -946,6 +1046,7 @@ function chartCard(dashboard) {
     viewed.candleRows = fetchedRows;
     setCandles(handle, fetchedRows);
     startForming(timeframe, fetchedRows);
+    attachHistory(handle, candlesPayload, timeframe, generation);
 
     // Evidence for this timeframe, computed by the backend at the same instant.
     let evidencePayload = null;
@@ -1005,6 +1106,7 @@ function chartCard(dashboard) {
     markerKey,
     explainPanel,
     viewNote,
+    historyNoteEl,
   ]);
 
   refreshLayerButtons();
