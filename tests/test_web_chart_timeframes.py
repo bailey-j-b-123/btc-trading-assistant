@@ -141,6 +141,8 @@ def test_market_endpoints_expose_no_state_changing_method(client):
         "/api/market/structure",
         "/api/market/live-price",
         "/api/market/annotations",
+        # Read-only boundary check for automatic dashboard updates (one row read, no analysis).
+        "/api/market/latest-closed",
     }
     for route in market_routes:
         assert set(route.methods or set()) <= {"GET", "HEAD", "OPTIONS"}, route.path

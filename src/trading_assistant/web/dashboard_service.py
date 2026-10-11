@@ -98,6 +98,24 @@ def _candle_row(candle) -> list[object]:
     ]
 
 
+def default_as_of_from_latest(
+    *,
+    latest: datetime | None,
+    timeframe: str,
+    current_boundary: datetime,
+) -> datetime:
+    """Newest evaluable boundary given the newest stored candle open time.
+
+    Shared by ``DashboardService.dashboard`` and ``latest_closed`` so the two can never disagree.
+    With no stored candle the clock boundary is returned unchanged.
+    """
+
+    if latest is None:
+        return current_boundary
+    last_data_boundary = latest + interval_for_timeframe(timeframe)
+    return min(current_boundary, last_data_boundary)
+
+
 class DashboardService:
     """Read-only assembly of the current-market screen payload."""
 
@@ -282,6 +300,63 @@ class DashboardService:
             "journal": journal_payload,
             "explanation": explanation_payload,
             "multi_timeframe": multi_timeframe_payload,
+        }
+
+    def latest_closed(
+        self,
+        *,
+        symbol: str | None = None,
+        timeframe: str | None = None,
+    ) -> dict[str, object]:
+        """Cheap change detector for the open dashboard. Reads one indexed row and runs no analysis.
+
+        ``default_as_of`` is the boundary ``dashboard()`` pins to when no ``as_of`` is given (both
+        use ``default_as_of_from_latest``), so the browser re-runs the expensive snapshot only when
+        this value changes. The freshness verdict is the same pure function the dashboard uses.
+        Nothing is written. The forming candle and the live Binance quote are never read here.
+        """
+
+        state = self.state
+        resolved_symbol = state.require_symbol(symbol)
+        resolved_timeframe = (
+            state.settings.default_timeframe if timeframe is None else timeframe
+        )
+        state.require_supported_timeframe(resolved_timeframe)
+        exchange = state.settings.exchange
+        now = state.now()
+        current_boundary = state.boundary_for(resolved_timeframe, now)
+        latest = state.candles.latest_timestamp(
+            exchange=exchange, symbol=resolved_symbol, timeframe=resolved_timeframe
+        )
+        default_as_of = default_as_of_from_latest(
+            latest=latest, timeframe=resolved_timeframe, current_boundary=current_boundary
+        )
+        expected_latest_closed = latest_closed_candle_open_time(
+            current_boundary, resolved_timeframe
+        )
+        bounded_latest = (
+            latest if latest is not None and latest <= expected_latest_closed else None
+        )
+        report = evaluate_freshness(
+            timeframe=resolved_timeframe,
+            as_of=current_boundary,
+            now=now,
+            latest_stored=bounded_latest,
+        )
+        return {
+            "exchange": exchange,
+            "symbol": resolved_symbol,
+            "timeframe": resolved_timeframe,
+            "checked_at": to_jsonable(now),
+            "default_as_of": to_jsonable(default_as_of),
+            "latest_stored_open": to_jsonable(latest),
+            "expected_latest_closed_open": to_jsonable(expected_latest_closed),
+            "freshness": {
+                "status": report.status,
+                "reason": report.reason,
+                "staleness_intervals": report.staleness_intervals,
+                "is_current_boundary": report.is_current_boundary,
+            },
         }
 
     def candles(
@@ -742,10 +817,9 @@ class DashboardService:
         latest = self.state.candles.latest_timestamp(
             exchange=exchange, symbol=symbol, timeframe=timeframe
         )
-        if latest is None:
-            return current_boundary
-        last_data_boundary = latest + interval_for_timeframe(timeframe)
-        return min(current_boundary, last_data_boundary)
+        return default_as_of_from_latest(
+            latest=latest, timeframe=timeframe, current_boundary=current_boundary
+        )
 
     def _resolve_as_of(
         self,

@@ -79,6 +79,19 @@ def get_annotations(
     return service.chart_evidence(symbol=symbol, timeframe=timeframe, as_of=parsed_as_of)
 
 
+@router.get("/latest-closed")
+def get_latest_closed(
+    request: Request,
+    symbol: str | None = Query(default=None, min_length=1, max_length=64),
+    timeframe: str | None = Query(default=None, min_length=1, max_length=8),
+) -> dict[str, object]:
+    """Newest stored closed candle and the default decision boundary. Cheap, read-only, no analysis."""
+
+    state = request.app.state.services
+    service = DashboardService(state)
+    return service.latest_closed(symbol=symbol, timeframe=timeframe)
+
+
 @router.get("/live-price")
 def get_live_price() -> dict[str, object]:
     """Public display-only quote; never reads or writes stored candle tables."""
