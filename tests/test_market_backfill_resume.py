@@ -254,3 +254,15 @@ def test_cli_recheck_flag_is_off_by_default_and_opt_in():
     base = ["backfill", "--start", "2024-01-01", "--dry-run"]
     assert parser.parse_args(base).recheck_gaps is False
     assert parser.parse_args([*base, "--recheck-gaps"]).recheck_gaps is True
+
+
+def test_gap_labels_separate_exchange_absence_from_a_range_never_fetched(tmp_path):
+    """Gap reporting must not present a not-yet-fetched range as an exchange absence."""
+
+    engine = _database(tmp_path)
+    fresh = _run(_service(engine, tmp_path, FakeSource(_rows(300))), dry_run=True).timeframes[0]
+    assert fresh.gaps and all(gap["exchange_confirmed"] is False for gap in fresh.gaps)
+
+    _run(_service(engine, tmp_path, FakeSource(_rows(300, skip={50}))))
+    settled = _run(_service(engine, tmp_path, FakeSource(_rows(300, skip={50})))).timeframes[0]
+    assert [gap["exchange_confirmed"] for gap in settled.gaps] == [True]

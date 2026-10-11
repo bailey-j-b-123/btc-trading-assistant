@@ -373,6 +373,9 @@ def run_backfill(
         item.chunks_remaining = len(pending)
         final_ranges: dict[int, tuple[GapRange, ...]] = {entry.index: entry.ranges for entry in planned}
         complete_now: dict[int, bool] = {entry.index: entry.complete for entry in planned}
+        # A gap is exchange-confirmed only when the exchange was queried for that range: the chunk
+        # was settled on an earlier run, or it was downloaded successfully in this run.
+        exchange_confirmed: dict[int, bool] = {entry.index: entry.complete for entry in planned}
 
         for entry in pending:
             if dry_run:
@@ -400,6 +403,7 @@ def run_backfill(
             item.already_present += update.already_present_count
             item.received += update.received_count
             final_ranges[entry.index] = ranges
+            exchange_confirmed[entry.index] = rows_ok
 
             old_enough = (datetime_to_milliseconds(chunk.end) + GAP_SETTLE_MARGIN_CANDLES * interval_ms
                           <= newest_closed_ms)
@@ -433,6 +437,7 @@ def run_backfill(
                         "start": milliseconds_to_datetime(start_ms).isoformat(),
                         "end": milliseconds_to_datetime(end_ms).isoformat(),
                         "missing": missing,
+                        "exchange_confirmed": exchange_confirmed.get(index, False),
                     }
                 )
         item.chunks_settled_with_gaps = sum(
