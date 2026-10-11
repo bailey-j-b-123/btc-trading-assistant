@@ -2657,10 +2657,15 @@ Sections, in order:
 6. Breakout, retest, and entry candles: exact-open OHLC, volume, and ATR.
 7. Competing setups in the same close, earlier paper plans, and whether the
    instrument-wide slot was free when the plan was recorded.
-8. 4H, 15M, and 5M: stored hierarchy evaluations if any, plus stored candle
-   coverage of each required window.
+8. 4H, 15M, and 5M: hierarchy evaluations known at the paper plan (decision
+   time at or before the signal and `recorded_at` at or before the plan's
+   `recorded_at`), plus candle coverage. Coverage counts are candles stored now;
+   the database cannot prove what was available at the time.
 9. Stop: the outcome versions and the candle that touched the stop. This is
    labelled **POST-DECISION** because a stop can only be observed after entry.
+10. Audit only: hierarchy rows whose decision time is at or before the signal
+    but which were written after the paper plan. Labelled **POST-DECISION**;
+    no finding in sections 1–8 uses them.
 
 Anti-lookahead rule. Sections 1–8 use only ledger rows recorded at or before the
 planning instant and only candles whose full interval had closed by then.
@@ -2677,8 +2682,13 @@ Known gaps, reported as `UNAVAILABLE` rather than inferred:
   recorded. A held retest confirmed earlier than the first cycle is flagged.
 - The reference type (swing, zone, range) is not stored; the band values are
   read from the location rule's reason text.
-- The forward ledger analyses 1H only. 4H/15M/5M appear only where
-  `forward_hierarchy_observations` rows exist for the instrument.
+- The forward ledger analyses 1H only. A hierarchy evaluation counts as known
+  at the time only if BRAIN stored it at or before the paper plan's
+  `recorded_at`, however old its `decision_time`. Later-written rows appear
+  only in section 10.
+- `ohlcv_candles` has no insertion time, so the coverage counts show candles
+  stored now. The report says so rather than claiming they were available when
+  the plan was recorded.
 - No alternative entry (pullback, limit, retest price) was modelled, so the
   report cannot say whether a lower price would have filled.
 
@@ -2704,6 +2714,20 @@ cd ~/btc-trading-assistant && git pull --ff-only && . .venv/bin/activate && pyth
 
 The output file stays under the gitignored `data/processed/`. The database is
 never copied, uploaded, or committed.
+
+**Testing PR #41 before it is merged.** A local checkout on another branch (for
+example `brain-test-pr39`) does not contain this code, so `git pull` alone is not
+enough. This command checks the working tree is clean, then fetches the PR
+branch and switches to it **detached**. No local branch is created or changed,
+and no database file is touched (`data/` is gitignored):
+
+```bash
+cd ~/btc-trading-assistant && test -z "$(git status --porcelain --untracked-files=no)" && git fetch origin arena/3f2f252e-btc-trading-assistant && git switch --detach FETCH_HEAD && . .venv/bin/activate && python -m trading_assistant.trade_forensics | tee data/processed/first-paper-trade-forensics.md
+```
+
+If the `test` step fails, your tree has local edits: commit or stash them first.
+When you are done, return with `git switch brain-test-pr39` (or `git switch main
+&& git pull --ff-only` after the merge).
 
 ### Smoke procedure, results, and visual-test status
 

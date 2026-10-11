@@ -1339,12 +1339,15 @@ def _timeframe_context_section(ctx: _Context) -> Section:
             .order_by(ForwardRunnerHeartbeatRow.recorded_at.desc(), text("rowid DESC"))
             .limit(1)
         ).first()
+        # Known at the time: decided at or before the signal AND written at or before
+        # the paper plan's recorded_at. Rows written later are never evidence here.
         hierarchy = session.scalars(
             select(ForwardHierarchyObservationRow)
             .where(
                 ForwardHierarchyObservationRow.exchange == ctx.plan.exchange,
                 ForwardHierarchyObservationRow.symbol == ctx.plan.symbol,
                 ForwardHierarchyObservationRow.decision_time <= ctx.signal,
+                ForwardHierarchyObservationRow.recorded_at <= ctx.plan.recorded_at,
             )
             .order_by(ForwardHierarchyObservationRow.decision_time.desc())
             .limit(HIERARCHY_ROWS_SHOWN)
@@ -1374,7 +1377,7 @@ def _timeframe_context_section(ctx: _Context) -> Section:
         tables.append(
             Table(
                 headers=(
-                    "Decision time",
+                    "Decision time (historical)",
                     "Recorded at",
                     "Decision",
                     "Alignment",
@@ -1383,7 +1386,6 @@ def _timeframe_context_section(ctx: _Context) -> Section:
                     f"{first.setup_timeframe} setup close",
                     f"{first.confirmation_timeframe} confirmation close",
                     f"{first.execution_timeframe} execution close",
-                    "Recorded after signal?",
                 ),
                 rows=tuple(
                     (
@@ -1396,9 +1398,6 @@ def _timeframe_context_section(ctx: _Context) -> Section:
                         _ts(h.setup_boundary_close) or "",
                         _ts(h.confirmation_boundary_close) or "",
                         _ts(h.execution_boundary_close) or "",
-                        "yes — recorded late"
-                        if h.recorded_at > ctx.plan.recorded_at
-                        else "no",
                     )
                     for h in hierarchy
                 ),
@@ -1406,36 +1405,54 @@ def _timeframe_context_section(ctx: _Context) -> Section:
         )
         facts.append(
             Fact.recorded(
-                "Hierarchy (4H/1H/15M/5M) evaluations at or before the signal",
-                str(len(hierarchy)) + " shown",
+                "Hierarchy evaluations known at the paper plan (recorded_at ≤ plan recorded_at)",
+                f"{len(hierarchy)} shown, newest decision first",
                 "forward_hierarchy_observations",
+                note="decision_time is historical; recorded_at is when BRAIN stored the row",
             )
         )
     else:
         facts.append(
             Fact.unavailable(
-                "4H / 15M / 5M hierarchy evaluation at the signal",
+                "4H / 15M / 5M hierarchy evaluation known at the paper plan",
                 "forward_hierarchy_observations",
-                "no hierarchy evaluation is stored at or before the signal; the forward paper ledger does not read these layers",
+                f"no evaluation with decision_time ≤ signal was stored at or before the plan's recorded_at ({_ts(ctx.plan.recorded_at)}); evaluations written later are not used (see section 10)",
             )
         )
+
+    facts.append(
+        Fact.recorded(
+            "Candles read by the base-timeframe cycle at recording",
+            str(ctx.cycle.source_candle_count) if ctx.cycle is not None else None,
+            "forward_cycles.source_candle_count",
+            note="what the ledger itself recorded at the time for the base timeframe",
+        )
+    )
+    facts.append(
+        Fact.unavailable(
+            "4H / 15M / 5M candles demonstrably available at the paper plan",
+            "ohlcv_candles",
+            "the table has no insertion time, so the counts below show candles stored now, not candles available at the time",
+        )
+    )
 
     tables.append(
         Table(
             headers=(
                 "Timeframe",
                 "Required window (open, UTC)",
-                "Stored in window",
-                "Missing",
-                "Latest stored open ≤ window end",
+                "Stored now, in window",
+                "Missing now",
+                "Latest stored open ≤ window end (stored now)",
                 "Verdict",
             ),
             rows=tuple(coverage_rows),
         )
     )
     notes = (
-        "Coverage is the stored state now, restricted to candles that had closed by the signal. The ohlcv_candles table has no insertion timestamp, so the database alone cannot prove each candle was downloaded before the signal. The raw archive under data/raw records retrieval times.",
-        "Hierarchy evaluations are shown only when they exist. Layers that were never stored are reported as UNAVAILABLE, not inferred from the candles.",
+        "Coverage counts are candles stored in the database now, restricted to windows that had closed by the signal. ohlcv_candles has no insertion timestamp, so the database cannot show that a candle was available when the paper plan was recorded. The raw archive under data/raw records retrieval times but is not read by this report.",
+        "Hierarchy evaluations are shown only when recorded_at is at or before the paper plan's recorded_at. An older decision_time written later is not evidence available at the time and appears only in section 10.",
+        "Layers that were never stored are reported as UNAVAILABLE, not inferred from the candles.",
     )
     return Section(
         key="timeframes",
@@ -1443,6 +1460,74 @@ def _timeframe_context_section(ctx: _Context) -> Section:
         facts=tuple(facts),
         tables=tuple(tables),
         notes=notes,
+    )
+
+
+def _late_records_section(ctx: _Context) -> Section:
+    """Audit only: hierarchy rows written after the paper plan was recorded.
+
+    Their decision_time may be at or before the signal, but they were not known when
+    the paper trade was created, so no finding in sections 1-8 uses them.
+    """
+
+    conditions = (
+        ForwardHierarchyObservationRow.exchange == ctx.plan.exchange,
+        ForwardHierarchyObservationRow.symbol == ctx.plan.symbol,
+        ForwardHierarchyObservationRow.decision_time <= ctx.signal,
+        ForwardHierarchyObservationRow.recorded_at > ctx.plan.recorded_at,
+    )
+    with Session(ctx.engine) as session:
+        late_count = session.scalar(
+            select(func.count())
+            .select_from(ForwardHierarchyObservationRow)
+            .where(*conditions)
+        )
+        late = session.scalars(
+            select(ForwardHierarchyObservationRow)
+            .where(*conditions)
+            .order_by(ForwardHierarchyObservationRow.decision_time.desc())
+            .limit(HIERARCHY_ROWS_SHOWN)
+        ).all()
+    facts: list[Fact] = [
+        Fact.recorded(
+            "Hierarchy evaluations with decision_time ≤ signal recorded after the paper plan",
+            str(late_count) if late_count else "none",
+            "forward_hierarchy_observations.recorded_at",
+            note="not evidence available when the paper trade was created",
+        )
+    ]
+    tables: tuple[Table, ...] = ()
+    if late:
+        tables = (
+            Table(
+                headers=(
+                    "Decision time (historical)",
+                    "Recorded at",
+                    "Decision",
+                    "Alignment",
+                    "Status",
+                ),
+                rows=tuple(
+                    (
+                        _ts(h.decision_time) or "",
+                        _ts(h.recorded_at) or "",
+                        h.decision,
+                        h.alignment,
+                        h.status,
+                    )
+                    for h in late
+                ),
+            ),
+        )
+    return Section(
+        key="late_records",
+        title="10. Records written after the paper plan (audit only)",
+        facts=tuple(facts),
+        tables=tables,
+        notes=(
+            "These rows were written after the paper trade was recorded. They are listed for audit only; no finding in sections 1–8 uses them.",
+        ),
+        post_decision=True,
     )
 
 
@@ -1795,6 +1880,7 @@ def build_report(
         competition,
         timeframes,
         outcome,
+        _late_records_section(ctx),
     )
     return TradeReport(
         header=header, sections=sections, missing=_missing_items(sections)

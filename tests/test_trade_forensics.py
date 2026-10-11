@@ -307,8 +307,126 @@ def test_hierarchy_absence_is_reported_as_unavailable(database):
     code, out, err = _run(_argv(database))
 
     assert code == EXIT_OK, err
-    assert "**4H / 15M / 5M hierarchy evaluation at the signal:** UNAVAILABLE" in out
-    assert "| Decision time |" not in out
+    assert (
+        "**4H / 15M / 5M hierarchy evaluation known at the paper plan:** UNAVAILABLE"
+        in out
+    )
+    assert "| Decision time (historical) |" not in out
+
+
+def _insert_hierarchy_row(
+    database: Path, *, observation_id: str, decision_time: str, recorded_at: str
+) -> None:
+    """One stored hierarchy evaluation. Only the timing columns matter to the report."""
+
+    with closing(sqlite3.connect(database, isolation_level=None)) as writer:
+        writer.execute(
+            """
+            insert into forward_hierarchy_observations (
+                observation_id, rules_version, exchange, symbol, decision_time,
+                hierarchy_fingerprint, hierarchy_json, context_timeframe,
+                context_boundary_open, context_boundary_close, context_json,
+                setup_timeframe, setup_boundary_open, setup_boundary_close, setup_json,
+                confirmation_timeframe, confirmation_boundary_open, confirmation_boundary_close,
+                confirmation_json, execution_timeframe, execution_boundary_open,
+                execution_boundary_close, execution_json, alignment, counter_trend,
+                decision, status, reasons_json, strategy_versions_json, waiting_for_json,
+                invalidated_if_json, boundary_json, snapshot_json, recorded_at
+            ) values (
+                ?, 'test-rules', 'binance', 'BTC/USDT', ?,
+                ?, '{}', '4h',
+                '2023-12-31 20:00:00.000000', '2024-01-01 00:00:00.000000', '{}',
+                '1h', '2024-01-01 00:00:00.000000', '2024-01-01 01:00:00.000000', '{}',
+                '15m', '2024-01-01 20:45:00.000000', '2024-01-01 21:00:00.000000', '{}',
+                '5m', '2024-01-01 20:55:00.000000', '2024-01-01 21:00:00.000000', '{}',
+                'aligned', 0, 'watch', 'evaluated', '[]', '[]', '[]', '[]', '{}', '{}', ?
+            )
+            """,
+            (observation_id, decision_time, observation_id, recorded_at),
+        )
+
+
+def test_hierarchy_row_written_after_the_paper_trade_is_not_used_at_the_time(database):
+    """An old decision_time written after the paper trade is not known-at-the-time evidence."""
+
+    code, before, err = _run(_argv(database))
+    assert code == EXIT_OK, err
+    assert (
+        "**4H / 15M / 5M hierarchy evaluation known at the paper plan:** UNAVAILABLE"
+        in before
+    )
+
+    _insert_hierarchy_row(
+        database,
+        observation_id="late-hierarchy-row",
+        decision_time="2024-01-01 17:00:00.000000",  # historical, before the signal
+        recorded_at="2024-01-02 09:00:00.000000",  # written long after the paper trade
+    )
+
+    code, after, err = _run(_argv(database))
+    assert code == EXIT_OK, err
+
+    # Every pre-decision finding is byte-identical.
+    assert _decision_sections(before) == _decision_sections(after)
+    section_8 = after[after.index("## 8.") : after.index("## 9.")]
+    assert (
+        "**4H / 15M / 5M hierarchy evaluation known at the paper plan:** UNAVAILABLE"
+        in section_8
+    )
+    assert (
+        "no evaluation with decision_time ≤ signal was stored at or before the plan's recorded_at"
+        in section_8
+    )
+    assert "| Decision time (historical) |" not in section_8
+    assert "2024-01-01T17:00:00Z" not in section_8
+
+    # Listed only in the post-decision audit section, with both timestamps.
+    section_10 = after[after.index("## 10.") :]
+    assert "POST-DECISION" in section_10.splitlines()[0]
+    assert (
+        "**Hierarchy evaluations with decision_time ≤ signal recorded after the paper plan:** 1"
+        in section_10
+    )
+    assert "2024-01-01T17:00:00Z" in section_10
+    assert "2024-01-02T09:00:00Z" in section_10
+
+
+def test_hierarchy_row_known_at_the_paper_trade_is_shown_with_both_timestamps(database):
+    _insert_hierarchy_row(
+        database,
+        observation_id="known-hierarchy-row",
+        decision_time="2024-01-01 17:00:00.000000",
+        recorded_at="2024-01-01 21:00:00.000000",  # before the plan's recorded_at (21:00:30)
+    )
+
+    code, out, err = _run(_argv(database))
+
+    assert code == EXIT_OK, err
+    section_8 = out[out.index("## 8.") : out.index("## 9.")]
+    assert "| Decision time (historical) |" in section_8
+    assert "| 2024-01-01T17:00:00Z | 2024-01-01T21:00:00Z |" in section_8
+    assert (
+        "**Hierarchy evaluations known at the paper plan (recorded_at ≤ plan recorded_at):** 1 shown"
+        in section_8
+    )
+    assert "UNAVAILABLE — no evaluation" not in section_8
+    assert (
+        "**Hierarchy evaluations with decision_time ≤ signal recorded after the paper plan:** none"
+        in out
+    )
+
+
+def test_candles_stored_now_are_not_presented_as_available_at_the_time(database):
+    code, out, err = _run(_argv(database))
+
+    assert code == EXIT_OK, err
+    section_8 = out[out.index("## 8.") : out.index("## 9.")]
+    assert (
+        "**4H / 15M / 5M candles demonstrably available at the paper plan:** UNAVAILABLE"
+        in section_8
+    )
+    assert "| Stored now, in window |" in section_8
+    assert "**Candles read by the base-timeframe cycle at recording:** " in section_8
 
 
 def test_entry_is_matched_exactly_and_breakout_retest_states_are_reported(database):
@@ -327,8 +445,13 @@ def test_outcome_section_is_labelled_post_decision_and_shows_stop_candle(databas
     code, out, err = _run(_argv(database))
 
     assert code == EXIT_OK, err
-    assert out.count("POST-DECISION") == 1
-    assert out.index("POST-DECISION") > out.index("## 8.")
+    headings = [line for line in out.splitlines() if line.startswith("## ")]
+    post_decision = [line for line in headings if "POST-DECISION" in line]
+    assert [line.split(" — ")[0] for line in post_decision] == [
+        "## 9. Stop: candle and evidence",
+        "## 10. Records written after the paper plan (audit only)",
+    ]
+    assert out.index("## 9.") > out.index("## 8.")
     assert "**Stop touch candle open (recorded event):** 2024-01-01T22:00:00Z" in out
     assert "low 116 vs stop 117" in out
 
