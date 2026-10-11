@@ -291,3 +291,98 @@ def test_tracker_endpoint_is_read_only_with_no_account_surface() -> None:
         "notional",
     ):
         assert not any(banned in key for key in keys), banned
+
+
+# ----------------------------------------------------------------------
+# The lightweight tracker poll endpoint
+# ----------------------------------------------------------------------
+
+
+def test_tracker_poll_endpoint_matches_the_forward_tracker_block() -> None:
+    harness = stopped_harness()
+    client = _client(engine=harness.engine, settings=harness.settings, clock=harness.clock["t"])
+
+    full = client.get("/api/forward").json()
+    poll = client.get("/api/forward/paper-tracker")
+    assert poll.status_code == 200
+    assert poll.json() == full["paper_tracker"]
+
+    # Read-only: polling never writes to the ledger.
+    before = harness.counts()
+    for _ in range(2):
+        assert client.get("/api/forward/paper-tracker").status_code == 200
+    assert harness.counts() == before
+
+    keys = {key.lower() for key in _walk_keys(poll.json())}
+    for banned in ("order", "balance", "position_size", "quantity", "leverage"):
+        assert not any(banned in key for key in keys), banned
+
+
+def test_tracker_poll_endpoint_rejects_bad_inputs(empty_client) -> None:
+    _, client = empty_client
+    bad_timeframe = client.get("/api/forward/paper-tracker", params={"timeframe": "3m"})
+    assert bad_timeframe.status_code == 400
+    assert set(bad_timeframe.json()) == {"error"}
+
+    bad_limit = client.get("/api/forward/paper-tracker", params={"limit": "0"})
+    assert bad_limit.status_code in {400, 422}
+    huge_limit = client.get("/api/forward/paper-tracker", params={"limit": "100000"})
+    assert huge_limit.status_code in {400, 422}
+
+
+# ----------------------------------------------------------------------
+# The refresh race: outcome recorded after the candle the dashboard saw
+# ----------------------------------------------------------------------
+
+
+def test_tracker_updates_when_the_runner_records_after_the_candle_is_stored() -> None:
+    """The exact refresh race, end to end at the ledger boundary.
+
+    A new candle closes and is stored; the dashboard refreshes on it while the
+    entry-reached plan is still OPEN_AT_CUTOFF. The forward runner records its
+    STOPPED outcome afterwards: the tracker must now report STOPPED, settled,
+    with one more outcome version — while the stored candle count, the frozen
+    levels, and the plan identity stay exactly as they were.
+    """
+
+    harness = plan_harness()
+    harness.step((bar(21, 126, low=123),), refresh_market_data=False)
+    plan_id = harness.plans()[0].paper_plan_id
+
+    # A new candle is stored, but the runner has not processed its close yet:
+    # this is the state the dashboard refresh would have rendered.
+    candle = bar(22, 120, high=126, low=116)
+    harness.store((candle,))
+    harness.advance_to(candle.timestamp + INTERVAL)
+    before = harness.service.paper_tracker_payload()
+    plan_before = next(
+        plan for plan in before["tracked_plans"] if plan["paper_plan_id"] == plan_id
+    )
+    assert plan_before["outcome"]["status"] == OutcomeStatus.OPEN_AT_CUTOFF.value
+    assert plan_before["entry_reached"] is True
+    assert plan_before["settled"] is False
+    assert before["unresolved_paper_plan_count"] == 1
+
+    candles_before = len(harness.candles().candles)
+
+    # The runner records the outcome afterwards; no candle appears.
+    harness.run(refresh_market_data=False)
+
+    after = harness.service.paper_tracker_payload()
+    plan_after = next(
+        plan for plan in after["tracked_plans"] if plan["paper_plan_id"] == plan_id
+    )
+    # No new candle: only the ledger's outcome versions moved.
+    assert len(harness.candles().candles) == candles_before
+    assert plan_after["outcome_version_count"] == plan_before["outcome_version_count"] + 1
+    assert plan_after["outcome"]["status"] == OutcomeStatus.STOPPED.value
+    assert plan_after["outcome"]["stop_reached"] is True
+    assert plan_after["outcome"]["recorded_at"]
+    assert plan_after["settled"] is True
+    assert plan_after["occupies_slot"] is False
+    assert after["unresolved_paper_plan_count"] == 0
+    # The frozen plan and its identity are untouched.
+    assert plan_after["paper_plan_id"] == plan_id
+    assert plan_after["entry"] == plan_before["entry"] == LONG_ENTRY
+    assert plan_after["stop"] == plan_before["stop"] == LONG_STOP
+    assert plan_after["targets"] == plan_before["targets"] == [LONG_TARGET]

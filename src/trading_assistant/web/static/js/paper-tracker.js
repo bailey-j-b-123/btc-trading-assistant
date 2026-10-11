@@ -29,6 +29,151 @@ import { el, emptyState } from "./util.js";
 
 const UNKNOWN_TEXT = "UNKNOWN";
 
+/** Tracker poll cadence. Cheap ledger read; never triggers analysis. */
+export const TRACKER_REFRESH_INTERVAL_MS = 15_000;
+export const TRACKER_REFRESH_MAX_INTERVAL_MS = 60_000;
+
+/** Delay before the next tracker poll after `failures` consecutive failures. */
+export function nextTrackerDelay(failures) {
+  if (!Number.isInteger(failures) || failures <= 0) return TRACKER_REFRESH_INTERVAL_MS;
+  return Math.min(
+    TRACKER_REFRESH_MAX_INTERVAL_MS,
+    TRACKER_REFRESH_INTERVAL_MS * 2 ** Math.min(failures, 3),
+  );
+}
+
+/**
+ * Stable signature of the ledger facts the tracker displays: recorded plan
+ * count, active/unresolved counts, and per-plan outcome version identity.
+ * A new or updated outcome version changes the signature; unchanged ledger
+ * data never re-renders the card.
+ */
+export function trackerLedgerSignature(tracker) {
+  if (!tracker || typeof tracker !== "object") return null;
+  const plans = Array.isArray(tracker.tracked_plans) ? tracker.tracked_plans : [];
+  return JSON.stringify({
+    recorded: Number.isInteger(tracker.recorded_paper_plan_count) ? tracker.recorded_paper_plan_count : null,
+    unresolved: Number.isInteger(tracker.unresolved_paper_plan_count) ? tracker.unresolved_paper_plan_count : null,
+    active: tracker.active_paper_plan_id || null,
+    asOf: tracker.as_of || null,
+    plans: plans.map((plan) => [
+      plan?.paper_plan_id || null,
+      plan?.settled === true,
+      plan?.occupies_slot === true,
+      Number.isInteger(plan?.outcome_version_count) ? plan.outcome_version_count : null,
+      plan?.outcome
+        ? [
+            plan.outcome.outcome_id || null,
+            plan.outcome.sequence ?? null,
+            plan.outcome.status || null,
+            plan.outcome.recorded_at || null,
+          ]
+        : null,
+    ]),
+  });
+}
+
+/**
+ * Read-only tracker poll controller, modelled on the dashboard updater.
+ *
+ * The dashboard refreshes its expensive analysis when a NEW candle is stored,
+ * but the forward runner records outcome versions afterwards — the tracker can
+ * therefore lag the ledger without any new candle appearing. This controller
+ * polls the lightweight tracker endpoint, compares ledger signatures, and
+ * applies only genuine changes through `applyTracker`. It never reruns
+ * dashboard analysis, never touches the chart, and never invents data: a slow
+ * or failed poll keeps the last recorded state on screen and backs off.
+ *
+ * - `fetchTracker()` resolves to the tracker payload block (cheap read).
+ * - `applyTracker(tracker)` re-renders the tracker card in place.
+ * - `isBlocked()` pauses polls (hidden tab, open dialog) without stopping them.
+ * - `start(initialTracker)` seeds the signature so a poll right after a full
+ *   dashboard refresh does not needlessly re-render.
+ * - `sync(tracker)` re-seeds the signature after the card was rebuilt elsewhere.
+ * - `stop()` cancels polling; a late in-flight response is discarded.
+ */
+export function createTrackerRefresher({
+  fetchTracker,
+  applyTracker,
+  isBlocked = () => false,
+  schedule = (fn, ms) => setTimeout(fn, ms),
+  cancel = (handle) => clearTimeout(handle),
+} = {}) {
+  if (typeof fetchTracker !== "function" || typeof applyTracker !== "function") {
+    throw new Error("createTrackerRefresher requires fetchTracker and applyTracker callbacks");
+  }
+  let timer = null;
+  let stopped = true;
+  let inFlight = false;
+  let failures = 0;
+  let signature = null;
+
+  function scheduleNext() {
+    if (stopped) return;
+    if (timer !== null) cancel(timer);
+    timer = schedule(() => {
+      timer = null;
+      void checkNow();
+    }, nextTrackerDelay(failures));
+  }
+
+  function checkNow() {
+    if (stopped) return Promise.resolve(false);
+    // Blocked or still busy: skip this tick but keep the loop alive so polls
+    // resume as soon as the tab is visible again.
+    if (inFlight || isBlocked()) {
+      scheduleNext();
+      return Promise.resolve(false);
+    }
+    inFlight = true;
+    return Promise.resolve()
+      .then(fetchTracker)
+      .then((tracker) => {
+        if (stopped) return false;
+        const next = trackerLedgerSignature(tracker);
+        const changed = next !== signature;
+        signature = next;
+        failures = 0;
+        if (changed) applyTracker(tracker);
+        return changed;
+      })
+      .catch(() => {
+        // Slow or failed poll: keep the last recorded state, never invent
+        // data; back off and try again.
+        failures += 1;
+        return false;
+      })
+      .finally(() => {
+        inFlight = false;
+        scheduleNext();
+      });
+  }
+
+  return {
+    start(initialTracker = null) {
+      stopped = false;
+      failures = 0;
+      signature = trackerLedgerSignature(initialTracker);
+      scheduleNext();
+    },
+    /** Re-seed the signature after the card was rebuilt by a full refresh. */
+    sync(tracker) {
+      signature = trackerLedgerSignature(tracker);
+    },
+    /** Poll now. An in-flight poll is never duplicated. */
+    checkNow,
+    stop() {
+      stopped = true;
+      if (timer !== null) cancel(timer);
+      timer = null;
+    },
+    /** Diagnostics and tests only. */
+    state() {
+      return { stopped, inFlight, failures, signature, hasPendingTimer: timer !== null };
+    },
+  };
+}
+
 /** One tracked plan as the card renders it; missing facts stay UNKNOWN. */
 function trackedPlanViewModel(plan) {
   const outcome = plan?.outcome && typeof plan.outcome === "object" ? plan.outcome : null;

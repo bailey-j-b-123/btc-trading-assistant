@@ -287,3 +287,235 @@ test("view model keeps ledger facts without live data", () => {
   assert.equal(plan.stateLabel, "SETTLED");
   assert.equal(model.latestAssessment.setupState, "NO_SETUP");
 });
+
+// ---------------------------------------------------------------------------
+// Tracker refresh race: the read-only refresher
+// ---------------------------------------------------------------------------
+
+const { createTrackerRefresher, nextTrackerDelay, trackerLedgerSignature, TRACKER_REFRESH_INTERVAL_MS } = await import("../../src/trading_assistant/web/static/js/paper-tracker.js");
+
+function openTrackerPayload() {
+  return trackerPayload({
+    active_paper_plan_id: "plan-open-1",
+    unresolved_paper_plan_count: 1,
+    tracked_plans: [
+      {
+        ...trackerPayload().tracked_plans[0],
+        paper_plan_id: "plan-open-1",
+        entry_reached: true,
+        settled: false,
+        occupies_slot: true,
+        outcome_version_count: 3,
+        outcome: {
+          outcome_id: "outcome-3",
+          sequence: 3,
+          status: "OPEN_AT_CUTOFF",
+          entry_reached: true,
+          entry_timestamp: "2026-10-10T15:00:00Z",
+          stop_reached: false,
+          targets_reached: [],
+          observed_through: "2026-10-10T16:00:00Z",
+          recorded_at: "2026-10-10T16:00:30Z",
+          ambiguous: false,
+          incomplete: false,
+          missing_candle_count: 0,
+        },
+      },
+    ],
+  });
+}
+
+function stoppedTrackerPayload() {
+  const payload = openTrackerPayload();
+  payload.unresolved_paper_plan_count = 0;
+  payload.active_paper_plan_id = null;
+  const plan = payload.tracked_plans[0];
+  plan.settled = true;
+  plan.occupies_slot = false;
+  plan.outcome_version_count = 4;
+  plan.outcome = {
+    outcome_id: "outcome-4",
+    sequence: 4,
+    status: "STOPPED",
+    entry_reached: true,
+    entry_timestamp: "2026-10-10T15:00:00Z",
+    stop_reached: true,
+    targets_reached: [],
+    observed_through: "2026-10-10T17:00:00Z",
+    recorded_at: "2026-10-10T17:30:00Z",
+    ambiguous: false,
+    incomplete: false,
+    missing_candle_count: 0,
+  };
+  return payload;
+}
+
+test("tracker ledger signature changes only when ledger facts change", () => {
+  const open = openTrackerPayload();
+  assert.equal(trackerLedgerSignature(open), trackerLedgerSignature(openTrackerPayload()));
+  assert.notEqual(trackerLedgerSignature(open), trackerLedgerSignature(stoppedTrackerPayload()));
+  // A live-only field outside the ledger (here: an extra payload key) never changes the signature.
+  assert.equal(trackerLedgerSignature(open), trackerLedgerSignature({ ...open, latest_assessment: null }));
+  assert.equal(trackerLedgerSignature(null), null);
+  assert.equal(trackerLedgerSignature(undefined), null);
+});
+
+test("nextTrackerDelay backs off exponentially and caps", () => {
+  assert.equal(nextTrackerDelay(0), TRACKER_REFRESH_INTERVAL_MS);
+  assert.equal(nextTrackerDelay(1), TRACKER_REFRESH_INTERVAL_MS * 2);
+  assert.equal(nextTrackerDelay(2), TRACKER_REFRESH_INTERVAL_MS * 4);
+  assert.equal(nextTrackerDelay(9), 60_000);
+});
+
+function manualScheduler() {
+  const timers = [];
+  return {
+    timers,
+    schedule: (fn, ms) => {
+      timers.push({ fn, ms, cleared: false });
+      return timers.length;
+    },
+    cancel: (handle) => {
+      const timer = timers[handle - 1];
+      if (timer) timer.cleared = true;
+    },
+    fire(index) {
+      const timer = timers[index - 1];
+      if (timer && !timer.cleared) timer.fn();
+    },
+  };
+}
+
+async function drainMicrotasks(times = 16) {
+  for (let i = 0; i < times; i += 1) await Promise.resolve();
+}
+
+test("refresher seeds its signature, applies a change once, and ignores repeats", async () => {
+  const scheduler = manualScheduler();
+  let fetched = 0;
+  let applied = [];
+  const refresher = createTrackerRefresher({
+    fetchTracker: () => {
+      fetched += 1;
+      return Promise.resolve(stoppedTrackerPayload());
+    },
+    applyTracker: (tracker) => applied.push(tracker),
+    schedule: scheduler.schedule,
+    cancel: scheduler.cancel,
+  });
+  // The dashboard just rendered with the OPEN_AT_CUTOFF tracker.
+  refresher.start(openTrackerPayload());
+  assert.equal(scheduler.timers.length, 1);
+  assert.equal(scheduler.timers[0].ms, TRACKER_REFRESH_INTERVAL_MS);
+
+  // The runner has since recorded STOPPED: one poll applies exactly one update.
+  scheduler.fire(1);
+  await drainMicrotasks();
+  assert.equal(fetched, 1);
+  assert.equal(applied.length, 1);
+  assert.equal(applied[0].tracked_plans[0].outcome.status, "STOPPED");
+
+  // The next poll sees unchanged ledger facts and applies nothing.
+  scheduler.fire(2);
+  await drainMicrotasks();
+  assert.equal(fetched, 2);
+  assert.equal(applied.length, 1, "no duplicate re-render for unchanged ledger data");
+  refresher.stop();
+});
+
+test("refresher keeps the last recorded state on failure and backs off without inventing data", async () => {
+  const scheduler = manualScheduler();
+  let attempts = 0;
+  let applied = 0;
+  const refresher = createTrackerRefresher({
+    fetchTracker: () => {
+      attempts += 1;
+      if (attempts <= 2) return Promise.reject(new Error("tracker endpoint unavailable"));
+      return Promise.resolve(stoppedTrackerPayload());
+    },
+    applyTracker: () => {
+      applied += 1;
+    },
+    schedule: scheduler.schedule,
+    cancel: scheduler.cancel,
+  });
+  refresher.start(openTrackerPayload());
+
+  scheduler.fire(1);
+  await drainMicrotasks();
+  assert.equal(applied, 0, "a failed poll never applies or invents state");
+  assert.equal(refresher.state().failures, 1);
+  assert.equal(scheduler.timers[1].ms, TRACKER_REFRESH_INTERVAL_MS * 2, "backed-off next poll");
+
+  scheduler.fire(2);
+  await drainMicrotasks();
+  assert.equal(refresher.state().failures, 2);
+  assert.equal(scheduler.timers[2].ms, TRACKER_REFRESH_INTERVAL_MS * 4);
+
+  scheduler.fire(3);
+  await drainMicrotasks();
+  assert.equal(applied, 1, "recovery applies the fresh ledger read");
+  assert.equal(refresher.state().failures, 0);
+  assert.equal(scheduler.timers[3].ms, TRACKER_REFRESH_INTERVAL_MS, "delay resets after success");
+  refresher.stop();
+});
+
+test("a slow in-flight poll is never duplicated and a late response after stop is discarded", async () => {
+  const scheduler = manualScheduler();
+  let fetched = 0;
+  let applied = 0;
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const refresher = createTrackerRefresher({
+    fetchTracker: () => {
+      fetched += 1;
+      return gate.then(() => stoppedTrackerPayload());
+    },
+    applyTracker: () => {
+      applied += 1;
+    },
+    schedule: scheduler.schedule,
+    cancel: scheduler.cancel,
+  });
+  refresher.start(openTrackerPayload());
+
+  const first = scheduler.timers[0];
+  first.fn(); // poll starts and hangs
+  const second = refresher.checkNow();
+  const secondResult = await second;
+  assert.equal(secondResult, false, "in-flight poll is not duplicated");
+  assert.equal(fetched, 1);
+  assert.equal(refresher.state().inFlight, true);
+
+  refresher.stop();
+  release(); // the slow response arrives after navigation stopped the refresher
+  await drainMicrotasks();
+  assert.equal(applied, 0, "a late response after stop is discarded, never applied");
+  assert.equal(refresher.state().hasPendingTimer, false);
+});
+
+test("blocked polls pause without fetching and stop() cancels the pending timer", () => {
+  const scheduler = manualScheduler();
+  let fetched = 0;
+  const refresher = createTrackerRefresher({
+    fetchTracker: () => {
+      fetched += 1;
+      return Promise.resolve(openTrackerPayload());
+    },
+    applyTracker: () => {},
+    isBlocked: () => true,
+    schedule: scheduler.schedule,
+    cancel: scheduler.cancel,
+  });
+  refresher.start(openTrackerPayload());
+  const first = scheduler.timers[0];
+  first.fn();
+  return drainMicrotasks().then(() => {
+    assert.equal(fetched, 0, "a blocked tab never fetches");
+    assert.equal(scheduler.timers.length, 2, "the loop stays alive and resumes later");
+    refresher.stop();
+    assert.equal(scheduler.timers[1].cleared, true, "the pending poll timer is cancelled");
+  });
+});

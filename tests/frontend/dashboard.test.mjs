@@ -10,6 +10,7 @@ import {
   systemHealthViewModel,
   verdictViewModel,
 } from "../../src/trading_assistant/web/static/js/views/dashboard.js";
+import { TRACKER_REFRESH_INTERVAL_MS } from "../../src/trading_assistant/web/static/js/paper-tracker.js";
 
 class MockNode {
   constructor(name, textNode = false) {
@@ -60,6 +61,18 @@ class MockNode {
       child.parentNode = null;
     }
     return child;
+  }
+
+  replaceWith(...nodes) {
+    const parent = this.parentNode;
+    if (!parent) return;
+    const index = parent.children.indexOf(this);
+    if (index === -1) return;
+    parent.removeChild(this);
+    nodes.forEach((node, offset) => {
+      parent.children.splice(index + offset, 0, node);
+      node.parentNode = parent;
+    });
   }
 
   setAttribute(name, value) {
@@ -511,14 +524,30 @@ async function withDashboard(dashboard, forward, callback) {
     },
   };
   globalThis.window = { LightweightCharts: chartState.library };
+  // The tracker poll endpoint serves a mutable override so a test can record a
+  // new outcome version between the dashboard render and a tracker poll.
+  let trackerOverride = forward?.paper_tracker ?? null;
+  const fetchCounts = new Map();
   globalThis.fetch = async (path) => {
-    const payload = String(path).startsWith("/api/dashboard") ? dashboard : forward;
+    const key = String(path);
+    fetchCounts.set(key, (fetchCounts.get(key) || 0) + 1);
+    if (key.startsWith("/api/forward/paper-tracker")) {
+      if (trackerOverride === null || trackerOverride === undefined) throw new Error("missing tracker fixture payload");
+      return { ok: true, json: async () => trackerOverride };
+    }
+    const payload = key.startsWith("/api/dashboard") ? dashboard : forward;
     if (!payload) throw new Error("missing fixture payload");
     return { ok: true, json: async () => payload };
   };
 
   try {
-    await callback({ view, ids, chartState });
+    await callback({
+      view,
+      ids,
+      chartState,
+      fetchCounts,
+      setTrackerPayload(tracker) { trackerOverride = tracker; },
+    });
   } finally {
     disposeDashboard();
     for (const [key, value] of prior) {
@@ -1079,5 +1108,118 @@ test("with no tracker payload the dashboard keeps an explicit unavailable state"
     const tracker = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("paper-tracker"))[0];
     assert.ok(tracker, "the tracker card still renders its slot");
     assert.match(tracker.textContent, /Paper trade tracker unavailable/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tracker refresh race: the runner records an outcome AFTER the dashboard
+// refreshed on a new stored candle. The tracker must catch up on its own
+// read-only poll — without a new candle, without re-running the dashboard
+// analysis, and without touching the chart.
+// ---------------------------------------------------------------------------
+
+async function drainMicrotasks(times = 20) {
+  for (let i = 0; i < times; i += 1) await Promise.resolve();
+}
+
+function stoppedTrackerFrom(payload) {
+  const tracker = structuredClone(payload);
+  tracker.unresolved_paper_plan_count = 0;
+  tracker.active_paper_plan_id = null;
+  const plan = tracker.tracked_plans[0];
+  plan.settled = true;
+  plan.occupies_slot = false;
+  plan.outcome_version_count = (plan.outcome_version_count || 0) + 1;
+  plan.outcome = {
+    ...plan.outcome,
+    outcome_id: "outcome-4-stopped",
+    sequence: (plan.outcome?.sequence || 0) + 1,
+    status: "STOPPED",
+    stop_reached: true,
+    observed_through: "2026-10-06T13:00:00Z",
+    recorded_at: "2026-10-06T13:30:00Z",
+  };
+  return tracker;
+}
+
+function fetchTotal(fetchCounts, prefix) {
+  return [...fetchCounts.entries()]
+    .filter(([key]) => key.startsWith(prefix))
+    .reduce((sum, [, count]) => sum + count, 0);
+}
+
+test("tracker updates when the runner records STOPPED after the dashboard refreshed — no new candle, no re-analysis", async () => {
+  const forward = forwardPayload();
+  const openTracker = forward.paper_tracker;
+  assert.equal(openTracker.tracked_plans[0].outcome.status, "OPEN_AT_CUTOFF");
+
+  await withDashboard(backendDashboard(), forward, async ({ view, chartState, fetchCounts, setTrackerPayload }) => {
+    // Hold the scheduled timers so the test fires the tracker poll itself.
+    const timers = [];
+    const realSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
+    let rendered;
+    try {
+      rendered = await renderDashboard(view);
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+    assert.equal(rendered, true);
+
+    const cardBefore = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("paper-tracker"))[0];
+    const heroBefore = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("hero-card"))[0];
+    const chartWrapBefore = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("dash-chart"))[0];
+    assert.ok(cardBefore && heroBefore && chartWrapBefore);
+    // The dashboard refreshed on the new candle while the plan was still open.
+    assert.match(cardBefore.textContent, /Still open at cutoff/);
+    assert.match(cardBefore.textContent, /Unresolved — still observing/);
+    assert.equal(cardBefore.dataset.trackerState, "active");
+    const childCount = view.children.length;
+
+    // The forward runner records the STOPPED outcome afterwards. No candle appears.
+    setTrackerPayload(stoppedTrackerFrom(openTracker));
+    // Fire the scheduled 15s poll timers (the tracker refresher; the boundary
+    // check is a harmless no-op). Stale one-shot guards (e.g. the live
+    // display's abort timer) are never re-fired.
+    for (const timer of timers.filter((item) => item.ms === TRACKER_REFRESH_INTERVAL_MS)) timer.fn();
+    await drainMicrotasks();
+
+    const cardAfter = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("paper-tracker"))[0];
+    assert.ok(cardAfter, "the tracker card is still mounted");
+    assert.notEqual(cardAfter, cardBefore, "the tracker card was replaced in place");
+    assert.equal(cardAfter.parentNode, view);
+    assert.equal(cardBefore.parentNode, null);
+    assert.match(cardAfter.textContent, /Latest outcome\s*Stopped/);
+    assert.match(cardAfter.textContent, /Plan state\s*Settled — final/);
+    assert.match(cardAfter.textContent, /SETTLED/);
+    assert.match(cardAfter.textContent, /ALL SETTLED/);
+    assert.equal(cardAfter.dataset.trackerState, "settled");
+    // The frozen entry/stop/targets are unchanged on the refreshed card.
+    assert.match(cardAfter.textContent, /83,916\.01/);
+    assert.match(cardAfter.textContent, /83,606\.01/);
+    assert.match(cardAfter.textContent, /84,379\.31/);
+
+    // No re-analysis, no page rebuild, no new chart: only the card moved.
+    assert.equal(view.children.length, childCount, "the page layout is not rebuilt");
+    assert.equal(findNodes(view, (node) => (node.className || "").split(/\s+/).includes("hero-card"))[0], heroBefore);
+    assert.equal(findNodes(view, (node) => (node.className || "").split(/\s+/).includes("dash-chart"))[0], chartWrapBefore);
+    assert.equal(chartState.charts.length, 1, "no new chart instance is created");
+    assert.equal(fetchTotal(fetchCounts, "/api/dashboard"), 1, "the expensive dashboard analysis is NOT re-requested");
+    assert.equal(fetchTotal(fetchCounts, "/api/forward?"), 1, "the full forward report is NOT re-requested");
+    assert.ok(fetchTotal(fetchCounts, "/api/forward/paper-tracker") >= 1, "the cheap tracker poll served the update");
+
+    // A repeat poll with unchanged ledger data re-renders nothing.
+    const stableCard = cardAfter;
+    for (const timer of timers.filter((item) => item.ms === TRACKER_REFRESH_INTERVAL_MS)) timer.fn();
+    await drainMicrotasks();
+    assert.equal(findNodes(view, (node) => (node.className || "").split(/\s+/).includes("paper-tracker"))[0], stableCard, "unchanged ledger data never re-renders the card");
+
+    // Navigation: dispose stops the refresher; a late poll neither fetches nor throws.
+    disposeDashboard();
+    const trackerPolls = fetchTotal(fetchCounts, "/api/forward/paper-tracker");
+    for (const timer of timers.filter((item) => item.ms === TRACKER_REFRESH_INTERVAL_MS)) timer.fn();
+    await drainMicrotasks();
+    assert.equal(fetchTotal(fetchCounts, "/api/forward/paper-tracker"), trackerPolls, "no poll runs after navigation");
+    assert.equal(findNodes(view, (node) => (node.className || "").split(/\s+/).includes("paper-tracker"))[0], stableCard);
   });
 });
