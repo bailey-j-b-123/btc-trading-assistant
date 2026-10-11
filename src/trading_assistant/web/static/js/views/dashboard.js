@@ -44,6 +44,7 @@ import {
   isoMs,
   itemsAtTime,
 } from "../evidence.js";
+import { paperTrackerCard } from "../paper-tracker.js";
 import { explainEvidence, explainZoneBand } from "../explain.js";
 import {
   CHART_PAGE_SIZE,
@@ -2539,6 +2540,10 @@ export async function renderDashboard(view, { refresh = false } = {}) {
       updateStatusNode,
     ]),
     decisionHero(dashboard, forward),
+    // Prominent, persistent Active/Recent paper-trade tracker: recorded plans
+    // and outcomes from the ledger, kept visible even when the newest
+    // assessment says "No trade".
+    paperTrackerCard(forward),
     el("div", { class: "dash-main" }, [
       el("div", { class: "dash-chart" }, [chart.node]),
       el("aside", { class: "dash-context", "aria-label": "Multi-timeframe and zone context" }, [

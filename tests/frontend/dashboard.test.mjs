@@ -331,6 +331,63 @@ function forwardPayload(timestamp = "2026-10-06T12:00:00Z") {
         plan_state_counts: { PLANNABLE: 0 },
       },
     },
+    paper_tracker: {
+      label: "PAPER OBSERVATION — NO REAL ORDER",
+      disclaimer: "The tracker lists recorded paper plans and their recorded outcome versions only.",
+      exchange: "binance",
+      symbol: "BTC/USDT",
+      timeframe: "1h",
+      as_of: timestamp,
+      active_paper_plan_id: "plan-tracker-1",
+      unresolved_paper_plan_count: 1,
+      recorded_paper_plan_count: 1,
+      latest_assessment: {
+        available: true,
+        unavailable_reason: null,
+        as_of: timestamp,
+        recorded_at: timestamp,
+        cycle_status: "COMPLETE",
+        setup_state: "WATCH",
+        explanation_headline: "Watching",
+      },
+      tracked_plans: [
+        {
+          paper_plan_id: "plan-tracker-1",
+          setup_id: "setup-1",
+          family: "breakout_retest_continuation",
+          direction: "bullish",
+          timeframe: "1h",
+          plan_as_of: timestamp,
+          recorded_at: timestamp,
+          entry: "83916.01",
+          stop: "83606.01",
+          invalidation: "83606.01",
+          risk_per_unit: "310.00",
+          targets: ["84379.31"],
+          target_r_multiples: ["1.5"],
+          observation_horizon_candles: 20,
+          entry_reached: true,
+          entry_timestamp: timestamp,
+          settled: false,
+          occupies_slot: true,
+          outcome_version_count: 3,
+          outcome: {
+            outcome_id: "outcome-3",
+            sequence: 3,
+            status: "OPEN_AT_CUTOFF",
+            entry_reached: true,
+            entry_timestamp: timestamp,
+            stop_reached: false,
+            targets_reached: [],
+            observed_through: timestamp,
+            recorded_at: timestamp,
+            ambiguous: false,
+            incomplete: false,
+            missing_candle_count: 0,
+          },
+        },
+      ],
+    },
     observations: { observations: [] },
     report: {
       combined_metrics_available: true,
@@ -985,5 +1042,42 @@ test("missing market-state and scenario sections stay honestly unavailable", asy
     assert.match(view.textContent, /No market frame could be built at this point\./);
     assert.match(view.textContent, /No completed analysis at this point\./);
     assert.match(view.textContent, /No snapshot to explain\./);
+  });
+});
+
+test("the paper trade tracker is prominent, persistent, and ledger-driven", async () => {
+  await withDashboard(backendDashboard(), forwardPayload(), async ({ view }) => {
+    await renderDashboard(view);
+    const tracker = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("paper-tracker"))[0];
+    assert.ok(tracker, "the tracker card renders on the dashboard");
+    // Prominent placement: directly after the decision hero, before the chart.
+    const hero = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("hero-card"))[0];
+    const chart = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("dash-main"))[0];
+    const order = view.children.indexOf(hero) < view.children.indexOf(tracker)
+      && tracker ? view.children.indexOf(tracker) < view.children.indexOf(chart) : false;
+    assert.ok(order, "tracker sits between the decision hero and the chart");
+    // The recorded plan shows every ledger fact, unresolved included.
+    assert.match(tracker.textContent, /Paper trade tracker/);
+    assert.match(tracker.textContent, /83,916\.01/);
+    assert.match(tracker.textContent, /83,606\.01/);
+    assert.match(tracker.textContent, /84,379\.31/);
+    assert.match(tracker.textContent, /YES/);
+    assert.match(tracker.textContent, /Still open at cutoff/);
+    assert.match(tracker.textContent, /Unresolved — still observing/);
+    assert.match(tracker.textContent, /1 UNRESOLVED/);
+    assert.equal(tracker.dataset.trackerState, "active");
+    // Persistence: a later assessment that says WATCH/No trade does not remove the plan.
+    assert.match(tracker.textContent, /stays on the tracker until its outcome settles/);
+  });
+});
+
+test("with no tracker payload the dashboard keeps an explicit unavailable state", async () => {
+  const forward = forwardPayload();
+  delete forward.paper_tracker;
+  await withDashboard(backendDashboard(), forward, async ({ view }) => {
+    await renderDashboard(view);
+    const tracker = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("paper-tracker"))[0];
+    assert.ok(tracker, "the tracker card still renders its slot");
+    assert.match(tracker.textContent, /Paper trade tracker unavailable/);
   });
 });

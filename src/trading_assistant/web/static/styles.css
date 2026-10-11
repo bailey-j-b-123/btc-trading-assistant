@@ -1513,6 +1513,51 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   align-items: start;
 }
 
+/* --- Paper trade tracker (persistent Active/Recent card) -------------------------- */
+/* Prominent accent by tracker state; the card itself never disappears. */
+.paper-tracker { border-left: 3px solid var(--border-strong); }
+.paper-tracker[data-tracker-state="active"] { border-left-color: var(--amber); }
+.paper-tracker[data-tracker-state="settled"] { border-left-color: var(--border-strong); }
+.paper-tracker[data-tracker-state="unknown"] { border-left-color: var(--border); }
+.tracker-state-pill {
+  font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: .08em;
+  padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border-strong);
+  color: var(--text-dim); background: var(--neutral-chip); white-space: nowrap;
+}
+.tracker-state-pill[data-tone="amber"] { color: var(--amber); background: var(--amber-dim); border-color: rgba(232,163,61,.38); }
+.tracker-state-pill[data-tone="blue"] { color: var(--blue); background: var(--blue-dim); border-color: rgba(91,155,213,.35); }
+.tracker-plan { display: flex; flex-direction: column; gap: 12px; }
+.tracker-plan-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.tracker-direction { font-weight: 700; }
+.tracker-direction[data-tone="green"] { color: var(--green); }
+.tracker-direction[data-tone="red"] { color: var(--red); }
+.tracker-family { color: var(--text-dim); font-size: 13px; }
+.tracker-plan-id { margin-left: auto; color: var(--text-faint); font-size: 10px; }
+.tracker-levels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.tracker-level { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2); min-width: 0; }
+.tracker-level .label { color: var(--text-faint); font-size: 9px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+.tracker-level .value { margin-top: 3px; font-size: 16px; font-weight: 700; overflow-wrap: anywhere; }
+.tracker-level[data-tone="blue"] .value { color: var(--blue); }
+.tracker-level[data-tone="red"] .value { color: var(--red); }
+.tracker-level[data-tone="green"] .value { color: var(--green); }
+.tracker-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.tracker-fact { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); min-width: 0; }
+.tracker-fact .label { color: var(--text-faint); font-size: 9px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+.tracker-fact .value { margin-top: 3px; font-size: 12px; color: var(--text); overflow-wrap: anywhere; }
+.tracker-meta { color: var(--text-faint); font-size: 10px; }
+.tracker-assessment { margin: 10px 0 0; color: var(--text-dim); font-size: 12px; }
+.tracker-history-head { margin: 14px 0 6px; font-size: 12px; font-weight: 700; color: var(--text-muted); letter-spacing: .04em; }
+.tracker-empty { display: flex; flex-direction: column; gap: 6px; }
+.tracker-empty .big { font-weight: 700; }
+.tracker-empty { color: var(--text-dim); font-size: 13px; }
+@media (max-width: 900px) {
+  .tracker-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+  .tracker-levels { grid-template-columns: minmax(0, 1fr); }
+  .tracker-facts { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* --- Diagnostics ----------------------------------------------------------------- */
 .diagnostics > summary {
   cursor: pointer; font-weight: 700; color: var(--text-dim);

@@ -154,6 +154,12 @@ def get_forward(
         "friction_from_recorded_plans": friction_is_recorded,
         "friction_fingerprint": recorded_friction.fingerprint(),
         "status": status,
+        # The persistent Active/Recent paper-trade tracker: recorded plans and
+        # their latest outcome versions straight from the ledger, unchanged by
+        # whatever the newest assessment concluded.
+        "paper_tracker": service.paper_tracker_payload(
+            symbol=resolved_symbol, timeframe=resolved_timeframe
+        ),
         "observations": observations,
         "report": report.to_json_dict(),
         "limitations": list(FORWARD_REPORT_LIMITATIONS),
