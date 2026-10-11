@@ -16,12 +16,23 @@ Guarantees (all enforced here or by the existing download path):
 * The end of the range is capped at the newest closed candle as of ``as_of``. Forming
   candles are never stored as history.
 * ``dry_run`` performs database reads only: no exchange request and no write.
+* A chunk the exchange confirmed to be missing candles is *settled*: its exact gap ranges are
+  recorded in a small checkpoint file (``<raw_data_dir>/backfill-checkpoints``, git-ignored,
+  never in the candle database), so later runs do not re-request it. A settled gap is
+  re-requested only with ``recheck_settled_gaps``. Gaps within ``GAP_SETTLE_MARGIN_CANDLES`` of
+  the newest closed candle are never settled, because the exchange may still be publishing them.
+* A stored row that fails validation is reported on that timeframe and never rewritten; it does
+  not abort the other timeframes or a dry run.
 """
 
 from __future__ import annotations
 
+import json
+import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from trading_assistant.market_data.service import MarketDataService
@@ -37,6 +48,10 @@ from trading_assistant.market_data.timeframes import (
 
 REQUIRED_EXCHANGE = "binance"
 DEFAULT_CHUNK_CANDLES = 1000
+CHECKPOINT_DIR_NAME = "backfill-checkpoints"
+CHECKPOINT_SCHEMA = 1
+# A gap is settled only when its chunk ends at least this many candles before the newest closed one.
+GAP_SETTLE_MARGIN_CANDLES = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +82,8 @@ class TimeframeBackfill:
     earliest_stored_before: datetime | None = None
     earliest_stored_after: datetime | None = None
     latest_stored_after: datetime | None = None
+    chunks_settled_with_gaps: int = 0
+    checkpoint_warning: str | None = None
 
     def to_json_dict(self) -> dict[str, Any]:
         return {
@@ -86,6 +103,8 @@ class TimeframeBackfill:
             "earliest_stored_before": _iso(self.earliest_stored_before),
             "earliest_stored_after": _iso(self.earliest_stored_after),
             "latest_stored_after": _iso(self.latest_stored_after),
+            "chunks_settled_with_gaps": self.chunks_settled_with_gaps,
+            "checkpoint_warning": self.checkpoint_warning,
         }
 
 
@@ -169,8 +188,26 @@ def floor_to_timeframe(value: datetime, timeframe: str) -> datetime:
     return milliseconds_to_datetime(anchor_ms + ((ms - anchor_ms) // interval_ms) * interval_ms)
 
 
-def _chunk_complete(service: MarketDataService, *, symbol: str, chunk: BackfillChunk) -> bool:
-    """A chunk is complete when every expected open time is stored (database read only)."""
+GapRange = tuple[int, int, int]  # (start_ms, end_ms, missing_count), inclusive open times
+
+
+def _gap_ranges(gaps: Any) -> tuple[GapRange, ...]:
+    return tuple(
+        (
+            datetime_to_milliseconds(gap.start),
+            datetime_to_milliseconds(gap.end),
+            int(gap.missing_count),
+        )
+        for gap in gaps
+    )
+
+
+def _read_chunk(service: MarketDataService, *, symbol: str, chunk: BackfillChunk) -> tuple[bool, tuple[GapRange, ...]]:
+    """Database read only: whether stored rows + reported gaps account for every expected open.
+
+    Returns ``(counts_add_up, gap_ranges)``. Raises whatever the repository raises on a stored
+    row that fails validation; callers report that on the timeframe instead of aborting.
+    """
 
     stored = service.repository.get_candles(
         exchange=REQUIRED_EXCHANGE,
@@ -179,7 +216,75 @@ def _chunk_complete(service: MarketDataService, *, symbol: str, chunk: BackfillC
         start_time=chunk.start,
         end_time=chunk.end,
     )
-    return len(stored.candles) == chunk.expected_count and not stored.gaps
+    ranges = _gap_ranges(stored.gaps)
+    missing = sum(item[2] for item in ranges)
+    return len(stored.candles) + missing == chunk.expected_count, ranges
+
+
+def _chunk_key(chunk: BackfillChunk) -> str:
+    return f"{datetime_to_milliseconds(chunk.start)}-{datetime_to_milliseconds(chunk.end)}"
+
+
+def _checkpoint_path(service: MarketDataService, *, symbol: str, timeframe: str) -> Path:
+    safe_symbol = re.sub(r"[^A-Za-z0-9]+", "-", symbol).strip("-") or "symbol"
+    root = Path(service.settings.raw_data_dir) / CHECKPOINT_DIR_NAME
+    return root / f"{REQUIRED_EXCHANGE}-{safe_symbol}-{timeframe}.json"
+
+
+def _load_checkpoint(path: Path) -> tuple[dict[str, Any], str | None]:
+    """Read settled chunks. An unreadable file is reported and treated as empty (read only)."""
+
+    if not path.exists():
+        return {}, None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict) or payload.get("schema") != CHECKPOINT_SCHEMA:
+            raise ValueError("unrecognised checkpoint layout")
+        settled = payload.get("settled")
+        if not isinstance(settled, dict):
+            raise ValueError("missing settled map")
+        return settled, None
+    except (OSError, ValueError) as exc:
+        return {}, (
+            f"checkpoint {path.name} is unreadable ({type(exc).__name__}); "
+            "its settled gaps are ignored and those chunks are verified again"
+        )
+
+
+def _save_checkpoint(
+    path: Path,
+    *,
+    symbol: str,
+    timeframe: str,
+    settled: dict[str, Any],
+    as_of: datetime,
+    set_unreadable_aside: bool,
+) -> None:
+    """Atomically replace the checkpoint via a temporary file and os.replace. Never touches candles."""
+
+    if set_unreadable_aside and path.exists():
+        stamp = as_of.strftime("%Y%m%dT%H%M%SZ")
+        os.replace(path, path.with_name(f"{path.name}.unreadable-{stamp}"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema": CHECKPOINT_SCHEMA,
+        "exchange": REQUIRED_EXCHANGE,
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "settled": settled,
+    }
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
+
+
+@dataclass(slots=True)
+class _PlannedChunk:
+    index: int
+    chunk: BackfillChunk
+    key: str
+    ranges: tuple[GapRange, ...]
+    complete: bool
 
 
 def run_backfill(
@@ -193,12 +298,17 @@ def run_backfill(
     chunk_candles: int = DEFAULT_CHUNK_CANDLES,
     max_chunks: int | None = None,
     dry_run: bool = False,
+    recheck_settled_gaps: bool = False,
 ) -> BackfillReport:
     """Backfill ``timeframes`` for ``symbol`` from ``start`` up to the newest closed candle.
 
     ``max_chunks`` bounds the number of downloads in this run across all timeframes (None means
-    unbounded). A failure stops only the affected timeframe; the error is reported and the next
-    run resumes from the first incomplete chunk.
+    unbounded). A download failure stops only the affected timeframe; the error is reported and
+    the next run resumes from the first incomplete chunk. A stored-row validation failure is
+    reported on its timeframe and never aborts the run.
+
+    ``recheck_settled_gaps`` re-requests chunks whose gaps were previously settled, so a candle
+    the exchange has since published is inserted. It is off by default to keep runs bounded.
     """
 
     if service.source.exchange_id != REQUIRED_EXCHANGE:
@@ -220,11 +330,11 @@ def run_backfill(
             requested_start=floor_to_timeframe(start, timeframe),
             requested_end=requested_end,
         )
+        report.timeframes.append(item)
         item.earliest_stored_before = service.repository.earliest_timestamp(
             exchange=REQUIRED_EXCHANGE, symbol=symbol, timeframe=timeframe
         )
         if item.requested_start > requested_end:
-            report.timeframes.append(item)
             continue
         chunks = plan_chunks(
             timeframe=timeframe,
@@ -233,19 +343,44 @@ def run_backfill(
             chunk_candles=chunk_candles,
         )
         item.chunks_planned = len(chunks)
-        pending: list[BackfillChunk] = []
-        for chunk in chunks:
-            if _chunk_complete(service, symbol=symbol, chunk=chunk):
-                item.chunks_already_complete += 1
-            else:
-                pending.append(chunk)
+        checkpoint_path = _checkpoint_path(service, symbol=symbol, timeframe=timeframe)
+        settled, item.checkpoint_warning = _load_checkpoint(checkpoint_path)
+        unreadable_checkpoint = item.checkpoint_warning is not None
+        newest_closed_ms = datetime_to_milliseconds(newest_closed)
+        interval_ms = timeframe_to_milliseconds(timeframe)
+
+        # Planning: database reads only. A failure here is reported for this timeframe.
+        planned: list[_PlannedChunk] = []
+        try:
+            for index, chunk in enumerate(chunks):
+                key = _chunk_key(chunk)
+                rows_ok, ranges = _read_chunk(service, symbol=symbol, chunk=chunk)
+                recorded = settled.get(key)
+                matches_settled = (
+                    recorded is not None
+                    and [tuple(item_) for item_ in recorded.get("gaps", [])] == list(ranges)
+                )
+                complete = rows_ok and (
+                    not ranges or (matches_settled and not recheck_settled_gaps)
+                )
+                planned.append(_PlannedChunk(index, chunk, key, ranges, complete))
+        except Exception as exc:  # noqa: BLE001 - reported on this timeframe; nothing is written
+            item.error = f"{type(exc).__name__}: {str(exc)[:300]}"
+            continue
+
+        item.chunks_already_complete = sum(1 for entry in planned if entry.complete)
+        pending = [entry for entry in planned if not entry.complete]
         item.chunks_remaining = len(pending)
-        for chunk in pending:
+        final_ranges: dict[int, tuple[GapRange, ...]] = {entry.index: entry.ranges for entry in planned}
+        complete_now: dict[int, bool] = {entry.index: entry.complete for entry in planned}
+
+        for entry in pending:
             if dry_run:
                 continue
             if budget is not None and budget <= 0:
                 item.stopped_at_chunk_limit = True
                 break
+            chunk = entry.chunk
             try:
                 update = service.download_history(
                     start_time=chunk.start,
@@ -254,20 +389,55 @@ def run_backfill(
                     timeframe=timeframe,
                     as_of=as_of_utc,
                 )
+                rows_ok, ranges = _read_chunk(service, symbol=symbol, chunk=chunk)
             except Exception as exc:  # noqa: BLE001 - reported; the next run resumes
                 item.error = f"{type(exc).__name__}: {str(exc)[:300]}"
                 break
             if budget is not None:
                 budget -= 1
             item.chunks_downloaded += 1
-            item.chunks_remaining -= 1
             item.inserted += update.inserted_count
             item.already_present += update.already_present_count
             item.received += update.received_count
-            item.gaps.extend(
-                {"start": gap.start.isoformat(), "end": gap.end.isoformat(), "missing": gap.missing_count}
-                for gap in update.gaps
-            )
+            final_ranges[entry.index] = ranges
+
+            old_enough = (datetime_to_milliseconds(chunk.end) + GAP_SETTLE_MARGIN_CANDLES * interval_ms
+                          <= newest_closed_ms)
+            if rows_ok and not ranges:
+                complete_now[entry.index] = True
+                if entry.key in settled:  # healed: the stale settlement is dropped
+                    del settled[entry.key]
+                    _save_checkpoint(checkpoint_path, symbol=symbol, timeframe=timeframe, settled=settled,
+                                     as_of=as_of_utc, set_unreadable_aside=unreadable_checkpoint)
+                    unreadable_checkpoint = False
+            elif rows_ok and old_enough:
+                complete_now[entry.index] = True
+                settled[entry.key] = {
+                    "expected": chunk.expected_count,
+                    "gaps": [list(item_) for item_ in ranges],
+                    "as_of": as_of_utc.isoformat(),
+                }
+                _save_checkpoint(checkpoint_path, symbol=symbol, timeframe=timeframe, settled=settled,
+                                 as_of=as_of_utc, set_unreadable_aside=unreadable_checkpoint)
+                unreadable_checkpoint = False
+            else:
+                complete_now[entry.index] = False
+            if complete_now[entry.index]:
+                item.chunks_remaining -= 1
+
+        # Gap reporting covers every planned chunk, including those settled on earlier runs.
+        for index in sorted(final_ranges):
+            for start_ms, end_ms, missing in final_ranges[index]:
+                item.gaps.append(
+                    {
+                        "start": milliseconds_to_datetime(start_ms).isoformat(),
+                        "end": milliseconds_to_datetime(end_ms).isoformat(),
+                        "missing": missing,
+                    }
+                )
+        item.chunks_settled_with_gaps = sum(
+            1 for index, ranges in final_ranges.items() if ranges and complete_now.get(index)
+        )
         if not dry_run:
             item.earliest_stored_after = service.repository.earliest_timestamp(
                 exchange=REQUIRED_EXCHANGE, symbol=symbol, timeframe=timeframe
@@ -275,5 +445,4 @@ def run_backfill(
             item.latest_stored_after = service.repository.latest_timestamp(
                 exchange=REQUIRED_EXCHANGE, symbol=symbol, timeframe=timeframe
             )
-        report.timeframes.append(item)
     return report

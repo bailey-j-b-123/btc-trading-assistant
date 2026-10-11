@@ -80,6 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
     backfill.add_argument("--chunk-candles", type=int, default=DEFAULT_CHUNK_CANDLES, help="candles per request chunk (default 1000)")
     backfill.add_argument("--max-chunks", type=int, default=50, help="downloads per run across all timeframes (default 50); re-run to continue")
     backfill.add_argument("--dry-run", action="store_true", help="report the plan and current coverage; no network, no writes")
+    backfill.add_argument("--recheck-gaps", action="store_true", help="re-request chunks whose gaps were settled on an earlier run (default: skip them)")
     backfill.add_argument("--lock-file", default=str(DEFAULT_LOCK_FILE), help="single-instance lock file (default: data/ingestion.lock)")
     return parser
 
@@ -152,6 +153,7 @@ def _run_backfill(args, settings) -> int:
                 chunk_candles=args.chunk_candles,
                 max_chunks=args.max_chunks,
                 dry_run=args.dry_run,
+                recheck_settled_gaps=args.recheck_gaps,
             )
 
         if args.dry_run:
