@@ -466,6 +466,30 @@ class ForwardLedgerRepository:
             rows = session.scalars(statement).all()
             return tuple(_paper_plan_from_row(row) for row in rows)
 
+    def paper_plan_at(
+        self,
+        *,
+        exchange: str,
+        symbol: str,
+        timeframe: str,
+        setup_id: str,
+        plan_id: str,
+        plan_as_of: datetime,
+    ) -> PaperPlan | None:
+        """One frozen paper plan matching an exact candidate identity."""
+
+        statement = select(ForwardPaperPlanRow).where(
+            ForwardPaperPlanRow.exchange == exchange,
+            ForwardPaperPlanRow.symbol == symbol,
+            ForwardPaperPlanRow.timeframe == timeframe,
+            ForwardPaperPlanRow.setup_id == setup_id,
+            ForwardPaperPlanRow.plan_id == plan_id,
+            ForwardPaperPlanRow.plan_as_of == plan_as_of,
+        )
+        with self._sessions() as session:
+            row = session.scalars(statement).first()
+            return None if row is None else _paper_plan_from_row(row)
+
     def get_paper_plan(self, paper_plan_id: str) -> PaperPlan:
         with self._sessions() as session:
             row = session.get(ForwardPaperPlanRow, paper_plan_id)

@@ -6,10 +6,13 @@ after performance work. Inputs are the deterministic SYNTHETIC series from
 
 Two digests per boundary:
 
-* ``dashboard``: SHA-256 of the full dashboard JSON (``plan``, ``scenario``,
-  ``planning``, ``looking_for``, ``setups``/``qualification``, ``overlays``,
-  ``chart_evidence``, ``market_state`` and the rest). The only key removed is the
-  wall-clock ``generated_at`` audit stamp, which is not a decision output.
+* ``dashboard``: SHA-256 of the dashboard's decision-bearing JSON (``plan``,
+  ``scenario``, ``planning``, ``looking_for``, ``setups``/``qualification``,
+  ``overlays``, ``chart_evidence``, ``market_state`` and the rest). The wall-clock
+  ``generated_at`` stamp and signal-provenance presentation block are excluded.
+  Live-evaluation source markers and their explicit display prefixes are
+  normalized away because they distinguish read-only UI context from stored
+  confirmation; they do not change the underlying hierarchy decision.
 * ``decision``: SHA-256 of every replay frame, every enumerated qualification
   snapshot, and every trade plan for a QUALIFIED setup at the boundary, using the
   objects' full ``repr``. Plan and frame content is therefore pinned even where
@@ -62,7 +65,31 @@ def build_state(directory: Path, candles: int) -> AppState:
 
 def _strip_audit(value):
     if isinstance(value, dict):
-        return {k: _strip_audit(v) for k, v in value.items() if k != "generated_at"}
+        live_evaluation = value.get("evaluation_source") == "live_read_only"
+        stripped = {}
+        presentation_keys = {
+            "generated_at",
+            "signal_provenance",
+            "evaluation_source",
+            "decision_kind",
+            "stored_decision_for_paper_confirmation",
+            "evaluation_note",
+        }
+        for key, item in value.items():
+            if key in presentation_keys:
+                continue
+            if live_evaluation and key == "overall" and isinstance(item, str):
+                if item == "LIVE EVALUATION COMPLETE — NOT STORED CONFIRMATION":
+                    item = "PLAN READY — HIERARCHY COMPLETE"
+                elif item.startswith("LIVE EVALUATION · "):
+                    item = item.removeprefix("LIVE EVALUATION · ")
+            elif live_evaluation and key == "decision_label" and isinstance(item, str):
+                if item == "Live hierarchy evaluation complete":
+                    item = "Plan ready — hierarchy complete"
+                elif item.startswith("Live evaluation: "):
+                    item = item.removeprefix("Live evaluation: ")
+            stripped[key] = _strip_audit(item)
+        return stripped
     if isinstance(value, list):
         return [_strip_audit(v) for v in value]
     return value

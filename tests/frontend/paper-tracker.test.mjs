@@ -29,7 +29,20 @@ globalThis.Node = ShimNode;
 globalThis.document = { createElement: (tag) => new ShimNode(tag), createTextNode: (text) => Object.assign(new ShimNode("#text"), { _text: String(text) }) };
 globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 
-const { paperTrackerCard, paperTrackerViewModel } = await import("../../src/trading_assistant/web/static/js/paper-tracker.js");
+const {
+  paperTrackerCard,
+  paperTrackerViewModel,
+  signalProvenanceViewModel,
+} = await import("../../src/trading_assistant/web/static/js/paper-tracker.js");
+
+function findNode(node, predicate) {
+  if (predicate(node)) return node;
+  for (const child of node.children || []) {
+    const found = findNode(child, predicate);
+    if (found) return found;
+  }
+  return null;
+}
 
 /**
  * Representative recorded trade, shaped exactly like the backend tracker
@@ -97,6 +110,122 @@ function trackerPayload(overrides = {}) {
     ...overrides,
   };
 }
+
+function validStoredConfirmationProvenance(plan = {}) {
+  const decisionTime = plan.plan_as_of || "2026-10-10T14:00:00Z";
+  const planRecordedAt = new Date(Date.parse(decisionTime) + 30_000).toISOString();
+  const hierarchyRecordedAt = new Date(Date.parse(decisionTime) + 20_000).toISOString();
+  const observationId = "hierarchy-observation-1";
+  return {
+    paper_candidate: {
+      label: "1H PAPER CANDIDATE",
+      timeframe: "1h",
+      plan_as_of: decisionTime,
+      recorded_at: planRecordedAt,
+      paper_plan_id: plan.paper_plan_id || "plan-stopped-1",
+      is_recorded_paper_plan: true,
+    },
+    four_timeframe_confirmation: {
+      status: "confirmed",
+      confirmed: true,
+      label: "FOUR-TIMEFRAME CONFIRMED",
+      reason: "A complete stored hierarchy decision matched this candidate before it was recorded.",
+      decision_time: decisionTime,
+      recorded_at: hierarchyRecordedAt,
+      decision: "plannable",
+      matching_boundary: true,
+      available_by_plan: true,
+      evidence_complete: true,
+      observation_id: observationId,
+      hierarchy_fingerprint: "fingerprint-1",
+      records: [{
+        observation_id: observationId,
+        hierarchy_fingerprint: "fingerprint-1",
+        decision_time: decisionTime,
+        recorded_at: hierarchyRecordedAt,
+        decision: "plannable",
+        status: "evaluated",
+      }],
+    },
+  };
+}
+
+test("stored confirmation presentation requires matching recorded proof", () => {
+  const valid = signalProvenanceViewModel(validStoredConfirmationProvenance());
+  assert.equal(valid.candidateLabel, "1H PAPER CANDIDATE");
+  assert.equal(valid.confirmationStatus, "confirmed");
+  assert.equal(valid.confirmationLabel, "FOUR-TIMEFRAME CONFIRMED");
+  assert.equal(valid.confirmed, true);
+
+  const mismatched = validStoredConfirmationProvenance();
+  mismatched.four_timeframe_confirmation.decision_time = "2026-10-10T13:00:00Z";
+  assert.equal(signalProvenanceViewModel(mismatched).confirmationStatus, "conflicting");
+  assert.equal(signalProvenanceViewModel(mismatched).confirmed, false);
+
+  const recordedLate = validStoredConfirmationProvenance();
+  recordedLate.four_timeframe_confirmation.recorded_at = "2026-10-10T14:00:40Z";
+  recordedLate.four_timeframe_confirmation.records[0].recorded_at = "2026-10-10T14:00:40Z";
+  assert.equal(signalProvenanceViewModel(recordedLate).confirmed, false);
+  assert.equal(signalProvenanceViewModel(recordedLate).confirmationStatus, "conflicting");
+
+  const incomplete = {
+    paper_candidate: { label: "1H PAPER CANDIDATE", timeframe: "1h" },
+    four_timeframe_confirmation: { status: "incomplete", confirmed: false },
+  };
+  assert.equal(signalProvenanceViewModel(incomplete).confirmationStatus, "incomplete");
+  assert.equal(signalProvenanceViewModel(incomplete).confirmed, false);
+});
+
+test("trade-history provenance column follows Direction and labels every older row", () => {
+  const recent = {
+    ...trackerPayload().tracked_plans[0],
+    paper_plan_id: "plan-recent",
+    plan_as_of: "2026-10-10T16:00:00Z",
+    recorded_at: "2026-10-10T16:00:30Z",
+    signal_provenance: validStoredConfirmationProvenance({
+      paper_plan_id: "plan-recent",
+      plan_as_of: "2026-10-10T16:00:00Z",
+    }),
+  };
+  const historical = {
+    ...trackerPayload().tracked_plans[0],
+    paper_plan_id: "plan-historical",
+    plan_as_of: "2026-10-10T14:00:00Z",
+    recorded_at: "2026-10-10T14:00:30Z",
+    signal_provenance: {
+      paper_candidate: {
+        label: "1H PAPER CANDIDATE",
+        timeframe: "1h",
+        plan_as_of: "2026-10-10T14:00:00Z",
+        paper_plan_id: "plan-historical",
+        is_recorded_paper_plan: true,
+      },
+      four_timeframe_confirmation: {
+        status: "incomplete",
+        confirmed: false,
+        decision_time: "2026-10-10T14:00:00Z",
+        matching_boundary: true,
+        available_by_plan: true,
+        evidence_complete: false,
+        reason: "The stored hierarchy evidence was incomplete.",
+      },
+    },
+  };
+  const tracker = trackerPayload({ tracked_plans: [recent, historical] });
+  const card = paperTrackerCard(forward(tracker));
+  const table = findNode(card, (node) => node.tagName === "TABLE");
+  assert.ok(table, "history table remains present for recorded plans");
+  const headers = table.children[0].children[0].children.map((cell) => cell.textContent);
+  assert.deepEqual(headers.slice(0, 4), ["Planned", "Direction", "Signal provenance", "Entry"]);
+  const historicalRow = table.children[1].children[0];
+  assert.equal(
+    historicalRow.children[2].textContent,
+    "1H PAPER CANDIDATE · HIERARCHY EVIDENCE INCOMPLETE",
+  );
+  assert.match(card.textContent, /FOUR-TIMEFRAME CONFIRMED/);
+  assert.match(card.textContent, /HIERARCHY EVIDENCE INCOMPLETE/);
+  assert.equal(historicalRow.children[7].textContent, "Stopped", "existing outcome is unchanged");
+});
 
 function forward(tracker, extras = {}) {
   return { paper_label: "PAPER OBSERVATION — NO REAL ORDER", paper_tracker: tracker, ...extras };

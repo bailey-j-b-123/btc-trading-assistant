@@ -59,6 +59,10 @@ from trading_assistant.trade_planning.models import PlanState, TradePlanResult
 from trading_assistant.trade_planning.planner import plan_trade
 from trading_assistant.web.zone_presentation import present_zones
 from trading_assistant.web.freshness import FreshnessReport, evaluate_freshness
+from trading_assistant.web.signal_provenance import (
+    dashboard_candidate_signal_provenance,
+    paper_plan_signal_provenance,
+)
 from trading_assistant.web.state import AppState
 
 #: Small in-process memo for chart evidence (bounded; keyed on the exact window).
@@ -266,6 +270,16 @@ class DashboardService:
         looking_for = self._looking_for(
             frame=frame, snapshot=snapshot, selected=selected, plan=plan
         )
+        signal_provenance = (
+            None
+            if plan is None or plan.state is not PlanState.PLANNABLE or plan.as_of is None
+            else self._signal_provenance(
+                exchange=exchange,
+                symbol=resolved_symbol,
+                timeframe=resolved_timeframe,
+                plan=plan,
+            )
+        )
 
         return {
             "looking_for": looking_for,
@@ -289,6 +303,7 @@ class DashboardService:
             },
             "qualification": qualification["payload"],
             "plan": None if plan is None else plan.to_json_dict(),
+            "signal_provenance": signal_provenance,
             "planning": planning_payload,
             "overlays": overlays,
             "chart_evidence": self._chart_evidence_at(
@@ -1079,6 +1094,47 @@ class DashboardService:
             "disabled_reason": disabled_reason,
         }
 
+    def _signal_provenance(
+        self, *, exchange: str, symbol: str, timeframe: str, plan: TradePlanResult
+    ) -> dict[str, object]:
+        """Link a dashboard candidate only to its exact stored paper-plan row.
+
+        The current hierarchy evaluation is deliberately not a fallback. An
+        ephemeral dashboard plan has no ledger ``recorded_at`` instant and
+        therefore remains an unconfirmed candidate until the forward engine
+        has stored the matching plan and an eligible hierarchy observation.
+        """
+
+        state = self.state
+        assert plan.as_of is not None
+        hierarchy_ledger = (
+            None if state.multi_timeframe is None else state.multi_timeframe.ledger
+        )
+        stored_plan = None
+        if plan.setup_id is not None:
+            stored_plan = state.forward.ledger.paper_plan_at(
+                exchange=exchange,
+                symbol=symbol,
+                timeframe=timeframe,
+                setup_id=plan.setup_id,
+                plan_id=plan.id,
+                plan_as_of=plan.as_of,
+            )
+        if stored_plan is not None:
+            return paper_plan_signal_provenance(
+                stored_plan, hierarchy_ledger=hierarchy_ledger
+            )
+        return dashboard_candidate_signal_provenance(
+            exchange=exchange,
+            symbol=symbol,
+            timeframe=timeframe,
+            setup_id=plan.setup_id,
+            family=(None if plan.family is None else plan.family.value),
+            direction=(None if plan.direction is None else str(plan.direction)),
+            plan_as_of=plan.as_of,
+            hierarchy_ledger=hierarchy_ledger,
+        )
+
     def _multi_timeframe(
         self, *, symbol: str, as_of: datetime
     ) -> tuple[HierarchySnapshot | None, dict[str, object]]:
@@ -1117,6 +1173,21 @@ class DashboardService:
                 "limitations": HIERARCHY_LIMITATIONS,
             }
         payload = hierarchy_ladder_payload(snapshot)
+        payload["evaluation_source"] = "live_read_only"
+        payload["decision_kind"] = "live_hierarchy_evaluation"
+        payload["stored_decision_for_paper_confirmation"] = False
+        payload["evaluation_note"] = (
+            "This is a read-only evaluation made for the current dashboard request, "
+            "not a stored hierarchy decision and never evidence for an earlier "
+            "1H paper candidate. Stored confirmation is joined separately by exact "
+            "boundary and recorded_at."
+        )
+        if snapshot.decision.value == "plannable":
+            payload["decision_label"] = "Live hierarchy evaluation complete"
+            payload["overall"] = "LIVE EVALUATION COMPLETE — NOT STORED CONFIRMATION"
+        else:
+            payload["decision_label"] = f"Live evaluation: {payload['decision_label']}"
+            payload["overall"] = f"LIVE EVALUATION · {payload['overall']}"
         latest = service.ledger.latest_observation(
             exchange=state.settings.exchange,
             symbol=symbol,

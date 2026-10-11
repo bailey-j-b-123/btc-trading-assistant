@@ -44,7 +44,11 @@ import {
   isoMs,
   itemsAtTime,
 } from "../evidence.js";
-import { createTrackerRefresher, paperTrackerCard } from "../paper-tracker.js";
+import {
+  createTrackerRefresher,
+  paperTrackerCard,
+  signalProvenanceViewModel,
+} from "../paper-tracker.js";
 import { explainEvidence, explainZoneBand } from "../explain.js";
 import {
   CHART_PAGE_SIZE,
@@ -74,7 +78,6 @@ import {
   hasValidTradePlan,
   healthDetailText,
   healthLabel,
-  hierarchyAllowsReadyWording,
   hierarchyDecisionLabel,
   hierarchyStatusLabel,
   metricLabelText,
@@ -211,9 +214,13 @@ function decisionExplanation(dashboard, candidate, plannable) {
   const qualification = dashboard?.qualification || {};
   const planning = dashboard?.planning || {};
   if (plannable) {
-    return hierarchyAllowsReadyWording(dashboard?.multi_timeframe)
-      ? "The complete deterministic hierarchy supports this plan; no order is placed."
-      : "Deterministic entry, stop and target levels are calculated; trade confirmation is separate.";
+    const provenance = signalProvenanceViewModel(dashboard?.signal_provenance, {
+      timeframe: dashboard?.meta?.timeframe || dashboard?.plan?.timeframe || null,
+    });
+    if (provenance.confirmed) {
+      return "This paper candidate has an exact-boundary, pre-plan stored four-timeframe decision; no order is placed.";
+    }
+    return `A ${provenance.candidateLabel} was calculated; four-timeframe confirmation is not established. ${provenance.reason}`;
   }
   if (qualification.available !== true) {
     return "The current qualification state is unavailable from the backend.";
@@ -276,13 +283,19 @@ export function verdictViewModel(dashboard, forward = null) {
     else if (qualification.state === "QUALIFIED" && dashboard?.planning?.state) plannedCount = plannable ? 1 : 0;
   }
 
-  const hierarchy = dashboard?.multi_timeframe;
-  const hierarchyReady = plannable && hierarchyAllowsReadyWording(hierarchy);
-  const hierarchyStatus = hierarchyStatusLabel(hierarchy);
+  const signalProvenance = plannable
+    ? signalProvenanceViewModel(dashboard?.signal_provenance, {
+        timeframe: dashboard?.meta?.timeframe || dashboard?.plan?.timeframe || null,
+      })
+    : null;
+  // A current read-only ladder evaluation is not a stored confirmation. Only
+  // the API's exact-boundary provenance join can set this field true.
+  const hierarchyReady = plannable && signalProvenance?.confirmed === true;
+  const hierarchyStatus = signalProvenance?.confirmationLabel || "CONFIRMATION UNAVAILABLE";
   let state = "UNKNOWN";
   let tone = "unknown";
   if (plannable) {
-    state = hierarchyReady ? hierarchyStatus : "PLAN CALCULATED";
+    state = signalProvenance?.candidateLabel || "PAPER CANDIDATE";
     tone = hierarchyReady ? "green" : "amber";
   } else if (qualification.available === true && qualification.state === "WATCH") {
     state = "WATCH";
@@ -310,12 +323,13 @@ export function verdictViewModel(dashboard, forward = null) {
     plannable,
     hierarchyReady,
     hierarchyStatus,
+    signalProvenance,
     planStatus: plannable
       ? hierarchyReady
-        ? "Hierarchy complete · decision support only; no order placed."
-        : "Trade not confirmed yet"
+        ? "FOUR-TIMEFRAME CONFIRMED by a matching stored decision · no order placed."
+        : `${hierarchyStatus} · ${signalProvenance?.reason || "Stored confirmation is unavailable."}`
       : null,
-    hierarchyGate: plannable ? (hierarchyReady ? "COMPLETE" : hierarchyStatus) : null,
+    hierarchyGate: plannable ? hierarchyStatus : null,
     explanation: decisionExplanation(dashboard, candidate, plannable),
   };
 }
@@ -2029,9 +2043,12 @@ export function ladderViewModel(dashboard) {
     return null;
   }
   const ladder = Array.isArray(payload.ladder) ? payload.ladder : [];
+  const liveAssessment = payload.evaluation_source === "live_read_only";
   return {
     overall: hierarchyStatusLabel(payload),
     decisionLabel: hierarchyDecisionLabel(payload),
+    sourceLabel: liveAssessment ? "LIVE READ-ONLY ASSESSMENT" : "engine hierarchy · read-only",
+    evaluationNote: typeof payload.evaluation_note === "string" ? payload.evaluation_note : null,
     alignmentLabel:
       typeof payload.alignment_label === "string" && payload.alignment_label
         ? payload.alignment_label
@@ -2098,6 +2115,8 @@ export function compactHierarchyViewModel(dashboard) {
     rows: ladder.rows,
     overall: ladder.overall,
     decisionLabel: ladder.decisionLabel,
+    sourceLabel: ladder.sourceLabel,
+    evaluationNote: ladder.evaluationNote,
     alignmentLabel: ladder.alignmentLabel,
     counterTrend: ladder.counterTrend,
     decisionTime: ladder.decisionTime,
@@ -2111,7 +2130,7 @@ function compactHierarchyStrip(dashboard) {
     return el("section", { class: "card terminal-card mtf-compact", "aria-label": "Multi-timeframe status" }, [
       el("div", { class: "section-title-row" }, [
         el("h2", { class: "card-title", text: "Multi-timeframe status" }),
-        el("span", { class: "card-hint", text: "engine hierarchy · read-only" }),
+        el("span", { class: "card-hint", text: "not stored confirmation" }),
       ]),
       el("div", { class: "mtf-compact-unavailable", role: "status", text: model.reason }),
     ]);
@@ -2119,7 +2138,7 @@ function compactHierarchyStrip(dashboard) {
   return el("section", { class: "card terminal-card mtf-compact", "aria-label": "Multi-timeframe status" }, [
     el("div", { class: "section-title-row" }, [
       el("h2", { class: "card-title", text: "Multi-timeframe status" }),
-      el("span", { class: "card-hint", text: "engine hierarchy · read-only" }),
+      el("span", { class: "card-hint", text: model.sourceLabel }),
     ]),
     el("div", { class: "mtf-compact-rows", role: "list" }, model.rows.map((row) =>
       el("div", { class: "mtf-compact-row", role: "listitem", dataset: { tone: row.tone } }, [
@@ -2162,8 +2181,11 @@ function multiTimeframeCard(dashboard) {
   const children = [
     el("div", { class: "section-title-row" }, [
       el("h2", { class: "card-title", text: "Multi-timeframe ladder" }),
-      el("span", { class: "card-hint", text: model.decisionLabel }),
+      el("span", { class: "card-hint", text: `${model.sourceLabel} · ${model.decisionLabel}` }),
     ]),
+    model.evaluationNote
+      ? el("p", { class: "mtf-evaluation-note", text: model.evaluationNote })
+      : null,
     el("div", { class: "mtf-ladder", role: "list" }, [
       ...model.rows.flatMap((row, index) =>
         index === 0
@@ -2196,7 +2218,7 @@ function multiTimeframeCard(dashboard) {
   // normal trading screen answers from the compact status strip next to the
   // chart instead. Collapsed by default; nothing inside is recomputed.
   return el("details", { class: "card terminal-card expandable mtf-details", "aria-label": "Multi-timeframe ladder" }, [
-    el("summary", { class: "mtf-details-summary", text: `Multi-timeframe ladder — technical details · ${model.decisionLabel}` }),
+    el("summary", { class: "mtf-details-summary", text: `Multi-timeframe ladder — technical details · ${model.sourceLabel} · ${model.decisionLabel}` }),
     el("div", { class: "details-body" }, children),
   ]);
 }
@@ -2249,9 +2271,9 @@ function decisionHero(dashboard, forward) {
             class: "hierarchy-gate",
             dataset: { tone: model.hierarchyReady ? "ready" : "waiting" },
             role: "status",
-            "aria-label": "Multi-timeframe hierarchy gate",
+            "aria-label": "Stored four-timeframe confirmation evidence",
           }, [
-            el("span", { class: "hierarchy-gate-label", text: "Hierarchy gate" }),
+            el("span", { class: "hierarchy-gate-label", text: "Stored hierarchy evidence" }),
             el("strong", { class: "hierarchy-gate-state", text: model.hierarchyGate }),
           ])
         : null,
@@ -2259,7 +2281,7 @@ function decisionHero(dashboard, forward) {
     el("div", { class: "hero-side" }, [
       el("span", { class: "hero-status", dataset: { tone: status.tone }, text: status.label }),
       el("dl", { class: "hero-facts" }, [
-        heroFact("Paper plan", model.plannable ? "Calculated by the backend — see Trade plan" : "None — the backend did not build one"),
+        heroFact("Paper candidate", model.plannable ? model.state : "None — the backend did not build one"),
         heroFact("Real orders", "0 — none by design; execution is disabled"),
       ]),
       el("p", { class: "hero-data", text: `As of ${asOf} · latest stored candle ${latest}` }),

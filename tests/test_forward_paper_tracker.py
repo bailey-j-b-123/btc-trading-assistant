@@ -272,6 +272,12 @@ def test_tracker_endpoint_is_read_only_with_no_account_surface() -> None:
         assert tracker["timeframe"] == TIMEFRAME
         assert tracker["exchange"] == EXCHANGE
         assert len(tracker["tracked_plans"]) == 2
+        for plan in tracker["tracked_plans"]:
+            provenance = plan["signal_provenance"]
+            assert provenance["paper_candidate"]["label"] == "1H PAPER CANDIDATE"
+            confirmation = provenance["four_timeframe_confirmation"]
+            assert confirmation["status"] == "unavailable"
+            assert confirmation["confirmed"] is False
 
     assert harness.counts() == before
     assert before["paper_plans"] == 2

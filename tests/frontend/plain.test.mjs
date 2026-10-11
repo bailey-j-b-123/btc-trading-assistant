@@ -84,6 +84,18 @@ test("hierarchy readiness wording requires the evaluated backend PLANNABLE state
   assert.equal(hierarchyStatusLabel({ ...waiting, decision: "plannable", counter_trend: true }), "COUNTER-TREND BLOCKED BELOW PLANNABLE");
   assert.equal(hierarchyDecisionLabel({ ...waiting, decision: "plannable",
     decision_label: "Plan ready — hierarchy complete" }), "Plan ready — hierarchy complete");
+  const livePlannable = {
+    available: true,
+    evaluation_source: "live_read_only",
+    status: "evaluated",
+    decision: "plannable",
+    decision_label: "Live hierarchy evaluation complete",
+    overall: "LIVE EVALUATION COMPLETE — NOT STORED CONFIRMATION",
+    counter_trend: false,
+  };
+  assert.equal(hierarchyAllowsReadyWording(livePlannable), false);
+  assert.equal(hierarchyStatusLabel(livePlannable), "LIVE EVALUATION COMPLETE — NOT STORED CONFIRMATION");
+  assert.equal(hierarchyDecisionLabel(livePlannable), "Live hierarchy evaluation complete — not a stored confirmation");
   assert.equal(hierarchyAllowsReadyWording({ available: false, status: "evaluated", decision: "plannable" }), false);
 });
 
