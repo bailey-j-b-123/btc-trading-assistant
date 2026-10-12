@@ -16,9 +16,19 @@ agent; this guide explains the coordination model it assumes.
 - **Automatic Arena task pickup is not configured.** Creating an issue does
   not automatically assign it to Arena or start an Arena task; an agent must
   still be selected and the task claimed manually.
-- **Unattended local Codex execution is not configured.** No issue or PR
-  triggers a Codex process on an operator's local machine. Local Codex runs
-  must be started and supervised by the operator.
+- **Desktop Codex coordination:** the operator verified the recurring chat
+  heartbeat is **ACTIVE every four hours**. It is polling, not a GitHub event
+  trigger, and requires the app and computer to be running. Its GitHub writes
+  failed with HTTP 403; unattended coding and draft-PR delivery are not yet
+  proven. The intended protocol is to poll the approved GitHub queue, claim one
+  Codex-owned low-risk task, implement it in a fresh source-only clone, test it,
+  and deliver a draft PR. See `docs/coordinator-contract.md` for the exact approval
+  format, restricted paths, isolation limits, and verification requirements.
+  Runtime/strategy work remains outside unattended pickup. Repository files
+  alone cannot activate an app scheduler or prove an integration works.
+- **Main protection was proposed but declined by the owner.** Branch protection
+  and rulesets remain unconfigured; a read-only GitHub probe confirmed `main`
+  is not protected. No ruleset is to be created or saved for this setup.
 
 ## The model
 
@@ -41,8 +51,9 @@ agent; this guide explains the coordination model it assumes.
    configured yet.
 3. **Work.** The agent checks out the latest `main`, creates its branch,
    implements *only* the listed deliverables, and runs the full suites
-   locally (`python -m pytest` and `npm test`). Local Codex execution is
-   operator-started; unattended execution is not configured.
+   locally (`python scripts/offline_pytest.py` and `npm test`) in a fresh
+   source-only checkout. Unattended Codex pickup follows the stricter coordinator
+   contract; other agent execution still depends on that product's verified setup.
 4. **PR.** The agent opens one focused PR to `main` and fills the PR template:
    files changed, exact test results, the safety checklist, and the scope
    boundaries.
@@ -75,21 +86,24 @@ agent; this guide explains the coordination model it assumes.
 - **Trigger:** every PR open/update, plus manual dispatch. GitHub-hosted
   `ubuntu-latest` runners only — never a personal machine.
 - **Jobs:** `python-tests` (Python 3.11, `pip install -e ".[dev]"`, full
-  `pytest` suite) and `js-tests` (Node 22, `npm test` =
+  guarded `pytest` suite) and `js-tests` (Node 22, `npm test` =
   `node --test tests/frontend/*.test.mjs`; the frontend package declares zero
   npm dependencies, so there is no install step and no lockfile to maintain).
 - **Permissions:** `contents: read`. **Secrets:** none. No
   `pull_request_target` (that trigger checks out untrusted head code with
   base-branch token scope — a known footgun, deliberately avoided).
-- The test suite is fully offline (fake-exchange fixtures, temporary SQLite
-  files): nothing in CI can reach an exchange or a production database.
+- Test execution uses fake-exchange fixtures, temporary SQLite files, a cleared
+  environment, and an OS network namespace. Dependency installation happens
+  before network denial. The Python audit guard also verifies state boundaries;
+  it is a regression safeguard, not an OS sandbox for hostile native code.
 
 ## What still requires manual setup or approval
 
-- **Branch protection on `main`** — requiring the CI status checks to pass
-  and requiring a review is a repository-settings change the human makes in
-  the GitHub UI; CI alone cannot enforce it. Until then, "CI green" is
-  advisory, and the human review is the actual gate.
+- **Branch protection on `main`** — proposed but explicitly declined by the
+  owner; branch protection and rulesets remain unconfigured. Do not create or
+  save one without new explicit approval. CI alone cannot enforce review or
+  merge restrictions: "CI green" is advisory, and human review/manual merge
+  remain agent policy rather than a server-enforced gate.
 - **Label management** — optional; the templates deliberately reference no
   labels, so nothing is needed to make them work.
 - **Any future secret usage** (for example a service token) — must be
