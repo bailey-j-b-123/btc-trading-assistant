@@ -8,6 +8,18 @@ issue, branch, PR, or CI result, it did not happen.
 `AGENTS.md` at the repository root is the binding rules document for every
 agent; this guide explains the coordination model it assumes.
 
+## Current automation status
+
+- **GitHub CI is now working.** The Python and JavaScript GitHub Actions jobs
+  on PR #47 both completed successfully. CI runs the test suites on
+  GitHub-hosted runners; it does not automate agent execution.
+- **Automatic Arena task pickup is not configured.** Creating an issue does
+  not automatically assign it to Arena or start an Arena task; an agent must
+  still be selected and the task claimed manually.
+- **Unattended local Codex execution is not configured.** No issue or PR
+  triggers a Codex process on an operator's local machine. Local Codex runs
+  must be started and supervised by the operator.
+
 ## The model
 
 | Surface | Role |
@@ -25,10 +37,12 @@ agent; this guide explains the coordination model it assumes.
    list, safety requirements, required evidence.
 2. **Pickup.** An agent claims the issue (comment + fills "Picked up by").
    One agent owns a branch at a time; an agent never pushes to another
-   agent's branch or PR.
+   agent's branch or PR. This pickup is manual; automatic Arena pickup is not
+   configured yet.
 3. **Work.** The agent checks out the latest `main`, creates its branch,
    implements *only* the listed deliverables, and runs the full suites
-   locally (`python -m pytest` and `npm test`).
+   locally (`python -m pytest` and `npm test`). Local Codex execution is
+   operator-started; unattended execution is not configured.
 4. **PR.** The agent opens one focused PR to `main` and fills the PR template:
    files changed, exact test results, the safety checklist, and the scope
    boundaries.

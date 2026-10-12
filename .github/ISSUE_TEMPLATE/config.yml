@@ -1,5 +1,1 @@
-blank_issues: false
-blank_issue_statement: >-
-  For development tasks, use one of the templates: "AI development task" for
-  work an agent will pick up, "Bug report", or "Feature request". If none fit,
-  discuss the scope in an existing related issue instead of opening a blank one.
+blank_issues_enabled: false
