@@ -16,11 +16,22 @@ version it was introduced with, so a scenario — and every paper plan recorded
 under it — keeps the exact same fingerprint as before the move: stored forward
 history is never re-identified.
 
-The shared cost model below is the single definition of "cost-adjusted R":
-adverse entry/exit slippage move the fill in the adverse direction, the two
-sided fee is charged on both fills, and the result is normalised by the
-proposed unit risk. Step 6's economic-viability rule and Steps 11/12's
-friction-adjusted R metrics all call into this one implementation.
+The shared cost model is one implementation with two distinct metrics, and
+the two must never be conflated:
+
+* ``friction_net_reward_to_risk`` — the TRUE net reward-to-risk used by the
+  Step 6 ``economic_viability`` gate: net potential reward after the declared
+  fees and adverse execution costs, compared with net potential loss at the
+  stop after the same costs. Both sides of the fraction are after costs.
+* ``friction_adjusted_r_from_levels`` — the HISTORICAL friction-adjusted R
+  reported by Steps 11/12: net reward after costs normalised by the original
+  (cost-free) unit risk. Its denominator ignores what a stop hit would
+  itself cost, so it is strictly more optimistic than the net metric and is
+  retained as a reporting quantity only.
+
+Both metrics share the same fill model: adverse entry/exit slippage moves
+the fill in the adverse direction, and the two-sided fee is charged on both
+fills. Both are scenario calculations over proposed levels only.
 """
 
 from __future__ import annotations
@@ -92,27 +103,10 @@ class FrictionAssumptions:
         return fingerprint("friction-assumptions", self)
 
 
-def friction_adjusted_r_from_levels(
-    *,
-    entry: Decimal,
-    exit_level: Decimal,
-    risk_per_unit: Decimal,
-    direction: str,
-    assumptions: FrictionAssumptions,
-) -> Decimal:
-    """Cost-adjusted R of one proposed round trip, by the shared cost model.
-
-    The exit fill is the declared adverse slippage applied to the proposed
-    terminal level; the entry fill is the declared adverse slippage applied to
-    the proposed entry; the two-sided fee is charged on both fills. The result
-    is ``quantize_derived((gross - fees) / risk_per_unit)`` — the same
-    normalisation the raw (cost-free) R multiple uses, so a cost-adjusted R of
-    1 means "the target still covers the full proposed risk *after* costs".
-
-    This is a scenario calculation over proposed levels only. It models no
-    size, no account, no leverage, no margin, no fill probability and no
-    realised profit.
-    """
+def _round_trip_fills(
+    entry: Decimal, exit_level: Decimal, direction: str, assumptions: FrictionAssumptions
+) -> tuple[Decimal, Decimal, Decimal]:
+    """Adverse entry fill, adverse exit fill and the two-sided fee on them."""
 
     scale = Decimal(10_000)
     entry_slippage = assumptions.entry_slippage_bps / scale
@@ -121,12 +115,120 @@ def friction_adjusted_r_from_levels(
     if direction == "bullish":
         fill_entry = entry * (Decimal(1) + entry_slippage)
         fill_exit = exit_level * (Decimal(1) - exit_slippage)
-        gross = fill_exit - fill_entry
     else:
         fill_entry = entry * (Decimal(1) - entry_slippage)
         fill_exit = exit_level * (Decimal(1) + exit_slippage)
-        gross = fill_entry - fill_exit
     fees = (fill_entry + fill_exit) * fee_rate
+    return fill_entry, fill_exit, fees
+
+
+def friction_net_reward(
+    *,
+    entry: Decimal,
+    exit_level: Decimal,
+    direction: str,
+    assumptions: FrictionAssumptions,
+) -> Decimal:
+    """Net potential reward, in units, if the trade ends at the proposed level.
+
+    ``fill_exit - fill_entry - fees`` with adverse fills and the two-sided
+    fee on both fills (the shared cost model). This is the numerator of the
+    economic-viability gate: the reward that remains *after* costs, before
+    any comparison with what the stop would cost.
+    """
+
+    fill_entry, fill_exit, fees = _round_trip_fills(
+        entry, exit_level, direction, assumptions
+    )
+    return fill_exit - fill_entry - fees
+
+
+def friction_net_loss_at_stop(
+    *,
+    entry: Decimal,
+    stop_level: Decimal,
+    direction: str,
+    assumptions: FrictionAssumptions,
+) -> Decimal:
+    """Net potential loss, in units, if the trade ends at the proposed stop.
+
+    ``fill_entry - fill_exit + fees`` with adverse fills and the two-sided
+    fee on both fills. Costs make this strictly larger than the raw unit
+    risk: a stop hit pays the same fees and adverse execution costs as any
+    other exit. This is the denominator of the economic-viability gate.
+    """
+
+    fill_entry, fill_exit, fees = _round_trip_fills(
+        entry, stop_level, direction, assumptions
+    )
+    return fill_entry - fill_exit + fees
+
+
+def friction_net_reward_to_risk(
+    *,
+    entry: Decimal,
+    exit_level: Decimal,
+    stop_level: Decimal,
+    direction: str,
+    assumptions: FrictionAssumptions,
+) -> Decimal:
+    """True net reward-to-risk: net reward after costs over net stop loss.
+
+    ``quantize_derived(net_reward / net_loss)`` where both sides are after
+    the declared hypothetical fees and adverse execution costs (see
+    :func:`friction_net_reward` and :func:`friction_net_loss_at_stop`). A
+    value of 1 means "the target's net reward after costs covers the stop's
+    net loss after costs". This is the Step 6 ``economic_viability`` gate
+    metric — deliberately NOT the historical friction-adjusted R below,
+    which normalises by the *original* (cost-free) unit risk and therefore
+    cannot see that the stop itself would cost more than its raw distance.
+    """
+
+    net_reward = friction_net_reward(
+        entry=entry, exit_level=exit_level, direction=direction, assumptions=assumptions
+    )
+    net_loss = friction_net_loss_at_stop(
+        entry=entry, stop_level=stop_level, direction=direction, assumptions=assumptions
+    )
+    return quantize_derived(net_reward / net_loss)
+
+
+def friction_adjusted_r_from_levels(
+    *,
+    entry: Decimal,
+    exit_level: Decimal,
+    risk_per_unit: Decimal,
+    direction: str,
+    assumptions: FrictionAssumptions,
+) -> Decimal:
+    """Historical friction-adjusted R: net reward normalised by ORIGINAL risk.
+
+    The exit fill is the declared adverse slippage applied to the proposed
+    terminal level; the entry fill is the declared adverse slippage applied
+    to the proposed entry; the two-sided fee is charged on both fills. The
+    result is ``quantize_derived((gross - fees) / risk_per_unit)`` where
+    ``risk_per_unit`` is the raw (cost-free) distance between the proposed
+    entry and stop.
+
+    This is the historical Step 11/12 report metric, retained unchanged. It
+    is NOT the true net reward-to-risk: the denominator ignores the costs a
+    stop hit would itself pay, so it overstates viability relative to
+    :func:`friction_net_reward_to_risk` (which compares net reward after
+    costs with net stop loss after costs). The Step 6 ``economic_viability``
+    gate uses the net metric; this one stays a reporting quantity only.
+
+    A scenario calculation over proposed levels only. It models no size, no
+    account, no leverage, no margin, no fill probability and no realised
+    profit.
+    """
+
+    fill_entry, fill_exit, fees = _round_trip_fills(
+        entry, exit_level, direction, assumptions
+    )
+    if direction == "bullish":
+        gross = fill_exit - fill_entry
+    else:
+        gross = fill_entry - fill_exit
     return quantize_derived((gross - fees) / risk_per_unit)
 
 
@@ -134,5 +236,8 @@ __all__ = [
     "FRICTION_ASSUMPTIONS_VERSION",
     "FrictionAssumptions",
     "friction_adjusted_r_from_levels",
+    "friction_net_loss_at_stop",
+    "friction_net_reward",
+    "friction_net_reward_to_risk",
     "fingerprint",
 ]

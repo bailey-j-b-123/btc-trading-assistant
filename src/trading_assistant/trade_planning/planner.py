@@ -50,6 +50,9 @@ from decimal import Decimal
 from trading_assistant.costs import (
     FrictionAssumptions,
     friction_adjusted_r_from_levels,
+    friction_net_loss_at_stop,
+    friction_net_reward,
+    friction_net_reward_to_risk,
 )
 from trading_assistant.market_data.timeframes import require_utc_datetime
 from trading_assistant.market_structure.candles import interval_for_timeframe
@@ -963,17 +966,26 @@ def _scenario_text(assumptions: FrictionAssumptions) -> str:
 
 
 def _apply_economic_viability(context: _PlanContext) -> None:
-    """Apply the mandatory cost-adjusted viability check to the retained targets.
+    """Apply the mandatory net reward-to-risk viability check to the targets.
 
-    The check compares cost-adjusted reward against risk — the same 1R policy
-    as ``minimum_r_multiple``, but measured after the declared hypothetical
-    fees and adverse execution costs (the shared cost model in
-    ``trading_assistant.costs``) — not just the raw R multiple. It is a
-    refusal policy, never an adjustment: sub-floor targets are excluded with
-    their exact numbers, and a plan with no remaining viable target is refused
-    as NO_PLAN. No threshold is hard-coded here beyond the documented 1R
-    policy floor; the cost *scenario* is caller-supplied and versioned into
-    the plan identity.
+    The gate compares **net potential reward after the declared hypothetical
+    fees and adverse execution costs** with **net potential loss at the stop
+    after the same costs** (the shared net model in
+    ``trading_assistant.costs``): a target passes only if its net reward
+    covers at least ``min_cost_adjusted_r_multiple`` (default 1) times the
+    net stop loss. This is the same 1R policy as ``minimum_r_multiple`` but
+    measured net-to-net, and it is strictly stricter than the raw R multiple
+    or the historical friction-adjusted R (which normalises by the original
+    cost-free risk and ignores the costs a stop hit would itself pay). The
+    historical friction-adjusted R is still reported, in parentheses, on
+    every per-target exclusion and on the pass reason, clearly labelled, so
+    the two metrics can never be conflated.
+
+    It is a refusal policy, never an adjustment: sub-floor targets are
+    excluded with their exact net numbers, and a plan with no remaining
+    viable target is refused as NO_PLAN. No threshold is hard-coded here
+    beyond the documented 1R policy floor; the cost *scenario* is
+    caller-supplied and versioned into the plan identity.
 
     A zero scenario states no costs and is never treated as proof that the
     market has none: the plan is refused as unverifiable (a gap), with every
@@ -1007,50 +1019,82 @@ def _apply_economic_viability(context: _PlanContext) -> None:
         return
     threshold = p.min_cost_adjusted_r_multiple
     scenario = _scenario_text(assumptions)
+    direction = context.setup.direction
+    entry = context.entry.value
+    stop = context.stop.value
+    # The net stop loss is the same for every target: costs on both sides
+    # plus the adverse fills of a stop hit — strictly above the raw risk.
+    net_loss = friction_net_loss_at_stop(
+        entry=entry, stop_level=stop, direction=direction, assumptions=assumptions
+    )
     kept: list[PlannedTarget] = []
-    adjusted_by_target: list[Decimal] = []
+    kept_numbers: list[tuple[Decimal, Decimal, Decimal, Decimal]] = []
     for target in context.targets:
-        adjusted = friction_adjusted_r_from_levels(
-            entry=context.entry.value,
+        net_reward = friction_net_reward(
+            entry=entry,
             exit_level=target.level.value,
-            risk_per_unit=context.risk_per_unit,
-            direction=context.setup.direction,
+            direction=direction,
             assumptions=assumptions,
         )
-        adjusted_by_target.append(adjusted)
-        if adjusted < threshold:
+        net_ratio = friction_net_reward_to_risk(
+            entry=entry,
+            exit_level=target.level.value,
+            stop_level=stop,
+            direction=direction,
+            assumptions=assumptions,
+        )
+        historical_adj_r = friction_adjusted_r_from_levels(
+            entry=entry,
+            exit_level=target.level.value,
+            risk_per_unit=context.risk_per_unit,
+            direction=direction,
+            assumptions=assumptions,
+        )
+        if net_ratio < threshold:
             context.excluded_targets.append(
-                f"{decimal_text(target.level.value)}: cost-adjusted R "
-                f"{decimal_text(adjusted)} < min_cost_adjusted_r_multiple "
-                f"{decimal_text(threshold)} under {scenario}"
+                f"{decimal_text(target.level.value)}: net reward "
+                f"{decimal_text(net_reward)} / net stop loss "
+                f"{decimal_text(net_loss)} = net R {decimal_text(net_ratio)} "
+                f"< min_cost_adjusted_r_multiple {decimal_text(threshold)} "
+                f"under {scenario} (historical friction-adjusted R vs "
+                f"original risk {decimal_text(historical_adj_r)})"
             )
         else:
             kept.append(target)
+            kept_numbers.append((net_reward, net_loss, net_ratio, historical_adj_r))
     context.targets = tuple(kept)
     if not kept:
         context.preferred_r_multiple_met = None
         context.fail(
             ECONOMIC_NONVIABILITY,
             "economic_viability",
-            f"no retained structural target reaches the mandatory "
-            f"min_cost_adjusted_r_multiple {decimal_text(threshold)} after the "
-            f"declared fees and adverse execution costs ({scenario}); per-"
-            "target exclusions with exact cost-adjusted R values are listed "
-            "in excluded_targets",
+            f"no retained structural target keeps net reward after costs at "
+            f"or above {decimal_text(threshold)} x the net stop loss after "
+            f"costs (min_cost_adjusted_r_multiple {decimal_text(threshold)}) "
+            f"under the declared fees and adverse execution costs ({scenario}); "
+            "per-target exclusions with exact net reward / net stop loss / "
+            "net R values are listed in excluded_targets",
         )
         return
+    # The explanation must describe the nearest *retained* target with that
+    # target's OWN numbers: kept_numbers[i] parallels kept[i] exactly.
     nearest = kept[0]
+    nearest_reward, nearest_loss, nearest_ratio, nearest_adj_r = kept_numbers[0]
     context.preferred_r_multiple_met = (
         nearest.r_multiple is not None and nearest.r_multiple >= p.preferred_r_multiple
     )
     context.record(
         "economic_viability",
         RuleOutcome.PASS,
-        f"{len(kept)} structural target(s) reach cost-adjusted R >= "
-        f"{decimal_text(threshold)} after the declared fees and adverse "
-        f"execution costs ({scenario}); nearest retained target cost-adjusted "
-        f"R {decimal_text(adjusted_by_target[0])} vs raw R "
-        f"{decimal_text(nearest.r_multiple)}",
+        f"{len(kept)} structural target(s) keep net reward after costs at or "
+        f"above the net stop loss after costs "
+        f"(min_cost_adjusted_r_multiple {decimal_text(threshold)}) under "
+        f"{scenario}; nearest retained target "
+        f"{decimal_text(nearest.level.value)}: net reward "
+        f"{decimal_text(nearest_reward)} / net stop loss "
+        f"{decimal_text(nearest_loss)} = net R {decimal_text(nearest_ratio)} "
+        f"vs raw R {decimal_text(nearest.r_multiple)} (historical "
+        f"friction-adjusted R vs original risk {decimal_text(nearest_adj_r)})",
     )
 
 

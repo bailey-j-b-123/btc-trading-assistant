@@ -16,10 +16,10 @@ The reward-to-risk floor is policy, not preference:
   blocks anything: a plan at exactly 1R is fully actionable.
 
 v3 (``trade-planning-v3``) adds the mandatory ``economic_viability`` rule. It
-compares the *cost-adjusted* reward against the proposed risk, not just the raw
-R multiple, under an explicit hypothetical cost scenario
-(``cost_assumptions``, the shared :class:`trading_assistant.costs.
-FrictionAssumptions`):
+compares **net potential reward after costs** with **net potential loss at the
+stop after the same costs** — not just the raw R multiple — under an explicit
+hypothetical cost scenario (``cost_assumptions``, the shared
+:class:`trading_assistant.costs.FrictionAssumptions`):
 
 * ``cost_assumptions is None`` — no cost model is in effect for this planning
   pass; the rule is recorded PENDING ("not evaluated") and the plan behaves
@@ -32,14 +32,18 @@ FrictionAssumptions`):
   certified.
 * ``cost_assumptions`` is non-zero — every retained structural target must
   reach ``min_cost_adjusted_r_multiple`` (default 1, never configurable below
-  1, mirroring ``min_r_multiple``) *after* the declared fees and adverse
-  slippage. Targets below the cost-adjusted floor are excluded with their exact
-  numbers; a plan with no remaining viable target is refused as NO_PLAN
-  (``economic_nonviability``).
+  1, mirroring ``min_r_multiple``) measured as **net reward after the declared
+  fees and adverse slippage divided by net stop loss after the same costs**.
+  The net stop loss is strictly larger than the raw risk because a stop hit
+  pays the same fees and adverse execution costs as any other exit. Targets
+  whose net reward does not cover the floor multiple of the net stop loss are
+  excluded with their exact net numbers (and the historical friction-adjusted
+  R, clearly labelled, for comparison); a plan with no remaining viable target
+  is refused as NO_PLAN (``economic_nonviability``).
 
 No basis-point or ATR thresholds from any proposal are hard-coded: the only
 floor is the same 1R policy already mandatory on raw reward, applied to the
-cost-adjusted reward.
+net reward-to-net-loss ratio.
 """
 
 import json
@@ -121,11 +125,13 @@ class PlanningParameters:
     #: ``None`` (the bare default) means no cost model is in effect for this
     #: planning pass and the rule is not evaluated; a zero scenario is explicit
     #: but unverifiable (it withholds the plan); a non-zero scenario gates every
-    #: retained target on the cost-adjusted floor below.
+    #: retained target on the net reward-to-net-stop-loss floor below.
     cost_assumptions: FrictionAssumptions | None = None
-    #: Mandatory floor on the *cost-adjusted* R multiple. Policy constant, not
-    #: a tuneable preference: a plan whose best target offers less than 1x the
-    #: proposed risk after the declared costs is economically nonviable and can
+    #: Mandatory floor on the *net reward-to-net-loss* multiple: net reward
+    #: after the declared costs divided by net stop loss after the same costs.
+    #: Policy constant, not a tuneable preference: a plan whose best target's
+    #: net reward after costs does not cover 1x the net loss a stop hit would
+    #: cost after the same declared costs is economically nonviable and can
     #: never become actionable. A stricter value only tightens the gate.
     min_cost_adjusted_r_multiple: Decimal = MINIMUM_R_MULTIPLE_FLOOR
 

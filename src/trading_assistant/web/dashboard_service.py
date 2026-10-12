@@ -242,12 +242,19 @@ class DashboardService:
             and window_gate is None
             and provenance_gate is None
         ):
-            # The exact planning configuration the forward runner plans with
-            # (trade-planning-v3 plus the configured cost scenario), so the
-            # dashboard can never show a proposal state the runner would not
-            # record — a plan the dashboard displays as PLANNABLE is a plan the
-            # runner would freeze, and an economic refusal shows the same
-            # machine-readable reason both surfaces record.
+            # The dashboard always plans with the SHARED configuration's
+            # planning parameters (web/state builds
+            # ``state.forward.planning_parameters`` from
+            # ``settings.cost_assumptions()``). The forward runner normally
+            # uses the same shared configuration — in which case a plan the
+            # dashboard displays is exactly the plan the runner would freeze,
+            # and an economic refusal shows the same machine-readable reason
+            # both surfaces record — but the runner may be started with
+            # ``--fee-bps`` / ``--entry-slippage-bps`` /
+            # ``--exit-slippage-bps`` overrides, and then the two surfaces
+            # plan under different configurations. That is checked against
+            # the runner's own stored record below (``scenario_mismatch``)
+            # instead of being silently presented as one decision.
             plan = plan_trade(
                 snapshot=snapshot,
                 frame=frame,
@@ -268,6 +275,46 @@ class DashboardService:
                 "missing_inputs": [],
                 "state_detail": gate,
             }
+        # Runner/dashboard consistency: compare this dashboard's planning
+        # configuration against the configuration the forward runner actually
+        # recorded for this instrument (its stored paper plans carry the
+        # exact ``plan_config_fingerprint`` they were planned under). A
+        # mismatch — e.g. the runner was started with fee/slippage CLI
+        # overrides that differ from the shared configuration this dashboard
+        # uses — must be said out loud: the live plan shown here and the
+        # stored paper plan are then NOT the same decision.
+        scenario_mismatch: str | None = None
+        if plan is not None:
+            latest_stored = state.forward.ledger.paper_plans(
+                exchange=exchange,
+                symbol=resolved_symbol,
+                timeframe=resolved_timeframe,
+                newest_first=True,
+                limit=1,
+            )
+            if latest_stored:
+                stored_plan = latest_stored[0]
+                if (
+                    stored_plan.plan_config_fingerprint
+                    != state.forward.planning_parameters.fingerprint()
+                ):
+                    scenario_mismatch = (
+                        f"the forward runner's latest stored paper plan for "
+                        f"{resolved_symbol} {resolved_timeframe} was planned "
+                        f"under planning configuration "
+                        f"{stored_plan.plan_config_fingerprint}, but this "
+                        f"dashboard plans with "
+                        f"{state.forward.planning_parameters.fingerprint()}: "
+                        "the runner was started under a different "
+                        "configuration (for example --fee-bps / "
+                        "--entry-slippage-bps / --exit-slippage-bps cost "
+                        "scenario overrides, or a different configuration "
+                        "file) than the shared configuration this dashboard "
+                        "uses; the live plan shown here and that stored "
+                        "paper plan are NOT the same decision and must not "
+                        "be presented as one"
+                    )
+        planning_payload["scenario_mismatch"] = scenario_mismatch
 
         journal_payload = self._journal_status(
             snapshot=snapshot, selected=selected, plan=plan, gate=gate
