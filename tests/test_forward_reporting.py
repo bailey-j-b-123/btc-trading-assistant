@@ -69,13 +69,17 @@ def harness_with_a_resolved_target() -> Harness:
     return harness
 
 
-def historical_report(harness: Harness, *, friction: FrictionAssumptions | None = None):
+def historical_report(
+    harness: Harness, *, friction: FrictionAssumptions | None = None,
+    planning_parameters: PlanningParameters | None = None,
+):
     """A genuine Step 11 report over the same stored candles."""
 
     return HistoricalValidationService(harness.engine).validate(
         exchange=EXCHANGE,
         symbol=SYMBOL,
         timeframe=TIMEFRAME,
+        planning_parameters=planning_parameters,
         config=ValidationConfig(
             observation_horizon_candles=HORIZON,
             minimum_sample_size=1,
@@ -442,7 +446,10 @@ def test_comparison_marks_different_cost_scenarios_not_comparable():
 @pytest.mark.parametrize("include_planning", [True, False])
 def test_comparison_rejects_different_planning_configurations_with_same_rules(include_planning):
     harness = harness_with_a_resolved_target()
-    historical = historical_report(harness)
+    historical = historical_report(
+        harness, friction=harness.service.parameters.friction,
+        planning_parameters=harness.service.planning_parameters,
+    )
     stricter = PlanningParameters(min_r_multiple=D("2"))
     historical = replace(historical, strategy_versions=tuple(
         (key, stricter.fingerprint() if key == "planning_parameters" else value)
@@ -461,7 +468,10 @@ def test_comparison_rejects_different_planning_configurations_with_same_rules(in
 
 def test_comparison_does_not_assume_missing_cost_provenance_matches():
     harness = harness_with_a_resolved_target()
-    historical = historical_report(harness)
+    historical = historical_report(
+        harness, friction=harness.service.parameters.friction,
+        planning_parameters=harness.service.planning_parameters,
+    )
     historical = replace(historical, strategy_versions=tuple(
         item for item in historical.strategy_versions if item[0] != "friction_assumptions"
     ))
