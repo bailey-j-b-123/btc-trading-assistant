@@ -5,12 +5,22 @@ rules.  It freezes a bounded source-candle view, builds a Step 4 frame at every
 base-candle close, replays Step 5 chronologically, invokes the unchanged Step 6
 planner, and uses the pure Step 7 observation function for subsequent candles.
 It has no database write path and never reads the Bailey journal.
+
+The Step 6 planning path runs under the explicit replay-policy cohort of
+``ValidationConfig.replay_policy``: a declared non-zero ``friction`` scenario
+is forced into planning exactly as the forward path does (trade-planning-v3
+economic gate — the same rule, the same scenario), an all-zero scenario runs
+the pre-v3 planning pass (a replay record is a diagnostic, never a
+certification), and the pre-v3 behaviour under a non-zero scenario is only
+available as the explicit ``unverified_v2_replay`` cohort, which the report
+marks as non-comparable with gated forward decisions.
 """
 
 from __future__ import annotations
 
 from collections import Counter, defaultdict
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 from statistics import median
@@ -45,6 +55,7 @@ from trading_assistant.historical_validation.models import (
 )
 from trading_assistant.historical_validation.parameters import (
     HISTORICAL_VALIDATION_RULES_VERSION,
+    REPLAY_POLICY_UNVERIFIED_V2,
     FrictionAssumptions,
     ValidationConfig,
     fingerprint,
@@ -107,6 +118,35 @@ class HistoricalValidationService:
         Optional upstream parameter objects exist for audit/reproduction with a
         previously configured pipeline; callers must supply them before a run.
         This method never searches, changes, or selects them from results.
+
+        The Step 6 planning path is policy-cohorted by
+        ``cfg.replay_policy`` (trade-planning-v3 consistency with the forward
+        path):
+
+        * ``"economic_gate"`` (default) — a declared *non-zero* ``friction``
+          scenario is forced into the planning parameters as
+          ``cost_assumptions``, exactly as ``ForwardTestService`` forces its
+          declared friction: the same rule, the same scenario, so a replay
+          plan and a forward paper plan decided under the same declared costs
+          are gate-consistent (a target the forward path refuses as
+          ``economic_nonviability`` cannot appear PLANNABLE in the replay).
+          An all-zero scenario declares no costs, so the gate has nothing to
+          judge and the replay runs the pre-v3 planning pass (rule not
+          evaluated) — a replay record diagnoses the planning pipeline and is
+          never certified; the forward path withholds every paper plan under
+          the same zero scenario, and the report says so.
+        * ``"unverified_v2_replay"`` — explicit opt-in to the pre-v3 planning
+          behaviour under *any* declared scenario: ``cost_assumptions`` is
+          forced to ``None`` (no cost model in effect; ``economic_viability``
+          not evaluated).  The cohort is distinguishable in the config
+          fingerprint and the report provenance, and is reported as
+          non-comparable with gated forward decisions.
+
+        A caller-supplied ``planning_parameters`` object is used for every
+        other field but never for the cost scenario: the replay's declared
+        scenario (or the pre-v3 pass of the zero/unverified cases) always
+        wins, mirroring the forward service.  The supplied object is never
+        mutated.
         """
 
         if not exchange or not symbol or not timeframe:
@@ -115,7 +155,27 @@ class HistoricalValidationService:
         qp = qualification_parameters or QualificationParameters()
         pp = pattern_parameters or PatternLiquidityParameters()
         sp = structure_parameters or MarketStructureParameters()
-        planning = planning_parameters or PlanningParameters()
+        base_planning = planning_parameters or PlanningParameters()
+        if cfg.replay_policy == REPLAY_POLICY_UNVERIFIED_V2 or cfg.friction.is_zero:
+            # No cost model in effect for planning (rule not evaluated).
+            # - ``unverified_v2_replay``: the explicit pre-v3 cohort, under any
+            #   declared scenario; the report marks it non-comparable with
+            #   gated forward decisions.
+            # - zero scenario under the default policy: an all-zero scenario
+            #   declares no costs, so the gate has nothing to judge and the
+            #   replay runs the pre-v3 planning pass (the same pass a
+            #   v2-era report used) instead of withholding every plan as
+            #   unverifiable — a replay record diagnoses the planning
+            #   pipeline; it is not a paper trade and is not certified by
+            #   the report. The forward path, which certifies paper trades,
+            #   withholds every plan under the same zero scenario; the two
+            #   surfaces state their policies explicitly and must not be
+            #   read as comparable.
+            planning = replace(base_planning, cost_assumptions=None)
+        else:
+            # Declared non-zero scenario: same rule, same scenario as the
+            # forward path (see docstring).
+            planning = replace(base_planning, cost_assumptions=cfg.friction)
         interval = interval_for_timeframe(timeframe)
         if cfg.split is not None:
             for name, boundary in (
@@ -173,7 +233,12 @@ class HistoricalValidationService:
             source_candles,
         )
         strategy_versions = self._strategy_versions(
-            qp=qp, pp=pp, sp=sp, planning=planning, friction=cfg.friction
+            qp=qp,
+            pp=pp,
+            sp=sp,
+            planning=planning,
+            friction=cfg.friction,
+            replay_policy=cfg.replay_policy,
         )
 
         frames = self._frames(
@@ -270,6 +335,48 @@ class HistoricalValidationService:
             development,
             out_of_sample,
         )
+        limitations = (
+            "HISTORICAL VALIDATION — NOT LIVE PERFORMANCE.",
+            "Raw observations describe stored OHLC candles relative to proposed levels; they are not fills, realised profit, or an equity curve.",
+            "Friction-adjusted values are a configurable hypothetical per-unit scenario only; there is no position sizing, leverage, account, balance, or execution model.",
+            "Historical performance does not establish future profitability.",
+            # The forward ledger records a reference-provenance verdict per
+            # close (``reference-provenance-v1``, see
+            # docs/reference-provenance.md) and withholds a plan whenever a
+            # live setup's level is first evidenced at the start of stored
+            # history. A historical replay reads the same stored record and
+            # therefore shares the same blind spot — any level that formed
+            # before the earliest stored candle is invisible to every
+            # boundary in the cohort — but it does not apply that gate. So a
+            # cohort's boundary set is a *proposal* diagnostic, never a
+            # reproduction of which forward closes were plannable, and the
+            # two must not be compared as if they were.
+            "Historical cohorts are replayed without the forward reference-provenance "
+            "gate: boundaries near the start of stored history can under-report setups "
+            "whose levels formed earlier, so cohort results are non-comparable with "
+            "forward paper-plan selection and occupancy.",
+        )
+        if cfg.replay_policy == REPLAY_POLICY_UNVERIFIED_V2:
+            limitations += (
+                "UNVERIFIED PLANNING POLICY REPLAY — the Step 6 planning path ran "
+                "under the explicit pre-v3 policy (economic_viability not "
+                "evaluated; cost_assumptions=None). Its plan records form a "
+                "distinguishable cohort (see replay_policy_cohort in "
+                "strategy_versions) and are NOT comparable with gated forward "
+                "decisions or with economic_gate replays.",
+            )
+        elif cfg.friction.is_zero:
+            limitations += (
+                "Zero-scenario replay — the declared friction is the all-zero "
+                "scenario, which declares no costs: the economic_viability rule "
+                "is not evaluated in this replay (pre-v3 planning pass). A "
+                "replay record is a diagnostic of the planning pipeline, never "
+                "a certification; the forward path withholds every paper plan "
+                "under the same zero scenario as "
+                "economic_viability_unverifiable, so the two surfaces must not "
+                "be read as comparable. Declare a non-zero friction scenario "
+                "to obtain gate-consistent plan records.",
+            )
         return ValidationReport(
             report_id=report_id,
             rules_version=HISTORICAL_VALIDATION_RULES_VERSION,
@@ -286,27 +393,7 @@ class HistoricalValidationService:
             development=development,
             out_of_sample=out_of_sample,
             warnings=warnings,
-            limitations=(
-                "HISTORICAL VALIDATION — NOT LIVE PERFORMANCE.",
-                "Raw observations describe stored OHLC candles relative to proposed levels; they are not fills, realised profit, or an equity curve.",
-                "Friction-adjusted values are a configurable hypothetical per-unit scenario only; there is no position sizing, leverage, account, balance, or execution model.",
-                "Historical performance does not establish future profitability.",
-                # The forward ledger records a reference-provenance verdict per
-                # close (``reference-provenance-v1``, see
-                # docs/reference-provenance.md) and withholds a plan whenever a
-                # live setup's level is first evidenced at the start of stored
-                # history. A historical replay reads the same stored record and
-                # therefore shares the same blind spot — any level that formed
-                # before the earliest stored candle is invisible to every
-                # boundary in the cohort — but it does not apply that gate. So a
-                # cohort's boundary set is a *proposal* diagnostic, never a
-                # reproduction of which forward closes were plannable, and the
-                # two must not be compared as if they were.
-                "Historical cohorts are replayed without the forward reference-provenance "
-                "gate: boundaries near the start of stored history can under-report setups "
-                "whose levels formed earlier, so cohort results are non-comparable with "
-                "forward paper-plan selection and occupancy.",
-            ),
+            limitations=limitations,
         )
 
     # ------------------------------------------------------------------
@@ -851,6 +938,8 @@ class HistoricalValidationService:
                 warnings.append(
                     "out_of_sample_raw_observational_R_deteriorates_vs_development"
                 )
+        if config.replay_policy == REPLAY_POLICY_UNVERIFIED_V2:
+            warnings.append("unverified_planning_policy_replay")
         if (
             config.friction.fee_bps
             or config.friction.entry_slippage_bps
@@ -871,11 +960,15 @@ class HistoricalValidationService:
         sp: MarketStructureParameters,
         planning: PlanningParameters,
         friction: FrictionAssumptions,
+        replay_policy: str,
     ) -> tuple[tuple[str, str], ...]:
         return (
             ("historical_validation_rules", HISTORICAL_VALIDATION_RULES_VERSION),
             ("setup_qualification_rules", RULES_VERSION),
             ("trade_planning_rules", PLANNING_RULES_VERSION),
+            # Explicit planning-policy cohort provenance: which rule regime the
+            # Step 6 planning path of this replay ran under.
+            ("replay_policy_cohort", replay_policy),
             ("qualification_parameters", fingerprint("qualification-parameters", qp)),
             ("pattern_liquidity_parameters", fingerprint("pattern-parameters", pp)),
             ("market_structure_parameters", fingerprint("structure-parameters", sp)),

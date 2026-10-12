@@ -1810,6 +1810,38 @@ within-cohort observation, positive R concentrated in one family or calendar
 period, configured-friction sensitivity, and development-to-out-of-sample raw-R
 deterioration visible. Warnings do not modify or tune the strategy.
 
+### Planning policy cohort (trade-planning-v3 consistency)
+
+Under `historical-validation-v2` (the current rules version), the Step 6
+planning path of a replay runs under an **explicit replay-policy cohort**
+selected by `ValidationConfig.replay_policy`, so a replay plan and a Step 12
+paper plan decided under the same declared costs are gate-consistent:
+
+* **`"economic_gate"` (default)** — the declared `friction` scenario is forced
+  into the planning parameters as `cost_assumptions`, exactly as Step 12
+  forces its declared friction: the same `economic_viability` rule, the same
+  scenario, so a target Step 12 refuses as `economic_nonviability` cannot
+  appear `PLANNABLE` in the replay, and vice versa. A zero scenario is a
+  declared zero scenario: it withholds every plan as
+  `economic_viability_unverifiable` and never certifies one, so the default
+  (zero-friction) replay reports refusals, not plans — declare a non-zero
+  friction to obtain gated plan records.
+* **`"unverified_v2_replay"`** — explicit opt-in to the pre-v3 planning
+  behaviour: `cost_assumptions` is forced to `None` (no cost model in effect;
+  `economic_viability` not evaluated). Those records form a **distinguishable
+  cohort** — the field is part of the config fingerprint, the report names it
+  in `strategy_versions` (`replay_policy_cohort`), warns
+  `unverified_planning_policy_replay`, and states in its limitations that the
+  cohort is **not comparable with gated forward decisions**.
+
+A caller-supplied `planning_parameters` object is used for every other field
+but never for the cost scenario: the replay's declared scenario (or the
+explicit `None` of the unverified cohort) always wins, mirroring Step 12.
+Reports derived under the pre-v2 rule regime and under v2 differ in rules
+version and fingerprints by construction; the version bump re-identifies
+nothing stored — validation reports are derived, non-persisted artifacts and
+no stored record is rewritten.
+
 ### Validation UI and API
 
 The Step 10 navigation has a read-only **Validation** page. It calls
