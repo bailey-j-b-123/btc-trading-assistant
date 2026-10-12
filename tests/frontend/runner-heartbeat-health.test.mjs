@@ -17,11 +17,16 @@ test('stale heartbeat is not healthy even with current market and no backlog', (
   assert.equal(systemHealthViewModel(dashboard, forward('STALE_UNCONFIRMED',1800,false)).healthy,false);
 });
 test('a one-second future heartbeat is not healthy', () => {
-  const payload=forward('CLOCK_INCONSISTENT',-1,false);
-  payload.status.runner.recorded_at='2026-10-06T12:00:01Z';
-  payload.status.runner.heartbeat_age_seconds=0; // legacy field clamps negative ages
-  assert.equal(systemHealthViewModel(dashboard, payload).healthy,false);
-  assert.match(runnerDetailsViewModel(payload).heartbeat,/1s ahead of server/);
+  for (const [age,legacyAge,stamp] of [
+    [-1,-1,'2026-10-06T12:00:01Z'],
+    [-0.5,0,'2026-10-06T12:00:00.500Z'], // int() truncates fractional negative ages
+  ]) {
+    const payload=forward('CLOCK_INCONSISTENT',age,false);
+    payload.status.runner.recorded_at=stamp;
+    payload.status.runner.heartbeat_age_seconds=legacyAge;
+    assert.equal(systemHealthViewModel(dashboard, payload).healthy,false);
+    assert.ok(runnerDetailsViewModel(payload).heartbeat.includes(`${-age}s ahead of server`));
+  }
 });
 test('absence of a server liveness verdict cannot certify health', () => {
   assert.equal(systemHealthViewModel(dashboard, forward(undefined,10,undefined)).healthy,false);
