@@ -81,9 +81,15 @@ python3 -m venv .venv
 The same commands CI runs:
 
 ```bash
-.venv/bin/python -m pytest   # full Python suite
+.venv/bin/python scripts/offline_pytest.py  # full Python suite in a fresh clone
 npm test                     # frontend suite (node --test, zero npm deps)
 ```
+
+The guarded runner adds regression checks for network calls, environment-file
+reads, SQLite paths, writes, and process control; it is not an OS sandbox for
+hostile native code. CI also uses a network namespace on a disposable hosted
+runner. For unattended pickup and isolation limits, read
+`docs/coordinator-contract.md`. Never run development tests in a live checkout.
 
 Targeted runs:
 
