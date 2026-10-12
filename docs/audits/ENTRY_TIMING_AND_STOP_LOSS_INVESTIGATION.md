@@ -11,9 +11,9 @@
 This investigation diagnoses two critical forward paper-trading anomalies observed in Binance BTC/USDT 1H operations on 11 October 2026:
 
 1. **Trade 1 (17:00 UTC — "Early / Extended Entry"):** Entry $83,916.01, Stop $83,606.01, Target $84,379.31, Outcome STOPPED (-1R).
-   * **Root Cause:** A generous 0.2% tolerance in retest detection qualified a "touch" even though price remained **$128.71 above** the broken reference boundary. Furthermore, the engine emitted both "observed" and "held" confirmation on the exact same candle, and entered at the close of that candle—**$310.00 above** the reference band—buying at the extreme of the continuation move.
+   * **Root Cause:** A 0.2% tolerance (`Decimal("0.2")`) in retest detection qualified a "touch" even though price remained **$128.71 above** the broken reference boundary. Furthermore, the engine emitted both "observed" and "held" confirmation on the exact same candle, and entered at the close of that candle—**$310.00 above** the reference band—buying at the extreme of the continuation move.
 2. **Trade 2 (22:00 UTC — "Tiny Stop"):** Entry $83,529.47, Stop $83,521.15, Targets $83,572.96 and $83,577.00, Risk **$8.32** (0.996 bps), Outcome AMBIGUOUS.
-   * **Root Cause:** BRAIN defaults to `StopBufferMode.NONE` and contains **no minimum risk distance floor** in dollar, basis-point, or ATR terms. Any risk $> 0$ passes planning. Because risk was negligible ($8.32), minuscule price movements of $43.49 and $47.53 generated inflated R-multiples (> 5.2R), clearing the mandatory 1R floor. In reality, round-trip market friction (8–25 bps) exceeds this nominal stop distance by 8x to 24x, and normal 1-minute BTC volatility ($20–$100) triggered `ENTRY_AND_EXIT_SAME_CANDLE` ambiguity within the same minute.
+   * **Root Cause:** BRAIN defaults to `StopBufferMode.NONE` and contains **no minimum risk distance floor** in dollar, basis-point, or ATR terms. Any risk $> 0$ passes planning. Because risk was negligible ($8.32), minuscule price movements of $43.49 and $47.53 generated inflated R-multiples (> 5.2R), clearing the mandatory 1R floor. In reality, illustrative round-trip market friction (8–25 bps) exceeds this nominal stop distance by 8x to 24x, and normal 1-minute BTC volatility ($20–$100) triggered `ENTRY_AND_EXIT_SAME_CANDLE` ambiguity within the same minute.
 
 ---
 
@@ -35,26 +35,27 @@ This investigation diagnoses two critical forward paper-trading anomalies observ
 ### Findings
 1. **The reference boundary was never touched:**
    * Candle low ($83,734.72) stayed **$128.71 above** the reference level ($83,606.01).
-2. **0.2% Retest Tolerance Effect:**
-   * In `src/trading_assistant/pattern_liquidity/retests.py::detect_retest` (lines 30–35):
+2. **Retest Tolerance Unit and Value:**
+   * In `PatternLiquidityParameters` (`src/trading_assistant/pattern_liquidity/parameters.py`), parameter units are percentages (0 to 100), not fractional rates:
      ```python
-     level = boundary(ref, breakout.direction)
-     tolerance = tolerance_band(level, parameters.retest_tolerance_pct)
-     touches = (
-         candle.low <= ref.band_high + tolerance
-         and candle.high >= ref.band_low - tolerance
-     )
+     retest_tolerance_pct: Decimal = Decimal("0.2")  # 0.2 percent
      ```
-   * With `retest_tolerance_pct = Decimal("0.002")` (0.2%), at $83,606.01 the upper touch tolerance is:
-     $$\text{Tolerance} = 83,606.01 \times 0.002 = \$167.21$$
-   * Effective touch threshold: $83,606.01 + \$167.21 = \mathbf{\$83,773.22}$.
-   * Because $\$83,734.72 \le \$83,773.22$, the candle was classified as having touched the band.
+   * In `market_structure/numeric.py::tolerance_band`, the percentage is converted to an absolute price distance by dividing by 100:
+     ```python
+     def tolerance_band(price: Decimal, tolerance_pct: Decimal) -> Decimal:
+         return quantize_derived(Decimal(price) * Decimal(tolerance_pct) / Decimal(100))
+     ```
+   * At $83,606.01 with `tolerance_pct = Decimal("0.2")`:
+     $$\text{Tolerance} = 83,606.01 \times \frac{0.2}{100} = \$167.21$$
+   * In `pattern_liquidity/retests.py::detect_retest` (lines 30–35), a touch is detected if:
+     $$\text{candle.low} \le \text{ref.band\_high} + \text{tolerance} \implies \text{candle.low} \le 83,606.01 + 167.21 = \mathbf{\$83,773.22}$$
+   * Because $\$83,734.72 \le \$83,773.22$, the candle was qualified as having touched the reference band.
 3. **Double State Transition on a Single Bar:**
    * In `detect_retest` (lines 40–53), after recording `"observed"`, the same candle closed above the level by more than `retest_hold_pct` (0.1%), appending `"held"`.
    * Both states were committed at once for the 16:00 UTC bar.
 4. **Adverse Entry Extension:**
    * In `trade_planning/planner.py::_resolve_entry` (line 576), entry is fixed to the latest closed candle close ($83,916.01).
-   * Entry was taken **$310.00 above the reference** and **$181.29 above the retest low**. The stop was set at $83,606.01. The position absorbed maximum adverse extension and was stopped out when price returned to test the level.
+   * Entry was taken **$310.00 above the reference** and **$181.29 above the retest low**. The stop was set at $83,606.01. The position absorbed maximum adverse extension and was stopped out when price subsequently returned to retest the level.
 
 ---
 
@@ -66,7 +67,7 @@ This investigation diagnoses two critical forward paper-trading anomalies observ
 * **Frozen Reference Boundary:** $83,521.15
 * **Entry:** $83,529.47 (decision candle close)
 * **Stop:** $83,521.15 (`reference.band_low`)
-* **Stop Distance / Risk:** **$8.32** (0.00996% / **0.996 bps** — less than 0.01%)
+* **Stop Distance / Risk:** **$8.32** (0.00996% / **0.996 bps** — less than 1/100th of 1%)
 * **Targets:** 
   * Target 1: $83,572.96 (Reward: $43.49 $\rightarrow$ **5.227R**)
   * Target 2: $83,577.00 (Reward: $47.53 $\rightarrow$ **5.712R**)
@@ -86,7 +87,7 @@ This investigation diagnoses two critical forward paper-trading anomalies observ
      There is **no minimum risk check** in dollars, basis points, or ATR multiples.
    * **Distorted R-multiples:** Because risk was $8.32, modest price targets $43.49 and $47.53 away produced huge R-multiples (5.23R and 5.71R).
    * **Blindness of the 1R floor:** `planner.py::_apply_minimum_r` (line 862) checks only `r_multiple >= min_r_multiple` (1.0). Since 5.23R $\ge$ 1.0R, it passed without warning.
-   * **No planning friction deduction:** Fee and spread friction are not evaluated during planning.
+   * **Default zero friction:** Friction assumptions (`friction_assumptions_json`) default to zero; fees and spread are not deducted during planning.
 3. **Why the Outcome Was Ambiguous:**
    * In `journaling/observation.py::observe_outcome_at_1m` (lines 500–535), when entry and stop (or target) are both touched within the same candle/minute, `terminal = OutcomeStatus.AMBIGUOUS` with reason `ENTRY_AND_EXIT_SAME_CANDLE`.
    * An $8.32 distance is far smaller than normal 1-minute BTC volatility ($20 to $100). The trade was instantly swamped by microstructure noise.
@@ -101,7 +102,7 @@ This investigation diagnoses two critical forward paper-trading anomalies observ
 
 ### 3.2 Retest Observation and Held Confirmation
 * **File:** `pattern_liquidity/retests.py::detect_retest`
-* **Mechanism:** Evaluates subsequent candles (`elapsed >= 1`). A touch is registered if `low <= band_high + 0.2%`. A hold is registered if `close > level + 0.1%`. Both states can occur on the same bar.
+* **Mechanism:** Evaluates subsequent candles (`elapsed >= 1`). A touch is registered if `low <= band_high + tolerance`. A hold is registered if `close > level + tolerance_band(level, retest_hold_pct)`. Both states can occur on the same bar.
 
 ### 3.3 Setup Qualification
 * **Files:** `setup_qualification/engine.py`, `setup_qualification/rules.py`
@@ -132,35 +133,40 @@ This investigation diagnoses two critical forward paper-trading anomalies observ
 * **Frozen Setup Reference:** In `pattern_liquidity/references.py`, a `Reference` is an immutable snapshot (`id`, `band_low`, `band_high`, `known_at`, `type`).
 * **Operational Hazard:** A single breakout bar can penetrate both a point-level swing high (`band_low == band_high`) and a wider S/R zone. Sibling setups are created. Because setups are sorted by `(created_at, setup_id)` where `setup_id` is a SHA-256 hash, an arbitrary hash tie-break determines whether the paper slot receives a wide zone stop or a microscopic point stop.
 
-### Anti-Lookahead Provenance
-* All levels are tagged with `observed_at` and `confirmed_at`. Levels confirmed after `as_of` are strictly rejected by `is_available_at`. The system has zero future-candle leakage; the early-entry defect is an entry-timing strategy design choice, not look-ahead bias.
+### Anti-Lookahead Scoping
+* Within the isolated Step 6 planning module, `_future_violations` and `is_available_at` enforce that candidate levels and seed events must satisfy `known_at <= as_of`.
+* **Important qualification:** Sweeping claims of "zero look-ahead leakage across the entire system" cannot be supported:
+  - Cross-timeframe reads across 4H, 1H, 15M, and 5M in `multi_timeframe/service.py` are not wrapped in an atomic cross-table SQLite snapshot transaction. Concurrent ingestion writes can result in mixed-boundary states.
+  - As established in `docs/decision-invariance.md`, truncation of past history alters reference catalog generation and setup eligibility.
+  - Production concurrency and database state on the operator's Mac remain unverified.
 
 ### Waiting for Limit Entries
-* BRAIN **cannot** currently wait for a limit order at the broken level or reference band. `planner.py::_resolve_entry` is hard-coded to the latest closed candle's close, enforced by tests (`test_entry_is_always_the_decision_time_close`).
+* BRAIN **cannot** currently wait for a limit order at the broken level or reference band. `planner.py::_resolve_entry` is hard-coded to the latest closed candle's close, enforced by unit tests (`test_entry_is_always_the_decision_time_close`).
 
 ---
 
-## 5. Economic Viability of Stop Distances
+## 5. Economic Viability: Measured Costs vs. Illustrative Assumptions
 
-### Friction Analysis (Illustrative Spot/Futures Model at $83,500 BTC)
-1. **Exchange Fees (Round-trip):**
-   * Institutional/VIP futures (0.02% maker + 0.04% taker = 0.06% / 6 bps): **$50.10** per BTC.
-   * Standard retail spot (0.10% + 0.10% = 0.20% / 20 bps): **$167.00** per BTC.
-2. **Bid-Ask Spread:** $0.50 to $2.00 (widening to $5.00+ during momentum wicks).
-3. **Stop-loss Market Slippage:** 0.02% to 0.05% (2 to 5 bps): **$16.70 to $41.75**.
-4. **Total Realistic Friction:** **$70 to $210 per BTC (8.5 to 25 bps)**.
+### 5.1 Measured System Facts
+* **Trade 2 Risk:** $8.32 per BTC, which is **0.996 bps** (0.00996%) of the entry price ($83,529.47).
+* **BRAIN Planner Assumptions:** `friction_assumptions_json` defaults to zero unless configured. BRAIN planned Trade 2 assuming zero commission, zero spread, and zero slippage.
+* **Microstructure Noise:** On BTC/USDT 1-minute data, normal candle high-low spans range between $20 and $100. Because $8.32 sits far inside this noise envelope, `journaling/observation.py` triggered `ENTRY_AND_EXIT_SAME_CANDLE` ambiguity.
 
-### Comparison Against Trade 2 ($8.32 Risk)
-* Nominal risk: **$8.32** per BTC.
-* Friction cost: **$70 to $210** per BTC.
-* **Friction-to-Risk Ratio:** Friction is **8.4x to 25x the entire nominal stop distance**.
-* A nominal -1R loss results in an actual realized loss of **-9.4R to -26.0R**.
-* **Microstructure Noise:** Average 1-minute true range on BTC is $30–$80. An $8.32 stop sits well inside the noise floor.
+### 5.2 Illustrative Friction Model (Assumed, Not Account-Specific)
+*The following parameters are illustrative market friction assumptions for institutional vs. retail crypto trading. They do not represent the operator's actual Binance VIP tier, account fee schedule, or executed fills:*
 
-### Viability Threshold
-For trading expectancy to remain positive, round-trip friction should not exceed 10–15% of nominal risk. On BTC:
-* Minimum viable stop distance: **$\ge$ 35 bps (~$300) to 50 bps (~$400)**.
-* In volatility terms: **$\ge 0.5 \times \text{ATR}_{1\text{H}}$**.
+| Cost Component | Assumed Institutional Futures | Assumed Retail Spot |
+|---|---|---|
+| **Maker / Taker Commission** | 2 bps maker / 4 bps taker (6 bps round-trip) | 10 bps maker / 10 bps taker (20 bps round-trip) |
+| **Bid-Ask Spread** | ~0.5 to 1.5 bps ($0.50 to $1.25) | ~1.0 to 3.0 bps ($0.80 to $2.50) |
+| **Stop Slippage** | ~1.5 to 2.5 bps ($1.25 to $2.10) | ~2.0 to 5.0 bps ($1.67 to $4.17) |
+| **Total Illustrative Friction** | **~9 to 10 bps ($75 to $85 per BTC)** | **~23 to 28 bps ($190 to $235 per BTC)** |
+
+### 5.3 Economic Assessment of Trade 2
+* Even under the lowest-cost institutional assumption (~9 bps), the transaction friction alone is **~9x the entire nominal stop distance** ($8.32 / ~1 bp).
+* Under standard retail spot assumptions (~25 bps), transaction friction is **~25x the nominal stop distance**.
+* A nominal -1R loss on Trade 2 would translate to an actual realized loss of **-10R to -26R** after friction.
+* For expectancy to remain positive, round-trip friction should not exceed 10–15% of nominal risk, requiring a stop of at least **35 to 50 bps** ($290 to $420 on $83.5k BTC), or $\ge 0.5 \times \text{ATR}_{1\text{H}}$.
 
 ---
 
@@ -194,48 +200,78 @@ For trading expectancy to remain positive, round-trip friction should not exceed
 
 ---
 
-## 8. Required Read-Only Evidence from Mac SQLite Database
+## 8. Verified Read-Only Evidence from Mac SQLite Database
 
-The repository contains no real market data (`data/` is empty). The following read-only SQLite queries are required from the private Mac database:
+The repository contains no real market data (`data/` is empty). The following read-only SQLite queries have been **verified against the actual database table definitions** (`src/trading_assistant/forward_testing/tables.py` and `migrations/versions/`):
 
-1. **Trade 1 & Trade 2 Paper Plans:**
-   ```sql
-   SELECT paper_plan_id, setup_id, plan_as_of, recorded_at, entry_level, stop_level, 
-          risk_per_unit, plan_targets, plan_target_r_multiples, version_fingerprint
-   FROM forward_paper_plans 
-   WHERE plan_as_of IN ('2026-10-11 17:00:00', '2026-10-11 22:00:00');
-   ```
-2. **Setup Reference Provenance & Sibling Setups:**
-   ```sql
-   SELECT observation_id, setup_id, setup_reference_id, passed_rules, failed_rules, 
-          no_trade_reason, plan_state, setup_json
-   FROM forward_observations 
-   WHERE as_of IN ('2026-10-11 17:00:00', '2026-10-11 22:00:00');
-   ```
-3. **1H OHLCV Candle Data:**
-   ```sql
-   SELECT open_time, open, high, low, close, volume 
-   FROM ohlcv_candles 
-   WHERE exchange = 'binance' AND symbol = 'BTC/USDT' AND timeframe = '1h'
-     AND open_time BETWEEN '2026-10-11 14:00:00' AND '2026-10-11 23:00:00'
-   ORDER BY open_time ASC;
-   ```
-4. **Outcome Resolution & Ambiguity Reason:**
-   ```sql
-   SELECT paper_plan_id, outcome_status, exit_level, r_multiple, 
-          ambiguity_reason, observation_version
-   FROM forward_paper_outcomes 
-   WHERE paper_plan_id IN (
-       SELECT paper_plan_id FROM forward_paper_plans 
-       WHERE plan_as_of IN ('2026-10-11 17:00:00', '2026-10-11 22:00:00')
-   );
-   ```
+### 8.1 Paper Plans Query
+*(Verified table: `forward_paper_plans`. Note column names `targets_json` and `target_r_json`, not `plan_targets`)*
+```sql
+SELECT paper_plan_id, setup_id, plan_as_of, recorded_at, entry_level, stop_level, 
+       invalidation_level, risk_per_unit, targets_json, target_r_json, version_fingerprint
+FROM forward_paper_plans 
+WHERE plan_as_of IN ('2026-10-11 17:00:00', '2026-10-11 22:00:00');
+```
+
+### 8.2 Observations Query
+*(Verified table: `forward_observations`. Note column names `passed_rules_json` and `failed_rules_json`, not `passed_rules`)*
+```sql
+SELECT observation_id, setup_id, setup_reference_id, setup_state, passed_rules_json, 
+       failed_rules_json, pending_rules_json, no_trade_reason, plan_state, setup_json
+FROM forward_observations 
+WHERE as_of IN ('2026-10-11 17:00:00', '2026-10-11 22:00:00');
+```
+
+### 8.3 1H OHLCV Candles Query
+*(Verified table: `ohlcv_candles`. Note column name `timestamp`, not `open_time`)*
+```sql
+SELECT timestamp, open, high, low, close, volume 
+FROM ohlcv_candles 
+WHERE exchange = 'binance' AND symbol = 'BTC/USDT' AND timeframe = '1h'
+  AND timestamp BETWEEN '2026-10-11 14:00:00' AND '2026-10-11 23:00:00'
+ORDER BY timestamp ASC;
+```
+
+### 8.4 Outcome Resolution Query
+*(Verified table: `forward_paper_outcomes`. Note column names `status` and `ambiguity_kind`; outcome payload and R metrics are in `payload_json`)*
+```sql
+SELECT outcome_id, paper_plan_id, sequence, status, entry_reached, entry_ordered, 
+       entry_timestamp, stop_reached, ambiguous, ambiguity_kind, payload_json, recorded_at
+FROM forward_paper_outcomes 
+WHERE paper_plan_id IN (
+    SELECT paper_plan_id FROM forward_paper_plans 
+    WHERE plan_as_of IN ('2026-10-11 17:00:00', '2026-10-11 22:00:00')
+)
+ORDER BY paper_plan_id, sequence ASC;
+```
 
 ---
 
-## 9. Candidate Solutions and Recommended Implementation
+## 9. Evaluation of Candidate Safeguards & Assessment of Trade 1
 
-### Option 1: Defensive Gates on Close Entry (Recommended Next Implementation)
+### 9.1 Would an Entry-Extension Gate Have Prevented Trade 1?
+* **Trade 1 Parameters:**
+  - Reference level: $83,606.01
+  - Decision candle close (entry): $83,916.01
+  - Nominal entry extension: $83,916.01 - $83,606.01 = **$310.00**.
+  - Relative extension: $\frac{310.00}{83606.01} = \mathbf{0.37\% \text{ (37 basis points)}}$.
+* **ATR Evaluation:**
+  - On BTC/USDT 1H at ~$83,600, 1H ATR is typically between $400 and $600.
+  - If 1H ATR was $450: the extension was $\frac{310}{450} = \mathbf{0.69 \times \text{ATR}}$.
+  - If 1H ATR was $550: the extension was $\frac{310}{550} = \mathbf{0.56 \times \text{ATR}}$.
+* **Assessment:**
+  - A standard extension gate of `max_entry_extension_atr_multiple = 1.5` **would NOT have prevented Trade 1**, because $0.69 < 1.5$.
+  - Even a `1.0 ATR` gate would not have prevented Trade 1.
+  - Only a strict gate ($\le 0.5 \text{ ATR}$ or $\le 25 \text{ bps}$) would have blocked Trade 1.
+* **Critical Architectural Note: Extension Gate $\neq$ Waiting for a Pullback:**
+  - An entry-extension gate is solely an **exclusion filter**. If price has extended beyond the threshold, BRAIN emits a `NO_PLAN` with refusal reason `entry_extended_beyond_reference`.
+  - It **does not** place a limit order, nor does it wait for a pullback to occur. The setup is simply abandoned.
+
+---
+
+## 10. Candidate Solutions and Trade-Offs
+
+### Option 1: Defensive Gates on Close Entry (Recommended First Step)
 * **Design:** Retain the close-based entry model, but add two defensive gates to `trade_planning/planner.py`:
   1. `MinStopDistanceGate`: Require $\text{risk\_per\_unit} \ge \max(0.5 \times \text{ATR}, 0.0035 \times \text{entry})$ (~35 bps / ~$300 on BTC). Plans failing this are refused with `stop_distance_below_economic_minimum`.
   2. `MaxEntryExtensionGate`: Require $(\text{entry} - \text{ref.band\_high}) \le 1.5 \times \text{ATR}$. Plans where price has extended too far are refused with `entry_extended_beyond_reference`.
@@ -257,18 +293,68 @@ The repository contains no real market data (`data/` is empty). The following re
 
 ---
 
-## 10. Minimal, Testable Repair Plan
+## 11. Executable Synthetic Test Demonstrating the Tiny-Stop Issue
 
-When authorized, the implementation must proceed in versioned steps:
+An executable synthetic test reproducing the Trade 2 tiny-stop planning pass is provided at [`docs/audits/entry-quality-probes/test_tiny_stop_planning.py`](entry-quality-probes/test_tiny_stop_planning.py) (and wrapped by [`probe9.py`](entry-quality-probes/probe9.py)).
 
-1. **Preserve Ledger Immutability:**
-   * Increment `PLANNING_RULES_VERSION = "trade-planning-v3"` in `trade_planning/parameters.py`.
-   * Existing stored rows in `forward_paper_plans` and `forward_observations` remain immutable.
+### Test Execution Proof
+```
+$ python docs/audits/entry-quality-probes/test_tiny_stop_planning.py
+PASS: test_tiny_stop_distance_accepted_by_planner
+  Entry: $83529.47
+  Stop:  $83521.15 (Risk: $8.32 / 0.996 bps)
+  Target: $83572.96 (Reward: $43.49)
+  R-Multiple: 5.22716346R
+  State: PLANNABLE
+
+$ pytest docs/audits/entry-quality-probes/test_tiny_stop_planning.py -v
+docs/audits/entry-quality-probes/test_tiny_stop_planning.py::test_tiny_stop_distance_accepted_by_planner PASSED [100%]
+```
+
+### Core Verified Assertions
+```python
+assert plan.state is PlanState.PLANNABLE
+assert plan.entry.value == Decimal("83529.47")
+assert plan.stop.value == Decimal("83521.15")
+assert plan.risk_per_unit == Decimal("8.32")
+assert (plan.risk_per_unit / plan.entry.value) * Decimal(10000) < Decimal("1.0")  # < 1 bp
+assert plan.targets[0].reward_per_unit == Decimal("43.49")
+assert plan.targets[0].r_multiple == Decimal("5.22716346")
+assert rule_for(plan, "positive_risk").outcome is RuleOutcome.PASS
+assert rule_for(plan, "minimum_r_multiple").outcome is RuleOutcome.PASS
+```
+
+---
+
+## 12. Minimal, Testable Repair Plan & Parameter Unit Specifications
+
+When implementation is authorized, changes must strictly adhere to the codebase's existing parameter unit conventions:
+
+### Parameter Unit Checking
+In `PlanningParameters` (`trade_planning/parameters.py`), percentage parameters are stored as **percentage numbers (0 to 100)**, not decimal fractions:
+* Current: `stop_buffer_percentage: Decimal = Decimal("0.1")` $\implies$ 0.1% (10 bps).
+* **35-Basis-Point Minimum Risk Floor:**
+  - 35 basis points is $0.35\%$.
+  - Therefore, the parameter **must be specified as**:
+    ```python
+    min_stop_distance_percentage: Decimal = Decimal("0.35")  # 0.35 percent = 35 bps
+    ```
+  - **Caution:** If erroneously specified as `Decimal("0.0035")`, `tolerance_band` would divide by 100, resulting in $0.0035\% = 0.35 \text{ bps}$ (a 100-fold error).
+
+### Proposed Versioned Steps
+1. **Preserve Historical Immutability:**
+   * Update `PLANNING_RULES_VERSION = "trade-planning-v3"`.
+   * Stored `forward_paper_plans` rows remain untouched; new plan identities incorporate the v3 fingerprint.
 2. **Add Parameters to `PlanningParameters`:**
-   * `min_stop_distance_atr_multiple: Decimal = Decimal("0.5")`
-   * `min_stop_distance_percentage: Decimal = Decimal("0.0035")` (35 bps)
-   * `max_entry_extension_atr_multiple: Decimal = Decimal("1.5")`
-3. **Add Synthetic Unit Tests:**
-   * `test_trade_planning_refuses_sub_economic_stop`: Verify refusal of $< 35\text{ bps}$ stop.
-   * `test_trade_planning_refuses_extended_continuation_candle`: Verify refusal of $> 1.5\text{ ATR}$ extension.
-   * `test_trade_planning_v3_fingerprint_mismatch`: Verify legacy v2 and new v3 plans have distinct fingerprints.
+   ```python
+   min_stop_distance_atr_multiple: Decimal = Decimal("0.5")
+   min_stop_distance_percentage: Decimal = Decimal("0.35")  # 35 bps
+   max_entry_extension_atr_multiple: Decimal = Decimal("1.5")
+   ```
+3. **Add Rule Checks to `planner.py`:**
+   * In `_resolve_stop`: require `risk >= max(min_stop_atr, min_stop_pct)`. Refusal reason: `stop_distance_below_economic_minimum`.
+   * In `_resolve_entry`: require `(entry - ref.band_high) <= max_extension_atr`. Refusal reason: `entry_extended_beyond_reference`.
+4. **Synthetic Test Coverage:**
+   * Verify sub-35-bps stops are refused.
+   * Verify extended continuation bars are refused.
+   * Verify v2 vs. v3 plan identity isolation.
