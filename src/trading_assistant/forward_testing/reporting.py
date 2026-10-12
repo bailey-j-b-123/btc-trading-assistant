@@ -771,6 +771,7 @@ def build_forward_comparison(
             )
         ),
         metrics=forward.metrics,
+        friction_fingerprint=forward.friction_fingerprint,
     )
     if historical is None:
         historical_side = ComparisonSide(
@@ -784,6 +785,7 @@ def build_forward_comparison(
             metrics=_empty_metrics(),
         )
         strategy_versions_match = None
+        friction_assumptions_match = None
         version_note = (
             "the historical side is unavailable, so versions could not be compared"
         )
@@ -801,17 +803,28 @@ def build_forward_comparison(
             unavailable_reason=None,
             sample_size=historical_metrics.paper_plan_count,
             metrics=historical_metrics,
+            friction_fingerprint=dict(historical.strategy_versions).get("friction_assumptions"),
         )
         strategy_versions_match, version_note = _versions_match(forward, historical)
+        historical_friction = historical_side.friction_fingerprint
+        friction_assumptions_match = (
+            None if historical_friction is None
+            else historical_friction == forward.friction_fingerprint
+        )
 
     rows = _comparison_rows(
         forward=forward_side,
         historical=historical_side,
         comparable=strategy_versions_match,
+        friction_match=friction_assumptions_match,
     )
     warnings: list[str] = []
     if strategy_versions_match is False:
         warnings.append("strategy_versions_differ_comparison_is_descriptive_only")
+    if friction_assumptions_match is False:
+        warnings.append("friction_assumptions_differ_comparison_is_descriptive_only")
+    elif friction_assumptions_match is None:
+        warnings.append("friction_assumptions_unverified_comparison_is_descriptive_only")
     warnings.append(
         "denominators_differ_historical_counts_replay_records_forward_counts_paper_plans"
     )
@@ -837,6 +850,7 @@ def build_forward_comparison(
             "different units of analysis; the comparison is descriptive and is not "
             "a statistical test.",
         ),
+        friction_assumptions_match=friction_assumptions_match,
     )
 
 
@@ -972,6 +986,7 @@ def _comparison_rows(
     forward: ComparisonSide,
     historical: ComparisonSide,
     comparable: bool | None,
+    friction_match: bool | None,
 ) -> tuple[ComparisonRow, ...]:
     rows: list[ComparisonRow] = []
     forward_metrics = forward.metrics
@@ -992,6 +1007,19 @@ def _comparison_rows(
         *,
         note: str | None = None,
     ) -> None:
+        row_comparable = comparable
+        if metric == "friction_adjusted_hypothetical_R":
+            row_comparable = (
+                False if comparable is False or friction_match is False
+                else True if comparable is True and friction_match is True
+                else None
+            )
+            if friction_match is not True:
+                cost_note = (
+                    "cost assumptions differ; adjusted figures are not comparable"
+                    if friction_match is False else "cost assumptions could not be verified"
+                )
+                note = cost_note if note is None else f"{note}; {cost_note}"
         if withheld_note is not None:
             note = withheld_note if note is None else f"{note}; {withheld_note}"
         rows.append(
@@ -1002,7 +1030,7 @@ def _comparison_rows(
                 forward=forward_value,
                 historical_denominator=historical_metrics.paper_plan_count,
                 forward_denominator=forward_metrics.paper_plan_count,
-                comparable=comparable,
+                comparable=row_comparable,
                 note=note,
             )
         )
