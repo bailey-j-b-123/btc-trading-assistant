@@ -322,6 +322,60 @@ def test_comparison_endpoint_separates_historical_and_forward(seeded_client) -> 
     )
 
 
+@pytest.mark.parametrize("requested_fee", ["0", "50"])
+def test_comparison_replays_under_the_recorded_paper_costs(monkeypatch, requested_fee):
+    from decimal import Decimal
+    from trading_assistant.forward_testing import FrictionAssumptions, ForwardParameters
+
+    recorded = FrictionAssumptions(
+        fee_bps=Decimal("10"), entry_slippage_bps=Decimal("5"),
+        exit_slippage_bps=Decimal("7"),
+    )
+    harness = make_harness(
+        series=labelled_series(), ledger_start=QUALIFYING_BOUNDARY,
+        parameters=ForwardParameters(friction=recorded),
+    )
+    try:
+        harness.advance_to(QUALIFYING_BOUNDARY)
+        assert harness.run(refresh_market_data=False).paper_plans_created == 1
+        client = _client(harness.engine, harness.settings, clock=clock_at(QUALIFYING_BOUNDARY))
+        validation = client.app.state.services.validation
+        original = validation.validate
+        observed = []
+
+        def capture(**kwargs):
+            observed.append(kwargs["config"].friction)
+            return original(**kwargs)
+
+        monkeypatch.setattr(validation, "validate", capture)
+        counts = harness.counts()
+        response = client.get("/api/forward/comparison", params={"fee_bps": requested_fee})
+        assert response.status_code == 200
+        assert observed == [recorded]
+        body = response.json()
+        assert body["friction_from_recorded_plans"] is True
+        assert body["friction_fingerprint"] == recorded.fingerprint()
+        sides = body["comparison"]
+        assert sides["historical"]["friction_fingerprint"] == sides["forward"]["friction_fingerprint"]
+        assert harness.counts() == counts
+    finally:
+        harness.engine.dispose()
+
+
+def test_comparison_without_recorded_plans_uses_requested_costs(empty_client) -> None:
+    _, client = empty_client
+    response = client.get("/api/forward/comparison", params={
+        "fee_bps": "12", "entry_slippage_bps": "3", "exit_slippage_bps": "4",
+    })
+    assert response.status_code == 200
+    body = response.json()
+    assert body["friction_from_recorded_plans"] is False
+    assert body["friction"]["fee_bps"] == "12"
+    comparison = body["comparison"]
+    assert comparison["historical"]["friction_fingerprint"] == comparison["forward"]["friction_fingerprint"]
+    assert comparison["friction_assumptions_match"] is True
+
+
 def test_forward_view_reports_staleness_honestly(seeded_client) -> None:
     harness, client = seeded_client
     # The dashboard clock is two closes ahead of the last recorded/stored candle.

@@ -254,9 +254,11 @@ def get_forward_comparison(
         symbol=resolved_symbol,
         timeframe=resolved_timeframe,
     )
-    recorded_friction, _ = _recorded_friction(
+    recorded_friction, friction_is_recorded = _recorded_friction(
         service, symbol=resolved_symbol, timeframe=resolved_timeframe
     )
+    if not friction_is_recorded:
+        recorded_friction = friction
     forward = build_forward_report(
         ledger=ledger,
         exchange=state.settings.exchange,
@@ -273,9 +275,10 @@ def get_forward_comparison(
             observation_horizon_candles=observation_horizon_candles,
             minimum_sample_size=minimum_sample_size,
             friction=ValidationFrictionAssumptions(
-                fee_bps=fee_bps,
-                entry_slippage_bps=entry_slippage_bps,
-                exit_slippage_bps=exit_slippage_bps,
+                version=recorded_friction.version,
+                fee_bps=recorded_friction.fee_bps,
+                entry_slippage_bps=recorded_friction.entry_slippage_bps,
+                exit_slippage_bps=recorded_friction.exit_slippage_bps,
             ),
         ),
     )
@@ -295,5 +298,13 @@ def get_forward_comparison(
             "profitability."
         ),
         "execution_disabled": True,
+        "friction_from_recorded_plans": friction_is_recorded,
+        "friction_fingerprint": recorded_friction.fingerprint(),
+        "friction": {
+            "version": recorded_friction.version,
+            "fee_bps": recorded_friction.fee_bps,
+            "entry_slippage_bps": recorded_friction.entry_slippage_bps,
+            "exit_slippage_bps": recorded_friction.exit_slippage_bps,
+        },
         "comparison": comparison.to_json_dict(),
     }

@@ -487,6 +487,7 @@ class ComparisonSide:
     unavailable_reason: str | None
     sample_size: int
     metrics: ForwardCohortMetrics
+    friction_fingerprint: str | None = None
 
     def to_json_dict(self) -> dict[str, Any]:
         return to_jsonable(self)
@@ -522,6 +523,7 @@ class ForwardComparison:
     rows: tuple[ComparisonRow, ...]
     warnings: tuple[str, ...]
     limitations: tuple[str, ...]
+    friction_assumptions_match: bool | None = None
 
     def to_json_dict(self) -> dict[str, Any]:
         return to_jsonable(self)

@@ -9,6 +9,7 @@ unchanged ``HistoricalValidationService`` over the same stored candles, so the
 HISTORICAL VALIDATION side is genuine Step 11 output rather than a stand-in.
 """
 
+from dataclasses import replace
 from decimal import Decimal as D
 
 import pytest
@@ -68,13 +69,17 @@ def harness_with_a_resolved_target() -> Harness:
     return harness
 
 
-def historical_report(harness: Harness, *, friction: FrictionAssumptions | None = None):
+def historical_report(
+    harness: Harness, *, friction: FrictionAssumptions | None = None,
+    planning_parameters: PlanningParameters | None = None,
+):
     """A genuine Step 11 report over the same stored candles."""
 
     return HistoricalValidationService(harness.engine).validate(
         exchange=EXCHANGE,
         symbol=SYMBOL,
         timeframe=TIMEFRAME,
+        planning_parameters=planning_parameters,
         config=ValidationConfig(
             observation_horizon_candles=HORIZON,
             minimum_sample_size=1,
@@ -412,6 +417,7 @@ def test_comparison_friction_assumptions_are_versioned_and_reported() -> None:
         generated_at=QUALIFYING_BOUNDARY,
     )
     assert comparison.forward.metrics.friction_adjusted_hypothetical_r.sample_size >= 0
+    assert comparison.friction_assumptions_match is True
     payload = comparison.to_json_dict()
     assert payload["generated_at"]
     assert payload["version_comparability_note"]
@@ -420,6 +426,64 @@ def test_comparison_friction_assumptions_are_versioned_and_reported() -> None:
     text = str(payload).lower()
     for banned in ("realised p&l", "realized p&l", "net profit", "account balance"):
         assert banned not in text
+
+
+def test_comparison_marks_different_cost_scenarios_not_comparable():
+    harness = harness_with_a_resolved_target()
+    costly = FrictionAssumptions(fee_bps=D("10"), entry_slippage_bps=D("5"))
+    comparison = build_forward_comparison(
+        forward=harness.report(friction=costly),
+        historical=historical_report(harness, friction=FrictionAssumptions()),
+        generated_at=QUALIFYING_BOUNDARY,
+    )
+    rows = {row.metric: row for row in comparison.rows}
+    assert rows["friction_adjusted_hypothetical_R"].comparable is False
+    assert "cost assumptions differ" in rows["friction_adjusted_hypothetical_R"].note
+    assert rows["raw_observational_R"].comparable is comparison.strategy_versions_match
+    assert "friction_assumptions_differ_comparison_is_descriptive_only" in comparison.warnings
+
+
+@pytest.mark.parametrize("include_planning", [True, False])
+def test_comparison_rejects_different_planning_configurations_with_same_rules(include_planning):
+    harness = harness_with_a_resolved_target()
+    historical = historical_report(
+        harness, friction=harness.service.parameters.friction,
+        planning_parameters=harness.service.planning_parameters,
+    )
+    stricter = PlanningParameters(min_r_multiple=D("2"))
+    historical = replace(historical, strategy_versions=tuple(
+        (key, stricter.fingerprint() if key == "planning_parameters" else value)
+        for key, value in historical.strategy_versions
+        if include_planning or key != "planning_parameters"
+    ))
+    comparison = build_forward_comparison(
+        forward=harness.report(), historical=historical,
+        generated_at=QUALIFYING_BOUNDARY,
+    )
+    expected = False if include_planning else None
+    assert comparison.strategy_versions_match is expected
+    assert "planning configuration" in comparison.version_comparability_note
+    assert all(row.comparable is expected for row in comparison.rows)
+
+
+def test_comparison_does_not_assume_missing_cost_provenance_matches():
+    harness = harness_with_a_resolved_target()
+    historical = historical_report(
+        harness, friction=harness.service.parameters.friction,
+        planning_parameters=harness.service.planning_parameters,
+    )
+    historical = replace(historical, strategy_versions=tuple(
+        item for item in historical.strategy_versions if item[0] != "friction_assumptions"
+    ))
+    comparison = build_forward_comparison(
+        forward=harness.report(), historical=historical,
+        generated_at=QUALIFYING_BOUNDARY,
+    )
+    adjusted = next(row for row in comparison.rows
+                    if row.metric == "friction_adjusted_hypothetical_R")
+    assert comparison.friction_assumptions_match is None
+    assert adjusted.comparable is None
+    assert "friction_assumptions_unverified_comparison_is_descriptive_only" in comparison.warnings
 
 
 def test_report_parameters_and_generated_artifacts_are_deterministic() -> None:
