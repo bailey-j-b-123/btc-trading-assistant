@@ -329,6 +329,7 @@ function forwardPayload(timestamp = "2026-10-06T12:00:00Z") {
         expected_latest_closed_candle_open: timestamp,
         missing_candle_count: 0,
       },
+      runner_liveness: { state: "CONFIRMED_ALIVE", alive_confirmed: true, age_seconds: 0, tolerance_seconds: 360 },
       runner: {
         status: "IDLE",
         recorded_at: timestamp,

@@ -631,6 +631,26 @@ class ForwardLedgerRepository:
             row = session.scalars(statement).first()
             return None if row is None else _heartbeat_from_row(row)
 
+    def recent_heartbeats(
+        self, *, exchange: str, symbol: str, timeframe: str, limit: int = 12
+    ) -> tuple[ForwardHeartbeat, ...]:
+        """Bounded read-only heartbeat trail, newest first with insertion tie-breaks."""
+
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise ValueError("heartbeat limit must be an integer between 1 and 1000")
+        statement = (
+            select(ForwardRunnerHeartbeatRow)
+            .where(
+                ForwardRunnerHeartbeatRow.exchange == exchange,
+                ForwardRunnerHeartbeatRow.symbol == symbol,
+                ForwardRunnerHeartbeatRow.timeframe == timeframe,
+            )
+            .order_by(ForwardRunnerHeartbeatRow.recorded_at.desc(), text("rowid DESC"))
+            .limit(limit)
+        )
+        with self._sessions() as session:
+            return tuple(_heartbeat_from_row(row) for row in session.scalars(statement))
+
     def counts(
         self, *, exchange: str, symbol: str, timeframe: str
     ) -> dict[str, int]:
