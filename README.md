@@ -2620,29 +2620,47 @@ the current boundary — no scores, no predictions:
   renders it verbatim as a collapsible card; it can only repeat backend
   facts (see Step 9).
 
-### Freshness, SYSTEM OK, and runner states (exact)
+### Freshness, runner liveness, and runner states (exact)
 
 Data freshness (`src/trading_assistant/web/freshness.py`) compares the latest
 stored candle open against the expected latest closed boundary from the
 server clock: CURRENT (stored equals expected), STALE (stored stops early,
 with a staleness count), HISTORICAL (the requested instant is old),
-UNKNOWN (no stored candles). The header pill shows SYSTEM OK only when all
-of these hold: dashboard freshness CURRENT, market window complete, forward
-`data_health` CURRENT, zero pending catch-up boundaries, and a runner
-heartbeat with status STARTED, PROCESSED, or IDLE and no recorded error.
-Anything else — never-run, stale data, a recorded runner error, a missing
-payload, a single pending boundary — is SYSTEM WARNING.
+UNKNOWN (no stored candles). Freshness is one dimension of the header pill and
+never a proxy for the runner: candles can be CURRENT while the runner has
+stopped reporting, and the runner can be reporting while candles are STALE.
 
-Only the newest heartbeat row feeds the runner conjunct: a stale error in the
-trail clears as soon as the next pass records a healthy row. Heartbeat age is
-displayed, never decisive — so a silently dead runner reads OK until its next
-boundary lands unprocessed (at most one candle interval of blind window).
+The header pill reads healthy (`DATA CURRENT · RUNNER <STATUS>`, green) only
+when all of these hold: dashboard freshness CURRENT, market window complete,
+forward `data_health` CURRENT, zero pending catch-up boundaries, and the
+**server-owned runner-liveness verdict** `status.runner_liveness` says
+`CONFIRMED_ALIVE`. Anything else names the failing component instead of a
+generic warning: `FORWARD RUNNER · HEARTBEAT STALE`, `· PROCESSING FAILURE`,
+`· HEARTBEAT IN THE FUTURE`, `· RUNNER STOPPED`, `· NEVER REPORTED`,
+`· CATCH-UP PENDING`, and `· LIVENESS UNKNOWN` (the last one also covers a
+payload that carries no verdict at all — the browser never promotes a missing
+verdict to an all-clear, and never computes an age from its own clock).
+
+The verdict is computed once, on the server, from the heartbeat trail
+(`src/trading_assistant/forward_testing/liveness.py`; full contract, states,
+boundaries, and settings in
+[`docs/runner-health.md`](docs/runner-health.md)): only the newest heartbeat
+row feeds it, so a stale error in the trail clears as soon as the next pass
+records a healthy row — but an *old* newest row no longer reads as a running
+runner. Age beyond the documented operational tolerance (a 360s floor derived
+from the runner's 60s default poll interval plus its 300s maximum transient
+backoff, widened to three times the cadence actually observed in the heartbeat
+trail, or an explicit operator tolerance) reads `STALE_UNCONFIRMED`:
+**not confirmed alive**, never a claim that the process died, and never a
+claim about market data. A heartbeat recorded in the future is
+`CLOCK_INCONSISTENT` and can never read healthy, however small the gap.
 
 The System-details card distinguishes three runner presences: `unavailable`
 (no forward status payload — every runner field UNKNOWN), `never run`
 (backend reports `runner: null`), and `reported` (state, detail,
-server-computed heartbeat age, last error, all verbatim). Pending catch-up
-is always a counted label ("N closed candles not yet processed").
+server-computed heartbeat age with the liveness verdict in words, last error,
+all verbatim). Pending catch-up is always a counted label ("N closed candles
+not yet processed").
 
 ### Interface caching (no query hacks, no service worker)
 

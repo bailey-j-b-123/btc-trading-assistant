@@ -337,6 +337,28 @@ function forwardPayload(timestamp = "2026-10-06T12:00:00Z") {
         last_error: null,
       },
       sample: { paper_plans: 1, pending_catch_up_boundaries: 0 },
+      runner_liveness: {
+        policy_version: "runner-liveness-v1",
+        state: "CONFIRMED_ALIVE",
+        alive_confirmed: true,
+        heartbeat_present: true,
+        heartbeat_status: "IDLE",
+        recorded_at: timestamp,
+        assessed_at: timestamp,
+        age_seconds: 30,
+        tolerance_seconds: 360,
+        tolerance_source: "policy_floor",
+        cadence_seconds: null,
+        cadence_source: "unconfirmed",
+        cadence_gap_count: 0,
+        heartbeat_rows_examined: 1,
+        clock_skew_diagnostic_seconds: 5,
+        configured_poll_interval_seconds: "60",
+        last_error: null,
+        detail:
+          "The newest heartbeat (IDLE) was recorded 30s ago, inside the 360s "
+          + "tolerance (policy floor), so the runner process is confirmed alive.",
+      },
       current_state: {
         available: true,
         as_of: timestamp,

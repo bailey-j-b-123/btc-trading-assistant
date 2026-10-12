@@ -631,6 +631,38 @@ class ForwardLedgerRepository:
             row = session.scalars(statement).first()
             return None if row is None else _heartbeat_from_row(row)
 
+    def recent_heartbeats(
+        self, *, exchange: str, symbol: str, timeframe: str, limit: int
+    ) -> tuple[ForwardHeartbeat, ...]:
+        """The newest heartbeat rows for one instrument, newest first (read-only).
+
+        Raw material for the runner-liveness assessment
+        (``forward_testing.liveness``): the newest row decides the state, and the
+        gaps between the newest rows are the runner's only observed cadence. The
+        ordering is exactly ``latest_heartbeat``'s — ``recorded_at`` descending,
+        ties broken by insertion order (``rowid``) — so ``rows[0]`` is always the
+        same row ``latest_heartbeat`` reports. Reads only; never writes.
+        """
+
+        if limit < 1 or limit > 1000:
+            raise ValueError("limit must be between 1 and 1000")
+        statement = (
+            select(ForwardRunnerHeartbeatRow)
+            .where(
+                ForwardRunnerHeartbeatRow.exchange == exchange,
+                ForwardRunnerHeartbeatRow.symbol == symbol,
+                ForwardRunnerHeartbeatRow.timeframe == timeframe,
+            )
+            .order_by(
+                ForwardRunnerHeartbeatRow.recorded_at.desc(),
+                text("rowid DESC"),
+            )
+            .limit(limit)
+        )
+        with self._sessions() as session:
+            rows = session.scalars(statement).all()
+        return tuple(_heartbeat_from_row(row) for row in rows)
+
     def counts(
         self, *, exchange: str, symbol: str, timeframe: str
     ) -> dict[str, int]:

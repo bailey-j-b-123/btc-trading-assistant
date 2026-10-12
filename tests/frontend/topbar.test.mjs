@@ -30,14 +30,58 @@ function headerDashboard() {
   };
 }
 
-function headerForward() {
+/**
+ * The server-owned liveness verdict (``status.runner_liveness``), exactly as
+ * ``ForwardTestService.status()`` renders it. The header quotes it verbatim, so
+ * every fixture that expects a verdict must ask the server for one.
+ */
+function headerLiveness(overrides = {}) {
+  return {
+    policy_version: "runner-liveness-v1",
+    state: "CONFIRMED_ALIVE",
+    alive_confirmed: true,
+    heartbeat_present: true,
+    heartbeat_status: "IDLE",
+    recorded_at: TIMESTAMP,
+    assessed_at: TIMESTAMP,
+    age_seconds: 30,
+    tolerance_seconds: 360,
+    tolerance_source: "policy_floor",
+    cadence_seconds: null,
+    cadence_source: "unconfirmed",
+    cadence_gap_count: 0,
+    heartbeat_rows_examined: 1,
+    clock_skew_diagnostic_seconds: 5,
+    configured_poll_interval_seconds: "60",
+    last_error: null,
+    detail:
+      "The newest heartbeat (IDLE) was recorded 30s ago, inside the 360s tolerance " +
+      "(policy floor), so the runner process is confirmed alive.",
+    ...overrides,
+  };
+}
+
+function headerForward(runnerOverrides = {}, livenessOverrides = {}) {
   return {
     status: {
       market_data: { data_health: "CURRENT" },
-      runner: { status: "IDLE", recorded_at: TIMESTAMP, pending_boundaries: 0, last_error: null },
+      runner: {
+        status: "IDLE",
+        recorded_at: TIMESTAMP,
+        pending_boundaries: 0,
+        last_error: null,
+        ...runnerOverrides,
+      },
+      runner_liveness: headerLiveness(livenessOverrides),
       sample: { pending_catch_up_boundaries: 0 },
     },
   };
+}
+
+/** Replace the verdict on an existing payload (as the server would report it). */
+function withLiveness(forward, overrides) {
+  forward.status.runner_liveness = headerLiveness(overrides);
+  return forward;
 }
 
 function headerNodes() {
@@ -188,6 +232,9 @@ test("runner details distinguish unavailable, never-run, and reported", async ()
   assert.equal(neverRun.state, "never run");
   assert.equal(neverRun.pending, "5 closed candles not yet processed");
   assert.equal(neverRun.lastError, "not applicable (the runner has never run)");
+  // Without a server verdict the details row says so; it never claims liveness.
+  assert.equal(neverRun.livenessState, "UNREPORTED");
+  assert.match(neverRun.heartbeat, /liveness unknown/i);
 
   const reported = runnerDetailsViewModel({
     status: {
@@ -206,8 +253,33 @@ test("runner details distinguish unavailable, never-run, and reported", async ()
   assert.equal(reported.presence, "reported");
   assert.equal(reported.state, "Processed");
   assert.equal(reported.pending, "0 closed candles not yet processed");
-  assert.equal(reported.heartbeat, "2026-10-06 12:00 UTC (125s ago)");
+  // No server verdict in this payload: the age is shown and liveness stays
+  // unconfirmed rather than being read as a running runner.
+  assert.equal(reported.heartbeat, "2026-10-06 12:00 UTC (125s ago) — liveness unknown");
+  assert.equal(reported.livenessState, "UNREPORTED");
   assert.equal(reported.lastError, "No errors reported");
+
+  const stale = runnerDetailsViewModel(withLiveness({
+    status: {
+      runner: {
+        status: "IDLE",
+        detail: "no new closed candle to process",
+        recorded_at: TIMESTAMP,
+        heartbeat_age_seconds: 1800,
+        latest_cycle_as_of: TIMESTAMP,
+        pending_boundaries: 0,
+        last_error: null,
+      },
+      sample: { pending_catch_up_boundaries: 0 },
+    },
+  }, {
+    state: "STALE_UNCONFIRMED",
+    alive_confirmed: false,
+    age_seconds: 1800,
+    detail: "The newest heartbeat (IDLE) was recorded 1800s ago, beyond the 360s tolerance.",
+  }));
+  assert.equal(stale.livenessState, "STALE_UNCONFIRMED");
+  assert.equal(stale.heartbeat, "2026-10-06 12:00 UTC (1800s ago) — not confirmed alive");
 
   const errored = runnerDetailsViewModel({
     status: { runner: { status: "ERROR", last_error: "boom", recorded_at: null } },
@@ -217,7 +289,7 @@ test("runner details distinguish unavailable, never-run, and reported", async ()
   assert.equal(errored.heartbeat, "UNKNOWN");
 });
 
-test("system verdict needs every health conjunct; age alone never warns", () => {
+test("system verdict needs every health conjunct, and liveness is the server's", () => {
   const ok = systemHealthViewModel(headerDashboard(), headerForward());
   assert.equal(ok.healthy, true);
   assert.equal(ok.label, "DATA CURRENT · RUNNER IDLE");
@@ -240,33 +312,106 @@ test("system verdict needs every health conjunct; age alone never warns", () => 
   pending.status.sample.pending_catch_up_boundaries = 1;
   assert.equal(systemHealthViewModel(headerDashboard(), pending).label, "FORWARD RUNNER · CATCH-UP PENDING");
 
-  const errored = headerForward();
-  errored.status.runner.status = "ERROR";
-  errored.status.runner.last_error = "boom";
+  const errored = withLiveness(
+    headerForward({ status: "ERROR", last_error: "boom" }),
+    { state: "FAILED", alive_confirmed: false, heartbeat_status: "ERROR", last_error: "boom" },
+  );
   assert.equal(systemHealthViewModel(headerDashboard(), errored).label, "FORWARD RUNNER · PROCESSING FAILURE");
   assert.equal(systemHealthViewModel(headerDashboard(), errored).tone, "red");
 
   const neverRun = headerForward();
   neverRun.status.runner = null;
+  neverRun.status.runner_liveness = headerLiveness({
+    state: "NEVER_RUN",
+    alive_confirmed: false,
+    heartbeat_present: false,
+    heartbeat_status: null,
+    recorded_at: null,
+    age_seconds: null,
+    cadence_gap_count: 0,
+    heartbeat_rows_examined: 0,
+  });
   assert.equal(systemHealthViewModel(headerDashboard(), neverRun).label, "FORWARD RUNNER · NEVER REPORTED");
 
-  const noData = headerForward();
-  noData.status.runner.status = "NO_DATA";
+  const noData = withLiveness(
+    headerForward({ status: "NO_DATA" }),
+    { heartbeat_status: "NO_DATA" },
+  );
   assert.equal(systemHealthViewModel(headerDashboard(), noData).label, "FORWARD RUNNER · STATUS NO_DATA");
 
   assert.equal(systemHealthViewModel(null, null).label, "DASHBOARD DATA · NOT LOADED");
 
-  // Heartbeat age is displayed, never decisive: an ancient heartbeat with
-  // otherwise perfect health still reads OK.
-  const ancient = headerForward();
-  ancient.status.runner.heartbeat_age_seconds = 99999;
-  assert.equal(systemHealthViewModel(headerDashboard(), ancient).label, "DATA CURRENT · RUNNER IDLE");
+  // REPAIR (docs/runner-health.md): the header reads the server verdict, never
+  // the raw age. A stale verdict with otherwise perfect health — current
+  // candles, no backlog, a running status — is now amber, not green. The
+  // backend suite pins that the server emits this verdict for exactly this
+  // payload (test_status_reports_a_stale_runner_while_market_data_stays_current).
+  const stale = withLiveness(
+    headerForward({ heartbeat_age_seconds: 99_999 }, { heartbeat_age_seconds: 99_999 }),
+    {
+      state: "STALE_UNCONFIRMED",
+      alive_confirmed: false,
+      heartbeat_status: "IDLE",
+      age_seconds: 99_999,
+      detail:
+        "The newest heartbeat (IDLE) was recorded 99999s ago, beyond the 360s " +
+        "tolerance (policy floor), so the runner is not confirmed alive.",
+    },
+  );
+  const staleHealth = systemHealthViewModel(headerDashboard(), stale);
+  assert.equal(staleHealth.healthy, false);
+  assert.equal(staleHealth.tone, "amber");
+  assert.equal(staleHealth.label, "FORWARD RUNNER · HEARTBEAT STALE");
+  assert.match(staleHealth.primary.detail, /not confirmed alive/);
 
-  // Recovery clears: a healthy newest row reads OK whatever came before
-  // (the backend test pins that the newest row is what the backend sends).
-  const recovered = headerForward();
-  recovered.status.runner.status = "PROCESSED";
-  recovered.status.runner.last_error = null;
+  // The browser never re-derives the verdict: the same age with a server
+  // verdict inside its own stated tolerance is quoted as the server reported it.
+  const insideOperatorTolerance = withLiveness(
+    headerForward({ heartbeat_age_seconds: 99_999 }, { heartbeat_age_seconds: 99_999 }),
+    {
+      age_seconds: 99_999,
+      tolerance_seconds: 100_000,
+      tolerance_source: "operator_setting",
+      detail:
+        "The newest heartbeat (IDLE) was recorded 99999s ago, inside the 100000s " +
+        "tolerance (operator setting), so the runner process is confirmed alive.",
+    },
+  );
+  assert.equal(systemHealthViewModel(headerDashboard(), insideOperatorTolerance).label,
+    "DATA CURRENT · RUNNER IDLE");
+
+  // Without a verdict nothing is promoted to healthy, however current the
+  // candles are: the browser has no liveness clock of its own.
+  const unreported = headerForward();
+  delete unreported.status.runner_liveness;
+  const unreportedHealth = systemHealthViewModel(headerDashboard(), unreported);
+  assert.equal(unreportedHealth.healthy, false);
+  assert.equal(unreportedHealth.tone, "red");
+  assert.equal(unreportedHealth.label, "FORWARD RUNNER · LIVENESS UNKNOWN");
+  assert.match(unreportedHealth.primary.detail, /server/i);
+
+  // A future heartbeat is never healthy: the clocks disagree, so liveness is
+  // unconfirmed (never clamped away by a small allowance).
+  const future = withLiveness(
+    headerForward({ heartbeat_age_seconds: -3 }, { heartbeat_age_seconds: -3 }),
+    {
+      state: "CLOCK_INCONSISTENT",
+      alive_confirmed: false,
+      age_seconds: -3,
+      detail: "The newest heartbeat (IDLE) is 3s ahead of this server's clock, so liveness is not confirmed.",
+    },
+  );
+  const futureHealth = systemHealthViewModel(headerDashboard(), future);
+  assert.equal(futureHealth.healthy, false);
+  assert.equal(futureHealth.tone, "red");
+  assert.equal(futureHealth.label, "FORWARD RUNNER · HEARTBEAT IN THE FUTURE");
+
+  // Recovery clears: a fresh heartbeat makes the server confirm liveness again
+  // (the backend test pins that the newest row is what the server sends).
+  const recovered = withLiveness(
+    headerForward({ status: "PROCESSED" }),
+    { heartbeat_status: "PROCESSED", age_seconds: 4 },
+  );
   assert.equal(systemHealthViewModel(headerDashboard(), recovered).label, "DATA CURRENT · RUNNER PROCESSED");
 });
 
@@ -284,9 +429,11 @@ test("health labels are specific: no generic SYSTEM OK or SYSTEM WARNING can be 
 });
 
 test("each failing condition is listed with its component, most severe first", () => {
-  const broken = headerForward();
-  broken.status.runner.last_error = "fetch failed";
-  broken.status.runner.status = "ERROR";
+  const broken = withLiveness(
+    headerForward({ status: "ERROR", last_error: "fetch failed" }),
+    { state: "FAILED", alive_confirmed: false, heartbeat_status: "ERROR", last_error: "fetch failed",
+      detail: "The newest heartbeat (ERROR) was recorded 12s ago and reports a failure: fetch failed." },
+  );
   broken.status.sample.pending_catch_up_boundaries = 2;
   const dashboard = headerDashboard();
   dashboard.freshness.status = "STALE";

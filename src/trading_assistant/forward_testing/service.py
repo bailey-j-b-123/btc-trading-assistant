@@ -77,6 +77,11 @@ from trading_assistant.forward_testing.parameters import (
     canonical_json,
     fingerprint,
 )
+from trading_assistant.forward_testing.liveness import (
+    RunnerLiveness,
+    assess_runner_liveness,
+    resolve_runner_liveness_policy,
+)
 from trading_assistant.forward_testing.repository import ForwardLedgerRepository
 from trading_assistant.journaling import (
     OUTCOME_RESOLUTION_RULES_VERSION,
@@ -238,6 +243,17 @@ class ForwardTestService:
         self.runner_settings = (
             runner_settings if runner_settings is not None else RunnerSettings()
         )
+        # Operational liveness policy for READERS of the heartbeat trail (this
+        # service and the dashboard API it feeds). An explicitly constructed
+        # RunnerSettings wins, then TRADING_ASSISTANT_RUNNER_LIVENESS_TOLERANCE_SECONDS,
+        # then the derived evidence-plus-floor default. The reading process's own
+        # ``interval_seconds`` is never substituted for the runner's cadence.
+        self.runner_liveness_policy = resolve_runner_liveness_policy(
+            self.runner_settings,
+            operator_tolerance_seconds=(
+                self.settings.runner_liveness_tolerance_seconds
+            ),
+        )
         self.ledger_start = (
             None
             if ledger_start is None
@@ -330,6 +346,13 @@ class ForwardTestService:
         )
         heartbeat = self.ledger.latest_heartbeat(
             exchange=exchange, symbol=resolved_symbol, timeframe=resolved_timeframe
+        )
+        liveness = self._runner_liveness(
+            exchange=exchange,
+            symbol=resolved_symbol,
+            timeframe=resolved_timeframe,
+            heartbeat=heartbeat,
+            now=instant,
         )
         counts = self.ledger.counts(
             exchange=exchange, symbol=resolved_symbol, timeframe=resolved_timeframe
@@ -435,6 +458,11 @@ class ForwardTestService:
                 "last_error": heartbeat.last_error,
                 "error_type": heartbeat.error_type,
             },
+            # Server-owned liveness verdict over the heartbeat trail: the
+            # dashboard quotes these exact numbers instead of inferring an
+            # all-clear from the stored heartbeat status. Present even when no
+            # heartbeat exists (state NEVER_RUN), so no client has to guess.
+            "runner_liveness": liveness.to_json_dict(),
             "latest_cycle": None if latest_cycle is None else latest_cycle.to_json_dict(),
             "current_state": {
                 "available": latest_cycle is not None,
@@ -500,6 +528,40 @@ class ForwardTestService:
             },
             "limitations": FORWARD_LIMITATIONS,
         }
+
+    def _runner_liveness(
+        self,
+        *,
+        exchange: str,
+        symbol: str,
+        timeframe: str,
+        heartbeat: ForwardHeartbeat | None,
+        now: datetime,
+    ) -> RunnerLiveness:
+        """Assess the runner process from its stored heartbeat trail (read-only).
+
+        ``recent_heartbeats`` uses the same ordering as ``latest_heartbeat``, so
+        the newest trail row is the row the ``runner`` block reports and the two
+        can never disagree. Nothing is written, fetched, or repaired: a stale
+        heartbeat is *unconfirmed*, never papered over.
+        """
+
+        policy = self.runner_liveness_policy
+        trail = self.ledger.recent_heartbeats(
+            exchange=exchange,
+            symbol=symbol,
+            timeframe=timeframe,
+            limit=policy.cadence_sample_size,
+        )
+        return assess_runner_liveness(
+            recorded_at_newest_first=tuple(row.recorded_at for row in trail),
+            newest_status=None if heartbeat is None else heartbeat.status,
+            newest_last_error=None if heartbeat is None else heartbeat.last_error,
+            now=now,
+            policy=policy,
+            configured_poll_interval_seconds=self.runner_settings.interval_seconds,
+            instrument_label=f"{symbol} {timeframe}",
+        )
 
     def observations_payload(
         self,

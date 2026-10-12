@@ -61,6 +61,14 @@ class Settings(BaseSettings):
     raw_data_dir: Path = Path("data/raw")
     market_data_page_limit: int = Field(default=1_000, gt=0)
     market_data_max_pages: int = Field(default=10_000, gt=0)
+    #: Operator statement of the maximum heartbeat age (seconds) that still
+    #: confirms the forward runner process is alive, surfaced read-only in the
+    #: dashboard's ``status.runner_liveness``. ``None`` (the default) means "judge
+    #: it from the heartbeat trail and the documented policy floor", which is the
+    #: honest default; set it for a deliberately slow cadence or a long
+    #: processing pass. It changes no strategy rule and no stored value. See
+    #: ``docs/runner-health.md``.
+    runner_liveness_tolerance_seconds: int | None = Field(default=None, ge=1, le=86_400)
     #: Finite, project-controlled timeout for public exchange (CCXT) requests,
     #: in milliseconds (CCXT timeout semantics: milliseconds, applied by CCXT to
     #: every individual socket connect/read of a request). It covers Binance

@@ -24,6 +24,98 @@ export function timeframeLabel(timeframe) {
   return isMissing(timeframe) ? "UNKNOWN" : String(timeframe).toUpperCase();
 }
 
+/** Signed integer, or null: heartbeat age is honest, so a negative age survives. */
+export function signedIntegerOrNull(value) {
+  return Number.isInteger(value) ? value : null;
+}
+
+/**
+ * How each server liveness verdict reads in the header: the severity is the
+ * server verdict's operational weight, and the condition is what the top bar
+ * names. CONFIRMED_ALIVE is intentionally absent: an alive runner is not an
+ * issue (a NO_DATA status is surfaced separately, as a market statement).
+ */
+const LIVENESS_CONDITIONS = {
+  CLOCK_INCONSISTENT: { severity: 0, condition: "Heartbeat in the future" },
+  FAILED: { severity: 0, condition: "Processing failure" },
+  STALE_UNCONFIRMED: { severity: 1, condition: "Heartbeat stale" },
+  NEVER_RUN: { severity: 1, condition: "Never reported" },
+  STOPPED: { severity: 1, condition: "Runner stopped" },
+  UNKNOWN: { severity: 1, condition: "Liveness unknown" },
+};
+
+/** Plain words for each server liveness verdict, used inside the details rows. */
+const LIVENESS_PHRASE = {
+  CONFIRMED_ALIVE: "confirmed alive",
+  STALE_UNCONFIRMED: "not confirmed alive",
+  NEVER_RUN: "no heartbeat ever recorded; liveness unknown",
+  CLOCK_INCONSISTENT: "heartbeat in the future: the clocks disagree, liveness not confirmed",
+  STOPPED: "runner stopped: not running",
+  FAILED: "processing failure: not confirmed alive",
+  UNKNOWN: "liveness unknown",
+};
+
+/**
+ * The server-owned runner-liveness verdict (``status.runner_liveness``), quoted
+ * verbatim.
+ *
+ * The server decides whether the runner process is confirmed alive, using the
+ * heartbeat trail and the documented operational tolerance; the browser never
+ * computes an age, never reads the browser clock and never turns a missing
+ * verdict into an all-clear. ``reported: false`` (state "UNREPORTED") means the
+ * payload carried no verdict at all, which is not a liveness certificate.
+ */
+export function runnerLivenessViewModel(forward) {
+  const payload = forward?.status?.runner_liveness;
+  if (!payload || typeof payload !== "object" || typeof payload.state !== "string") {
+    return {
+      reported: false,
+      state: "UNREPORTED",
+      aliveConfirmed: false,
+      heartbeatPresent: false,
+      heartbeatStatus: null,
+      recordedAt: null,
+      ageSeconds: null,
+      toleranceSeconds: null,
+      toleranceSource: "UNREPORTED",
+      cadenceSeconds: null,
+      cadenceSource: "UNREPORTED",
+      cadenceGapCount: null,
+      heartbeatRowsExamined: null,
+      clockSkewDiagnosticSeconds: null,
+      configuredPollIntervalSeconds: null,
+      lastError: null,
+      phrase: "liveness unknown",
+      detail:
+        "The server did not report a heartbeat liveness verdict for the forward " +
+        "runner, so it is not confirmed alive. Expand System details for every check.",
+    };
+  }
+  const text = (value, fallback) =>
+    typeof value === "string" && value ? value : fallback;
+  return {
+    reported: true,
+    state: payload.state,
+    // Only an explicit true confirms liveness; nothing is inferred from state.
+    aliveConfirmed: payload.alive_confirmed === true,
+    heartbeatPresent: payload.heartbeat_present === true,
+    heartbeatStatus: text(payload.heartbeat_status, null),
+    recordedAt: text(payload.recorded_at, null),
+    ageSeconds: signedIntegerOrNull(payload.age_seconds),
+    toleranceSeconds: integerOrNull(payload.tolerance_seconds),
+    toleranceSource: text(payload.tolerance_source, "UNKNOWN"),
+    cadenceSeconds: integerOrNull(payload.cadence_seconds),
+    cadenceSource: text(payload.cadence_source, "UNKNOWN"),
+    cadenceGapCount: integerOrNull(payload.cadence_gap_count),
+    heartbeatRowsExamined: integerOrNull(payload.heartbeat_rows_examined),
+    clockSkewDiagnosticSeconds: integerOrNull(payload.clock_skew_diagnostic_seconds),
+    configuredPollIntervalSeconds: text(payload.configured_poll_interval_seconds, null),
+    lastError: text(payload.last_error, null),
+    detail: text(payload.detail, "The server did not explain the liveness verdict."),
+    phrase: LIVENESS_PHRASE[payload.state] || "liveness unknown",
+  };
+}
+
 /**
  * Runner presence and detail labels with distinct honest states.
  *
@@ -35,7 +127,9 @@ export function timeframeLabel(timeframe) {
  * - "reported": a heartbeat row exists; state is its plain-English label while
  *   detail/heartbeat/error come from it verbatim. Heartbeat age is the
  *   server-computed heartbeat_age_seconds (recorded_at vs the backend
- *   clock), never the browser clock.
+ *   clock), never the browser clock. ``livenessState`` is the server's verdict
+ *   (``status.runner_liveness``) and the heartbeat row states it in words, so a
+ *   stale heartbeat never reads as a running runner.
  */
 export function runnerDetailsViewModel(forward) {
   const status = forward?.status;
@@ -46,6 +140,7 @@ export function runnerDetailsViewModel(forward) {
       detail: "UNKNOWN",
       pending: "UNKNOWN",
       latestCycle: "UNKNOWN",
+      livenessState: "UNREPORTED",
       heartbeat: "UNKNOWN",
       lastError: "UNKNOWN",
     };
@@ -57,6 +152,7 @@ export function runnerDetailsViewModel(forward) {
     : pending === 1
       ? "1 closed candle not yet processed"
       : `${pending} closed candles not yet processed`;
+  const liveness = runnerLivenessViewModel(forward);
   const runner = status.runner || null;
   if (!runner) {
     return {
@@ -65,7 +161,10 @@ export function runnerDetailsViewModel(forward) {
       detail: "not applicable (the runner has never run)",
       pending: pendingText,
       latestCycle: "none recorded yet",
-      heartbeat: "never run",
+      livenessState: liveness.state,
+      heartbeat: liveness.reported
+        ? `never run · ${liveness.phrase}`
+        : "never run · liveness unknown",
       lastError: "not applicable (the runner has never run)",
     };
   }
@@ -77,8 +176,9 @@ export function runnerDetailsViewModel(forward) {
     detail: runner.detail || "no detail recorded",
     pending: pendingText,
     latestCycle: runner.latest_cycle_as_of ? formatUtc(runner.latest_cycle_as_of) : "none recorded yet",
+    livenessState: liveness.state,
     heartbeat: heartbeatTime
-      ? (age === null ? heartbeatTime : `${heartbeatTime} (${age}s ago)`)
+      ? `${age === null ? heartbeatTime : `${heartbeatTime} (${age}s ago)`} — ${liveness.phrase}`
       : "UNKNOWN",
     lastError: runner.last_error || "No errors reported",
   };
@@ -116,18 +216,22 @@ function freshnessDetailText(freshness) {
  * Health verdict as a list of specific failing conditions, each with the component it concerns.
  *
  * Checks (all must hold for "current"): dashboard freshness CURRENT; stored window complete;
- * forward data_health CURRENT; no pending catch-up; runner present, STARTED/PROCESSED/IDLE and
- * without last_error. The top bar shows the most severe condition by name instead of a generic
- * warning. A healthy result states what was checked, never a generic all-clear.
+ * forward data_health CURRENT; no pending catch-up; and the SERVER's runner-liveness verdict says
+ * the runner process is confirmed alive. Runner liveness is never re-derived here: the browser has
+ * no clock it may trust and no tolerance it may invent, so a missing verdict is its own failing
+ * condition, not an all-clear. The top bar shows the most severe condition by name instead of a
+ * generic warning. A healthy result states what was checked, never a generic all-clear.
  *
- * Severity: 0 = processing failure or missing payload (red), 1 = stale, missing, stopped or
- * incomplete data (amber), 2 = catch-up backlog (amber). Only the NEWEST heartbeat feeds the runner
- * checks, so a stale error in the trail cannot persist once the next pass overwrites it.
+ * Severity: 0 = processing failure, clock inconsistency or missing payload (red); 1 = stale,
+ * never-run, stopped, unknown-liveness or incomplete data (amber); 2 = catch-up backlog (amber).
+ * Market freshness and runner liveness stay separate conditions: a stale runner never makes
+ * current candles look stale, and vice versa.
  */
 export function systemHealthViewModel(dashboard, forward) {
   const forwardStatus = forward?.status || {};
   const marketStatus = forwardStatus.market_data || {};
   const runner = forwardStatus.runner;
+  const liveness = runnerLivenessViewModel(forward);
   const pending = integerOrNull(forwardStatus.sample?.pending_catch_up_boundaries) ??
     integerOrNull(runner?.pending_boundaries);
   const issues = [];
@@ -135,15 +239,24 @@ export function systemHealthViewModel(dashboard, forward) {
     issues.push({ severity: 0, component: "Dashboard data", condition: "Not loaded",
       detail: "The dashboard request has not returned, so no health verdict is shown." });
   }
-  if (!runner) {
+  if (!liveness.reported) {
+    // No server verdict: the browser must not assume the runner is alive.
+    issues.push({ severity: 0, component: "Forward runner", condition: "Liveness unknown",
+      detail: liveness.detail });
+  } else if (liveness.state === "NEVER_RUN") {
     issues.push({ severity: 1, component: "Forward runner", condition: "Never reported",
-      detail: "The forward runner has not recorded a heartbeat, so paper observations are not being advanced." });
-  } else if (runner.last_error) {
-    issues.push({ severity: 0, component: "Forward runner", condition: "Processing failure",
-      detail: `Last error: ${runner.last_error}` });
-  } else if (!["STARTED", "PROCESSED", "IDLE"].includes(runner.status)) {
-    issues.push({ severity: 1, component: "Forward runner", condition: `Status ${runner.status || "UNKNOWN"}`,
-      detail: runner.detail || "The runner reported a status that is not a running state." });
+      detail: liveness.detail });
+  } else if (!liveness.aliveConfirmed) {
+    // Every non-confirming verdict is named by the server and reported as-is.
+    issues.push({ severity: LIVENESS_CONDITIONS[liveness.state]?.severity ?? 1,
+      component: "Forward runner",
+      condition: LIVENESS_CONDITIONS[liveness.state]?.condition ?? "Liveness unknown",
+      detail: liveness.detail });
+  } else if (liveness.heartbeatStatus === "NO_DATA") {
+    // Confirmed alive, but the newest pass found no closed candle to process:
+    // a statement about the market, kept separate from the liveness verdict.
+    issues.push({ severity: 1, component: "Forward runner", condition: "Status NO_DATA",
+      detail: runner?.detail || "The runner is alive but reported no data for the newest boundary." });
   }
   if (pending === null) {
     issues.push({ severity: 2, component: "Forward runner", condition: "Catch-up unknown",

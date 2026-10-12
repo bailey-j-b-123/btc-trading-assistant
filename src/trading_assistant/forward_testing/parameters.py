@@ -17,7 +17,7 @@ instead of silently reinterpreting earlier forward history.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
 from hashlib import sha256
@@ -48,6 +48,13 @@ FORWARD_RUNNER_RULES_VERSION = "forward-runner-v1"
 
 #: Version of the forward evaluation controls (horizon, catch-up, sample floor).
 FORWARD_PARAMETERS_VERSION = "forward-parameters-v1"
+
+#: Version of the operational runner-liveness policy (``RunnerLivenessPolicy``
+#: and the verdict built from it in ``forward_testing.liveness``). Liveness is a
+#: statement about the *runner process* only; it never changes a heartbeat row,
+#: a cycle identity, or any strategy rule, so it carries its own version rather
+#: than touching ``FORWARD_LEDGER_RULES_VERSION``. See ``docs/runner-health.md``.
+RUNNER_LIVENESS_POLICY_VERSION = "runner-liveness-v1"
 
 #: Recorded on a candidate observation when its PLANNABLE Step 6 plan is refused
 #: because the instrument already has one occupying (active) paper trade on some
@@ -149,8 +156,11 @@ class HeartbeatStatus(StrEnum):
     A heartbeat is a statement about the *process*, never about the market. The
     dashboard shows the newest heartbeat (including its server-computed age)
     and derives the named health condition from freshness, completeness,
-    pending catch-up, and heartbeat status plus the absence of a recorded
-    error — heartbeat age is displayed, never decisive.
+    pending catch-up, heartbeat status, the absence of a recorded error, and —
+    since ``runner-liveness-v1`` — the server-owned liveness verdict in
+    ``RunnerLiveness`` (see ``docs/runner-health.md``): a heartbeat whose age
+    exceeds the documented operational tolerance no longer reads as a running
+    runner, it reads as *unconfirmed*.
     """
 
     STARTED = "STARTED"
@@ -235,6 +245,148 @@ class ForwardParameters:
         return fingerprint("forward-parameters", self)
 
 
+#: Documented default floor for the runner-liveness tolerance, in seconds: the
+#: runner's own documented default poll interval (``interval_seconds`` = 60) plus
+#: its documented maximum transient backoff (``transient_backoff_max_seconds`` =
+#: 300) — the longest window in which a healthy default-cadence runner may
+#: legitimately stay silent while it backs off after a transient network
+#: failure. It is a floor only: an observed slower cadence widens the tolerance
+#: (see ``RunnerLivenessPolicy``), and an operator statement always wins.
+DEFAULT_LIVENESS_TOLERANCE_SECONDS = Decimal(360)
+
+#: How many of the runner's *own observed* intervals may pass without a
+#: heartbeat before the process stops being confirmed alive.
+DEFAULT_LIVENESS_CADENCE_MULTIPLIER = Decimal(3)
+
+#: Diagnostic-only skew band, in seconds. A ``recorded_at`` later than the
+#: assessing server's clock is ALWAYS a clock inconsistency and is never
+#: confirmed alive; this band only separates the wording ("a few seconds, the
+#: usual rounding/NTP drift" from "the clocks materially disagree"). It can
+#: never certify liveness.
+DEFAULT_LIVENESS_CLOCK_SKEW_DIAGNOSTIC_SECONDS = Decimal(5)
+
+#: Newest heartbeat rows examined when observing the runner's real cadence.
+DEFAULT_LIVENESS_CADENCE_SAMPLE_SIZE = 12
+
+#: Positive gaps required before an observed cadence is trusted. One or two gaps
+#: can be a restart or an outage; they are reported but not used.
+DEFAULT_LIVENESS_MINIMUM_CADENCE_GAPS = 3
+
+#: Accepted bounds for the policy values (inclusive).
+LIVENESS_TOLERANCE_BOUNDS_SECONDS = (Decimal(1), Decimal(86_400))
+LIVENESS_CADENCE_MULTIPLIER_BOUNDS = (Decimal(1), Decimal(100))
+LIVENESS_CLOCK_SKEW_BOUNDS_SECONDS = (Decimal(0), Decimal(3_600))
+LIVENESS_SAMPLE_BOUNDS = (2, 1_000)
+LIVENESS_GAP_BOUNDS = (1, 1_000)
+
+
+@dataclass(frozen=True, slots=True)
+class RunnerLivenessPolicy:
+    """Operational policy for judging whether the runner process is alive.
+
+    This is *not* a strategy setting and it cannot change what a closed candle
+    means, what qualifies, or what is planned: it only decides how old the newest
+    runner heartbeat may be before the dashboard stops confirming that the
+    process is alive (``docs/runner-health.md``).
+
+    The tolerance is resolved in this documented precedence:
+
+    1. ``explicit_tolerance_seconds`` — an operator statement
+       (``TRADING_ASSISTANT_RUNNER_LIVENESS_TOLERANCE_SECONDS`` or an explicit
+       policy), used verbatim and reported as ``operator_setting``. This is how a
+       deliberately slow cadence or a long catch-up/processing pass is declared
+       instead of being guessed.
+    2. ``cadence_multiplier`` × the cadence *observed* from the gaps between the
+       newest ``cadence_sample_size`` heartbeat rows, when at least
+       ``minimum_cadence_gaps`` positive gaps agree — reported as
+       ``observed_cadence``. The runner's real cadence is not stored on its
+       heartbeat rows and the reading process (the web app) is not the runner, so
+       its own configured ``interval_seconds`` is never substituted for it.
+    3. ``minimum_tolerance_seconds`` — the documented floor, reported as
+       ``policy_floor``. A fast observed cadence can never tighten the tolerance
+       below this floor.
+
+    ``clock_skew_diagnostic_seconds`` is diagnostic only: any heartbeat recorded
+    after the assessing instant is a clock inconsistency and is never confirmed
+    alive, however small the difference.
+    """
+
+    minimum_tolerance_seconds: Decimal = DEFAULT_LIVENESS_TOLERANCE_SECONDS
+    cadence_multiplier: Decimal = DEFAULT_LIVENESS_CADENCE_MULTIPLIER
+    clock_skew_diagnostic_seconds: Decimal = (
+        DEFAULT_LIVENESS_CLOCK_SKEW_DIAGNOSTIC_SECONDS
+    )
+    cadence_sample_size: int = DEFAULT_LIVENESS_CADENCE_SAMPLE_SIZE
+    minimum_cadence_gaps: int = DEFAULT_LIVENESS_MINIMUM_CADENCE_GAPS
+    #: Operator statement of the maximum heartbeat age that still confirms the
+    #: runner is alive; ``None`` means "derive it from the evidence and the
+    #: documented floor".
+    explicit_tolerance_seconds: Decimal | None = None
+
+    def __post_init__(self) -> None:
+        minimum = as_decimal(
+            self.minimum_tolerance_seconds, name="minimum_tolerance_seconds"
+        )
+        floor, ceiling = LIVENESS_TOLERANCE_BOUNDS_SECONDS
+        if not floor <= minimum <= ceiling:
+            raise ValueError(
+                "minimum_tolerance_seconds must be between "
+                f"{floor} and {ceiling} seconds"
+            )
+        object.__setattr__(self, "minimum_tolerance_seconds", minimum)
+
+        multiplier = as_decimal(self.cadence_multiplier, name="cadence_multiplier")
+        low, high = LIVENESS_CADENCE_MULTIPLIER_BOUNDS
+        if not low <= multiplier <= high:
+            raise ValueError(
+                f"cadence_multiplier must be between {low} and {high}"
+            )
+        object.__setattr__(self, "cadence_multiplier", multiplier)
+
+        skew = as_decimal(
+            self.clock_skew_diagnostic_seconds, name="clock_skew_diagnostic_seconds"
+        )
+        skew_low, skew_high = LIVENESS_CLOCK_SKEW_BOUNDS_SECONDS
+        if not skew_low <= skew <= skew_high:
+            raise ValueError(
+                "clock_skew_diagnostic_seconds must be between "
+                f"{skew_low} and {skew_high} seconds"
+            )
+        object.__setattr__(self, "clock_skew_diagnostic_seconds", skew)
+
+        require_int(
+            self.cadence_sample_size,
+            name="cadence_sample_size",
+            minimum=LIVENESS_SAMPLE_BOUNDS[0],
+            maximum=LIVENESS_SAMPLE_BOUNDS[1],
+        )
+        require_int(
+            self.minimum_cadence_gaps,
+            name="minimum_cadence_gaps",
+            minimum=LIVENESS_GAP_BOUNDS[0],
+            maximum=LIVENESS_GAP_BOUNDS[1],
+        )
+        if self.minimum_cadence_gaps > self.cadence_sample_size - 1:
+            raise ValueError(
+                "minimum_cadence_gaps must not exceed cadence_sample_size - 1"
+            )
+        if self.explicit_tolerance_seconds is not None:
+            explicit = as_decimal(
+                self.explicit_tolerance_seconds, name="explicit_tolerance_seconds"
+            )
+            if not floor <= explicit <= ceiling:
+                raise ValueError(
+                    "explicit_tolerance_seconds must be between "
+                    f"{floor} and {ceiling} seconds"
+                )
+            object.__setattr__(self, "explicit_tolerance_seconds", explicit)
+
+    def fingerprint(self) -> str:
+        """Versioned identity of this exact operational liveness policy."""
+
+        return fingerprint("runner-liveness-policy", self)
+
+
 @dataclass(frozen=True, slots=True)
 class RunnerSettings:
     """Operational (non-strategy) runner settings: cadence, retries, logging.
@@ -290,8 +442,15 @@ class RunnerSettings:
     #: capped here, so a long outage costs at most one attempt per interval
     #: instead of a busy loop, and never sleeps for hours.
     transient_backoff_max_seconds: Decimal = Decimal(300)
+    #: Operational liveness policy for *readers* of the heartbeat trail (the
+    #: dashboard/API): how old the newest heartbeat may be before the runner
+    #: stops being confirmed alive. It never changes what the runner records,
+    #: and it is deliberately not part of any stored identity fingerprint.
+    liveness: RunnerLivenessPolicy = field(default_factory=RunnerLivenessPolicy)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.liveness, RunnerLivenessPolicy):
+            raise TypeError("liveness must be RunnerLivenessPolicy")
         interval = as_decimal(self.interval_seconds, name="interval_seconds")
         if interval <= 0:
             raise ValueError("interval_seconds must be positive")
@@ -400,7 +559,9 @@ __all__ = [
     "ForwardParameters",
     "FrictionAssumptions",
     "HeartbeatStatus",
+    "RunnerLivenessPolicy",
     "RunnerSettings",
+    "RUNNER_LIVENESS_POLICY_VERSION",
     "VersionSeparation",
     "canonical_json",
     "fingerprint",
