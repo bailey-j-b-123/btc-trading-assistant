@@ -4,8 +4,9 @@ Expected digests in ``tests/fixtures/decision_digests`` were generated from comm
 4656b43 (the pre-optimisation decision path) with ``tests/decision_digests.py``.
 Any difference in plans, setups, frames, overlays, chart evidence or the rest of the
 decision-bearing dashboard payload at these fixed historical boundaries fails the
-test. Provenance labels and the live-evaluation source note are excluded because
-this feature intentionally adds them without changing trading decisions. Inputs
+test. Provenance labels (signal provenance and the reference-provenance verdict),
+and the live-evaluation source note are excluded because those features
+intentionally add them without changing trading decisions. Inputs
 are SYNTHETIC and deterministic. This proves equivalence to the earlier code on
 these inputs; it does not prove live correctness.
 """

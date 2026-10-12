@@ -99,6 +99,11 @@ FORWARD_REPORT_LIMITATIONS: tuple[str, ...] = (
     "Historical validation and live forward observations describe different "
     "market periods and count different units; the comparison is descriptive and "
     "is not a statistical test.",
+    "Reference provenance (reference-provenance-v1): a candidate whose reference "
+    "level is first evidenced at the start of stored history is recorded with its "
+    "withholding reason and receives no paper trade. Near the start of stored "
+    "history the record cannot show every level that existed, so a quiet close "
+    "there is under-observed rather than a settled conclusion.",
     "A poor forward result is reported as it is: no rule, threshold, or parameter "
     "is adjusted to make forward results resemble historical ones.",
 )

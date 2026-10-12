@@ -195,6 +195,30 @@ Only candles whose full timeframe interval has ended at the service's UTC `as_of
 
 Every decision consumes a trailing window of closed candles ending at its decision boundary. The required depth is derived from the live parameters (`replay_span + max(structural_span, pattern_span)`, 131 closes by default) in `market_data/integrity.py`. Only a hole *inside* that window blocks: planning is withheld and no decision is accepted, with the exact missing boundaries recorded. A hole older than the window neither blocks nor hides — it stays visible in whole-series gap diagnostics. Runners re-request holed spans once through the unchanged download path before judging; backfill can only restore stored candles, never invent them.
 
+### Reference provenance (warm-up completeness of the levels themselves)
+
+A contiguous required window is not yet an accounted-for one: the **levels** those closes are tested
+against are carried in the analysis' catalog, and their band, touches, and breakout/failure record
+accumulate from the first candle loaded — so a decision can depend on evidence older than the record
+itself, at any depth. `setup_qualification/provenance.py` therefore judges, per close and per live
+setup, whether the oldest evidence behind that setup's reference (its swings, its zone/range
+formation, and the oldest catalog event on the same reference id) lies inside stored history: a
+swing needs its configured left window stored, and a level already being tested by the very first
+stored candle proves the record started mid-formation. The verdict is `COMPLETE`, `TRUNCATED`, or
+`UNAVAILABLE` (unverifiable is treated as withheld, never as complete), it is read from the frame
+the decision already built, and it is recorded with the cycle
+(`reference_provenance_rules = reference-provenance-v1` inside `strategy_versions`). A
+`TRUNCATED`/`UNAVAILABLE` setup gets **no Step 6 plan** — no paper trade, no outcome trajectory —
+while the candidate itself is still recorded in full with the deterministic reason
+`NO TRADE — reference-level provenance is not accounted for by stored history (warm-up
+incomplete); planning withheld.` The dashboard mirrors the verdict in its `reference_provenance`
+section, shows no plan, disables the decision centre, and refuses a decision on that proposal
+(`proposal_not_decidable`). No strategy parameter changed, no row was rewritten, and no backfill was
+run. What this cannot do is recover an opportunity a short record never saw — `inventory_at_history_start`
+and its advisory reason state that limit instead of implying a settled no-trade. See
+[`docs/reference-provenance.md`](docs/reference-provenance.md) and
+[`docs/decision-invariance.md`](docs/decision-invariance.md).
+
 Configure structured JSON-lines logging with:
 
 ```python
@@ -1988,6 +2012,18 @@ plus the existing machine-readable reason codes). A candidate is recorded as
 ```text
 MISSED — price moved before execution; remaining reward-to-risk is below 1R.
 ```
+
+**A withheld plan has its own reason, and it is not a market verdict.** When Step 6 planning is
+withheld because a live setup's reference level is not accounted for by stored history, the
+candidate is recorded in full with
+
+```text
+NO TRADE — reference-level provenance is not accounted for by stored history (warm-up incomplete); planning withheld.
+```
+
+and no paper plan row exists for it. That reason is never `MISSED` (nothing deteriorated; no
+opportunity was priced and rejected) and never a rejected second trade; it says the record could not
+verify the level the plan would have been built on. See "Reference provenance" above.
 
 only when all of these hold at a close: it is still `QUALIFIED` (not
 invalidated, not failed, not expired); Step 6 refused it for exactly the
