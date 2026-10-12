@@ -54,6 +54,10 @@ from trading_assistant.setup_qualification.models import (
     SetupState,
 )
 from trading_assistant.setup_qualification.parameters import QualificationParameters
+from trading_assistant.setup_qualification.provenance import (
+    ReferenceProvenanceAssessment,
+    assess_reference_provenance,
+)
 from trading_assistant.setup_qualification.service import bounded_replay_start
 from trading_assistant.trade_planning.models import PlanState, TradePlanResult
 from trading_assistant.trade_planning.planner import plan_trade
@@ -205,6 +209,25 @@ class DashboardService:
                 "history is incomplete at this close, so no plan is produced "
                 "and no decision is accepted"
             )
+        # A contiguous window is not yet an accounted-for one: the levels those
+        # closes were tested against have to have formed inside the record too.
+        # See docs/reference-provenance.md for what this can and cannot prove.
+        reference_provenance = self._reference_provenance(
+            exchange=exchange,
+            symbol=resolved_symbol,
+            timeframe=resolved_timeframe,
+            as_of=resolved_as_of,
+            frame=frame,
+            snapshot=snapshot,
+            required_window=required_window,
+        )
+        provenance_gate: str | None = None
+        if selected is not None and reference_provenance.blocks(selected):
+            provenance_gate = (
+                f"planning withheld: {reference_provenance.reason_for(selected)} "
+                "— the proposal is shown for review, but no plan is produced and "
+                "no decision is accepted at this close"
+            )
         plan: TradePlanResult | None = None
         planning_payload: dict[str, object] = {
             "state": None,
@@ -217,6 +240,7 @@ class DashboardService:
             and snapshot is not None
             and frame is not None
             and window_gate is None
+            and provenance_gate is None
         ):
             plan = plan_trade(snapshot=snapshot, frame=frame, setup_id=selected.id)
             planning_payload = {
@@ -225,16 +249,17 @@ class DashboardService:
                 "missing_inputs": list(plan.missing_inputs),
                 "state_detail": plan.state_detail,
             }
-        if window_gate is not None:
+        gate = window_gate or provenance_gate
+        if gate is not None:
             planning_payload = {
                 "state": None,
-                "reasons": [window_gate],
+                "reasons": [gate],
                 "missing_inputs": [],
-                "state_detail": window_gate,
+                "state_detail": gate,
             }
 
         journal_payload = self._journal_status(
-            snapshot=snapshot, selected=selected, plan=plan, gate=window_gate
+            snapshot=snapshot, selected=selected, plan=plan, gate=gate
         )
         # Step 13: evaluate the multi-timeframe hierarchy once, at this same
         # decision instant, and feed the identical snapshot to the ladder
@@ -305,6 +330,7 @@ class DashboardService:
             "plan": None if plan is None else plan.to_json_dict(),
             "signal_provenance": signal_provenance,
             "planning": planning_payload,
+            "reference_provenance": reference_provenance.to_json_dict(),
             "overlays": overlays,
             "chart_evidence": self._chart_evidence_at(
                 exchange=exchange,
@@ -663,6 +689,35 @@ class DashboardService:
             ),
         )
 
+    def _reference_provenance(
+        self,
+        *,
+        exchange: str,
+        symbol: str,
+        timeframe: str,
+        as_of: datetime,
+        frame: QualificationFrame | None,
+        snapshot: QualificationSnapshot | None,
+        required_window: RequiredWindowAssessment,
+    ) -> ReferenceProvenanceAssessment:
+        """Judge reference-level provenance for the frame this request already built.
+
+        No second analysis and no new query: the verdict reads the same Step 3/4
+        frame, the same Step 5 snapshot, and the same stored-history start the
+        required-window gate was computed from, so it can never disagree with the
+        decision it describes.
+        """
+
+        return assess_reference_provenance(
+            exchange=exchange,
+            symbol=symbol,
+            timeframe=timeframe,
+            decision_time=as_of,
+            frame=frame,
+            snapshot=snapshot,
+            first_stored_open=required_window.first_stored_open,
+        )
+
     def decide_current(
         self,
         *,
@@ -724,6 +779,24 @@ class DashboardService:
                 f"candle(s): {required_window.missing_summary()} — the stored "
                 "history is incomplete at this close, so no plan is produced "
                 "and no decision is accepted",
+            )
+        # The same provenance verdict the dashboard displayed, at the same close,
+        # so a proposal the UI withheld can never be journaled behind its own
+        # reason.
+        provenance = self._reference_provenance(
+            exchange=state.settings.exchange,
+            symbol=resolved_symbol,
+            timeframe=resolved_timeframe,
+            as_of=resolved_as_of,
+            frame=frame,
+            snapshot=snapshot,
+            required_window=required_window,
+        )
+        if provenance.blocks(selected):
+            raise DashboardError(
+                "proposal_not_decidable",
+                f"planning withheld: {provenance.reason_for(selected)} — no plan "
+                "is produced and no decision is accepted at this close",
             )
         plan = plan_trade(snapshot=snapshot, frame=frame, setup_id=setup_id)
         if plan.state is not PlanState.PLANNABLE:

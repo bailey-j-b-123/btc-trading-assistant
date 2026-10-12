@@ -74,6 +74,12 @@ def _strip_audit(value):
             "decision_kind",
             "stored_decision_for_paper_confirmation",
             "evaluation_note",
+            # The reference-provenance verdict is a read-only statement about the
+            # stored record's depth. It is excluded like the other provenance
+            # labels, while ``plan``/``planning`` stay pinned: if the gate ever
+            # withheld a plan at these boundaries, this digest changes and the
+            # regression test says so.
+            "reference_provenance",
         }
         for key, item in value.items():
             if key in presentation_keys:

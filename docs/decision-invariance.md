@@ -1,8 +1,17 @@
 # Decision invariance under history extension
 
-**Status: FAILED. Historical backfill is on hold.** The check exists to decide whether older
-candles can be appended without changing decisions that were already made. It does not pass,
-so no backfill is run. Nothing in the database was changed to produce these results.
+**Status: FAILED and still open. Historical backfill remains on hold.** The check exists to
+decide whether older candles can be appended without changing decisions that were already made.
+It does not pass, so no backfill is run. Nothing in the database was changed to produce these
+results.
+
+Part of the exposure has since been bounded: the reference-provenance gate
+([`reference-provenance.md`](reference-provenance.md), `reference-provenance-v1`) withholds a
+plan whenever a live setup's reference level is first evidenced at the start of stored history,
+and records the reason. That limits what a shallow record may *plan*. It cannot recover what a
+shallow record never *saw*, so this document's failure — different live setup sets at the same
+boundary depending on where stored history starts — is unchanged, and the strict xfail below is
+kept deliberately. See "What the gate does and does not change".
 
 **All data here is SYNTHETIC.** A seeded random walk (`tests/test_decision_invariance.py`,
 `synthetic_series`) written in Binance decimal-string shape. It is not Binance data, and it
@@ -43,6 +52,11 @@ Strict test status: `test_decision_is_identical_when_stored_history_starts_well_
 passes (hour 940). `test_candles_after_as_of_never_change_the_decision_at_as_of` passes.
 `test_a_shallow_stored_start_does_not_change_live_setups_at_a_later_boundary` is an xfail
 (strict). It fails for the expected reason: the setup sets differ at hour 820.
+`test_plan_eligibility_shrinks_with_a_shallow_start_without_inventing_a_setup` and
+`test_a_shallow_record_never_plans_on_a_level_it_cannot_account_for` pass: plan eligibility and
+identities are now compared as well as setup lists (PR #43 audit request), and the direction of
+the damage is pinned — a shorter record is a strict subset, it can under-report but never
+over-report a setup.
 
 ## Explanation of each difference class
 
@@ -56,8 +70,10 @@ passes (hour 940). `test_candles_after_as_of_never_change_the_decision_at_as_of`
    by the 131-close depth gate.
 2. **The depth gate is too shallow for references.** `required_trailing_depth` gives 131 closes.
    A boundary with 200 closes behind it passed that gate and still changed. The gate therefore
-   reports a shallow history as complete when the decision can still change. This is a
-   **calculation and gating question**, so it is recorded here as a proposal and not changed.
+   reports a shallow history as complete when the decision can still change. The *gating* half is
+   now addressed by a second, independent verdict that keys on the age of the reference evidence
+   itself rather than on any depth (`reference-provenance-v1`); the *calculation* half — unbounded
+   reference lookback — is untouched, because bounding it would change strategy rules.
 3. **Identifier-only differences (expected).** At hour 940, all 68 `qualification` differences
    are `source_reference` hashes. Setup ids, states, families and plans are identical. The
    `snapshot_id` and `context_fingerprint` change because they hash the evidence window.
@@ -74,6 +90,31 @@ passes (hour 940). `test_candles_after_as_of_never_change_the_decision_at_as_of`
    payloads for both states was at or before `as_of` (0 future values, hours 700 and 940). The
    decision also passed `test_candles_after_as_of_never_change_the_decision_at_as_of`.
 
+## What the gate does and does not change
+
+Measured on this same series at hour 820 (all synthetic):
+
+| Stored start | Live setups | Plans withheld by the provenance gate | Setups missing versus full history |
+| --- | --- | --- | --- |
+| 0 (full) | 45 | 0 | — |
+| 300 (520 closes behind the boundary) | 24 | 0 | 21 |
+| 500 (320 closes behind the boundary) | 24 | 0 | 21 |
+
+Every setup the shallow records *did* see rests on levels their own history accounts for, so the
+gate correctly withheld nothing: the difference is entirely made of setups the shorter record
+never observed. Consequences:
+
+* **Not fixed:** the invariance failure, and any claim that a quiet close near the start of stored
+  history means "no opportunity". A run cannot detect a level it has no candles for. The assessment
+  reports this as `inventory_at_history_start` plus an advisory reason instead of pretending the
+  boundary is settled.
+* **Fixed:** a plan may no longer be recorded on a level whose earliest evidence is the start of
+  the record — the class of decision where the ledger would have frozen a paper trade on an
+  unverifiable level. That is the part of Option A below that was implementable without a strategy
+  change.
+* **Unchanged:** at hour 940 every stored start tested stays identical, and no future candle ever
+  changes an earlier decision.
+
 ## What this means for backfill
 
 - Appending older candles changes live decisions only at boundaries that depend on reference
@@ -86,10 +127,11 @@ passes (hour 940). `test_candles_after_as_of_never_change_the_decision_at_as_of`
 
 ## Options (not implemented; each needs your decision)
 
-- **A. Gate the decision by real warm-up.** Withhold planning at boundaries whose references
-  predate the stored start, and show "warm-up incomplete" instead. This changes what is
-  displayed, not strategy rules. It needs a tested depth derived from reference age, and your
-  approval.
+- **A. Gate the decision by real warm-up.** *Implemented (partially), no approval needed for the
+  residual.* Withholding is now keyed to the age of the reference evidence itself
+  (`reference-provenance-v1`) rather than to any fixed depth, and "warm-up incomplete" is shown
+  and recorded: see [`reference-provenance.md`](reference-provenance.md). It bounds planning
+  eligibility only; the under-reporting described above needs B or an explicit exclusion rule.
 - **B. Bounded reference lookback (calculation change).** Limit reference lookback to a fixed
   span. This changes strategy calculations and must be validated on historical data first.
   The brief keeps that separate.
@@ -117,6 +159,7 @@ issue. It is not fixed in this change.
 ```
 .venv/bin/python -m pytest tests/test_decision_invariance.py -q
 .venv/bin/python -m pytest tests/test_decision_invariance.py -q --runxfail -k shallow
+.venv/bin/python -m pytest tests/test_reference_provenance.py -q
 ```
 
 On the Mac the same tests run against synthetic data and do not need Binance access. Real

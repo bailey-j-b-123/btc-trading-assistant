@@ -68,6 +68,7 @@ from trading_assistant.forward_testing.parameters import (
     FORWARD_RUNNER_RULES_VERSION,
     MISSED_OPPORTUNITY_REASON,
     PAPER_TRADE_ACTIVE_REASON,
+    REFERENCE_PROVENANCE_REASON,
     CycleStatus,
     DataHealth,
     ForwardParameters,
@@ -117,6 +118,11 @@ from trading_assistant.setup_qualification.models import (
     SetupState,
 )
 from trading_assistant.setup_qualification.parameters import QualificationParameters
+from trading_assistant.setup_qualification.provenance import (
+    REFERENCE_PROVENANCE_RULES_VERSION,
+    ReferenceProvenanceAssessment,
+    assess_reference_provenance,
+)
 from trading_assistant.setup_qualification.service import (
     QualificationService,
     bounded_replay_start,
@@ -193,6 +199,10 @@ class _BoundaryContext:
     source_candle_count: int
     strategy_versions: tuple[tuple[str, str], ...]
     version_fingerprint: str
+    #: Reference-provenance verdict for this exact close (``None`` only in
+    #: constructed contexts that supply no frame). A live setup listed here as
+    #: TRUNCATED has its Step 6 plan withheld and its refusal reason recorded.
+    reference_provenance: ReferenceProvenanceAssessment | None = None
 
 
 class ForwardTestService:
@@ -1039,6 +1049,22 @@ class ForwardTestService:
                 decision_time=boundary,
                 depth=required_depth,
             )
+            boundary_frame = frame_by_as_of.get(boundary)
+            boundary_snapshot = snapshot_by_as_of.get(boundary)
+            # Provenance of the reference *levels* the decision consumed, judged
+            # at this same close from the same frame. The required-window gate
+            # above proves the trailing closes exist; this proves (or refuses to
+            # claim) that the levels those closes were tested against are fully
+            # accounted for by stored history.
+            provenance = assess_reference_provenance(
+                exchange=exchange,
+                symbol=resolved_symbol,
+                timeframe=resolved_timeframe,
+                decision_time=boundary,
+                frame=boundary_frame,
+                snapshot=boundary_snapshot,
+                first_stored_open=assessment.first_stored_open,
+            )
             context = self._boundary_context(
                 exchange=exchange,
                 symbol=resolved_symbol,
@@ -1046,12 +1072,13 @@ class ForwardTestService:
                 boundary=boundary,
                 target_boundary=target_boundary,
                 now=instant,
-                frame=frame_by_as_of.get(boundary),
-                snapshot=snapshot_by_as_of.get(boundary),
+                frame=boundary_frame,
+                snapshot=boundary_snapshot,
                 candle=candles_by_open.get(open_time),
                 candles_known=bisect_left(stored_opens, boundary),
                 latest_stored=latest_stored,
                 assessment=assessment,
+                provenance=provenance,
             )
             last_health = context.data_health
             (
@@ -1693,6 +1720,7 @@ class ForwardTestService:
         candles_known: int,
         latest_stored: datetime | None,
         assessment: RequiredWindowAssessment,
+        provenance: ReferenceProvenanceAssessment | None = None,
     ) -> _BoundaryContext:
         interval = interval_for_timeframe(timeframe)
         expected_open = boundary - interval
@@ -1769,6 +1797,7 @@ class ForwardTestService:
             ),
             strategy_versions=versions,
             version_fingerprint=fingerprint("forward-versions", versions),
+            reference_provenance=provenance,
         )
 
     def _strategy_versions(
@@ -1797,6 +1826,10 @@ class ForwardTestService:
             # recorded under v1 keep their stored fingerprint, so the two
             # evaluation policies are reported as separate cohorts.
             ("outcome_observation_rules", OUTCOME_RESOLUTION_RULES_VERSION),
+            # The reference-provenance policy that decided whether a live setup
+            # could be planned at all. Cycles recorded before this contract
+            # existed recorded no such verdict, so the two are separate cohorts.
+            ("reference_provenance_rules", REFERENCE_PROVENANCE_RULES_VERSION),
             ("setup_qualification_rules", self.snapshot_rules_version(snapshot)),
             ("trade_planning_rules", PLANNING_RULES_VERSION),
             (
@@ -1924,6 +1957,26 @@ class ForwardTestService:
                 "was withheld for this close so missing candles cannot produce a "
                 "paper conclusion"
             )
+        # Reference provenance is a second, independent reason to withhold Step 6
+        # planning: the window can be perfectly contiguous and still be too young
+        # to account for the levels that window was tested against. Only the
+        # candidates whose own reference evidence reaches the start of stored
+        # history are refused; every other candidate at this close is planned
+        # exactly as before.
+        provenance = (
+            context.reference_provenance if status is CycleStatus.COMPLETE else None
+        )
+        withheld_for_provenance = (
+            frozenset()
+            if provenance is None or provenance.complete
+            else provenance.blocked_setup_ids
+        )
+        if withheld_for_provenance:
+            notes.append(
+                f"{len(withheld_for_provenance)} candidate(s) at this close had Step 6 "
+                "planning withheld because their reference level is first evidenced at "
+                "the start of stored history: " + provenance.summary
+            )
         if status is CycleStatus.COMPLETE:
             assert frame is not None and snapshot is not None
             snapshot_id = snapshot_identity(snapshot)
@@ -1942,7 +1995,9 @@ class ForwardTestService:
                     continue
                 plan = (
                     self._plan(snapshot=snapshot, frame=frame, setup=setup)
-                    if setup.state is SetupState.QUALIFIED and not planning_withheld
+                    if setup.state is SetupState.QUALIFIED
+                    and not planning_withheld
+                    and setup.id not in withheld_for_provenance
                     else None
                 )
                 if plan is not None and plan.state is PlanState.PLANNABLE:
@@ -1974,6 +2029,7 @@ class ForwardTestService:
                     open_time=open_time,
                     recorded_at=recorded_at,
                     allow_new_paper_trade=allow_new_paper_trade,
+                    provenance_withheld=setup.id in withheld_for_provenance,
                 )
                 if frozen_plan is not None:
                     paper_trade_active = True
@@ -2155,6 +2211,7 @@ class ForwardTestService:
         open_time: datetime,
         recorded_at: datetime,
         allow_new_paper_trade: bool,
+        provenance_withheld: bool = False,
     ) -> tuple[ForwardObservation, PaperPlan | None]:
         observation_id = fingerprint(
             "forward-observation",
@@ -2198,6 +2255,11 @@ class ForwardTestService:
                 timeframe=timeframe,
                 as_of=boundary,
             )
+        elif provenance_withheld:
+            # Neither a missed opportunity nor a market verdict: the plan was
+            # refused because the record cannot account for the level it would
+            # have been built on.
+            no_trade_reason = REFERENCE_PROVENANCE_REASON
         targets = (
             ()
             if plan is None

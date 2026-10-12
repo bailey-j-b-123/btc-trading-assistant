@@ -67,6 +67,19 @@ MISSED_OPPORTUNITY_REASON = (
     "MISSED — price moved before execution; remaining reward-to-risk is below 1R."
 )
 
+#: Recorded on a candidate observation whose setup would otherwise have produced
+#: a paper trade, but whose reference level cannot be accounted for by the
+#: stored record: the oldest evidence behind that level sits at the start of
+#: stored history, so older candles could have formed or placed it differently
+#: (see ``docs/reference-provenance.md``). The candidate is still recorded and
+#: still monitored; only the paper trade is withheld, because a plan built on an
+#: unverifiable level measures warm-up rather than decision quality. This is not
+#: a market verdict and must never be counted as a rejected opportunity.
+REFERENCE_PROVENANCE_REASON = (
+    "NO TRADE — reference-level provenance is not accounted for by stored history "
+    "(warm-up incomplete); planning withheld."
+)
+
 
 def fingerprint(*parts: object) -> str:
     """Return a canonical, version-prefixed identity for forward material."""

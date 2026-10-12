@@ -14,7 +14,15 @@ older candles are appended. A reference level formed before the stored history s
 create live setups that a shorter history does not see. The strict xfail below records that
 defect so it cannot be forgotten, and it fails loudly once the defect is fixed.
 
-Runtime: about one minute (measured 58 s), dominated by one full 1,000-candle replay.
+The reference-provenance gate (docs/reference-provenance.md) bounds the *other* direction of
+that risk: a plan is withheld whenever a live setup's own level evidence reaches the start of
+stored history. These tests therefore also compare plan eligibility and identities — not only
+setup lists — and assert the safety property the gate does provide: whatever a shallow record
+does plan, it plans on levels its own history accounts for. Under-reporting near the stored
+start is a limit of the record and stays an open defect.
+
+Runtime: about two minutes (measured 58 s before the provenance pair was added), dominated by
+full 1,000-candle replays.
 """
 
 from __future__ import annotations
@@ -29,6 +37,8 @@ import pytest
 from web_fixtures import insert_candles, make_settings, migrated_engine
 
 from trading_assistant.market_data.types import Candle
+from trading_assistant.setup_qualification.provenance import assess_reference_provenance
+from trading_assistant.setup_qualification.models import SetupState
 from trading_assistant.trade_planning.planner import plan_trade
 from trading_assistant.web.dashboard_service import DashboardService
 from trading_assistant.web.state import AppState
@@ -105,9 +115,76 @@ def _decisions(candles, boundaries: tuple[int, ...], label: str) -> dict[int, di
         engine.dispose()
 
 
+def _provenance_record(candles, boundary_index: int, label: str) -> dict:
+    """Live setups, plan eligibility, and the reference-provenance verdict at one close.
+
+    ``candles`` is the whole stored series for that state, so the stored start the
+    gate judges against is exactly the start the runner and dashboard would see.
+    """
+
+    engine, url = migrated_engine(Path(tempfile.mkdtemp()), name=f"{label}.sqlite3")
+    try:
+        insert_candles(engine, candles)
+        state = AppState(
+            engine,
+            settings=make_settings(url),
+            clock=lambda: EPOCH + timedelta(hours=SERIES_LENGTH),
+        )
+        service = DashboardService(state)
+        as_of = EPOCH + timedelta(hours=boundary_index)
+        snapshot, frame, _frames = service._evaluate(  # noqa: SLF001 - the exact dashboard path
+            exchange="binance", symbol="BTC/USDT", timeframe="1h", as_of=as_of
+        )
+        assessment = assess_reference_provenance(
+            exchange="binance",
+            symbol="BTC/USDT",
+            timeframe="1h",
+            decision_time=as_of,
+            frame=frame,
+            snapshot=snapshot,
+            first_stored_open=candles[0].timestamp,
+        )
+        plans: dict[str, dict] = {}
+        for setup in snapshot.setups:
+            if setup.state is not SetupState.QUALIFIED:
+                continue
+            plan = plan_trade(snapshot=snapshot, frame=frame, setup_id=setup.id)
+            entry = assessment.entry_for(setup.id)
+            plans[setup.id] = {
+                "plan_state": plan.state.value,
+                "provenance": None if entry is None else entry.status.value,
+                "blocked": False if entry is None else entry.blocked,
+            }
+        return {
+            "live_setup_ids": frozenset(
+                setup.id
+                for setup in snapshot.setups
+                if setup.state in (SetupState.WATCH, SetupState.QUALIFIED)
+            ),
+            "setup_states": {setup.id: setup.state.value for setup in snapshot.setups},
+            "plans": plans,
+            "provenance_status": assessment.status.value,
+            "blocked": frozenset(assessment.blocked_setup_ids),
+            "first_stored_open": candles[0].timestamp,
+        }
+    finally:
+        engine.dispose()
+
+
 @pytest.fixture(scope="module")
 def series() -> tuple[Candle, ...]:
     return synthetic_series()
+
+
+@pytest.fixture(scope="module")
+def provenance_at_shallow_boundary(series) -> dict[str, dict]:
+    """Full history and two shallow starts at the boundary docs show as differing."""
+
+    return {
+        "full": _provenance_record(series, BOUNDARY_SHALLOW, "prov-full"),
+        "start300": _provenance_record(series[DEEP_START:], BOUNDARY_SHALLOW, "prov-deep"),
+        "start500": _provenance_record(series[RECENT_START:], BOUNDARY_SHALLOW, "prov-recent"),
+    }
 
 
 @pytest.fixture(scope="module")
@@ -134,10 +211,63 @@ def test_candles_after_as_of_never_change_the_decision_at_as_of(series):
     strict=True,
     reason=(
         "Known defect: a shorter stored history misses live setups whose reference level "
-        "formed before the stored start. The 131-close depth gate does not cover reference age. "
-        "See docs/decision-invariance.md. Remove this marker when the defect is fixed."
+        "formed before the stored start. The 131-close depth gate does not cover reference age, "
+        "and the reference-provenance gate bounds what such a record may *plan*, not what it can "
+        "see — so under-reporting near the stored start persists. See docs/decision-invariance.md "
+        "and docs/reference-provenance.md. Remove this marker when the defect is fixed."
     ),
 )
 def test_a_shallow_stored_start_does_not_change_live_setups_at_a_later_boundary(series, full_history):
     shallow = _decisions(series[DEEP_START:], (BOUNDARY_SHALLOW,), "shallow")
     assert shallow[BOUNDARY_SHALLOW] == full_history[BOUNDARY_SHALLOW]
+
+
+def test_plan_eligibility_shrinks_with_a_shallow_start_without_inventing_a_setup(
+    provenance_at_shallow_boundary,
+) -> None:
+    """Characterisation of the defect, in terms of what could be traded.
+
+    The audit of PR #42 asked for plan eligibility and identities to be compared, not
+    only setup lists: a missed setup only matters if it would have been a plan. This
+    pins the exact shape of the damage — a shorter record is a strict subset, shared
+    setups keep their state, and no setup exists that full history does not have.
+    """
+
+    full = provenance_at_shallow_boundary["full"]
+    for start in ("start300", "start500"):
+        shallow = provenance_at_shallow_boundary[start]
+        assert shallow["live_setup_ids"] < full["live_setup_ids"]
+        shared = shallow["live_setup_ids"] & full["live_setup_ids"]
+        assert shared, "a shallow record must still see most of the market"
+        assert all(
+            shallow["setup_states"][setup_id] == full["setup_states"][setup_id]
+            for setup_id in shared
+        )
+        # No planned setup appears in the shallow record that full history does not
+        # also plan: the shorter record can under-report, never over-report.
+        assert set(shallow["plans"]) <= set(full["plans"])
+        assert len(shallow["plans"]) < len(full["plans"])
+
+
+def test_a_shallow_record_never_plans_on_a_level_it_cannot_account_for(
+    provenance_at_shallow_boundary,
+) -> None:
+    """The safety property the reference-provenance gate guarantees at this boundary.
+
+    Whatever a short record does plan, it plans on evidence its own stored history
+    accounts for. A verdict that cannot be established would withhold the plan, so
+    an accepted plan plus a blocked or unverifiable setup is a contradiction, and
+    the assertion failing here means the gate stopped covering the decision.
+    """
+
+    for state in provenance_at_shallow_boundary.values():
+        assert state["blocked"] == frozenset()
+        assert state["provenance_status"] == "COMPLETE"
+        planned = {
+            setup_id
+            for setup_id, entry in state["plans"].items()
+            if entry["plan_state"] == "PLANNABLE"
+        }
+        for setup_id in planned:
+            assert state["plans"][setup_id]["provenance"] == "COMPLETE"
+            assert state["plans"][setup_id]["blocked"] is False

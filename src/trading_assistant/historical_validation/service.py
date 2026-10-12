@@ -291,6 +291,21 @@ class HistoricalValidationService:
                 "Raw observations describe stored OHLC candles relative to proposed levels; they are not fills, realised profit, or an equity curve.",
                 "Friction-adjusted values are a configurable hypothetical per-unit scenario only; there is no position sizing, leverage, account, balance, or execution model.",
                 "Historical performance does not establish future profitability.",
+                # The forward ledger records a reference-provenance verdict per
+                # close (``reference-provenance-v1``, see
+                # docs/reference-provenance.md) and withholds a plan whenever a
+                # live setup's level is first evidenced at the start of stored
+                # history. A historical replay reads the same stored record and
+                # therefore shares the same blind spot — any level that formed
+                # before the earliest stored candle is invisible to every
+                # boundary in the cohort — but it does not apply that gate. So a
+                # cohort's boundary set is a *proposal* diagnostic, never a
+                # reproduction of which forward closes were plannable, and the
+                # two must not be compared as if they were.
+                "Historical cohorts are replayed without the forward reference-provenance "
+                "gate: boundaries near the start of stored history can under-report setups "
+                "whose levels formed earlier, so cohort results are non-comparable with "
+                "forward paper-plan selection and occupancy.",
             ),
         )
 
