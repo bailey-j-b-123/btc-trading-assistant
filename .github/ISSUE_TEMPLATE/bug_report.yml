@@ -1,0 +1,44 @@
+name: Bug report
+description: Something in BRAIN behaves differently from what is documented.
+title: "[bug] "
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: What the system did, and how you verified it (exact commands and output).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What should happen instead. Cite the documentation (README section or docs/ page) where possible.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: The smallest failing command or test, if one exists.
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Python version, Node version, OS, branch/commit.
+  - type: dropdown
+    id: safety
+    attributes:
+      label: Does fixing this require touching trading strategy, stored records, or credentials?
+      description: Pick the most restrictive answer that is true.
+      options:
+        - No
+        - Maybe (explain in Notes)
+        - Yes — needs human review before any agent starts
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Anything else relevant.
