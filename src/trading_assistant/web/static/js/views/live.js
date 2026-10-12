@@ -334,16 +334,32 @@ function breakdownCard(report) {
   ]);
 }
 
+export function comparisonValueText(side) {
+  if (side === null || side === undefined) return "—";
+  if (typeof side !== "object") return String(side);
+  const count = (value) => integerOrNull(value) ?? "UNKNOWN";
+  const status = side.status || "UNKNOWN";
+  if (Object.hasOwn(side, "sample_size") || Object.hasOwn(side, "average")) {
+    const considered = Object.hasOwn(side, "records_considered")
+      ? `/${count(side.records_considered)}` : "";
+    const floor = status === "INSUFFICIENT_DATA" ? " · below reporting floor" : "";
+    return `average ${displayOrUnknown(side.average)} · eligible ${count(side.sample_size)}${considered} · status ${status}${floor}`;
+  }
+  const percentage = side.percentage === null || side.percentage === undefined
+    ? (status === "INSUFFICIENT_DATA" ? "below reporting floor" : "percentage UNKNOWN")
+    : `${side.percentage}%`;
+  return `${percentage} · ${count(side.numerator)}/${count(side.denominator)} · status ${status}`;
+}
+
+export function comparisonComparabilityText(value) {
+  return value === false ? "NOT COMPARABLE" : value === true ? "comparable rule versions" : "comparability UNKNOWN";
+}
+
 function comparisonRow(row) {
-  const render = (side) => (side === null || side === undefined
-    ? "—"
-    : typeof side === "object"
-      ? `${side.percentage ?? "below floor"} (${side.numerator ?? side.sample_size ?? 0}/${side.denominator ?? "—"})${side.average !== undefined ? ` avg ${displayOrUnknown(side.average)}` : ""}`
-      : String(side));
   return el("div", { class: "history-item" }, [
     el("span", { class: "seq", text: row.metric }),
-    el("span", { text: `historical ${render(row.historical)} · forward ${render(row.forward)}` }),
-    el("span", { class: "mono", text: row.comparable === false ? "NOT COMPARABLE" : row.comparable === null ? "comparability UNKNOWN" : "comparable rule versions" }),
+    el("span", { text: `historical ${comparisonValueText(row.historical)} · forward ${comparisonValueText(row.forward)}` }),
+    el("span", { class: "mono", text: comparisonComparabilityText(row.comparable) }),
     el("span", { class: "mono", text: `denominators: historical ${row.historical_denominator} / forward ${row.forward_denominator}` }),
     row.note ? el("span", { class: "chart-note", text: row.note }) : null,
   ]);
