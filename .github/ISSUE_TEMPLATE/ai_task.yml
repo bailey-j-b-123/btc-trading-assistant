@@ -1,0 +1,57 @@
+name: AI development task (Arena / Codex / ChatGPT)
+description: A unit of work coordinated between AI agents through GitHub.
+title: "[task] "
+body:
+  - type: input
+    id: requester
+    attributes:
+      label: Requested by
+      description: "Human or agent (e.g. BJB, Arena, Codex, ChatGPT)."
+    validations:
+      required: true
+  - type: input
+    id: assignee
+    attributes:
+      label: Picked up by
+      description: "The agent doing the work (leave blank while unassigned)."
+  - type: input
+    id: base
+    attributes:
+      label: Base
+      description: "Branch to start from."
+      placeholder: main
+    validations:
+      required: true
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: "One paragraph, in the requester's words."
+    validations:
+      required: true
+  - type: textarea
+    id: implement
+    attributes:
+      label: Implement ONLY
+      description: "A numbered list of the exact deliverables. Anything not listed is out of scope."
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety requirements
+      description: "Explicit constraints: credentials, databases, trading, merges, records, thresholds..."
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Required evidence before merge
+      description: "Exact test commands and expected results the PR must report."
+    validations:
+      required: true
+  - type: textarea
+    id: links
+    attributes:
+      label: Related
+      description: "Related issues / PRs."

@@ -1,0 +1,68 @@
+name: CI
+
+# Runs on GitHub-hosted runners only (ubuntu-latest), never a personal
+# machine. This workflow:
+#   * uses NO secrets (no API keys, exchange credentials, or tokens),
+#   * grants minimal permissions (contents: read only),
+#   * never accesses a production database (tests create temporary SQLite
+#     files in the runner workspace and use offline fake-exchange fixtures),
+#   * never contacts an exchange, places an order, or trades anything,
+#   * performs no merges, deployments, or other side effects.
+# It is deliberately NOT triggered by pull_request_target: that trigger
+# checks out PR head code while the token carries the base-branch
+# permission scope, which is exactly the footgun it exists to avoid.
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-tests:
+    name: Python tests (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the PR head
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency: pyproject.toml
+
+      - name: Install the project and dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run the full Python test suite
+        # Plain `python -m pytest`: the single documented xfail
+        # (tests/test_decision_invariance.py) remains an expected failure —
+        # it is a pinned, known defect and is never run with --runxfail.
+        run: python -m pytest
+
+  js-tests:
+    name: JavaScript tests (node --test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the PR head
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run the frontend test suite
+        # package.json declares zero dependencies, so `npm test`
+        # (node --test tests/frontend/*.test.mjs) needs no install step.
+        run: npm test
