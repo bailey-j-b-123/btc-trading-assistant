@@ -150,7 +150,8 @@ class HeartbeatStatus(StrEnum):
     dashboard shows the newest heartbeat (including its server-computed age)
     and derives the named health condition from freshness, completeness,
     pending catch-up, and heartbeat status plus the absence of a recorded
-    error — heartbeat age is displayed, never decisive.
+    error. The reader also projects a separate heartbeat-recency verdict;
+    stale or inconsistent timestamps cannot certify current liveness.
     """
 
     STARTED = "STARTED"
