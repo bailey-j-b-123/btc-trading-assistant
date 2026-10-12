@@ -13,7 +13,7 @@ This investigation diagnoses two critical forward paper-trading anomalies observ
 1. **Trade 1 (17:00 UTC — "Early / Extended Entry"):** Entry $83,916.01, Stop $83,606.01, Target $84,379.31, Outcome STOPPED (-1R).
    * **Root Cause:** A 0.2% tolerance (`Decimal("0.2")`) in retest detection qualified a "touch" even though price remained **$128.71 above** the broken reference boundary. Furthermore, the engine emitted both "observed" and "held" confirmation on the exact same candle, and entered at the close of that candle—**$310.00 above** the reference band—buying at the extreme of the continuation move.
 2. **Trade 2 (22:00 UTC — "Tiny Stop"):** Entry $83,529.47, Stop $83,521.15, Targets $83,572.96 and $83,577.00, Risk **$8.32** (0.996 bps), Outcome AMBIGUOUS.
-   * **Root Cause:** BRAIN defaults to `StopBufferMode.NONE` and contains **no minimum risk distance floor** in dollar, basis-point, or ATR terms. Any risk $> 0$ passes planning. Because risk was negligible ($8.32), minuscule price movements of $43.49 and $47.53 generated inflated R-multiples (> 5.2R), clearing the mandatory 1R floor. In reality, illustrative round-trip market friction (8–25 bps) exceeds this nominal stop distance by 8x to 24x, and normal 1-minute BTC volatility ($20–$100) triggered `ENTRY_AND_EXIT_SAME_CANDLE` ambiguity within the same minute.
+   * **Root Cause:** BRAIN defaults to `StopBufferMode.NONE` and contains **no minimum risk distance floor** in dollar, basis-point, or ATR terms. Any risk $> 0$ passes planning. Because risk was negligible ($8.32), minuscule price movements of $43.49 and $47.53 generated inflated R-multiples (> 5.2R), clearing the mandatory 1R floor. In reality, illustrative round-trip market friction (8–28 bps / ~$67–$234 per BTC at $83,500) exceeds this nominal stop distance by 8x to 28x. Furthermore, an assumed 1-minute candle high-low volatility range of $20–$100 (unverified; pending extraction of measured 1m data from the Mac database) easily encompasses the $8.32 span, triggering `ENTRY_AND_EXIT_SAME_CANDLE` ambiguity within the same minute.
 
 ---
 
@@ -90,7 +90,7 @@ This investigation diagnoses two critical forward paper-trading anomalies observ
    * **Default zero friction:** Friction assumptions (`friction_assumptions_json`) default to zero; fees and spread are not deducted during planning.
 3. **Why the Outcome Was Ambiguous:**
    * In `journaling/observation.py::observe_outcome_at_1m` (lines 500–535), when entry and stop (or target) are both touched within the same candle/minute, `terminal = OutcomeStatus.AMBIGUOUS` with reason `ENTRY_AND_EXIT_SAME_CANDLE`.
-   * An $8.32 distance is far smaller than normal 1-minute BTC volatility ($20 to $100). The trade was instantly swamped by microstructure noise.
+   * An $8.32 distance is far smaller than typical 1-minute BTC volatility (an unverified assumption of $20 to $100 high-low range, subject to confirmation from the Mac database). The trade was instantly swamped by microstructure noise.
 
 ---
 
@@ -150,23 +150,25 @@ This investigation diagnoses two critical forward paper-trading anomalies observ
 ### 5.1 Measured System Facts
 * **Trade 2 Risk:** $8.32 per BTC, which is **0.996 bps** (0.00996%) of the entry price ($83,529.47).
 * **BRAIN Planner Assumptions:** `friction_assumptions_json` defaults to zero unless configured. BRAIN planned Trade 2 assuming zero commission, zero spread, and zero slippage.
-* **Microstructure Noise:** On BTC/USDT 1-minute data, normal candle high-low spans range between $20 and $100. Because $8.32 sits far inside this noise envelope, `journaling/observation.py` triggered `ENTRY_AND_EXIT_SAME_CANDLE` ambiguity.
+* **Microstructure Noise:** On BTC/USDT 1-minute data, candle high-low spans are assumed for illustration to range between $20 and $100 (*unverified; pending extraction of measured 1m candles from the Mac SQLite database*). Because $8.32 sits far inside this noise envelope, `journaling/observation.py` triggered `ENTRY_AND_EXIT_SAME_CANDLE` ambiguity.
 
 ### 5.2 Illustrative Friction Model (Assumed, Not Account-Specific)
-*The following parameters are illustrative market friction assumptions for institutional vs. retail crypto trading. They do not represent the operator's actual Binance VIP tier, account fee schedule, or executed fills:*
+*The following parameters are illustrative market friction assumptions for institutional futures vs. retail spot trading. They do not represent the operator's actual Binance VIP tier, account fee schedule, or executed fills. All basis-point-to-dollar conversions are calculated using **1 bp = $8.35 per BTC at $83,500**:*
 
 | Cost Component | Assumed Institutional Futures | Assumed Retail Spot |
 |---|---|---|
-| **Maker / Taker Commission** | 2 bps maker / 4 bps taker (6 bps round-trip) | 10 bps maker / 10 bps taker (20 bps round-trip) |
-| **Bid-Ask Spread** | ~0.5 to 1.5 bps ($0.50 to $1.25) | ~1.0 to 3.0 bps ($0.80 to $2.50) |
-| **Stop Slippage** | ~1.5 to 2.5 bps ($1.25 to $2.10) | ~2.0 to 5.0 bps ($1.67 to $4.17) |
-| **Total Illustrative Friction** | **~9 to 10 bps ($75 to $85 per BTC)** | **~23 to 28 bps ($190 to $235 per BTC)** |
+| **Maker / Taker Commission** | 2.0 bps maker + 4.0 bps taker = **6.0 bps** ($50.10) | 10.0 bps maker + 10.0 bps taker = **20.0 bps** ($167.00) |
+| **Bid-Ask Spread** | ~0.5 to 1.5 bps (**$4.18 to $12.53**) | ~1.0 to 3.0 bps (**$8.35 to $25.05**) |
+| **Stop Slippage** | ~1.5 to 2.5 bps (**$12.53 to $20.88**) | ~2.0 to 5.0 bps (**$16.70 to $41.75**) |
+| **Total Illustrative Friction** | **~8.0 to 10.0 bps ($66.80 to $83.50 per BTC)** | **~23.0 to 28.0 bps ($192.05 to $233.80 per BTC)** |
 
 ### 5.3 Economic Assessment of Trade 2
-* Even under the lowest-cost institutional assumption (~9 bps), the transaction friction alone is **~9x the entire nominal stop distance** ($8.32 / ~1 bp).
-* Under standard retail spot assumptions (~25 bps), transaction friction is **~25x the nominal stop distance**.
-* A nominal -1R loss on Trade 2 would translate to an actual realized loss of **-10R to -26R** after friction.
-* For expectancy to remain positive, round-trip friction should not exceed 10–15% of nominal risk, requiring a stop of at least **35 to 50 bps** ($290 to $420 on $83.5k BTC), or $\ge 0.5 \times \text{ATR}_{1\text{H}}$.
+* **Friction Multiple over Risk:**
+  - Under lowest-cost institutional futures assumptions (8.0 to 10.0 bps / $66.80 to $83.50), friction is **8.0x to 10.0x the entire nominal stop distance** ($8.32 / ~1 bp).
+  - Under standard retail spot assumptions (23.0 to 28.0 bps / $192.05 to $233.80), friction is **23.1x to 28.1x the nominal stop distance**.
+* **Impact on Expectancy:** A nominal -1.0R loss on Trade 2 translates to an actual realized loss of **-9.0R to -29.1R** after friction.
+* **Viability Rule of Thumb:** For trading expectancy to remain positive, round-trip friction should not exceed 10–15% of nominal risk.
+* **Hypothesis Statement:** The suggested 35 bp floor ($292.25 on $83.5k BTC) and 0.5 ATR minimum stop distance are **illustrative exploratory hypotheses requiring validation against historical regimes and out-of-sample forward data**, not proven or calibrated optimal trading settings.
 
 ---
 
@@ -273,8 +275,9 @@ ORDER BY paper_plan_id, sequence ASC;
 
 ### Option 1: Defensive Gates on Close Entry (Recommended First Step)
 * **Design:** Retain the close-based entry model, but add two defensive gates to `trade_planning/planner.py`:
-  1. `MinStopDistanceGate`: Require $\text{risk\_per\_unit} \ge \max(0.5 \times \text{ATR}, 0.0035 \times \text{entry})$ (~35 bps / ~$300 on BTC). Plans failing this are refused with `stop_distance_below_economic_minimum`.
+  1. `MinStopDistanceGate`: Require $\text{risk\_per\_unit} \ge \max(0.5 \times \text{ATR}, 0.35\% \times \text{entry})$ (~35 bps / ~$292 on $83.5k BTC). Plans failing this are refused with `stop_distance_below_economic_minimum`.
   2. `MaxEntryExtensionGate`: Require $(\text{entry} - \text{ref.band\_high}) \le 1.5 \times \text{ATR}$. Plans where price has extended too far are refused with `entry_extended_beyond_reference`.
+* **Hypothesis Caveat:** The 35 bp and 0.5 ATR figures are initial exploratory hypotheses requiring empirical back-testing and forward validation, not proven optimal settings.
 * **Trade-Offs:**
   * *Pros:* Simple, zero execution complexity, preserves deterministic completed-candle paradigm, eliminates micro-stops and severe chasing immediately.
   * *Cons:* Reduces trade frequency; does not improve entry price on shallow retests.
@@ -340,6 +343,7 @@ In `PlanningParameters` (`trade_planning/parameters.py`), percentage parameters 
     min_stop_distance_percentage: Decimal = Decimal("0.35")  # 0.35 percent = 35 bps
     ```
   - **Caution:** If erroneously specified as `Decimal("0.0035")`, `tolerance_band` would divide by 100, resulting in $0.0035\% = 0.35 \text{ bps}$ (a 100-fold error).
+  - **Validation Requirement:** Both `min_stop_distance_percentage = Decimal("0.35")` and `min_stop_distance_atr_multiple = Decimal("0.5")` are exploratory hypotheses requiring validation against historical datasets, not proven optimal values.
 
 ### Proposed Versioned Steps
 1. **Preserve Historical Immutability:**
