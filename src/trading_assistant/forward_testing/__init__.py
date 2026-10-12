@@ -48,6 +48,9 @@ from trading_assistant.forward_testing.parameters import (
     FORWARD_RUNNER_RULES_VERSION,
     MISSED_OPPORTUNITY_REASON,
     PAPER_TRADE_ACTIVE_REASON,
+    REFERENCE_PROVENANCE_REASON,
+    ECONOMIC_NONVIABILITY_REASON,
+    ECONOMIC_VIABILITY_UNVERIFIABLE_REASON,
     CycleStatus,
     DataHealth,
     ForwardParameters,
@@ -77,6 +80,8 @@ from trading_assistant.forward_testing.service import (
 )
 
 __all__ = [
+    "ECONOMIC_NONVIABILITY_REASON",
+    "ECONOMIC_VIABILITY_UNVERIFIABLE_REASON",
     "FORWARD_LEDGER_RULES_VERSION",
     "FORWARD_LIMITATIONS",
     "FORWARD_PARAMETERS_VERSION",
@@ -84,6 +89,7 @@ __all__ = [
     "FORWARD_RUNNER_RULES_VERSION",
     "MISSED_OPPORTUNITY_REASON",
     "PAPER_TRADE_ACTIVE_REASON",
+    "REFERENCE_PROVENANCE_REASON",
     "ComparisonRow",
     "ComparisonSide",
     "CycleStatus",

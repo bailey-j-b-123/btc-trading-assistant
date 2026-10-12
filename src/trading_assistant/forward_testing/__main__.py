@@ -39,11 +39,32 @@ from trading_assistant.market_data.service import create_market_data_service
 from trading_assistant.web.schemas import parse_utc_iso
 
 
-def _parameters(args: argparse.Namespace) -> ForwardParameters:
+def _parameters(
+    args: argparse.Namespace, settings
+) -> ForwardParameters:
+    """The forward evaluation controls, with the run's explicit cost scenario.
+
+    The cost scenario is the declared hypothetical fees/adverse slippage the
+    trade-planning-v3 economic-viability gate applies *and* the friction
+    recorded on every paper plan this run creates. An explicit flag wins;
+    otherwise the configured scenario (``TRADING_ASSISTANT_COST_*`` env or
+    ``.env``) applies. Zero on every component is a valid but *unverifiable*
+    scenario: it withholds paper trades as
+    ``economic_viability_unverifiable`` instead of certifying them, because
+    missing or zero fees are never treated as proof of economic viability.
+    A run with a different scenario records a different version fingerprint
+    and forms its own, explicitly distinguishable trading cohort.
+    """
+
+    def resolved(flag_value, setting_value) -> Decimal:
+        if flag_value is not None:
+            return Decimal(str(flag_value))
+        return Decimal(str(setting_value))
+
     friction = FrictionAssumptions(
-        fee_bps=Decimal(str(args.fee_bps)),
-        entry_slippage_bps=Decimal(str(args.entry_slippage_bps)),
-        exit_slippage_bps=Decimal(str(args.exit_slippage_bps)),
+        fee_bps=resolved(args.fee_bps, settings.cost_fee_bps),
+        entry_slippage_bps=resolved(args.entry_slippage_bps, settings.cost_entry_slippage_bps),
+        exit_slippage_bps=resolved(args.exit_slippage_bps, settings.cost_exit_slippage_bps),
     )
     return ForwardParameters(
         observation_horizon_candles=args.horizon_candles,
@@ -78,7 +99,7 @@ def _build_service(args: argparse.Namespace) -> ForwardTestService:
     return ForwardTestService(
         engine,
         settings=settings,
-        parameters=_parameters(args),
+        parameters=_parameters(args, settings),
         runner_settings=RunnerSettings(
             interval_seconds=Decimal(
                 str(getattr(args, "interval_seconds", defaults.interval_seconds))
@@ -133,12 +154,30 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
         default=720,
         help="maximum missed closes one pass may record (remainder is reported)",
     )
-    parser.add_argument("--fee-bps", default="0", help="hypothetical two-sided fee basis points")
     parser.add_argument(
-        "--entry-slippage-bps", default="0", help="hypothetical adverse entry slippage"
+        "--fee-bps",
+        default=None,
+        help=(
+            "hypothetical two-sided fee basis points for the economic-viability "
+            "gate and the friction recorded on paper plans; default: the "
+            "configured scenario (TRADING_ASSISTANT_COST_FEE_BPS)"
+        ),
     )
     parser.add_argument(
-        "--exit-slippage-bps", default="0", help="hypothetical adverse exit slippage"
+        "--entry-slippage-bps",
+        default=None,
+        help=(
+            "hypothetical adverse entry slippage in basis points; default: the "
+            "configured scenario (TRADING_ASSISTANT_COST_ENTRY_SLIPPAGE_BPS)"
+        ),
+    )
+    parser.add_argument(
+        "--exit-slippage-bps",
+        default=None,
+        help=(
+            "hypothetical adverse exit slippage in basis points; default: the "
+            "configured scenario (TRADING_ASSISTANT_COST_EXIT_SLIPPAGE_BPS)"
+        ),
     )
     parser.add_argument(
         "--start-at",

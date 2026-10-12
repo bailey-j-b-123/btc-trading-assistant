@@ -1,10 +1,17 @@
 """Runtime configuration loaded from environment variables and an optional .env."""
 
+from decimal import Decimal
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+if TYPE_CHECKING:
+    # Import for the annotation only: ``trading_assistant.costs`` sits under
+    # the ``market_structure`` import chain, which itself imports this module,
+    # so a runtime module-level import would be circular.
+    from trading_assistant.costs import FrictionAssumptions
 
 #: Finite default timeout for Binance public market-data requests, in
 #: milliseconds. CCXT expresses ``timeout`` in milliseconds and applies it to
@@ -73,6 +80,39 @@ class Settings(BaseSettings):
         ge=MIN_EXCHANGE_TIMEOUT_MS,
         le=MAX_EXCHANGE_TIMEOUT_MS,
     )
+
+    #: Explicit hypothetical cost scenario (basis points) for the
+    #: trade-planning-v3 economic-viability check and for the friction
+    #: recorded on paper plans. The DEFAULT IS ZERO ON PURPOSE: zero means
+    #: "no reliable cost assumptions have been provided", and missing or zero
+    #: fees are never treated as proof that a trade is economically viable —
+    #: under the default, Step 6 withholds plans as
+    #: ``economic_viability_unverifiable`` and Step 12 creates no paper trades
+    #: until an operator states a non-zero scenario. These are declared
+    #: scenario assumptions (Binance Spot BTC/USDT), not validated market
+    #: facts.
+    cost_fee_bps: Decimal = Decimal(0)
+    cost_entry_slippage_bps: Decimal = Decimal(0)
+    cost_exit_slippage_bps: Decimal = Decimal(0)
+
+    def cost_assumptions(self) -> "FrictionAssumptions":
+        """The configured cost scenario as the shared, validated type.
+
+        The forward runner's CLI flags (``--fee-bps`` etc.) override these
+        values for one run; a run with a different scenario records a
+        different version fingerprint and is a separate, explicitly
+        distinguishable trading cohort.
+        """
+
+        # Imported lazily: ``trading_assistant.costs`` sits under the
+        # ``market_structure`` import chain, which itself imports this module.
+        from trading_assistant.costs import FrictionAssumptions
+
+        return FrictionAssumptions(
+            fee_bps=self.cost_fee_bps,
+            entry_slippage_bps=self.cost_entry_slippage_bps,
+            exit_slippage_bps=self.cost_exit_slippage_bps,
+        )
 
     @model_validator(mode="after")
     def validate_market_data_settings(self) -> "Settings":

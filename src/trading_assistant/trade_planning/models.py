@@ -33,9 +33,14 @@ class PlanState(StrEnum):
     ``NO_PLAN``
         No actionable plan can be produced because the source setup is not
         currently usable (not QUALIFIED, terminal, or stale at the requested
-        ``as_of``), because a required input is missing/UNKNOWN, or because no
-        genuine structural target reaches the mandatory reward-to-risk floor.
-        Nothing is guessed through the gap and no synthetic target is invented.
+        ``as_of``), because a required input is missing/UNKNOWN, because no
+        genuine structural target reaches the mandatory reward-to-risk floor,
+        or because the plan fails the mandatory economic-viability check: no
+        retained target's net reward after the declared costs covers the
+        mandatory multiple of the net stop loss after the same costs, or no
+        reliable non-zero cost scenario was provided to judge the plan
+        against. Nothing is guessed through the gap and no synthetic target
+        is invented.
     ``INVALID``
         All inputs were present, but a derived plan violates a hard planning
         invariant (wrong-side stop, zero/negative risk, wrong-side entry, or

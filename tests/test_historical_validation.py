@@ -14,6 +14,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from forward_fixtures import (
+    DEFAULT_COST_SCENARIO,
+    QUALIFYING_BOUNDARY,
+    ForwardParameters,
+    labelled_series,
+    make_harness,
+)
 from market_structure_fixtures import EPOCH, EXCHANGE, SYMBOL
 from sqlalchemy import func, select
 from web_fixtures import (
@@ -27,6 +34,8 @@ from web_fixtures import (
 )
 
 from trading_assistant.historical_validation import (
+    REPLAY_POLICY_ECONOMIC_GATE,
+    REPLAY_POLICY_UNVERIFIED_V2,
     ChronologicalSplit,
     FrictionAssumptions,
     HistoricalValidationService,
@@ -524,3 +533,249 @@ def test_validation_api_and_ui_are_explicitly_historical_and_read_only(tmp_path)
         )
     finally:
         engine.dispose()
+
+
+# ----------------------------------------------------------------------
+# trade-planning-v3 consistency: the replay plans under the same declared
+# cost scenario the forward path certifies paper plans under
+# ----------------------------------------------------------------------
+
+#: The exact scenario of the independent-review regression: at
+#: QUALIFYING_BOUNDARY of the labelled series the forward path creates zero
+#: paper plans (economic_nonviability), while the pre-fix historical replay
+#: returned PLANNABLE records for the identical geometry and costs.
+HEAVY_SCENARIO = FrictionAssumptions(
+    fee_bps=D(500), entry_slippage_bps=D(50), exit_slippage_bps=D(50)
+)
+
+
+def _boundary_plans(report) -> tuple:
+    return tuple(
+        record
+        for record in report.records
+        if record.as_of == QUALIFYING_BOUNDARY and record.plan is not None
+    )
+
+
+def test_historical_replay_applies_the_same_economic_gate_as_forward(tmp_path):
+    """The confirmed regression: identical series, boundary and 500 bps costs.
+
+    Forward refuses both QUALIFIED setups (``economic_nonviability``, zero
+    paper plans); the gated historical replay must refuse the same boundary
+    plans instead of returning PLANNABLE records.
+    """
+
+    harness = make_harness(
+        series=labelled_series(),
+        ledger_start=QUALIFYING_BOUNDARY,
+        parameters=ForwardParameters(friction=HEAVY_SCENARIO),
+    )
+    harness.advance_to(QUALIFYING_BOUNDARY)
+    harness.run(refresh_market_data=False)
+    try:
+        forward_refused = [
+            obs
+            for obs in harness.observations()
+            if obs.plan_state is not None and obs.plan_state.value == "NO_PLAN"
+        ]
+        assert forward_refused
+        assert all(
+            "economic_nonviability" in (obs.no_trade_reason or "")
+            for obs in forward_refused
+        )
+        assert harness.plans() == ()
+
+        engine, _url = migrated_engine(tmp_path)
+        try:
+            insert_candles(engine, labelled_series())
+            report = HistoricalValidationService(engine).validate(
+                exchange=EXCHANGE,
+                symbol=SYMBOL,
+                timeframe="1h",
+                config=_config(friction=HEAVY_SCENARIO),
+            )
+            boundary = _boundary_plans(report)
+            assert boundary, "the labelled series qualifies at its last close"
+            for record in boundary:
+                assert record.plan.state is not PlanState.PLANNABLE
+                assert record.plan.state.value == "NO_PLAN"
+                assert record.plan.reasons == ("economic_nonviability",)
+                economic = next(
+                    rule for rule in record.plan.rules
+                    if rule.rule_id == "economic_viability"
+                )
+                assert economic.outcome.value == "failed"
+        finally:
+            engine.dispose()
+    finally:
+        harness.engine.dispose()
+
+
+def test_historical_replay_and_forward_agree_when_the_scenario_is_affordable(
+    tmp_path,
+):
+    """The consistency is two-sided: an affordable 1 bp scenario plans on both paths."""
+
+    harness = make_harness(
+        series=labelled_series(),
+        ledger_start=QUALIFYING_BOUNDARY,
+        parameters=ForwardParameters(friction=DEFAULT_COST_SCENARIO),
+    )
+    harness.advance_to(QUALIFYING_BOUNDARY)
+    harness.run(refresh_market_data=False)
+    try:
+        assert len(harness.plans()) >= 1
+        engine, _url = migrated_engine(tmp_path)
+        try:
+            insert_candles(engine, labelled_series())
+            report = HistoricalValidationService(engine).validate(
+                exchange=EXCHANGE,
+                symbol=SYMBOL,
+                timeframe="1h",
+                config=_config(friction=DEFAULT_COST_SCENARIO),
+            )
+            boundary = _boundary_plans(report)
+            assert boundary
+            assert all(record.plan.state is PlanState.PLANNABLE for record in boundary)
+        finally:
+            engine.dispose()
+    finally:
+        harness.engine.dispose()
+
+
+def test_default_zero_friction_replay_runs_the_pre_v3_pass_without_certifying(
+    tmp_path,
+):
+    """A zero scenario declares no costs: the replay diagnoses, never certifies.
+
+    The default (zero friction) replay runs the pre-v3 planning pass (rule not
+    evaluated) — the same planning output a v2-era report produced — and the
+    report states that the forward path withholds every paper plan under the
+    same scenario, so the two surfaces are not comparable.
+    """
+
+    engine, _service, report = _report(tmp_path)
+    try:
+        assert report.rules_version == "historical-validation-v2"
+        with_plans = [record for record in report.records if record.plan is not None]
+        assert with_plans
+        for record in with_plans:
+            assert record.plan.state is PlanState.PLANNABLE
+            economic = next(
+                rule for rule in record.plan.rules
+                if rule.rule_id == "economic_viability"
+            )
+            assert economic.outcome.value == "pending"
+        assert any(
+            "Zero-scenario replay" in limitation
+            and "never a certification" in limitation
+            and "economic_viability_unverifiable" in limitation
+            for limitation in report.limitations
+        )
+        assert not any(
+            "UNVERIFIED PLANNING POLICY REPLAY" in limitation
+            for limitation in report.limitations
+        )
+    finally:
+        engine.dispose()
+
+
+def test_unverified_replay_policy_preserves_pre_v3_plans_as_distinguishable_cohort(
+    tmp_path,
+):
+    """The explicit pre-v3 cohort replays old behaviour, clearly labelled."""
+
+    engine, _url = migrated_engine(tmp_path)
+    service = HistoricalValidationService(engine)
+    try:
+        insert_candles(engine, labelled_series())
+        gated = service.validate(
+            exchange=EXCHANGE,
+            symbol=SYMBOL,
+            timeframe="1h",
+            config=_config(friction=HEAVY_SCENARIO),
+        )
+        unverified = service.validate(
+            exchange=EXCHANGE,
+            symbol=SYMBOL,
+            timeframe="1h",
+            config=_config(
+                friction=HEAVY_SCENARIO, replay_policy=REPLAY_POLICY_UNVERIFIED_V2
+            ),
+        )
+        # The pre-v3 planning behaviour is preserved under the explicit opt-in:
+        # the same boundary plans that the gate refuses are PLANNABLE here,
+        # with the economic_viability rule not evaluated.
+        unverified_boundary = _boundary_plans(unverified)
+        assert unverified_boundary
+        for record in unverified_boundary:
+            assert record.plan.state is PlanState.PLANNABLE
+            economic = next(
+                rule for rule in record.plan.rules
+                if rule.rule_id == "economic_viability"
+            )
+            assert economic.outcome.value == "pending"
+
+        # Explicit version/config provenance: the cohort is named in the
+        # report and mechanically distinguishable in every fingerprint.
+        assert (
+            "replay_policy_cohort",
+            REPLAY_POLICY_UNVERIFIED_V2,
+        ) in unverified.strategy_versions
+        assert (
+            "replay_policy_cohort",
+            REPLAY_POLICY_ECONOMIC_GATE,
+        ) in gated.strategy_versions
+        assert gated.config_fingerprint != unverified.config_fingerprint
+        assert gated.report_id != unverified.report_id
+        assert (
+            "unverified_planning_policy_replay" in unverified.warnings
+        )
+        assert "unverified_planning_policy_replay" not in gated.warnings
+
+        # The unverified cohort is reported as non-comparable with gated
+        # forward decisions; the gated report carries no such label.
+        assert any(
+            "NOT comparable with gated forward decisions" in limitation
+            for limitation in unverified.limitations
+        )
+        assert not any(
+            "NOT comparable with gated forward decisions" in limitation
+            for limitation in gated.limitations
+        )
+    finally:
+        engine.dispose()
+
+
+def test_declared_scenario_is_forced_into_planning_even_when_parameters_supplied(
+    tmp_path,
+):
+    """A caller's v2-equivalent planning object cannot bypass the declared gate."""
+
+    engine, _url = migrated_engine(tmp_path)
+    try:
+        insert_candles(engine, labelled_series())
+        supplied = PlanningParameters()  # cost_assumptions=None (v2-equivalent)
+        report = HistoricalValidationService(engine).validate(
+            exchange=EXCHANGE,
+            symbol=SYMBOL,
+            timeframe="1h",
+            config=_config(friction=HEAVY_SCENARIO),
+            planning_parameters=supplied,
+        )
+        # The object is used for its other fields but never mutated, and the
+        # declared scenario still wins for the cost model (forward behaviour).
+        assert supplied == PlanningParameters()
+        boundary = _boundary_plans(report)
+        assert boundary
+        assert all(record.plan.state is not PlanState.PLANNABLE for record in boundary)
+        assert all(
+            record.plan.reasons == ("economic_nonviability",) for record in boundary
+        )
+    finally:
+        engine.dispose()
+
+
+def test_unknown_replay_policy_is_rejected():
+    with pytest.raises(ValueError, match="replay_policy"):
+        ValidationConfig(replay_policy="whenever")

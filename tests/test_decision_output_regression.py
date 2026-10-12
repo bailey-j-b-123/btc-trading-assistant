@@ -9,6 +9,17 @@ and the live-evaluation source note are excluded because those features
 intentionally add them without changing trading decisions. Inputs
 are SYNTHETIC and deterministic. This proves equivalence to the earlier code on
 these inputs; it does not prove live correctness.
+
+The fixtures were regenerated once after that baseline, deliberately and with the
+version bump in ``trade-planning`` to ``trade-planning-v3``: every plan identity
+and configuration fingerprint now includes the new ``cost_assumptions`` and
+``min_cost_adjusted_r_multiple`` inputs, every plan records the new
+``economic_viability`` rule (PENDING under the v2-equivalent default parameters),
+and the dashboard/forward default (an explicit all-zero cost scenario) now
+withholds plans as ``economic_viability_unverifiable`` instead of certifying them.
+Those are the intended, versioned differences; anything else still fails here.
+Regenerate with ``python tests/decision_digests.py`` after any further deliberate
+decision-path change.
 """
 
 from __future__ import annotations

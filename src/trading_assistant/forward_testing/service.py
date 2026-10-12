@@ -38,7 +38,7 @@ import logging
 import threading
 from bisect import bisect_left
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -64,6 +64,8 @@ from trading_assistant.forward_testing.models import (
     paper_trade_occupies_slot,
 )
 from trading_assistant.forward_testing.parameters import (
+    ECONOMIC_NONVIABILITY_REASON,
+    ECONOMIC_VIABILITY_UNVERIFIABLE_REASON,
     FORWARD_LEDGER_RULES_VERSION,
     FORWARD_RUNNER_RULES_VERSION,
     MISSED_OPPORTUNITY_REASON,
@@ -128,6 +130,8 @@ from trading_assistant.setup_qualification.service import (
     bounded_replay_start,
 )
 from trading_assistant.trade_planning import (
+    ECONOMIC_NONVIABILITY,
+    ECONOMIC_VIABILITY_UNVERIFIABLE,
     MINIMUM_R_MULTIPLE_NOT_MET,
     PLANNING_RULES_VERSION,
     PlanningParameters,
@@ -263,10 +267,24 @@ class ForwardTestService:
             if structure_parameters is not None
             else MarketStructureParameters()
         )
-        self.planning_parameters = (
+        # trade-planning-v3: the mandatory economic-viability rule is always
+        # evaluated on the forward path under the exact cost scenario the
+        # paper plan will record (``self.parameters.friction``). A concrete
+        # scenario is applied even when the operator left every component at
+        # zero, because a paper trade must never be certified by an unevaluated
+        # rule: a missing or zero fee assumption is never treated as proof that
+        # a trade is economically viable (it withholds the plan as
+        # ``economic_viability_unverifiable`` instead). Keeping the gate and
+        # the recorded friction on one scenario is what makes the recorded
+        # ``friction_fingerprint`` the true identity of the costs the plan was
+        # certified under.
+        base_planning = (
             planning_parameters
             if planning_parameters is not None
             else PlanningParameters()
+        )
+        self.planning_parameters = replace(
+            base_planning, cost_assumptions=self.parameters.friction
         )
         self.ledger = ForwardLedgerRepository(engine)
         self.candles = CandleRepository(engine)
@@ -2247,13 +2265,16 @@ class ForwardTestService:
                 # already has one active. The candidate is still monitored.
                 no_trade_reason = PAPER_TRADE_ACTIVE_REASON
         elif plan is not None and plan.state is PlanState.NO_PLAN:
-            no_trade_reason = self._missed_reason(
-                setup=setup,
-                plan=plan,
-                exchange=exchange,
-                symbol=symbol,
-                timeframe=timeframe,
-                as_of=boundary,
+            no_trade_reason = (
+                self._missed_reason(
+                    setup=setup,
+                    plan=plan,
+                    exchange=exchange,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    as_of=boundary,
+                )
+                or self._economic_refusal_reason(plan)
             )
         elif provenance_withheld:
             # Neither a missed opportunity nor a market verdict: the plan was
@@ -2881,6 +2902,26 @@ class ForwardTestService:
             for plan in plans
         )
 
+    @staticmethod
+    def _economic_refusal_reason(plan: TradePlanResult) -> str | None:
+        """The deterministic no-trade reason for a v3 economic refusal.
+
+        The plan carries the machine-readable planning reason and the exact
+        per-target numbers; this maps it to the forward vocabulary used by the
+        observation's ``no_trade_reason``. ``economic_nonviability`` means the
+        declared cost scenario was applied and no retained target reaches the
+        mandatory cost-adjusted floor; ``economic_viability_unverifiable``
+        means no reliable (non-zero) cost scenario existed to judge the plan
+        against. Neither is a market verdict and neither is an opportunity
+        that was missed.
+        """
+
+        if ECONOMIC_NONVIABILITY in plan.reasons:
+            return ECONOMIC_NONVIABILITY_REASON
+        if ECONOMIC_VIABILITY_UNVERIFIABLE in plan.reasons:
+            return ECONOMIC_VIABILITY_UNVERIFIABLE_REASON
+        return None
+
     def _missed_reason(
         self,
         *,
@@ -2895,25 +2936,32 @@ class ForwardTestService:
 
         MISSED is a refusal expressed in the existing vocabulary, never a new
         setup/plan state: at this close the setup is still ``QUALIFIED`` (not
-        invalidated, not failed, not expired) and Step 6 refused for exactly the
-        mandatory reward-to-risk floor (``minimum_r_multiple_not_met``): the
-        decision-time reward-to-risk has deteriorated below the floor, so at the
-        price actually available now no remaining genuine structural target
-        reaches 1R. It is reported only when the opportunity genuinely existed
+        invalidated, not failed, not expired) and Step 6 refused for exactly a
+        mandatory reward-to-risk floor — the raw floor
+        (``minimum_r_multiple_not_met``) or, under trade-planning-v3, the
+        cost-adjusted floor (``economic_nonviability``): at the price actually
+        available now, no remaining genuine structural target reaches the
+        floor. It is reported only when the opportunity genuinely existed
         before and was never taken: this setup instance recorded a floor-passing
         (PLANNABLE) plan at an earlier close and has no frozen paper trade of its
         own. A setup that is already paper-traded is never called missed — that
         trajectory belongs to its paper plan's outcome versions (entry not
-        reached, invalidated before entry, stopped, ...). Nothing is chased, no
-        earlier entry is reused, no stop is squeezed, and no target is invented:
-        this reason only names the refusal that Step 6 already produced.
+        reached, invalidated before entry, stopped, ...). An
+        ``economic_viability_unverifiable`` refusal is never MISSED: without a
+        cost scenario the plan was never certified in the first place, so there
+        was no opportunity to miss. Nothing is chased, no earlier entry is
+        reused, no stop is squeezed, and no target is invented: this reason only
+        names the refusal that Step 6 already produced.
         """
 
         if setup.state is not SetupState.QUALIFIED:
             return None
         if plan.state is not PlanState.NO_PLAN:
             return None
-        if MINIMUM_R_MULTIPLE_NOT_MET not in plan.reasons:
+        if (
+            MINIMUM_R_MULTIPLE_NOT_MET not in plan.reasons
+            and ECONOMIC_NONVIABILITY not in plan.reasons
+        ):
             return None
         existing = self.ledger.paper_plan_for_setup(
             exchange=exchange, symbol=symbol, timeframe=timeframe, setup_id=setup.id

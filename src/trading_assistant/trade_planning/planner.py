@@ -19,11 +19,26 @@ Trading policy (deterministic and mandatory):
   setup is refused; no synthetic R target can rescue it.
 * ``preferred_r_multiple`` is a classification recorded on the plan; it never
   blocks a plan that clears the mandatory floor.
+* ``economic_viability`` (v3) compares the *cost-adjusted* reward against the
+  proposed risk, not just the raw R multiple, under the explicit hypothetical
+  cost scenario carried by ``PlanningParameters.cost_assumptions``. A plan
+  whose retained targets all sit below the mandatory cost-adjusted floor is
+  refused (``economic_nonviability``); a plan judged under a *zero* scenario
+  is refused as unverifiable (``economic_viability_unverifiable``) — a zero
+  fee assumption is never treated as proof that the market has no costs and
+  therefore never as proof that a trade is economically viable. When no cost
+  scenario is in effect at all (``cost_assumptions is None``), the rule is
+  recorded PENDING ("not evaluated") and the plan behaves exactly as under
+  v2: the rule can never certify, it can only withhold. Paper-trade creation
+  (Step 12) always supplies a concrete scenario, so a paper plan is never
+  certified on an unevaluated rule.
 
 State vocabulary is fixed and documented. ``reasons`` carries machine-readable
 codes. NO_PLAN means a required fact is missing/UNKNOWN, the source setup is
-not currently usable, or no genuine structural target reaches the mandatory
-reward-to-risk floor, so nothing may be guessed through the gap. INVALID means
+not currently usable, no genuine structural target reaches the mandatory
+reward-to-risk floor, or the plan fails the mandatory economic-viability check
+(cost-adjusted reward below the floor, or no reliable non-zero cost scenario
+to judge it against), so nothing may be guessed through the gap. INVALID means
 inputs were present but a derived number violates a hard invariant. State
 priority is INVALID > NO_PLAN so contradictions are never downgraded into a
 mere gap, and offending numbers are reported but never silently corrected.
@@ -32,6 +47,13 @@ mere gap, and offending numbers are reported but never silently corrected.
 from datetime import datetime, timedelta
 from decimal import Decimal
 
+from trading_assistant.costs import (
+    FrictionAssumptions,
+    friction_adjusted_r_from_levels,
+    friction_net_loss_at_stop,
+    friction_net_reward,
+    friction_net_reward_to_risk,
+)
 from trading_assistant.market_data.timeframes import require_utc_datetime
 from trading_assistant.market_structure.candles import interval_for_timeframe
 from trading_assistant.market_structure.numeric import divide, quantize_derived
@@ -114,8 +136,25 @@ INVALID_CODES = frozenset(
 #: free text.
 MINIMUM_R_MULTIPLE_NOT_MET = "minimum_r_multiple_not_met"
 
-#: Exact planning rules in evaluation order. ``minimum_r_multiple`` is a base
-#: rule: the mandatory reward-to-risk floor is always evaluated.
+#: Reason code recorded (v3) when, under the explicit hypothetical cost
+#: scenario, no retained genuine structural target reaches the mandatory
+#: cost-adjusted reward-to-risk floor. A refusal (NO_PLAN), never an invalid
+#: plan: the proposed levels are internally consistent, they are simply
+#: economically nonviable after the declared fees and adverse execution costs.
+ECONOMIC_NONVIABILITY = "economic_nonviability"
+
+#: Reason code recorded (v3) when the planning pass was given a zero cost
+#: scenario. A missing or zero fee assumption is never treated as proof that a
+#: trade is economically viable, so the plan is withheld as a gap (NO_PLAN)
+#: rather than certified: the levels are reported, nothing is guessed through
+#: the gap.
+ECONOMIC_VIABILITY_UNVERIFIABLE = "economic_viability_unverifiable"
+
+#: Exact planning rules in evaluation order. ``minimum_r_multiple`` and
+#: ``economic_viability`` are base rules: the mandatory reward-to-risk floor
+#: and the mandatory cost-adjusted viability check are always evaluated (the
+#: latter is recorded PENDING only when the caller has in effect no cost
+#: scenario, i.e. ``cost_assumptions is None``).
 BASE_RULES = (
     "source_inputs_consistent",
     "setup_usable",
@@ -132,6 +171,7 @@ BASE_RULES = (
     "positive_risk",
     "target_levels_valid",
     "minimum_r_multiple",
+    "economic_viability",
 )
 
 
@@ -451,6 +491,11 @@ def _plan_from_evidence(
     if context.gap_seen:
         return
     _apply_minimum_r(context)
+    if not context.reasons:
+        # Rule 16: the mandatory economic-viability check. One cause per
+        # refusal: a plan already refused by the raw reward floor keeps that
+        # single reason instead of a second, overlapping one.
+        _apply_economic_viability(context)
 
 
 def _check_confirmation(
@@ -907,6 +952,149 @@ def _apply_minimum_r(context: _PlanContext) -> None:
         f"{decimal_text(nearest.r_multiple)} is "
         + ("at or above" if context.preferred_r_multiple_met else "below")
         + f" the preferred {decimal_text(preferred)} (preferred only, never a gate)",
+    )
+
+
+def _scenario_text(assumptions: FrictionAssumptions) -> str:
+    """Exact declared scenario for machine- and human-readable rule reasons."""
+
+    return (
+        f"scenario fee_bps={decimal_text(assumptions.fee_bps)}, "
+        f"entry_slippage_bps={decimal_text(assumptions.entry_slippage_bps)}, "
+        f"exit_slippage_bps={decimal_text(assumptions.exit_slippage_bps)}"
+    )
+
+
+def _apply_economic_viability(context: _PlanContext) -> None:
+    """Apply the mandatory net reward-to-risk viability check to the targets.
+
+    The gate compares **net potential reward after the declared hypothetical
+    fees and adverse execution costs** with **net potential loss at the stop
+    after the same costs** (the shared net model in
+    ``trading_assistant.costs``): a target passes only if its net reward
+    covers at least ``min_cost_adjusted_r_multiple`` (default 1) times the
+    net stop loss. This is the same 1R policy as ``minimum_r_multiple`` but
+    measured net-to-net, and it is strictly stricter than the raw R multiple
+    or the historical friction-adjusted R (which normalises by the original
+    cost-free risk and ignores the costs a stop hit would itself pay). The
+    historical friction-adjusted R is still reported, in parentheses, on
+    every per-target exclusion and on the pass reason, clearly labelled, so
+    the two metrics can never be conflated.
+
+    It is a refusal policy, never an adjustment: sub-floor targets are
+    excluded with their exact net numbers, and a plan with no remaining
+    viable target is refused as NO_PLAN. No threshold is hard-coded here
+    beyond the documented 1R policy floor; the cost *scenario* is
+    caller-supplied and versioned into the plan identity.
+
+    A zero scenario states no costs and is never treated as proof that the
+    market has none: the plan is refused as unverifiable (a gap), with every
+    retained target excluded by name. ``cost_assumptions is None`` (no cost
+    model in effect for this planning pass) leaves the rule PENDING so the
+    plan behaves exactly as under v2; paper-trade creation always supplies a
+    concrete scenario and therefore never takes that path.
+    """
+
+    p = context.parameters
+    assumptions = p.cost_assumptions
+    if assumptions is None:
+        return  # rule stays PENDING ("not evaluated"); v2-equivalent behaviour
+    if assumptions.is_zero:
+        for target in context.targets:
+            context.excluded_targets.append(
+                f"{decimal_text(target.level.value)}: not certified; no reliable "
+                "(non-zero) cost assumptions were provided"
+            )
+        context.targets = ()
+        context.preferred_r_multiple_met = None
+        context.gap(
+            ECONOMIC_VIABILITY_UNVERIFIABLE,
+            "economic_viability",
+            "no reliable (non-zero) cost assumptions were provided; a missing "
+            "or zero fee assumption is never treated as proof that a trade is "
+            "economically viable, so this plan is withheld rather than "
+            "certified",
+            input_name="planning.cost_assumptions",
+        )
+        return
+    threshold = p.min_cost_adjusted_r_multiple
+    scenario = _scenario_text(assumptions)
+    direction = context.setup.direction
+    entry = context.entry.value
+    stop = context.stop.value
+    # The net stop loss is the same for every target: costs on both sides
+    # plus the adverse fills of a stop hit — strictly above the raw risk.
+    net_loss = friction_net_loss_at_stop(
+        entry=entry, stop_level=stop, direction=direction, assumptions=assumptions
+    )
+    kept: list[PlannedTarget] = []
+    kept_numbers: list[tuple[Decimal, Decimal, Decimal, Decimal]] = []
+    for target in context.targets:
+        net_reward = friction_net_reward(
+            entry=entry,
+            exit_level=target.level.value,
+            direction=direction,
+            assumptions=assumptions,
+        )
+        net_ratio = friction_net_reward_to_risk(
+            entry=entry,
+            exit_level=target.level.value,
+            stop_level=stop,
+            direction=direction,
+            assumptions=assumptions,
+        )
+        historical_adj_r = friction_adjusted_r_from_levels(
+            entry=entry,
+            exit_level=target.level.value,
+            risk_per_unit=context.risk_per_unit,
+            direction=direction,
+            assumptions=assumptions,
+        )
+        if net_ratio < threshold:
+            context.excluded_targets.append(
+                f"{decimal_text(target.level.value)}: net reward "
+                f"{decimal_text(net_reward)} / net stop loss "
+                f"{decimal_text(net_loss)} = net R {decimal_text(net_ratio)} "
+                f"< min_cost_adjusted_r_multiple {decimal_text(threshold)} "
+                f"under {scenario} (historical friction-adjusted R vs "
+                f"original risk {decimal_text(historical_adj_r)})"
+            )
+        else:
+            kept.append(target)
+            kept_numbers.append((net_reward, net_loss, net_ratio, historical_adj_r))
+    context.targets = tuple(kept)
+    if not kept:
+        context.preferred_r_multiple_met = None
+        context.fail(
+            ECONOMIC_NONVIABILITY,
+            "economic_viability",
+            f"no retained structural target keeps net reward after costs at "
+            f"or above {decimal_text(threshold)} x the net stop loss after "
+            f"costs (min_cost_adjusted_r_multiple {decimal_text(threshold)}) "
+            f"under the declared fees and adverse execution costs ({scenario}); "
+            "per-target exclusions with exact net reward / net stop loss / "
+            "net R values are listed in excluded_targets",
+        )
+        return
+    # The explanation must describe the nearest *retained* target with that
+    # target's OWN numbers: kept_numbers[i] parallels kept[i] exactly.
+    nearest = kept[0]
+    nearest_reward, nearest_loss, nearest_ratio, nearest_adj_r = kept_numbers[0]
+    context.preferred_r_multiple_met = (
+        nearest.r_multiple is not None and nearest.r_multiple >= p.preferred_r_multiple
+    )
+    context.record(
+        "economic_viability",
+        RuleOutcome.PASS,
+        f"{len(kept)} structural target(s) keep net reward after costs at or "
+        f"above the net stop loss after costs "
+        f"(min_cost_adjusted_r_multiple {decimal_text(threshold)}) under "
+        f"{scenario}; nearest retained target "
+        f"{decimal_text(nearest.level.value)}: net reward "
+        f"{decimal_text(nearest_reward)} / net stop loss "
+        f"{decimal_text(nearest_loss)} = net R {decimal_text(nearest_ratio)} "
+        f"vs raw R {decimal_text(nearest.r_multiple)} (historical "
+        f"friction-adjusted R vs original risk {decimal_text(nearest_adj_r)})",
     )
 
 

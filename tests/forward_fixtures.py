@@ -23,6 +23,7 @@ from typing import Any
 from market_structure_fixtures import EPOCH, EXCHANGE, INTERVAL, SYMBOL, candle_at
 
 from trading_assistant.config import Settings
+from trading_assistant.costs import FrictionAssumptions
 from trading_assistant.forward_testing import (
     ForwardParameters,
     ForwardTestService,
@@ -50,6 +51,21 @@ QUALIFYING_BOUNDARY = EPOCH + 21 * INTERVAL
 
 #: Row index of the candle whose close is the qualifying boundary.
 QUALIFYING_INDEX = 20
+
+#: Explicit, non-zero hypothetical cost scenario used by every Step 12 test
+#: that builds a service without passing its own ``ForwardParameters``.
+#:
+#: The production default (and the zero scenario) deliberately *withholds*
+#: every paper plan as ``economic_viability_unverifiable``: a missing or zero
+#: fee assumption is never treated as proof that a trade is economically
+#: viable. Forward-pipeline tests exercise plan creation and resolution, so
+#: they pin a clearly stated non-zero scenario (1 bp fee, 1 bp adverse
+#: slippage on each side) that keeps the labelled fixture series PLANNABLE.
+DEFAULT_COST_SCENARIO = FrictionAssumptions(
+    fee_bps=D("1"),
+    entry_slippage_bps=D("1"),
+    exit_slippage_bps=D("1"),
+)
 
 
 def bar(
@@ -244,7 +260,13 @@ class RollingWindowExchange:
         return None
 
 
-def forward_settings(database_url: str, *, raw_dir: Path) -> Settings:
+def forward_settings(database_url: str, *, raw_dir: Path, **overrides) -> Settings:
+    """Settings for an isolated forward harness.
+
+    ``overrides`` are forwarded verbatim to ``Settings`` (e.g.
+    ``cost_fee_bps``) so a test can pin a non-default cost scenario.
+    """
+
     return Settings(
         _env_file=None,
         symbol=SYMBOL,
@@ -259,6 +281,7 @@ def forward_settings(database_url: str, *, raw_dir: Path) -> Settings:
         raw_data_dir=raw_dir,
         market_data_page_limit=1000,
         market_data_max_pages=50,
+        **overrides,
     )
 
 
@@ -370,7 +393,11 @@ def make_service(
         engine,
         settings=settings,
         clock=clock,
-        parameters=parameters,
+        parameters=(
+            parameters
+            if parameters is not None
+            else ForwardParameters(friction=DEFAULT_COST_SCENARIO)
+        ),
         runner_settings=(
             runner_settings
             if runner_settings is not None
@@ -604,6 +631,7 @@ def mirrored(candles: tuple) -> tuple:
 
 
 __all__ = [
+    "DEFAULT_COST_SCENARIO",
     "EPOCH",
     "Harness",
     "EXCHANGE",

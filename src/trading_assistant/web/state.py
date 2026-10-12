@@ -16,7 +16,7 @@ from sqlalchemy.engine import Engine
 from trading_assistant.ai_explanation import ExplanationService
 from trading_assistant.config import Settings, get_settings
 from trading_assistant.database import create_database_engine
-from trading_assistant.forward_testing import ForwardTestService
+from trading_assistant.forward_testing import ForwardParameters, ForwardTestService
 from trading_assistant.historical_validation import HistoricalValidationService
 from trading_assistant.journaling import JournalService
 from trading_assistant.market_data.repository import CandleRepository
@@ -61,10 +61,16 @@ class AppState:
         # without a market-data source on purpose: the web layer never downloads
         # candles and never runs the forward runner. Only the runner records
         # forward cycles; the dashboard only reads what was already recorded.
+        # The cost scenario from the shared settings rides along so the
+        # dashboard's live Step 6 plans (which reuse
+        # ``state.forward.planning_parameters``) are produced under exactly the
+        # cost assumptions the default forward runner plans with — the two
+        # surfaces cannot disagree about a plan's state.
         self.forward = ForwardTestService(
             engine,
             settings=self.settings,
             clock=self._clock,
+            parameters=ForwardParameters(friction=self.settings.cost_assumptions()),
             explanation_service=self.explanations,
         )
         # Step 13 read-only hierarchy evaluation over stored closed candles.

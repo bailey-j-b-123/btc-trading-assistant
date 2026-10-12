@@ -57,6 +57,10 @@ src/trading_assistant/
 │   ├── rules.py              Required gates and optional supporting evidence
 │   ├── engine.py             As-of lifecycle replay, invalidation and expiry
 │   └── service.py            Read-only composition of existing Step 2–4 APIs
+├── costs.py                  Shared declared cost scenarios (FrictionAssumptions)
+│                             and the shared cost model used by Steps 6/11/12:
+│                             net reward-to-risk (the Step 6 gate) and the
+│                             historical friction-adjusted R (Step 11/12 report)
 ├── trade_planning/           Deterministic read-only trade planning (Step 6)
 │   ├── models.py             Frozen plan states, traceable levels and results
 │   ├── parameters.py         Validated planning rules and versioned fingerprints
@@ -1106,7 +1110,7 @@ git diff --check
 
 Step 6 is the first planning layer in the pipeline and the last before statistics: it converts a *currently QUALIFIED* Step 5 candidate into a transparent, deterministic, read-only proposed trade plan — or into an explicit refusal. The whole project follows the same separation of concerns: *Software calculates → rules qualify → statistics validate → AI explains → Bailey decides → everything gets recorded.* Step 6 owns only the deterministic derivation of entry, invalidation, stop, targets and unit-neutral R metrics from already-recorded evidence; Step 7 records these plans and the decisions made about them without changing them. Step 8 now analyzes only the immutable Step 7 journal; Step 9 explains already-recorded evidence without ever altering or creating it; UI, decision support and execution remain unimplemented and out of scope.
 
-**PLANNABLE is not a recommendation.** A plan is a proposal whose every number traces to a frozen upstream fact; it asserts nothing about profitability, likelihood, or suitability, and it places nothing. There is no order construction, order submission, broker/exchange client, credential, secret, wallet/API-key handling, position or balance state, leverage, margin, funding, fee/slippage modelling, partial-fill or bracket-order support, trailing stop, P&L or account calculation anywhere in this layer.
+**PLANNABLE is not a recommendation.** A plan is a proposal whose every number traces to a frozen upstream fact; it asserts nothing about profitability, likelihood, or suitability, and it places nothing. There is no order construction, order submission, broker/exchange client, credential, secret, wallet/API-key handling, position or balance state, leverage, margin, funding, partial-fill or bracket-order support, trailing stop, P&L or account calculation anywhere in this layer. The single exception is the declared, *hypothetical* cost scenario consumed by the mandatory `economic_viability` rule (below): explicit scenario inputs for a viability gate, never a fill model, fee table, or any statement about realised costs.
 
 ### Inputs, API and consumption contract
 
@@ -1128,14 +1132,14 @@ The current actionable setup is the setup object inside the supplied, as-of-froz
 ### Plan states (exact)
 
 - `PLANNABLE` — a complete proposal was derived: entry, invalidation, protective stop, at least one target, positive `risk_per_unit`, and every planning rule passed.
-- `NO_PLAN` — not planable *from the available evidence*: the setup is absent or not currently QUALIFIED (`setup_not_in_snapshot`, `setup_not_qualified`), terminal (`terminal_source_setup`), stale (`stale_qualification`), or a required upstream input is missing/UNKNOWN (`seed_event_missing`, `confirmation_event_missing`, `current_close_unavailable`, `missing_plan_close`, `missing_confirmation_level`, `missing_reference_band`, `missing_atr_for_stop_buffer`, `no_valid_target_available`, `minimum_r_multiple_not_met`). Missing values are never invented and gaps are never inferred: the result lists every missing input path and marks dependent rules `PENDING`.
+- `NO_PLAN` — not planable *from the available evidence*: the setup is absent or not currently QUALIFIED (`setup_not_in_snapshot`, `setup_not_qualified`), terminal (`terminal_source_setup`), stale (`stale_qualification`), a required upstream input is missing/UNKNOWN (`seed_event_missing`, `confirmation_event_missing`, `current_close_unavailable`, `missing_plan_close`, `missing_confirmation_level`, `missing_reference_band`, `missing_atr_for_stop_buffer`, `no_valid_target_available`, `minimum_r_multiple_not_met`), or the mandatory economic-viability check refuses under the declared cost scenario (`economic_nonviability`: no retained target's net reward after the declared costs covers the mandatory multiple of the net stop loss after the same costs; `economic_viability_unverifiable`: no reliable non-zero cost scenario was provided — a missing or zero fee assumption is never treated as proof of viability, so the plan is withheld rather than certified). Missing values are never invented and gaps are never inferred: the result lists every missing input path and marks dependent rules `PENDING`.
 - `INVALID` — the setup's or evidence's own data contradicts the contract or safety boundary: identity/instrument/as_of mismatches (`instrument_mismatch`, `frame_snapshot_asof_mismatch`, `reference_id_mismatch`, `family_mismatch`, `direction_mismatch`, `setup_identity_mismatch`, `as_of_beyond_snapshot_horizon`), evidence known only after the cutoff (`future_evidence_used`), failed family re-verification (`frozen_range_evidence_missing`, `active_range_mismatch`, `range_followthrough_failed`), unusable numbers (`entry_level_not_usable`, `invalid_reference_band`, `entry_not_on_trade_side`, `range_entry_outside_frozen_bounds`), or plan-level safety breaches (`stop_non_positive`, `stop_not_beyond_entry`, `non_positive_risk`). A mandatory reward-to-risk floor that no structural target meets is a `NO_PLAN` (`minimum_r_multiple_not_met`), because there is no viable target — not a malformed plan.
 
 QUALIFIED never implies PLANNABLE: the refusal codes and their exact rule reasons are recorded even when nothing could be planned, and the first failed rule's code is reported as `state_detail`. `INVALID` outranks `NO_PLAN`; the evaluation never crashes on bad inputs.
 
-### The exact planning rules (`PLANNING_RULES_VERSION = "trade-planning-v2"`)
+### The exact planning rules (`PLANNING_RULES_VERSION = "trade-planning-v3"`)
 
-Fifteen named rules run in a fixed order — the mandatory `minimum_r_multiple` floor is always evaluated, never optional — and every outcome (passed/failed/pending with an exact reason string) is part of the result, so a decision can be audited later without re-running anything.
+Sixteen named rules run in a fixed order — the mandatory `minimum_r_multiple` floor and the mandatory `economic_viability` check are always evaluated (the latter is recorded `PENDING` only when the caller has in effect no cost scenario at all, i.e. `cost_assumptions is None`), never optional — and every outcome (passed/failed/pending with an exact reason string) is part of the result, so a decision can be audited later without re-running anything.
 
 1. `source_inputs_consistent` — the snapshot and frame agree on exchange/symbol/timeframe and on the single planning `as_of`, and the seed and confirmation events exist in the frame's frozen catalogs with the reference id the setup recorded.
 2. `setup_usable` — the setup is QUALIFIED, still current at `as_of`, non-terminal, its family/direction agree with the seed event, and no consumed evidence post-dates `as_of`.
@@ -1152,6 +1156,7 @@ Fifteen named rules run in a fixed order — the mandatory `minimum_r_multiple` 
 13. `positive_risk` — `risk_per_unit = quantize_derived(abs(entry - stop)) > 0` (`non_positive_risk`).
 14. `target_levels_valid` — at least one target survives the level rules below; targets on the wrong side or at the entry level are dropped with exact notes in `excluded_targets`, and if nothing usable remains the plan is refused as `NO_PLAN`/`no_valid_target_available`. Only genuine structural targets can be selected; a synthetic or R-derived level is never invented to rescue a structurally targetless trade.
 15. `minimum_r_multiple` (always evaluated) — the mandatory reward-to-risk floor. Every selected target must sit at or above `min_r_multiple` (default 1, and the configured value can never be lower than 1: the floor is policy, not a knob that can be switched off). Targets below the floor are excluded with the exact reason (`R 0.75000000 < minimum_r_multiple 1`) and a plan whose every structural target sits below the floor is refused as `NO_PLAN`/`minimum_r_multiple_not_met` — still refusing to squeeze the stop or the entry to manufacture reward. `preferred_r_multiple` (default 1.5) is classification only: it sets `preferred_r_multiple_met` on the result from the nearest retained target and never blocks a plan that clears the floor, so 1R–1.49R plans remain actionable.
+16. `economic_viability` (always evaluated when a cost scenario is in effect) — the mandatory **net reward-to-risk** viability check, run after rule 15 and only against targets that survived it (a plan already refused by the raw floor keeps that single reason). It compares **net potential reward after the declared costs against net potential loss at the stop after the same declared costs**, not just the raw R multiple: under the declared hypothetical scenario `cost_assumptions` the shared, versioned cost model (`trading_assistant.costs`) moves the entry and exit fills in the adverse direction and charges the two-sided fee on both fills, so a target passes only if its net reward after costs covers at least `min_cost_adjusted_r_multiple` (default 1, validated `>= 1`, same policy-not-knob rule as rule 15) times the net stop loss after costs. The net stop loss is strictly larger than the raw risk — a stop hit pays the same fees and adverse execution costs as any other exit — which is exactly why the check cannot be done against the raw risk or against the historical friction-adjusted R. That historical metric (`friction_adjusted_r_from_levels`: net reward normalised by the *original* cost-free risk, kept for Step 11/12 reporting) is still shown, clearly labelled, on every exclusion and on the pass reason, so the two are never conflated. Each failing target is excluded with its exact net numbers (`116: net reward 2.632020 / net stop loss 3.332010 = net R 0.78991960 < min_cost_adjusted_r_multiple 1 under scenario fee_bps=10, entry_slippage_bps=50, exit_slippage_bps=50 (historical friction-adjusted R vs original risk 1.31601000)` — note the historical value *above* 1 beside the net value *below* 1), and a plan with no remaining viable target is refused as `NO_PLAN`/`economic_nonviability`. The pass reason names the nearest *retained* target with that target's own net numbers (never the first evaluated target's). **A zero scenario is a gap, not a certification:** an explicit all-zero `FrictionAssumptions` refuses the plan as `NO_PLAN`/`economic_viability_unverifiable` with every target excluded by name, because a missing or zero fee assumption is never treated as proof that a trade is economically viable. `cost_assumptions is None` (no cost model in effect for this planning pass — the v2-equivalent default parameters) leaves the rule `PENDING`/not evaluated and the plan otherwise identical to v2; Step 12 always supplies a concrete scenario and never takes that path. No threshold from any audit is hard-coded: the scenario is caller-supplied, the floor is the documented 1R policy applied to the net ratio, and the scenario is versioned into the plan configuration fingerprint.
 
 ### Invalidation, stop and target derivation (exact)
 
@@ -1161,11 +1166,11 @@ Fifteen named rules run in a fixed order — the mandatory `minimum_r_multiple` 
 
 **Targets** are derived only from information known at `as_of`, and only from genuine structural levels — no R-derived, synthetic or fallback target exists anywhere. Structural candidates, in fixed sort order (distance, value, source id) with duplicates collapsed and unusable levels dropped with recorded reasons: range bounds recorded on the active frozen range (only for range setups — a setup's `active_range_id` must match its seed event's range, otherwise `active_range_mismatch`), then same-side confirmed structural references from the seed event's catalogs, then optional equal-level clusters (`step4_equal_level_cluster`, `include_equal_levels_as_targets`). A future swing or range is never a historical target: every candidate's confirmation must pre-date the cutoff or it is dropped with an exact `confirmed after planning as_of` note in `target_exclusions`/`excluded_targets`. Structural targets are capped at `max_structural_targets` (extra *known* levels are reported as excluded, never silently dropped), then the mandatory `minimum_r_multiple` floor filters them as described in rule 15. When no genuine structural target survives, the plan is refused as `NO_PLAN`/`no_valid_target_available` — the planner invents nothing and the stop is never tightened to turn a sub-1R structural level into an actionable trade. The same rule is enforced as an invariant test: any target whose source id resolves to a recorded event has that event's `confirmed_at < as_of`.
 
-**Risk and R** are unit-neutral distances only: `risk_per_unit = quantize_derived(abs(entry - stop))`; for each target, `reward = target - entry` for longs and `entry - target` for shorts (unquantized directional distance, always positive for accepted targets), and `R = quantize_derived(reward / risk)` at 8 places (`None` only in refusals). There is no position size, notional, quantity, account balance, equity, leverage, margin, fee, funding, P&L, or any other account-dependent calculation anywhere in the layer — enforced by tests that walk every JSON key and scan the planner source for forbidden tokens (`position_size`, `notional`, `quantity`, `leverage`, `balance`, `equity`, `pnl`, `margin`, `fee`, `funding`, `order`, `execution`, `submit`, `credential`, `secret`, `passphrase`, `api_key`) outside their negations.
+**Risk and R** are unit-neutral distances only: `risk_per_unit = quantize_derived(abs(entry - stop))`; for each target, `reward = target - entry` for longs and `entry - target` for shorts (unquantized directional distance, always positive for accepted targets), and `R = quantize_derived(reward / risk)` at 8 places (`None` only in refusals). The net reward / net stop loss / net ratio arithmetic of rule 16 (and the historical friction-adjusted R reported alongside it) is the layer's only cost arithmetic: a scenario calculation over the *proposed* levels under the declared hypothetical assumptions (the shared model in `trading_assistant.costs`), never a fill model or a realised-cost estimate. There is no position size, notional, quantity, account balance, equity, leverage, margin, funding, P&L, or any other account-dependent calculation anywhere in the layer — enforced by tests that walk every plan JSON key and scan the planner source for forbidden tokens.
 
 ### Configuration and identity
 
-`PlanningParameters` is a frozen, validated container (exact type/range checks on load; `ValueError` with stable message substrings, consistent with Steps 3–5): `stop_buffer_mode` (`none` default | `atr` | `percentage`), `stop_buffer_atr_multiple` (1, `> 0`), `stop_buffer_percentage` (0.1%, `> 0`, `< 100`), `max_structural_targets` (2, 1–10), `include_equal_levels_as_targets` (true), `min_r_multiple` (1, mandatory and never below the exported `MINIMUM_R_MULTIPLE_FLOOR` of 1; a stricter value such as 2 is allowed), `preferred_r_multiple` (1.5, `>= 1`; classification only, independent of the floor), and no entry-mode knob at all: the entry policy is fixed to the decision-time close. Its deterministic `config_fingerprint` (a SHA-256 over the canonical JSON projection, version-prefixed with `trade-planning-v2`) is recorded on every plan alongside the consumed snapshot's Step 5 fingerprint, so any configuration change is visible on previously planned setups. Changing any planning input — as_of, setup state, evidence, or config — deterministically changes the plan.
+`PlanningParameters` is a frozen, validated container (exact type/range checks on load; `ValueError` with stable message substrings, consistent with Steps 3–5): `stop_buffer_mode` (`none` default | `atr` | `percentage`), `stop_buffer_atr_multiple` (1, `> 0`), `stop_buffer_percentage` (0.1%, `> 0`, `< 100`), `max_structural_targets` (2, 1–10), `include_equal_levels_as_targets` (true), `min_r_multiple` (1, mandatory and never below the exported `MINIMUM_R_MULTIPLE_FLOOR` of 1; a stricter value such as 2 is allowed), `preferred_r_multiple` (1.5, `>= 1`; classification only, independent of the floor), `cost_assumptions` (a `FrictionAssumptions` scenario or `None`; each component `>= 0` and `< 10000` bps), `min_cost_adjusted_r_multiple` (1, `>= 1`; the mandatory floor on the net reward-to-net-stop-loss ratio of rule 16 — policy, not a switchable-off knob), and no entry-mode knob at all: the entry policy is fixed to the decision-time close. Its deterministic `config_fingerprint` (a SHA-256 over the canonical JSON projection, version-prefixed with `trade-planning-v3`) is recorded on every plan alongside the consumed snapshot's Step 5 fingerprint, so any configuration change — including a changed cost scenario — is visible on previously planned setups and keeps old and new planning cohorts distinguishable in stored records. Changing any planning input — as_of, setup state, evidence, or config — deterministically changes the plan.
 
 `TradePlanResult` is fully immutable (frozen dataclasses like Steps 3–5; attempts to replace plan fields, targets, or rule records raise `FrozenInstanceError`, and tampering with a `to_json_dict()` projection can never write back). The source snapshot, frame, and every consumed event are returned unmodified (proven by full JSON projections). Plan identity is the canonical `sha256` fingerprint over the *plan content*: same setup + same `as_of` + same config + same evidence ⇒ the same stable plan id and identical numbers (reproducible for backtesting later); different setup, side, mode, buffer, or config ⇒ different fingerprint. The Step 5 `setup_created_at` recorded on the plan is the seed event's confirmation time; the planning cutoff is recorded separately as `as_of`. `to_json_dict()` is the complete public representation: state, reasons, every level with its full traceability record (level id, value, source id/type, timeframe, observed/confirmed timestamps, source value, transformation), targets, risk/reward/R, rule outcomes, and both fingerprints.
 
@@ -1805,6 +1810,38 @@ within-cohort observation, positive R concentrated in one family or calendar
 period, configured-friction sensitivity, and development-to-out-of-sample raw-R
 deterioration visible. Warnings do not modify or tune the strategy.
 
+### Planning policy cohort (trade-planning-v3 consistency)
+
+Under `historical-validation-v2` (the current rules version), the Step 6
+planning path of a replay runs under an **explicit replay-policy cohort**
+selected by `ValidationConfig.replay_policy`, so a replay plan and a Step 12
+paper plan decided under the same declared costs are gate-consistent:
+
+* **`"economic_gate"` (default)** — the declared `friction` scenario is forced
+  into the planning parameters as `cost_assumptions`, exactly as Step 12
+  forces its declared friction: the same `economic_viability` rule, the same
+  scenario, so a target Step 12 refuses as `economic_nonviability` cannot
+  appear `PLANNABLE` in the replay, and vice versa. A zero scenario is a
+  declared zero scenario: it withholds every plan as
+  `economic_viability_unverifiable` and never certifies one, so the default
+  (zero-friction) replay reports refusals, not plans — declare a non-zero
+  friction to obtain gated plan records.
+* **`"unverified_v2_replay"`** — explicit opt-in to the pre-v3 planning
+  behaviour: `cost_assumptions` is forced to `None` (no cost model in effect;
+  `economic_viability` not evaluated). Those records form a **distinguishable
+  cohort** — the field is part of the config fingerprint, the report names it
+  in `strategy_versions` (`replay_policy_cohort`), warns
+  `unverified_planning_policy_replay`, and states in its limitations that the
+  cohort is **not comparable with gated forward decisions**.
+
+A caller-supplied `planning_parameters` object is used for every other field
+but never for the cost scenario: the replay's declared scenario (or the
+explicit `None` of the unverified cohort) always wins, mirroring Step 12.
+Reports derived under the pre-v2 rule regime and under v2 differ in rules
+version and fingerprints by construction; the version bump re-identifies
+nothing stored — validation reports are derived, non-persisted artifacts and
+no stored record is rewritten.
+
 ### Validation UI and API
 
 The Step 10 navigation has a read-only **Validation** page. It calls
@@ -2113,21 +2150,107 @@ every scored or unscored outcome states exactly which evidence decided it.
 
 ### Friction semantics
 
-Friction reuses the existing, versioned Step 11 `FrictionAssumptions`
+Friction reuses the shared, versioned `FrictionAssumptions`
 (`fee_bps` charged on both sides, plus adverse `entry_slippage_bps` and
-`exit_slippage_bps`). Reports keep two clearly separate quantities:
+`exit_slippage_bps`; the class moved from `historical_validation.parameters`
+to `trading_assistant.costs`, re-exported from the old path so every existing
+import keeps working, with the scenario fingerprint unchanged so no stored
+record is re-identified). One scenario now does two jobs in Step 12:
 
-* **raw observational R** — hypothetical R from clean, proved proposed-level
-  endpoints only, normalized by the proposed per-unit risk;
-* **friction-adjusted hypothetical R** — the same endpoints after the declared
-  two-sided cost scenario.
+* **it is the gate scenario** — the runner forces its declared friction into
+  the Step 6 planning parameters (`ForwardTestService.__init__`), so every
+  plan the runner considers is judged by the trade-planning-v3
+  `economic_viability` rule under exactly the scenario the run declares. A
+  plan refused as `economic_nonviability` records the exact refusal
+  (`NO TRADE — proposed trade is economically nonviable: ...`) on the
+  observation and creates no paper plan; a plan refused as
+  `economic_viability_unverifiable` records
+  `NO TRADE — no reliable (non-zero) cost assumptions were provided, ...`;
+* **it is the recorded friction** — the friction version/fingerprint in force
+  is stored on every paper plan it creates, and is therefore the identity of
+  the costs that gate actually used. The report keeps clearly separate
+  quantities, and the gate metric must never be conflated with the report
+  metric:
+  * **raw observational R** — hypothetical R from clean, proved proposed-level
+    endpoints only, normalized by the proposed per-unit risk;
+  * **friction-adjusted hypothetical R** (the historical Step 11/12 report
+    metric, `friction_adjusted_r_from_levels`) — net reward after the declared
+    two-sided cost scenario, normalised by the *original* (cost-free) per-unit
+    risk. It is strictly more optimistic than the gate metric because its
+    denominator ignores the costs a stop hit would itself pay;
+  * **net reward-to-risk** (the Step 6 `economic_viability` gate metric,
+    `friction_net_reward_to_risk`) — net reward after the declared costs
+    divided by net stop loss at the stop after the *same* declared costs.
+    The gate compares this, not the historical metric.
 
 Neither is realised P&L or profit. There is no position sizing, capital
 allocation, leverage, margin, liquidation, fill, or order model anywhere in
-Step 12. The friction version/fingerprint in force is stored on every paper plan,
-and the dashboard reuses the recorded assumptions when all stored plans agree on
-them so a different cost model cannot silently change an old observation's
-numbers.
+Step 12. The dashboard reuses the recorded assumptions when all stored plans
+agree on them so a different cost model cannot silently change an old
+observation's numbers.
+
+**Missing or zero cost assumptions are never treated as proof of viability.**
+The configured scenario defaults to zero on every component
+(`TRADING_ASSISTANT_COST_FEE_BPS` / `TRADING_ASSISTANT_COST_ENTRY_SLIPPAGE_BPS`
+/ `TRADING_ASSISTANT_COST_EXIT_SLIPPAGE_BPS`, see `.env.example`), and a zero
+scenario is a *gap*: Step 6 withholds the plan as
+`economic_viability_unverifiable` and Step 12 creates no paper trade until a
+non-zero scenario is stated (in the environment or via the run's friction
+flags). The runner's `--fee-bps` / `--entry-slippage-bps` /
+`--exit-slippage-bps` flags default to the configured scenario and override it
+for one run; a run with a different scenario records a different version
+fingerprint and forms its own, explicitly distinguishable trading cohort.
+
+#### Operator setup: declaring the cost scenario before (re)starting BRAIN
+
+Because a zero or missing cost scenario withholds every paper plan, the
+forward runner will create **zero** paper trades after a restart unless the
+operator has deliberately declared a non-zero cost scenario. That is the
+intended behaviour (a zero scenario is never treated as proof of viability),
+and the system never gets stuck silently: every withheld candidate is
+recorded with the full, explicit reason
+(`NO TRADE — no reliable (non-zero) cost assumptions were provided, ...`), so
+the operator always knows exactly why no plans are being created and what to
+configure.
+
+Before (re)starting the forward runner, do one of the following:
+
+1. **Shared configuration** — set non-zero values in the environment (or
+   `.env`): `TRADING_ASSISTANT_COST_FEE_BPS`,
+   `TRADING_ASSISTANT_COST_ENTRY_SLIPPAGE_BPS` and
+   `TRADING_ASSISTANT_COST_EXIT_SLIPPAGE_BPS`. The runner, the dashboard and
+   every future run then all use the same declared scenario, and no
+   runner/dashboard mismatch is possible.
+2. **Per-run CLI override** — start the runner with `--fee-bps`,
+   `--entry-slippage-bps` and `--exit-slippage-bps`. The values apply to that
+   run only; a run started this way records a different
+   `plan_config_fingerprint` cohort than runs started under the shared
+   configuration.
+
+The scenario is a *declared hypothetical* (scenario inputs for a
+deterministic viability gate), not a validated market fact: state it
+deliberately and say so, rather than guessing precision.
+
+**Checking the setup worked.** After a run, the ledger should show one of:
+
+* paper plans whose `friction_fingerprint` equals the fingerprint of the
+  scenario you declared (the scenario the gate actually used), or
+* only withheld observations, every one carrying the explicit
+  `NO TRADE — no reliable (non-zero) cost assumptions ...` reason — the
+  deliberate zero-scenario state, inspectable on every observation.
+
+There is no third, silent state: a run that cannot certify a plan records
+which of the two explicit reasons refused it.
+
+**Runner vs dashboard consistency.** The dashboard always plans with the
+shared configuration's scenario. When the forward runner was started under a
+*different* planning configuration (for example CLI fee/slippage overrides
+that differ from the shared configuration), the dashboard does **not**
+present its live plan and the runner's stored paper plan as the same
+decision: the planning payload carries an explicit
+`scenario_mismatch` note naming both `plan_config_fingerprint` values. If the
+two surfaces are meant to describe one decision, start the runner under the
+shared configuration (option 1).
 
 ### Live vs historical: never merged
 
@@ -2188,8 +2311,12 @@ starts when no history is stored; an instant that is not a candle open is moved
 when no history is stored and no `--backfill-start` is given, default 240),
 `--horizon-candles`, `--minimum-sample-size`,
 `--max-catch-up-candles`, `--fetch-max-attempts`,
-`--retry-backoff-seconds`, `--stop-after-errors`, and the three friction flags
-`--fee-bps`, `--entry-slippage-bps`, `--exit-slippage-bps`.
+`--retry-backoff-seconds`, `--stop-after-errors`, and the three cost-scenario
+flags `--fee-bps`, `--entry-slippage-bps`, `--exit-slippage-bps` (each
+overrides the configured `TRADING_ASSISTANT_COST_*` scenario for that run;
+the default scenario is zero on every component, which withholds paper plans
+as unverifiable rather than certifying them — see the friction semantics
+above).
 
 **First run on an empty database.** The runner seeds its own history: when no
 candle is stored for the instrument/timeframe and no `--backfill-start` was
@@ -2580,7 +2707,10 @@ never mixed):
   max ATR 10% of price; HTF alignment optional and off by default.
 - Step 6: entry at the decision-time close (fixed policy); no stop buffer;
   up to 2 structural targets plus equal levels; mandatory 1R floor with a
-  preferred 1.5R classification (no R-derived fallback target).
+  preferred 1.5R classification (no R-derived fallback target); mandatory
+  net reward-to-net-stop-loss viability gate (`economic_viability`,
+  trade-planning-v3) with a declared cost scenario — zero or missing scenario
+  withholds as unverifiable, it never certifies.
 - Step 8: minimum sample 30; 8 decimal places; quartiles.
 - Step 11: 30% out-of-sample fraction; 20-candle observation horizon;
   minimum sample 20; zero-fee/slippage default friction (explicitly labelled

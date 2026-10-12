@@ -1,9 +1,10 @@
 """Versioned, non-optimising controls for Step 11 historical validation.
 
 These controls govern *evaluation only*: chronological split boundaries,
-observation horizon, sample-reporting floor, and explicitly stated friction
-scenarios.  They intentionally contain no setup, pattern, qualification, or
-planning thresholds.  Those remain owned by Steps 3–6.
+observation horizon, sample-reporting floor, explicitly stated friction
+scenarios, and the replay policy cohort for the Step 6 planning path.  They
+intentionally contain no setup, pattern, qualification, or planning
+thresholds.  Those remain owned by Steps 3–6.
 """
 
 from __future__ import annotations
@@ -14,11 +15,29 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from hashlib import sha256
 
+from trading_assistant.costs import (
+    FRICTION_ASSUMPTIONS_VERSION,  # noqa: F401  (re-exported import path)
+    FrictionAssumptions,  # noqa: F401  (re-exported import path)
+)
 from trading_assistant.market_structure.numeric import as_decimal, require_int
 from trading_assistant.market_structure.snapshot import to_jsonable
 
-HISTORICAL_VALIDATION_RULES_VERSION = "historical-validation-v1"
-FRICTION_ASSUMPTIONS_VERSION = "validation-friction-v1"
+# v2 (trade-planning-v3 consistency): the Step 6 planning path of a replay now
+# runs under the declared friction scenario by default — a declared non-zero
+# scenario gates the replay with the same rule and scenario the forward path
+# certifies paper plans under (pre-v2 reports ignored the declared scenario
+# entirely), while an all-zero scenario declares no costs and runs the pre-v3
+# planning pass without certifying anything. The pre-v3 behaviour under a
+# non-zero scenario remains available only as the explicit
+# ``unverified_v2_replay`` cohort below; the fingerprints of the rule regimes
+# and cohorts differ by construction.
+HISTORICAL_VALIDATION_RULES_VERSION = "historical-validation-v2"
+
+#: Replay policy cohorts for the Step 6 planning path (see
+#: ``ValidationConfig.replay_policy``).
+REPLAY_POLICY_ECONOMIC_GATE = "economic_gate"
+REPLAY_POLICY_UNVERIFIED_V2 = "unverified_v2_replay"
+REPLAY_POLICIES = (REPLAY_POLICY_ECONOMIC_GATE, REPLAY_POLICY_UNVERIFIED_V2)
 
 
 def fingerprint(*parts: object) -> str:
@@ -34,35 +53,6 @@ def _utc(value: datetime, *, field_name: str) -> datetime:
     if not isinstance(value, datetime) or value.tzinfo is None:
         raise ValueError(f"{field_name} must be timezone-aware UTC")
     return value.astimezone(UTC)
-
-
-@dataclass(frozen=True, slots=True)
-class FrictionAssumptions:
-    """Explicit hypothetical per-unit friction assumptions in basis points.
-
-    ``fee_bps`` applies at both the proposed entry and the observed terminal
-    level. Entry/exit slippage move fills in the adverse direction.  The model
-    is deliberately limited to a scenario analysis; it does not assert that an
-    order was submitted, filled, sized, leveraged, or profitable.
-    """
-
-    version: str = FRICTION_ASSUMPTIONS_VERSION
-    fee_bps: Decimal = Decimal(0)
-    entry_slippage_bps: Decimal = Decimal(0)
-    exit_slippage_bps: Decimal = Decimal(0)
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.version, str) or not self.version.strip():
-            raise ValueError("friction version must be a non-empty string")
-        object.__setattr__(self, "version", self.version.strip())
-        for name in ("fee_bps", "entry_slippage_bps", "exit_slippage_bps"):
-            value = as_decimal(getattr(self, name), name=name)
-            if value < 0 or value >= Decimal(10_000):
-                raise ValueError(f"{name} must be >= 0 and < 10000 basis points")
-            object.__setattr__(self, name, value.normalize() if value else Decimal(0))
-
-    def fingerprint(self) -> str:
-        return fingerprint("friction-assumptions", self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +101,24 @@ class ValidationConfig:
     report fingerprint and the resolved timestamps are always reported.  An
     explicit split is preferred for formal research and is never adjusted from
     outcome results.
+
+    ``replay_policy`` selects the Step 6 planning cohort of the replay:
+
+    * ``"economic_gate"`` (default) — a declared *non-zero* ``friction``
+      scenario is forced into the planning parameters, exactly as the forward
+      path does (trade-planning-v3): the gate and the reported friction share
+      one scenario, so a replay plan and a forward paper plan decided under
+      the same declared costs are gate-consistent.  An all-zero ``friction``
+      declares no costs, so the gate is not evaluated and the replay runs the
+      pre-v3 planning pass: a replay record is a diagnostic of the planning
+      pipeline, never a certification (the forward path withholds every paper
+      plan under the same zero scenario).
+    * ``"unverified_v2_replay"`` — explicit opt-in to the pre-v3 planning
+      behaviour under *any* declared scenario (no cost model in effect;
+      ``economic_viability`` not evaluated).  Those records form a
+      *distinguishable* cohort (this field is part of the config fingerprint
+      and the report's provenance) that must never be compared with gated
+      forward decisions.
     """
 
     split: ChronologicalSplit | None = None
@@ -118,6 +126,7 @@ class ValidationConfig:
     observation_horizon_candles: int = 20
     minimum_sample_size: int = 20
     friction: FrictionAssumptions = FrictionAssumptions()
+    replay_policy: str = REPLAY_POLICY_ECONOMIC_GATE
 
     def __post_init__(self) -> None:
         if self.split is not None and not isinstance(self.split, ChronologicalSplit):
@@ -142,6 +151,10 @@ class ValidationConfig:
         )
         if not isinstance(self.friction, FrictionAssumptions):
             raise TypeError("friction must be FrictionAssumptions")
+        if self.replay_policy not in REPLAY_POLICIES:
+            raise ValueError(
+                "replay_policy must be one of: " + ", ".join(REPLAY_POLICIES)
+            )
 
     def fingerprint(self) -> str:
         return fingerprint("validation-config", self)

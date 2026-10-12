@@ -16,6 +16,7 @@ from decimal import Decimal as D
 from types import SimpleNamespace
 
 from forward_fixtures import (
+    DEFAULT_COST_SCENARIO,
     EPOCH,
     INTERVAL,
     QUALIFYING_BOUNDARY,
@@ -122,7 +123,9 @@ def _seeded(*, horizon: int = HORIZON, extra=()):
     harness = make_harness(
         series=labelled_series() + tuple(extra),
         ledger_start=QUALIFYING_BOUNDARY,
-        parameters=ForwardParameters(observation_horizon_candles=horizon),
+        parameters=ForwardParameters(
+            observation_horizon_candles=horizon, friction=DEFAULT_COST_SCENARIO
+        ),
     )
     harness.advance_to(QUALIFYING_BOUNDARY)
     result = harness.run(refresh_market_data=False)
@@ -131,17 +134,17 @@ def _seeded(*, horizon: int = HORIZON, extra=()):
     return harness
 
 
-def test_new_paper_plans_stamp_ledger_v3_and_planning_v2() -> None:
+def test_new_paper_plans_stamp_ledger_v3_and_planning_v3() -> None:
     harness = _seeded()
     plan = harness.plans()[0]
     assert FORWARD_LEDGER_RULES_VERSION == "forward-ledger-v3"
     assert plan.ledger_rules_version == "forward-ledger-v3"
-    assert plan.planning_rules_version == PLANNING_RULES_VERSION == "trade-planning-v2"
+    assert plan.planning_rules_version == PLANNING_RULES_VERSION == "trade-planning-v3"
     assert plan.target_r_multiples
     assert max(value for value in plan.target_r_multiples if value is not None) >= 1
     dict_versions = dict(plan.strategy_versions)
     assert dict_versions["forward_ledger_rules"] == "forward-ledger-v3"
-    assert dict_versions["trade_planning_rules"] == "trade-planning-v2"
+    assert dict_versions["trade_planning_rules"] == "trade-planning-v3"
 
 
 def test_two_qualified_setups_at_the_same_close_create_at_most_one_paper_plan() -> None:
@@ -286,7 +289,9 @@ def test_phase2_end_to_end_one_plan_ambiguous_no_second_trade() -> None:
     harness = make_harness(
         series=labelled_series(),
         ledger_start=QUALIFYING_BOUNDARY,
-        parameters=ForwardParameters(observation_horizon_candles=HORIZON),
+        parameters=ForwardParameters(
+            observation_horizon_candles=HORIZON, friction=DEFAULT_COST_SCENARIO
+        ),
     )
     harness.advance_to(QUALIFYING_BOUNDARY)
     result = harness.run(refresh_market_data=False)
@@ -294,7 +299,7 @@ def test_phase2_end_to_end_one_plan_ambiguous_no_second_trade() -> None:
     assert result.paper_plans_created == 1
     plan = harness.plans()[0]
     assert plan.ledger_rules_version == "forward-ledger-v3"
-    assert plan.planning_rules_version == "trade-planning-v2"
+    assert plan.planning_rules_version == "trade-planning-v3"
     assert max(value for value in plan.target_r_multiples if value is not None) >= D(
         "1.2"
     )

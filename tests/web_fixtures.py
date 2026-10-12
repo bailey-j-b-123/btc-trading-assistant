@@ -104,7 +104,22 @@ def migrated_engine(
 
 
 def make_settings(database_url: str, **overrides) -> Settings:
+    """Settings for isolated web/app tests.
+
+    ``overrides`` are forwarded verbatim to ``Settings``. The cost-scenario
+    defaults below are explicit and non-zero ON PURPOSE: the production
+    default (all zero) is "no reliable cost assumptions" and the v3
+    economic-viability gate withholds every plan under it. These tests
+    exercise journaling, statistics, and dashboard behaviour, not the
+    withholding policy (covered by the dedicated economic-viability tests),
+    so they pin a clearly stated 1 bp fee / 1 bp per-side slippage
+    scenario instead.
+    """
+
     overrides.setdefault("exchange", "binance")
+    overrides.setdefault("cost_fee_bps", "1")
+    overrides.setdefault("cost_entry_slippage_bps", "1")
+    overrides.setdefault("cost_exit_slippage_bps", "1")
     return Settings(_env_file=None, symbol=SYMBOL, database_url=database_url, **overrides)
 
 

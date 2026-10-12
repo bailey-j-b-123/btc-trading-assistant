@@ -22,7 +22,16 @@ from trading_assistant.market_data.repository import CandleRepository
 
 
 def binance_settings(database_url: str) -> Settings:
-    return Settings(_env_file=None, symbol=SYMBOL, database_url=database_url)
+    # Explicit non-zero cost scenario (see web_fixtures.make_settings): the
+    # production zero default withholds every plan as unverifiable.
+    return Settings(
+        _env_file=None,
+        symbol=SYMBOL,
+        database_url=database_url,
+        cost_fee_bps="1",
+        cost_entry_slippage_bps="1",
+        cost_exit_slippage_bps="1",
+    )
 
 
 def binance_qualifying_candles():

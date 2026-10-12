@@ -508,7 +508,14 @@ def test_continuation_long_and_short_plannable(mirror):
     assert target.r_multiple == D("2.00000000")
     assert plan.direction == ("bullish" if not mirror else "bearish")
     assert plan.family is SetupFamily.BREAKOUT_RETEST
-    assert {r.outcome for r in plan.rules} == {RuleOutcome.PASS}
+    # v2-equivalent default (no cost scenario in effect): every rule passes and
+    # the new economic_viability rule is recorded PENDING, not evaluated.
+    assert {
+        r.outcome for r in plan.rules if r.rule_id != "economic_viability"
+    } == {RuleOutcome.PASS}
+    assert next(
+        r for r in plan.rules if r.rule_id == "economic_viability"
+    ).outcome is RuleOutcome.PENDING
     assert [r.rule_id for r in plan.rules] == list(BASE_RULES)
     if mirror:
         assert plan.stop.value > plan.entry.value  # short stop above entry
@@ -1444,7 +1451,7 @@ def test_plan_identity_is_stable_and_config_bound():
     assert alt.entry.value == first.entry.value
     assert first.config_fingerprint != alt.config_fingerprint
     assert first.setup_config_fingerprint == snapshot.config_fingerprint
-    assert first.planning_rules_version == "trade-planning-v2"
+    assert first.planning_rules_version == "trade-planning-v3"
 
 
 def test_full_rebuild_reproduces_identical_plan():
@@ -1730,7 +1737,7 @@ def test_json_projection_is_serializable_and_detached():
     assert payload["targets"][0]["r_multiple"] == "2.00000000"
     assert payload["reasons"] == []
     assert payload["state_detail"] is None
-    assert payload["planning_rules_version"] == "trade-planning-v2"
+    assert payload["planning_rules_version"] == "trade-planning-v3"
     for rule in payload["rules"]:
         assert rule["outcome"] in {"passed", "failed", "pending"}
         assert re.fullmatch(r"[a-z0-9_]+", rule["rule_id"])
