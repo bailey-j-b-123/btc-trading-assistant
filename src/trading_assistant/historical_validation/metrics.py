@@ -21,6 +21,7 @@ from collections import Counter
 from collections.abc import Iterable, Sequence
 from decimal import Decimal
 
+from trading_assistant.costs import friction_adjusted_r_from_levels
 from trading_assistant.historical_validation.models import (
     MetricStatus,
     RateMetric,
@@ -209,22 +210,19 @@ def friction_adjusted_r(
     This is a scenario calculation over observational levels only. It models no
     size, no account, no leverage, no margin, no fill probability and no
     realised profit.
+
+    Delegates to the shared cost model in ``trading_assistant.costs`` (the same
+    implementation the Step 6 economic-viability rule uses), so historical and
+    planning numbers are one definition rather than two copies.
     """
 
-    scale = Decimal(10_000)
-    entry_slippage = assumptions.entry_slippage_bps / scale
-    exit_slippage = assumptions.exit_slippage_bps / scale
-    fee_rate = assumptions.fee_bps / scale
-    if observation.direction == "bullish":
-        entry = observation.entry_level * (Decimal(1) + entry_slippage)
-        exit_price = endpoint * (Decimal(1) - exit_slippage)
-        gross = exit_price - entry
-    else:
-        entry = observation.entry_level * (Decimal(1) - entry_slippage)
-        exit_price = endpoint * (Decimal(1) + exit_slippage)
-        gross = entry - exit_price
-    fees = (entry + exit_price) * fee_rate
-    return quantize_derived((gross - fees) / observation.risk_per_unit)
+    return friction_adjusted_r_from_levels(
+        entry=observation.entry_level,
+        exit_level=endpoint,
+        risk_per_unit=observation.risk_per_unit,
+        direction=observation.direction,
+        assumptions=assumptions,
+    )
 
 
 def r_values(

@@ -14,6 +14,32 @@ The reward-to-risk floor is policy, not preference:
 * ``preferred_r_multiple`` (default 1.5) classifies a plan whose nearest
   retained structural target already reaches the preferred distance. It never
   blocks anything: a plan at exactly 1R is fully actionable.
+
+v3 (``trade-planning-v3``) adds the mandatory ``economic_viability`` rule. It
+compares the *cost-adjusted* reward against the proposed risk, not just the raw
+R multiple, under an explicit hypothetical cost scenario
+(``cost_assumptions``, the shared :class:`trading_assistant.costs.
+FrictionAssumptions`):
+
+* ``cost_assumptions is None`` — no cost model is in effect for this planning
+  pass; the rule is recorded PENDING ("not evaluated") and the plan behaves
+  exactly as under v2. Paper-trade creation (Step 12) never takes this path:
+  it always supplies the concrete scenario it records on the paper plan.
+* ``cost_assumptions`` is a *zero* scenario — a zero-fee, zero-slippage
+  scenario states no costs and is never treated as proof that the market has
+  none. The plan is refused as NO_PLAN
+  (``economic_viability_unverifiable``); the levels are reported, never
+  certified.
+* ``cost_assumptions`` is non-zero — every retained structural target must
+  reach ``min_cost_adjusted_r_multiple`` (default 1, never configurable below
+  1, mirroring ``min_r_multiple``) *after* the declared fees and adverse
+  slippage. Targets below the cost-adjusted floor are excluded with their exact
+  numbers; a plan with no remaining viable target is refused as NO_PLAN
+  (``economic_nonviability``).
+
+No basis-point or ATR thresholds from any proposal are hard-coded: the only
+floor is the same 1R policy already mandatory on raw reward, applied to the
+cost-adjusted reward.
 """
 
 import json
@@ -22,10 +48,11 @@ from decimal import Decimal
 from enum import StrEnum
 from hashlib import sha256
 
+from trading_assistant.costs import FrictionAssumptions
 from trading_assistant.market_structure.numeric import as_decimal, require_int
 from trading_assistant.market_structure.snapshot import to_jsonable
 
-PLANNING_RULES_VERSION = "trade-planning-v2"
+PLANNING_RULES_VERSION = "trade-planning-v3"
 
 #: Target lists longer than this add no planning value; keep identities bounded.
 MAX_TARGETS_LIMIT = 10
@@ -90,6 +117,17 @@ class PlanningParameters:
     include_equal_levels_as_targets: bool = True
     min_r_multiple: Decimal = MINIMUM_R_MULTIPLE_FLOOR
     preferred_r_multiple: Decimal = Decimal("1.5")
+    #: Explicit hypothetical cost scenario for the ``economic_viability`` rule.
+    #: ``None`` (the bare default) means no cost model is in effect for this
+    #: planning pass and the rule is not evaluated; a zero scenario is explicit
+    #: but unverifiable (it withholds the plan); a non-zero scenario gates every
+    #: retained target on the cost-adjusted floor below.
+    cost_assumptions: FrictionAssumptions | None = None
+    #: Mandatory floor on the *cost-adjusted* R multiple. Policy constant, not
+    #: a tuneable preference: a plan whose best target offers less than 1x the
+    #: proposed risk after the declared costs is economically nonviable and can
+    #: never become actionable. A stricter value only tightens the gate.
+    min_cost_adjusted_r_multiple: Decimal = MINIMUM_R_MULTIPLE_FLOOR
 
     def __post_init__(self) -> None:
         for name, enum_type in (("stop_buffer_mode", StopBufferMode),):
@@ -147,6 +185,25 @@ class PlanningParameters:
             )
         object.__setattr__(
             self, "preferred_r_multiple", canonical_decimal(preferred)
+        )
+        if (
+            self.cost_assumptions is not None
+            and not isinstance(self.cost_assumptions, FrictionAssumptions)
+        ):
+            raise TypeError("cost_assumptions must be FrictionAssumptions or None")
+        cost_floor = as_decimal(
+            self.min_cost_adjusted_r_multiple,
+            name="min_cost_adjusted_r_multiple",
+        )
+        if cost_floor < MINIMUM_R_MULTIPLE_FLOOR:
+            raise ValueError(
+                "min_cost_adjusted_r_multiple must be >= 1: a trade whose best "
+                "target does not cover the proposed risk after the declared "
+                "costs can never be certified economically viable (a stricter "
+                "value is allowed)"
+            )
+        object.__setattr__(
+            self, "min_cost_adjusted_r_multiple", canonical_decimal(cost_floor)
         )
 
     def fingerprint(self) -> str:

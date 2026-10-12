@@ -23,6 +23,7 @@ from types import SimpleNamespace
 import pytest
 
 from forward_fixtures import (
+    DEFAULT_COST_SCENARIO,
     EPOCH,
     INTERVAL,
     QUALIFYING_BOUNDARY,
@@ -62,7 +63,10 @@ def make_resolution_harness(series=None, **kwargs):
     kwargs.setdefault("series", series if series is not None else labelled_series())
     kwargs.setdefault("ledger_start", QUALIFYING_BOUNDARY)
     kwargs.setdefault(
-        "parameters", ForwardParameters(observation_horizon_candles=HORIZON)
+        "parameters",
+        ForwardParameters(
+            observation_horizon_candles=HORIZON, friction=DEFAULT_COST_SCENARIO
+        ),
     )
     harness = make_harness(**kwargs)
     harness.advance_to(QUALIFYING_BOUNDARY)
@@ -238,7 +242,9 @@ def test_late_evidence_appends_a_superseding_version_without_rewriting() -> None
 
 def test_same_window_recheck_waits_for_evidence_until_it_arrives() -> None:
     harness = make_resolution_harness(
-        parameters=ForwardParameters(observation_horizon_candles=1)
+        parameters=ForwardParameters(
+            observation_horizon_candles=1, friction=DEFAULT_COST_SCENARIO
+        )
     )
     plan = harness.plans()[0]
     candle, minutes = ambiguous_candle_and_resolving_minutes()

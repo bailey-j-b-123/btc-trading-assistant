@@ -127,13 +127,21 @@ def test_qualified_renders_with_exact_plan_levels(qualified_client):
         assert "not a stored hierarchy decision" in payload["multi_timeframe"]["evaluation_note"]
 
     # Independent recomputation through Step 6 with the same deterministic
-    # services: the API must not reshape or recompute any level.
+    # services: the API must not reshape or recompute any level. The
+    # dashboard plans with the forward service's planning parameters (the
+    # declared cost scenario included), so the comparison must use the same
+    # parameters to stay a true identity check.
     state = qualified_client.app.state.services
     service = DashboardService(state)
     snapshot, frame_, _frames = service._evaluate(
         exchange="binance", symbol=SYMBOL, timeframe="1h", as_of=qualified_clock()
     )
-    expected = plan_trade(snapshot=snapshot, frame=frame_, setup_id=selected)
+    expected = plan_trade(
+        snapshot=snapshot,
+        frame=frame_,
+        setup_id=selected,
+        parameters=state.forward.planning_parameters,
+    )
     assert plan == expected.to_json_dict(), (
         "dashboard plan must equal Step 6 output exactly"
     )

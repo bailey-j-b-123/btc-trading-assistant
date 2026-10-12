@@ -242,7 +242,18 @@ class DashboardService:
             and window_gate is None
             and provenance_gate is None
         ):
-            plan = plan_trade(snapshot=snapshot, frame=frame, setup_id=selected.id)
+            # The exact planning configuration the forward runner plans with
+            # (trade-planning-v3 plus the configured cost scenario), so the
+            # dashboard can never show a proposal state the runner would not
+            # record — a plan the dashboard displays as PLANNABLE is a plan the
+            # runner would freeze, and an economic refusal shows the same
+            # machine-readable reason both surfaces record.
+            plan = plan_trade(
+                snapshot=snapshot,
+                frame=frame,
+                setup_id=selected.id,
+                parameters=state.forward.planning_parameters,
+            )
             planning_payload = {
                 "state": plan.state.value,
                 "reasons": list(plan.reasons),
@@ -798,7 +809,15 @@ class DashboardService:
                 f"planning withheld: {provenance.reason_for(selected)} — no plan "
                 "is produced and no decision is accepted at this close",
             )
-        plan = plan_trade(snapshot=snapshot, frame=frame, setup_id=setup_id)
+        # Same planning configuration as the live proposal above (and the
+        # forward runner): the journaled plan must be the plan that was
+        # displayed, including the economic-viability verdict.
+        plan = plan_trade(
+            snapshot=snapshot,
+            frame=frame,
+            setup_id=setup_id,
+            parameters=state.forward.planning_parameters,
+        )
         if plan.state is not PlanState.PLANNABLE:
             raise DashboardError(
                 "proposal_not_decidable",

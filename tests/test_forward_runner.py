@@ -22,6 +22,7 @@ from forward_fixtures import (
     TIMEFRAME,
     bar,
     clock_at,
+    forward_settings,
     labelled_series,
     make_harness,
 )
@@ -34,6 +35,7 @@ from trading_assistant.forward_testing import (
     format_status,
     run_single_pass,
 )
+from trading_assistant.costs import FrictionAssumptions
 from trading_assistant.forward_testing import __main__ as cli
 from trading_assistant.forward_testing.tables import ForwardRunnerHeartbeatRow
 
@@ -430,12 +432,30 @@ def test_cli_exposes_no_execution_or_credential_flags() -> None:
     assert parsed.no_refresh is True
 
 
-def test_cli_parameters_and_report_limitations_are_versioned() -> None:
+def test_cli_parameters_and_report_limitations_are_versioned(tmp_path) -> None:
     parser = cli.build_parser()
+    settings = forward_settings("sqlite://", raw_dir=tmp_path / "raw")
+    # An explicit flag wins over the configured cost scenario.
     parsed = parser.parse_args(["run", "--once", "--no-refresh", "--fee-bps", "12"])
-    parameters = cli._parameters(parsed)  # noqa: SLF001
+    parameters = cli._parameters(parsed, settings)  # noqa: SLF001
     assert parameters.friction.fee_bps == D("12")
     assert parameters.friction.fingerprint()
+    # Without flags the run inherits the configured scenario (zero by
+    # default: withhold, not certify — a non-zero setting must flow through).
+    bare = cli._parameters(parser.parse_args(["run"]), settings)  # noqa: SLF001
+    assert bare.friction.fee_bps == settings.cost_fee_bps == D("0")
+    assert bare.friction.is_zero
+    configured = forward_settings(
+        "sqlite://",
+        raw_dir=tmp_path / "raw",
+        cost_fee_bps="7",
+        cost_entry_slippage_bps="2",
+        cost_exit_slippage_bps="3",
+    )
+    inherited = cli._parameters(parser.parse_args(["run"]), configured)  # noqa: SLF001
+    assert inherited.friction == FrictionAssumptions(
+        fee_bps=D("7"), entry_slippage_bps=D("2"), exit_slippage_bps=D("3")
+    )
     assert any(
         "do not establish future profitability" in limitation
         for limitation in FORWARD_REPORT_LIMITATIONS

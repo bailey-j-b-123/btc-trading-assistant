@@ -14,11 +14,14 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from hashlib import sha256
 
+from trading_assistant.costs import (
+    FRICTION_ASSUMPTIONS_VERSION,  # noqa: F401  (re-exported import path)
+    FrictionAssumptions,  # noqa: F401  (re-exported import path)
+)
 from trading_assistant.market_structure.numeric import as_decimal, require_int
 from trading_assistant.market_structure.snapshot import to_jsonable
 
 HISTORICAL_VALIDATION_RULES_VERSION = "historical-validation-v1"
-FRICTION_ASSUMPTIONS_VERSION = "validation-friction-v1"
 
 
 def fingerprint(*parts: object) -> str:
@@ -34,35 +37,6 @@ def _utc(value: datetime, *, field_name: str) -> datetime:
     if not isinstance(value, datetime) or value.tzinfo is None:
         raise ValueError(f"{field_name} must be timezone-aware UTC")
     return value.astimezone(UTC)
-
-
-@dataclass(frozen=True, slots=True)
-class FrictionAssumptions:
-    """Explicit hypothetical per-unit friction assumptions in basis points.
-
-    ``fee_bps`` applies at both the proposed entry and the observed terminal
-    level. Entry/exit slippage move fills in the adverse direction.  The model
-    is deliberately limited to a scenario analysis; it does not assert that an
-    order was submitted, filled, sized, leveraged, or profitable.
-    """
-
-    version: str = FRICTION_ASSUMPTIONS_VERSION
-    fee_bps: Decimal = Decimal(0)
-    entry_slippage_bps: Decimal = Decimal(0)
-    exit_slippage_bps: Decimal = Decimal(0)
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.version, str) or not self.version.strip():
-            raise ValueError("friction version must be a non-empty string")
-        object.__setattr__(self, "version", self.version.strip())
-        for name in ("fee_bps", "entry_slippage_bps", "exit_slippage_bps"):
-            value = as_decimal(getattr(self, name), name=name)
-            if value < 0 or value >= Decimal(10_000):
-                raise ValueError(f"{name} must be >= 0 and < 10000 basis points")
-            object.__setattr__(self, name, value.normalize() if value else Decimal(0))
-
-    def fingerprint(self) -> str:
-        return fingerprint("friction-assumptions", self)
 
 
 @dataclass(frozen=True, slots=True)

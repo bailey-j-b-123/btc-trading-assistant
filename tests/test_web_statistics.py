@@ -64,11 +64,28 @@ def _journal_accepted_proposal(client):
     return response.json()["journal_id"]
 
 
-def _seed_bearish_rejected(engine):
+def _planning_parameters(client):
+    """The app's Step 6 planning parameters (declared cost scenario included).
+
+    Journal records seeded independently of the dashboard must be planned
+    under the SAME parameters or they form a separate planning cohort: the
+    statistics API refuses to pool incompatible Step 5/6/7 rule versions in a
+    pooled ``overall`` section.
+    """
+
+    return client.app.state.services.forward.planning_parameters
+
+
+def _seed_bearish_rejected(engine, client):
     """Journal an independent in-memory bearish proposal and reject it."""
 
     snapshot, frame_, setup = qualified(mirror=True)
-    plan = plan_trade(snapshot=snapshot, frame=frame_, setup_id=setup.id)
+    plan = plan_trade(
+        snapshot=snapshot,
+        frame=frame_,
+        setup_id=setup.id,
+        parameters=_planning_parameters(client),
+    )
     service = JournalService(engine)
     record = service.journal_plan(snapshot=snapshot, plan=plan)
     service.record_decision(
@@ -125,7 +142,7 @@ def test_empty_journal_is_insufficient_and_impossible_to_miss(tmp_path):
 def test_sufficient_state_denominators_and_counts(seeded):
     engine, client = seeded
     accepted_id = _journal_accepted_proposal(client)
-    _seed_bearish_rejected(engine)
+    _seed_bearish_rejected(engine, client)
     _observe_accepted(engine, accepted_id)
 
     report = client.get("/api/statistics", params={"as_of": STATS_AS_OF}).json()
@@ -163,7 +180,7 @@ def test_sufficient_state_denominators_and_counts(seeded):
 def test_observational_metrics_never_labelled_realised(seeded):
     engine, client = seeded
     accepted_id = _journal_accepted_proposal(client)
-    _seed_bearish_rejected(engine)
+    _seed_bearish_rejected(engine, client)
     _observe_accepted(engine, accepted_id)
 
     report = client.get("/api/statistics", params={"as_of": STATS_AS_OF}).json()
@@ -215,7 +232,7 @@ def test_ambiguous_and_incomplete_counts_visible_with_gap_data(seeded):
 def test_group_by_setup_family_and_direction(seeded):
     engine, client = seeded
     _journal_accepted_proposal(client)
-    _seed_bearish_rejected(engine)
+    _seed_bearish_rejected(engine, client)
 
     grouped = client.get(
         "/api/statistics", params={"as_of": STATS_AS_OF, "group_by": "direction"}
@@ -232,7 +249,7 @@ def test_group_by_setup_family_and_direction(seeded):
 def test_filter_by_decision_state(seeded):
     engine, client = seeded
     _journal_accepted_proposal(client)
-    _seed_bearish_rejected(engine)
+    _seed_bearish_rejected(engine, client)
 
     filtered = client.get(
         "/api/statistics",

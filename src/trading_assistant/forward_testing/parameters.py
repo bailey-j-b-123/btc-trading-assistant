@@ -80,6 +80,35 @@ REFERENCE_PROVENANCE_REASON = (
     "(warm-up incomplete); planning withheld."
 )
 
+#: Recorded on a candidate observation whose Step 6 plan (trade-planning-v3)
+#: was refused by the mandatory economic-viability check: under the explicit
+#: hypothetical cost scenario the plan was judged with, no retained structural
+#: target reaches the mandatory cost-adjusted reward-to-risk floor. The
+#: proposed entry/stop/target were economically unrealistic after trading
+#: costs (the exact per-target cost-adjusted R values are stored on the plan
+#: in ``plan_json``/``excluded_targets``), so no paper trade is created. The
+#: candidate is still recorded and still monitored.
+ECONOMIC_NONVIABILITY_REASON = (
+    "NO TRADE — proposed trade is economically nonviable: after the explicit "
+    "hypothetical fees and adverse execution costs, no remaining structural "
+    "target reaches the mandatory cost-adjusted reward-to-risk floor "
+    "(planning reason: economic_nonviability)."
+)
+
+#: Recorded on a candidate observation whose Step 6 plan (trade-planning-v3)
+#: was refused because no reliable (non-zero) cost assumptions were provided:
+#: a missing or zero fee assumption is never treated as proof that a trade is
+#: economically viable, so the proposed trade is withheld rather than
+#: certified. The candidate is still recorded and still monitored; providing
+#: an explicit non-zero cost scenario in the runner configuration is what
+#: lets genuinely viable plans become paper trades again.
+ECONOMIC_VIABILITY_UNVERIFIABLE_REASON = (
+    "NO TRADE — no reliable (non-zero) cost assumptions were provided, and "
+    "missing or zero fees are never treated as proof of economic viability; "
+    "the proposed trade was withheld (planning reason: "
+    "economic_viability_unverifiable)."
+)
+
 
 def fingerprint(*parts: object) -> str:
     """Return a canonical, version-prefixed identity for forward material."""
@@ -390,6 +419,8 @@ def strategy_version_material(
 
 
 __all__ = [
+    "ECONOMIC_NONVIABILITY_REASON",
+    "ECONOMIC_VIABILITY_UNVERIFIABLE_REASON",
     "FORWARD_LEDGER_RULES_VERSION",
     "FORWARD_PARAMETERS_VERSION",
     "FORWARD_RUNNER_RULES_VERSION",

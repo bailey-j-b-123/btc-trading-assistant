@@ -27,6 +27,8 @@ from trading_assistant.trade_planning.parameters import (
 )
 from trading_assistant.trade_planning.planner import (
     BASE_RULES,
+    ECONOMIC_NONVIABILITY,
+    ECONOMIC_VIABILITY_UNVERIFIABLE,
     INVALID_CODES,
     MINIMUM_R_MULTIPLE_NOT_MET,
     plan_trade,
@@ -34,6 +36,8 @@ from trading_assistant.trade_planning.planner import (
 
 __all__ = [
     "BASE_RULES",
+    "ECONOMIC_NONVIABILITY",
+    "ECONOMIC_VIABILITY_UNVERIFIABLE",
     "INVALID_CODES",
     "MINIMUM_R_MULTIPLE_FLOOR",
     "MINIMUM_R_MULTIPLE_NOT_MET",
