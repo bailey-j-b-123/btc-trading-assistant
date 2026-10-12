@@ -16,17 +16,28 @@ model in ``trading_assistant.costs``:
   compared with
 * net potential loss at the stop after the same declared costs.
 
-A stop hit pays the same fees and adverse execution costs as any other exit,
-so the net stop loss is strictly larger than the raw risk. A target passes
-only if its net reward after costs covers at least
-``min_cost_adjusted_r_multiple`` (default 1) times that net stop loss. The
-HISTORICAL friction-adjusted R (net reward normalised by the *original*
-cost-free risk, ``friction_adjusted_r_from_levels``) is retained for Step
-11/12 reporting and is shown, clearly labelled, on every per-target
-exclusion — but it is not the gate, because it cannot see that the stop
-itself would cost more than its raw distance. One of the tests below pins
-exactly that distinction: a target whose historical friction-adjusted R
-exceeds 1 while its net reward does not cover the net stop loss.
+Both sides are direction-aware: for a long the gross reward is
+``fill_exit - fill_entry`` and the gross stop loss ``fill_entry -
+fill_stop``; for a short they are inverted (``fill_entry - fill_exit`` /
+``fill_stop - fill_entry``). A stop hit pays the same fees and adverse
+execution costs as any other exit, so the net stop loss is strictly larger
+than the raw risk on both sides, a profitable target has a POSITIVE net
+reward on both sides, and larger declared costs strictly WORSEN the ratio on
+both sides. A dedicated section pins these long/short invariants (including
+the Codex-reviewed regression case: entry 100 / stop 110 / target 80 /
+bearish / fee 10 bps must give net reward +19.820 and net stop loss +10.210,
+not the sign-flipped -20.180 / -9.790 that a long-only sign convention
+produces). Invalid directions and a zero net stop loss raise ``ValueError``
+rather than producing invented values. A target passes only if its net
+reward after costs covers at least ``min_cost_adjusted_r_multiple``
+(default 1) times that net stop loss. The HISTORICAL friction-adjusted R
+(net reward normalised by the *original* cost-free risk,
+``friction_adjusted_r_from_levels``) is retained for Step 11/12 reporting
+and is shown, clearly labelled, on every per-target exclusion — but it is
+not the gate, because it cannot see that the stop itself would cost more
+than its raw distance. One of the tests below pins exactly that
+distinction: a target whose historical friction-adjusted R exceeds 1 while
+its net reward does not cover the net stop loss.
 
 The anchor case is the verified 11 Oct 2026 paper example from the PR #45
 audit (Binance Spot BTC/USDT 1H): entry ``83529.47``, stop/invalidation
@@ -78,6 +89,8 @@ from __future__ import annotations
 from dataclasses import replace
 from decimal import Decimal as D
 
+import pytest
+
 from forward_fixtures import (
     DEFAULT_COST_SCENARIO,
     QUALIFYING_BOUNDARY,
@@ -91,6 +104,8 @@ from test_trade_planning import qualified, rich_frame
 from trading_assistant.costs import (
     FrictionAssumptions,
     friction_adjusted_r_from_levels,
+    friction_net_loss_at_stop,
+    friction_net_reward,
     friction_net_reward_to_risk,
 )
 from trading_assistant.forward_testing import (
@@ -308,7 +323,15 @@ def test_historical_trade_rejected_under_stated_scenario() -> None:
 
 
 def test_historical_short_mirror_rejected_under_stated_scenario() -> None:
-    """The same net economics reject the mirrored short-side geometry too."""
+    """The same net economics reject the mirrored short-side geometry too.
+
+    The mirrored tiny stop is refused for the RIGHT reason under the
+    direction-aware net model: the net reward after costs is genuinely
+    negative (the 0.996-bps gross reward cannot survive a round trip) and
+    the net stop loss after costs (259.04...) exceeds the net reward in
+    magnitude — while the net stop loss stays strictly larger than the raw
+    risk, as it must for a correctly sided stop.
+    """
 
     snapshot, frame, setup = historical_fixture(mirror=True)
     plan = plan_trade(
@@ -324,15 +347,15 @@ def test_historical_short_mirror_rejected_under_stated_scenario() -> None:
     assert plan.stop.value == D("83578.85")
     assert plan.risk_per_unit == RISK
     assert (
-        "83527.04: net reward -127.038763255 / net stop loss 75.254694160 "
-        "= net R -1.68811746 < min_cost_adjusted_r_multiple 1 under scenario "
+        "83527.04: net reward -207.156333255 / net stop loss 259.044074160 "
+        "= net R -0.79969532 < min_cost_adjusted_r_multiple 1 under scenario "
         "fee_bps=10, entry_slippage_bps=5, exit_slippage_bps=5 (historical "
         "friction-adjusted R vs original risk -24.89859775)"
         in plan.excluded_targets
     )
     assert (
-        "83523.00: net reward -131.076741235 / net stop loss 75.254694160 "
-        "= net R -1.74177495 < min_cost_adjusted_r_multiple 1 under scenario "
+        "83523.00: net reward -203.110271235 / net stop loss 259.044074160 "
+        "= net R -0.78407611 < min_cost_adjusted_r_multiple 1 under scenario "
         "fee_bps=10, entry_slippage_bps=5, exit_slippage_bps=5 (historical "
         "friction-adjusted R vs original risk -24.41229222)"
         in plan.excluded_targets
@@ -521,6 +544,217 @@ def test_net_reward_covers_original_risk_but_not_net_stop_loss() -> None:
         "< min_cost_adjusted_r_multiple 1 under scenario fee_bps=10, "
         "entry_slippage_bps=50, exit_slippage_bps=50 (historical "
         "friction-adjusted R vs original risk 1.31601000)"
+        in plan.excluded_targets
+    )
+
+
+# ----------------------------------------------------------------------
+# Directional correctness: long and short must behave symmetrically
+# ----------------------------------------------------------------------
+
+
+def test_long_profitable_target_net_model_invariants() -> None:
+    """Long: positive net reward for a profitable target; net loss > raw risk."""
+
+    scenario = FrictionAssumptions(
+        fee_bps=D("10"), entry_slippage_bps=D("0"), exit_slippage_bps=D("0")
+    )
+    reward = friction_net_reward(
+        entry=D(100), exit_level=D(120), direction="bullish", assumptions=scenario
+    )
+    loss = friction_net_loss_at_stop(
+        entry=D(100), stop_level=D(90), direction="bullish", assumptions=scenario
+    )
+    ratio = friction_net_reward_to_risk(
+        entry=D(100), exit_level=D(120), stop_level=D(90),
+        direction="bullish", assumptions=scenario,
+    )
+    # A profitable long target yields a POSITIVE net reward after costs, and
+    # the net stop loss is strictly larger than the raw risk (10).
+    assert reward > 0
+    assert loss > D(10)
+    assert ratio > 1
+    assert reward == D("19.780")
+    assert loss == D("10.190")
+    assert ratio == D("1.94111874")
+
+
+def test_short_profitable_target_net_model_invariants() -> None:
+    """Codex regression case: a profitable SHORT must mirror the long.
+
+    entry 100 / stop 110 / target 80, bearish, fee 10 bps: a long-only sign
+    convention would report net reward -20.180 and net stop loss -9.790,
+    making the ratio *improve* under costs. The direction-aware model must
+    give net reward +19.820 and net stop loss +10.210 instead.
+    """
+
+    scenario = FrictionAssumptions(
+        fee_bps=D("10"), entry_slippage_bps=D("0"), exit_slippage_bps=D("0")
+    )
+    reward = friction_net_reward(
+        entry=D(100), exit_level=D(80), direction="bearish", assumptions=scenario
+    )
+    loss = friction_net_loss_at_stop(
+        entry=D(100), stop_level=D(110), direction="bearish", assumptions=scenario
+    )
+    ratio = friction_net_reward_to_risk(
+        entry=D(100), exit_level=D(80), stop_level=D(110),
+        direction="bearish", assumptions=scenario,
+    )
+    # Positive net reward for a profitable short; net stop loss strictly
+    # larger than the raw risk (10) — the sign-flipped -20.180 / -9.790 bug
+    # is gone.
+    assert reward > 0
+    assert loss > D(10)
+    assert ratio > 1
+    assert reward == D("19.820")
+    assert loss == D("10.210")
+    assert ratio == D("1.94123408")
+
+
+def test_net_ratio_worsens_as_costs_increase() -> None:
+    """Both directions: larger declared costs strictly worsen the net ratio."""
+
+    light = FrictionAssumptions(
+        fee_bps=D("1"), entry_slippage_bps=D("1"), exit_slippage_bps=D("1")
+    )
+    heavy = FrictionAssumptions(
+        fee_bps=D("50"), entry_slippage_bps=D("50"), exit_slippage_bps=D("50")
+    )
+    for direction, entry, stop, target in (
+        ("bullish", D(100), D(90), D(120)),
+        ("bearish", D(100), D(110), D(80)),
+    ):
+        light_reward = friction_net_reward(
+            entry=entry, exit_level=target, direction=direction, assumptions=light
+        )
+        heavy_reward = friction_net_reward(
+            entry=entry, exit_level=target, direction=direction, assumptions=heavy
+        )
+        light_loss = friction_net_loss_at_stop(
+            entry=entry, stop_level=stop, direction=direction, assumptions=light
+        )
+        heavy_loss = friction_net_loss_at_stop(
+            entry=entry, stop_level=stop, direction=direction, assumptions=heavy
+        )
+        light_ratio = friction_net_reward_to_risk(
+            entry=entry, exit_level=target, stop_level=stop,
+            direction=direction, assumptions=light,
+        )
+        heavy_ratio = friction_net_reward_to_risk(
+            entry=entry, exit_level=target, stop_level=stop,
+            direction=direction, assumptions=heavy,
+        )
+        # Costs reduce the net reward and increase the net stop loss, so the
+        # ratio strictly worsens — for both directions (the short case used
+        # to get artificially *better*).
+        assert heavy_reward < light_reward
+        assert heavy_loss > light_loss
+        assert heavy_ratio < light_ratio
+    # Exact pins for the symmetric pair at 50/50/50 bps.
+    assert friction_net_reward_to_risk(
+        entry=D(100), exit_level=D(120), stop_level=D(90),
+        direction="bullish", assumptions=heavy,
+    ) == D("1.49580891")
+    assert friction_net_reward_to_risk(
+        entry=D(100), exit_level=D(80), stop_level=D(110),
+        direction="bearish", assumptions=heavy,
+    ) == D("1.50414248")
+
+
+def test_invalid_direction_rejected_not_invented() -> None:
+    """An invalid direction raises rather than being treated as a side."""
+
+    scenario = FrictionAssumptions(fee_bps=D("1"))
+    for func, kwargs in (
+        (
+            friction_net_reward,
+            dict(entry=D(100), exit_level=D(80), direction="sideways",
+                 assumptions=scenario),
+        ),
+        (
+            friction_net_loss_at_stop,
+            dict(entry=D(100), stop_level=D(110), direction="long",
+                 assumptions=scenario),
+        ),
+        (
+            friction_net_reward_to_risk,
+            dict(entry=D(100), exit_level=D(80), stop_level=D(110),
+                 direction="bearishish", assumptions=scenario),
+        ),
+        (
+            friction_adjusted_r_from_levels,
+            dict(entry=D(100), exit_level=D(80), risk_per_unit=D(10),
+                 direction="short", assumptions=scenario),
+        ),
+    ):
+        with pytest.raises(ValueError, match="direction"):
+            func(**kwargs)
+
+
+def test_zero_net_loss_denominator_rejected() -> None:
+    """A stop on the entry with a zero-cost scenario has no defined ratio."""
+
+    with pytest.raises(ValueError, match="net stop loss"):
+        friction_net_reward_to_risk(
+            entry=D(100), exit_level=D(120), stop_level=D(100),
+            direction="bullish", assumptions=FrictionAssumptions(),
+        )
+
+
+def test_short_ordinary_stop_mild_costs_plannable() -> None:
+    """A valid ordinary SHORT (raw 2R) passes a mild 1 bp stated scenario."""
+
+    snapshot, frame, setup = qualified(mirror=True)
+    assert setup.direction == "bearish"
+    mild = FrictionAssumptions(
+        fee_bps=D("1"), entry_slippage_bps=D("1"), exit_slippage_bps=D("1")
+    )
+    plan = plan_trade(
+        snapshot=snapshot, frame=frame, setup_id=setup.id, parameters=_parameters(mild)
+    )
+    assert plan.state is PlanState.PLANNABLE
+    assert plan.entry.value == D(88)
+    assert plan.stop.value == D(90)
+    (target,) = plan.targets
+    assert target.level.value == D(84)
+    assert target.r_multiple == D("2.00000000")
+    economic = next(r for r in plan.rules if r.rule_id == "economic_viability")
+    assert economic.outcome.value == "passed"
+    assert (
+        "nearest retained target 84: net reward 3.96560004 / net stop loss "
+        "2.03560002 = net R 1.94812340 vs raw R 2.00000000 (historical "
+        "friction-adjusted R vs original risk 1.98280002)" in economic.reason
+    )
+    # Net stop loss strictly larger than the raw risk, as it must for a
+    # correctly sided short stop.
+    assert D("2.03560002") > D(2)
+
+
+def test_short_cost_dominated_refused() -> None:
+    """An extreme scenario drives the ordinary short below the net floor."""
+
+    snapshot, frame, setup = qualified(mirror=True)
+    extreme = FrictionAssumptions(
+        fee_bps=D("100"), entry_slippage_bps=D("50"), exit_slippage_bps=D("50")
+    )
+    plan = plan_trade(
+        snapshot=snapshot,
+        frame=frame,
+        setup_id=setup.id,
+        parameters=_parameters(extreme),
+    )
+    assert plan.state is PlanState.NO_PLAN
+    assert plan.reasons == ("economic_nonviability",)
+    minimum_r = next(r for r in plan.rules if r.rule_id == "minimum_r_multiple")
+    assert minimum_r.outcome.value == "passed"  # raw floor still clears
+    economic = next(r for r in plan.rules if r.rule_id == "economic_viability")
+    assert economic.outcome.value == "failed"
+    assert (
+        "84: net reward 1.42020 / net stop loss 4.67010 = net R 0.30410484 "
+        "< min_cost_adjusted_r_multiple 1 under scenario fee_bps=100, "
+        "entry_slippage_bps=50, exit_slippage_bps=50 (historical "
+        "friction-adjusted R vs original risk 0.71010000)"
         in plan.excluded_targets
     )
 

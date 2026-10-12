@@ -22,7 +22,10 @@ the two must never be conflated:
 * ``friction_net_reward_to_risk`` — the TRUE net reward-to-risk used by the
   Step 6 ``economic_viability`` gate: net potential reward after the declared
   fees and adverse execution costs, compared with net potential loss at the
-  stop after the same costs. Both sides of the fraction are after costs.
+  stop after the same costs. Both sides of the fraction are after costs and
+  direction-aware (long and short use the same sign convention, so costs
+  always reduce the ratio, never improve it). Invalid directions and a zero
+  net stop loss raise ``ValueError`` rather than producing invented values.
 * ``friction_adjusted_r_from_levels`` — the HISTORICAL friction-adjusted R
   reported by Steps 11/12: net reward after costs normalised by the original
   (cost-free) unit risk. Its denominator ignores what a stop hit would
@@ -106,8 +109,17 @@ class FrictionAssumptions:
 def _round_trip_fills(
     entry: Decimal, exit_level: Decimal, direction: str, assumptions: FrictionAssumptions
 ) -> tuple[Decimal, Decimal, Decimal]:
-    """Adverse entry fill, adverse exit fill and the two-sided fee on them."""
+    """Adverse entry fill, adverse exit fill and the two-sided fee on them.
 
+    ``direction`` must be exactly ``"bullish"`` (long) or ``"bearish"``
+    (short); any other value raises ``ValueError`` rather than being silently
+    treated as one side.
+    """
+
+    if direction not in ("bullish", "bearish"):
+        raise ValueError(
+            f"direction must be 'bullish' or 'bearish', got {direction!r}"
+        )
     scale = Decimal(10_000)
     entry_slippage = assumptions.entry_slippage_bps / scale
     exit_slippage = assumptions.exit_slippage_bps / scale
@@ -131,16 +143,25 @@ def friction_net_reward(
 ) -> Decimal:
     """Net potential reward, in units, if the trade ends at the proposed level.
 
-    ``fill_exit - fill_entry - fees`` with adverse fills and the two-sided
-    fee on both fills (the shared cost model). This is the numerator of the
-    economic-viability gate: the reward that remains *after* costs, before
-    any comparison with what the stop would cost.
+    Direction-aware gross P&L minus the two-sided fee, with adverse fills and
+    the fee on both fills (the shared cost model): for ``"bullish"`` (long)
+    ``fill_exit - fill_entry - fees``; for ``"bearish"`` (short)
+    ``fill_entry - fill_exit - fees``. Positive for a level genuinely on the
+    profit side of the entry under the declared costs; negative when the
+    level is on the wrong side (or costs exceed the gross distance) — an
+    honest number, never a sign flipped to look viable. This is the numerator
+    of the economic-viability gate: the reward that remains *after* costs,
+    before any comparison with what the stop would cost.
     """
 
     fill_entry, fill_exit, fees = _round_trip_fills(
         entry, exit_level, direction, assumptions
     )
-    return fill_exit - fill_entry - fees
+    if direction == "bullish":
+        gross = fill_exit - fill_entry
+    else:
+        gross = fill_entry - fill_exit
+    return gross - fees
 
 
 def friction_net_loss_at_stop(
@@ -152,16 +173,23 @@ def friction_net_loss_at_stop(
 ) -> Decimal:
     """Net potential loss, in units, if the trade ends at the proposed stop.
 
-    ``fill_entry - fill_exit + fees`` with adverse fills and the two-sided
-    fee on both fills. Costs make this strictly larger than the raw unit
-    risk: a stop hit pays the same fees and adverse execution costs as any
-    other exit. This is the denominator of the economic-viability gate.
+    Direction-aware gross loss plus the two-sided fee, with adverse fills:
+    for ``"bullish"`` (long, stop below entry) ``fill_entry - fill_exit +
+    fees``; for ``"bearish"`` (short, stop above entry) ``fill_exit -
+    fill_entry + fees``. Costs make this strictly larger than the raw unit
+    risk for a correctly sided stop: a stop hit pays the same fees and
+    adverse execution costs as any other exit. This is the denominator of the
+    economic-viability gate.
     """
 
     fill_entry, fill_exit, fees = _round_trip_fills(
         entry, stop_level, direction, assumptions
     )
-    return fill_entry - fill_exit + fees
+    if direction == "bullish":
+        gross = fill_entry - fill_exit
+    else:
+        gross = fill_exit - fill_entry
+    return gross + fees
 
 
 def friction_net_reward_to_risk(
@@ -176,12 +204,20 @@ def friction_net_reward_to_risk(
 
     ``quantize_derived(net_reward / net_loss)`` where both sides are after
     the declared hypothetical fees and adverse execution costs (see
-    :func:`friction_net_reward` and :func:`friction_net_loss_at_stop`). A
+    :func:`friction_net_reward` and :func:`friction_net_loss_at_stop`) and
+    both use the direction-aware sign conventions of those functions, so the
+    ratio behaves identically for longs and shorts: positive for a
+    profit-side target, and strictly *reduced* by larger declared costs. A
     value of 1 means "the target's net reward after costs covers the stop's
     net loss after costs". This is the Step 6 ``economic_viability`` gate
     metric — deliberately NOT the historical friction-adjusted R below,
     which normalises by the *original* (cost-free) unit risk and therefore
     cannot see that the stop itself would cost more than its raw distance.
+
+    Refuses rather than invents: an invalid ``direction`` raises
+    ``ValueError`` (see :func:`_round_trip_fills`), and a zero net stop loss
+    (e.g. stop exactly on the entry with a zero-cost scenario) raises
+    ``ValueError`` because the ratio is undefined.
     """
 
     net_reward = friction_net_reward(
@@ -190,6 +226,12 @@ def friction_net_reward_to_risk(
     net_loss = friction_net_loss_at_stop(
         entry=entry, stop_level=stop_level, direction=direction, assumptions=assumptions
     )
+    if net_loss == 0:
+        raise ValueError(
+            "net stop loss after the declared costs is zero (the stop sits on "
+            "the entry with no cost on either side); the net reward-to-risk "
+            "ratio is undefined and is refused rather than invented"
+        )
     return quantize_derived(net_reward / net_loss)
 
 
