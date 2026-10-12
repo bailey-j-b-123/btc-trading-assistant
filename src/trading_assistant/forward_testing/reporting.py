@@ -923,11 +923,10 @@ def _historical_status_rate(
 def _versions_match(
     forward: ForwardReport, historical: ValidationReport
 ) -> tuple[bool | None, str]:
-    """Compare only the upstream rule versions the two sides share.
+    """Compare shared rules and the identical PlanningParameters contract.
 
-    Parameter fingerprints are not comparable: each step fingerprints its own
-    configuration contract. Rule versions are shared strings, so they are the
-    only honest comparison point.
+    Step-specific fingerprints remain separate. PlanningParameters.fingerprint()
+    is the same contract on both sides, despite different metadata key names.
     """
 
     forward_versions = {}
@@ -960,10 +959,22 @@ def _versions_match(
             None,
             "rule versions could not be compared for: " + ", ".join(missing),
         )
+    historical_planning = historical_versions.get("planning_parameters")
+    forward_planning = {
+        dict(cohort.strategy_versions).get("planning_config_fingerprint")
+        for cohort in forward.version_cohorts
+    }
+    if historical_planning is not None and any(
+        value is not None and value != historical_planning
+        for value in forward_planning
+    ):
+        return False, "planning configuration differs between the two sides"
+    if historical_planning is None or not forward_planning or None in forward_planning:
+        return None, "planning configuration could not be verified for both sides"
     return (
         True,
-        "setup-qualification and trade-planning rule versions match; each side's "
-        "parameter fingerprints are separate contracts and are not compared",
+        "setup-qualification and trade-planning rule versions and planning "
+        "configuration match; other step-specific fingerprints remain separate",
     )
 
 

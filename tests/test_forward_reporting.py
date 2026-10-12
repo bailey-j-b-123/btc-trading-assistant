@@ -439,6 +439,26 @@ def test_comparison_marks_different_cost_scenarios_not_comparable():
     assert "friction_assumptions_differ_comparison_is_descriptive_only" in comparison.warnings
 
 
+@pytest.mark.parametrize("include_planning", [True, False])
+def test_comparison_rejects_different_planning_configurations_with_same_rules(include_planning):
+    harness = harness_with_a_resolved_target()
+    historical = historical_report(harness)
+    stricter = PlanningParameters(min_r_multiple=D("2"))
+    historical = replace(historical, strategy_versions=tuple(
+        (key, stricter.fingerprint() if key == "planning_parameters" else value)
+        for key, value in historical.strategy_versions
+        if include_planning or key != "planning_parameters"
+    ))
+    comparison = build_forward_comparison(
+        forward=harness.report(), historical=historical,
+        generated_at=QUALIFYING_BOUNDARY,
+    )
+    expected = False if include_planning else None
+    assert comparison.strategy_versions_match is expected
+    assert "planning configuration" in comparison.version_comparability_note
+    assert all(row.comparable is expected for row in comparison.rows)
+
+
 def test_comparison_does_not_assume_missing_cost_provenance_matches():
     harness = harness_with_a_resolved_target()
     historical = historical_report(harness)

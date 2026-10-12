@@ -10,7 +10,11 @@ combined metrics.
 
 The report builder independently compares cost fingerprints. Its adjusted-R row
 is not comparable when costs differ, and has unknown comparability when historical
-cost provenance is absent. Rule-version checks still apply. Raw observations do
+cost provenance is absent. Rule-version checks still apply. The shared planning
+configuration fingerprint must also match on every forward cohort; different
+settings are not comparable and missing provenance is unknown. This checks the
+same PlanningParameters contract under its two metadata key names, without
+conflating unrelated step-specific configuration fingerprints. Raw observations do
 not depend on fee/slippage assumptions and retain their existing version checks.
 
 This is a read-only reporting correction. It changes no plans, identities,
