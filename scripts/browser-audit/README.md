@@ -97,3 +97,18 @@ the easiest one to check for labels overlapping price action.
 * `apiCalls`: status and duration of each `/api/` request, and any request the browser failed to complete.
 * `layout.overflowPx`: horizontal overflow in pixels (must be 0).
 * `pageErrors` and `consoleErrors`.
+
+## Mobile header/trading-bar regression
+
+Against an **isolated synthetic demo** server (see `scripts/seed_demo_dashboard.py`),
+run from the repository root:
+
+```
+node scripts/browser-audit/mobile-layout-check.mjs http://127.0.0.1:8123 /tmp/brain-mobile-shots
+```
+
+This checks 390 × 844 and 768 × 1024 in real Chrome/Chromium: header and
+trading-bar child containment, non-overlap, horizontal overflow, all five
+view-only timeframe controls, the More menu and refresh. It writes a full-page
+screenshot per width and exits nonzero on a failed assertion or page error.
+Use the same `CHROME_PATH` setup as above. No production database is needed.

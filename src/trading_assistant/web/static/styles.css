@@ -2276,3 +2276,12 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .stat-value { font-size: 22px; line-height: 1.15; overflow-wrap: anywhere; }
 .cfp-facts { grid-template-columns: minmax(84px, 0.9fr) minmax(0, 1.1fr); }
 .cfp-fact-label { overflow-wrap: anywhere; }
+
+/* Mobile sign-off follow-up: the slim-chrome rule above must not restore a
+   three-column area map on the narrow-screen single-column trading bar. */
+@media (max-width: 1020px) {
+  .dash-commandbar {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "identity" "timeframes" "quote" "health" "asof" "more";
+  }
+}

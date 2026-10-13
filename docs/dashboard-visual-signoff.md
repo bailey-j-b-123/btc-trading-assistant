@@ -62,3 +62,47 @@ unavailable until the backend can compute them.
 Disposable DB + `python -m trading_assistant.web --port 8123` (see the seed
 script docstring), then compare each function view against its reference.
 Full-page captures: `scripts/browser-audit/audit.mjs --functions`.
+
+## PR #59 follow-up — mobile layout only
+
+The original eight captures above remain untouched. This follow-up starts from
+PR #59 commit `38d99dc9e2b4b61107b307d39f7cdd12a996e612` and fixes only the
+narrow-screen trading-bar layout. The final slim-chrome styling had overridden
+the responsive grid-area map with three columns while keeping one explicit
+column track. Identity, timeframe controls and runner status then overflowed
+their assigned cells even though the page reported zero horizontal overflow.
+
+A final `max-width: 1020px` rule restores the existing stacked area map and
+single-column tracks. No header content is removed, no figures are added, and
+no desktop corrections or engine/backend changes are included.
+
+Updated full-page captures (Simple / Trade Plan, same isolated synthetic demo):
+
+- [`visual-signoff/mobile-390.png`](visual-signoff/mobile-390.png) — 390 × 844 viewport.
+- [`visual-signoff/mobile-768.png`](visual-signoff/mobile-768.png) — 768 × 1024 viewport.
+
+These are demonstration candles, not market history or performance. The live
+quote is unavailable and the runner has never reported in this isolated demo;
+both states remain visible. Different chart windows/modes from the original
+Detailed capture are not changes to stored evidence or trading behaviour.
+
+### Real-browser regression
+
+Using headless Chromium 131 with the disposable database described above:
+
+```bash
+node scripts/browser-audit/mobile-layout-check.mjs http://127.0.0.1:8123 docs/visual-signoff
+node scripts/browser-audit/audit.mjs --url http://127.0.0.1:8123 --out /tmp/mobile-audit/390 --width 390 --height 844 --timeout 60
+node scripts/browser-audit/audit.mjs --url http://127.0.0.1:8123 --out /tmp/mobile-audit/768 --width 768 --height 1024 --timeout 60
+```
+
+Use `CHROME_PATH` for local Chrome as in the browser-audit README. The sandbox
+run used the optional `@sparticuz/chromium@131` package and supplied its bundled
+shared libraries via `LD_LIBRARY_PATH`, with `LANG`/`LC_ALL=en_GB.UTF-8`.
+
+Results: both widths ready, **0px horizontal overflow**, no layout containment
+or overlap failures, no page/console errors in the general audit. The focused
+check also exercises all five view-only timeframe controls, the More menu and
+refresh. It fails on unmodified PR #59 at 390px because identity, timeframe and
+runner-status content escape their cells; it passes with this CSS correction.
+Visual acceptance remains a human decision.
