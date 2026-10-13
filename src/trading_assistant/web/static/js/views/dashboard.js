@@ -13,7 +13,6 @@ import {
   DEFAULT_CHART_MODE,
   DETAILED_MODE,
   chartFunctionById,
-  eventCatalogue,
   filterEvidence,
   functionStatus,
   highlightedPattern,
@@ -2752,19 +2751,6 @@ export function performanceSection(dashboard, forward) {
   ]);
 }
 
-/** Expandable diagnostics: every setup, the raw technical record, and system details. Nothing is removed. */
-function diagnosticsSection(dashboard, forward) {
-  return el("details", { class: "card diagnostics", "aria-label": "Diagnostics" }, [
-    el("summary", { text: "Diagnostics — every setup, the technical record and system checks" }),
-    el("div", { class: "diagnostics-body" }, [
-      multiTimeframeCard(dashboard),
-      botWatchingCard(dashboard),
-      explanationCard(dashboard),
-      systemDetailsCard(dashboard, forward),
-    ]),
-  ]);
-}
-
 // ---------------------------------------------------------------------------
 // Approved dashboard layout (V2): one trading bar, one chart with the Current
 // Setup panel beside it, four compact summary cards, and three bottom tabs
@@ -3243,6 +3229,7 @@ export async function renderDashboard(view, { refresh = false } = {}) {
       botWatchingCard(dashboard),
       explanationCard(dashboard),
       marketNowCard(dashboard),
+      nearbyZonesCard(dashboard),
       systemDetailsCard(dashboard, forward),
     ] }),
   ];

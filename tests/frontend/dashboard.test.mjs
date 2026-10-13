@@ -1530,6 +1530,11 @@ test("the bottom tabs switch panels without rebuilding the chart or refetching t
     assert.equal(tabs[0].getAttribute("aria-selected"), "false");
     assert.match(diagnostics.textContent, /Bot is watching/);
     assert.ok(diagnostics.textContent.includes("System details") || byClass(diagnostics, "system-details").length, "system details stay reachable");
+    // The full presented band list lives here, with the detector's own bounds and
+    // touch counts, so nothing that used to be on the page has been dropped.
+    assert.match(diagnostics.textContent, /Nearby zones/);
+    assert.match(diagnostics.textContent, /61,500\.00 – 61,600\.00/);
+    assert.match(diagnostics.textContent, /2 touches/);
     assert.equal(chartState.charts.length, 1, "no new chart instance is created");
     assert.equal(chartState.charts[0], chart, "the chart is reused, so zoom and pan survive");
     assert.equal(chart.removed, false, "switching tabs never disposes the chart");
