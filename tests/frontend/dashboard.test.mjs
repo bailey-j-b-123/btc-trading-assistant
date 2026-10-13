@@ -1652,3 +1652,24 @@ test("navigation away discards a late forward read and leaves the page untouched
     }
   });
 });
+
+test("the stored-forward poll follows the dashboard's resolved scope, not saved preferences", async () => {
+  const base = openForward();
+  await withDashboard(backendDashboard(), base, async ({ view, fetchCounts }) => {
+    const clock = fakeClock();
+    try {
+      // Saved preferences name a different instrument; the page itself is BTC/USDT 1h.
+      globalThis.localStorage = {
+        getItem: () => JSON.stringify({ preferredSymbol: "ETH/USDT", preferredTimeframe: "4h" }),
+        setItem: () => {},
+      };
+      await renderOpen(view, base);
+      clock.fire();
+      await settle();
+      assert.equal(fetchTotal(fetchCounts, SCOPED_FORWARD_POLL), 1, "the poll reads the displayed BTC/USDT 1h scope");
+      assert.equal(fetchTotal(fetchCounts, "/api/forward?symbol=ETH"), 0, "saved preferences never scope the poll");
+    } finally {
+      clock.restore();
+    }
+  });
+});
