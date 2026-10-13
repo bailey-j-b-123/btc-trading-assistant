@@ -1563,13 +1563,14 @@ To work with real data, download candles first (Step 2 `MarketDataService.update
 
 ### Desktop and mobile behaviour
 
-Five primary areas are reached from a **sidebar on desktop** and a **bottom tab bar on
-mobile** (thumb-reachable, one-handed): **Dashboard, Journal, Statistics, Validation, Settings.**
-The active section is highlighted with `aria-current="page"`.
+The app is one page: **the trading dashboard**. The earlier read-only views (journal,
+live/paper, statistics, validation, settings) are no longer part of the navigation; they
+remain reachable for existing direct links (`#/journal`, `#/live`, `#/statistics`,
+`#/validation`, `#/settings`), and the dashboard's own bottom tabs carry their content.
 
-* **Desktop** lays out cards in a single column under a sticky top bar that always shows
-  symbol, latest stored price and the freshness badge. The candlestick chart is ~420px
-  with overlay toggle chips (zones, range, equal levels, plan levels, swings).
+* **Desktop** lays out the approved trading dashboard: one trading bar, the candlestick
+  chart beside the Current Setup panel, four compact summary cards, and three bottom tabs
+  (Paper Trades, Performance, Diagnostics).
 * **Mobile (≤860px)** is designed intentionally, not shrunk: the top bar compacts, cards
   stack, the chart drops to ~320px, decision buttons become full-width ≥44px touch
   targets, tables become cards, and the nav becomes a fixed bottom bar with
@@ -1579,6 +1580,110 @@ The active section is highlighted with `aria-current="page"`.
 The web manifest and meta tags make the app **installable to a home screen** (PWA-ready
 presentation), but Step 10 deliberately ships **no service worker and no push
 infrastructure** — that deployment concern is deferred.
+
+### Dashboard V2 — the approved trading layout
+
+The dashboard follows the approved BRAIN Dashboard V2 design and is still purely a
+presentation layer: the same endpoints, the same numbers, the same provenance.
+
+* **Trading bar (top).** Instrument, the chart timeframe controls (5M / 15M / 1H / 4H, plus
+  the view-only 1D entry), the paper-mode badge, the live public price, the last confirmed
+  candle, the analysed-as-of instant, and runner / market-data health. A **More** menu keeps
+  Journal, Live / Paper, Statistics, Validation and Settings reachable without crowding the
+  trading controls.
+* **Main area.** The candlestick chart on the left; the **Current Setup** column on the
+  right, carrying setup status, the multi-timeframe confirmation strip, the selected
+  evidence explanation, the execution state, and what BRAIN is waiting for.
+* **Four summary cards.** Active setups, qualified plans, settled paper trades (with the
+  ledger's own outcome words, never a win/loss claim) and runner health. Each one selects the
+  tab that holds its full record. The complete market-bias and zone evidence keeps its place in
+  the Diagnostics tab, and the engine's plan levels sit in the Current Setup column beside the
+  decision.
+* **Performance tiles.** The approved design's **Win rate** and **Total P&L** tiles sit at the
+  top of the Performance tab. They read one payload key (`paper_performance`) and show a figure
+  only when the backend supplies one; today both read "Not available yet", each with its own
+  reason, and the surrounding note says plainly that no example figure is shown. The module
+  (`static/js/paper-performance.js`) does no arithmetic at all — it never divides outcome counts
+  into a win rate and never converts a proposed-level R into money. See
+  [`docs/paper-performance-reporting.md`](docs/paper-performance-reporting.md) for the agreed
+  definitions that work still requires.
+* **Bottom tabs.** Paper Trades (opens by default, tracker card first, then the recorded
+  plans as a table of entry, stop, targets, outcome word and state), Performance (the Win rate
+  and Total P&L tiles, then the recorded outcome counts and the existing read-only report), and
+  Diagnostics. Diagnostics keeps every earlier detail — the full setup list, the market frame,
+  the band list, the technical record, system details — in one tab instead of stacked panels.
+
+> **The figures in the reference designs are illustrative.** The pattern-detection picture shows
+> example confidence percentages and the paper-trading picture an example profit total. The
+> **layout** follows the design, including a Win rate tile and a Total P&L tile, and the
+> **values** are never examples: a figure appears only when BRAIN computes it from recorded
+> paper trades. Until then both tiles read **"Not available yet"** with the reason.
+>
+> That is the honest state of the data, not a gap in the dashboard. The detector stores geometry
+> rather than a confidence score, so the pattern panel shows the detector's own geometry
+> (matching extremes, depth, span); the ledger stores outcome states and proposed levels rather
+> than realised profit, so no count-based ratio or proposed-level R is presented as money. The
+> work needed to fill the two performance tiles in — win/loss definitions, exclusion of
+> ambiguous outcomes, trade sizing, fees, slippage and denominators — is specified separately in
+> [`docs/paper-performance-reporting.md`](docs/paper-performance-reporting.md) and is not part of
+> this redesign.
+* **Five chart functions.** Support / Resistance, Swing Highs / Lows, Chart Patterns,
+  Breakouts / Retests, and Trade Plan. **Simple mode** (default) draws exactly one function
+  at a time; **Detailed mode** draws several, including the operator's own layer switches
+  and older stored evidence.
+* **A panel beside the chart, one per function** (`function_panel.js`), matching the approved
+  design for each chart function: a colour legend, the nearest stored levels with their own
+  bounds and touch counts, the detected pattern's name, lifecycle state and stored geometry,
+  the stored breakout / sweep / retest sequence, or the engine's own plan levels. The plan's
+  **risk** and **reward** are shown as the distances the design asks for — entry-to-stop and
+  entry-to-final-target in price — beside the ratio, which is the plan's own `r_multiple` when
+  it states one and otherwise the ratio of those two distances. Every figure is a stored value;
+  the only arithmetic is subtracting the plan's own levels from each other.
+* **Trade-plan colours and areas follow the approved design.** Entry is blue, the stop and the
+  risk region between entry and stop are red, and the targets and the reward region between
+  entry and the final target are green (`planAreasFor` in `chart.js` places the shaded regions
+  from the plan's own levels; a missing or equal level shades nothing rather than guessing).
+* **Presentation rules that are not negotiable.** Prices, bands, touch counts, pattern
+  shapes and lifecycle states, event states and plan levels are the backend's own values:
+  nothing is invented, moved or re-labelled; no confidence percentage is ever shown for a
+  pattern; a continuation is drawn only when the backend recorded one; plan levels appear
+  only when the engine supplies a `PLANNABLE` plan. Unavailable evidence shows the backend's
+  own reason instead of a guess, and a count that is absent stays `UNKNOWN` rather than
+  becoming zero.
+* **Zoom is preserved.** Switching chart function, display mode, or timeframe keeps the
+  visible window: a same-timeframe redraw puts back the same instants, and a timeframe
+  switch keeps the same number of candles at the same place relative to the newest one.
+* **Responsive.** The trading bar wraps and unsticks, the summary cards go two-up then
+  one-up, and the Current Setup column moves under the chart on narrower screens, with
+  controls staying at or above the 44px touch target.
+
+To hold the result against the approved pictures, `scripts/browser-audit` (its own small
+Node package, run by hand against a local server) captures a full-page shot per chart
+function with `--functions` and a chart-only shot with `--clip .chart-stage`; see its
+README for the exact steps.
+
+Two layout invariants are easy to break and are recorded here because a static
+review of the markup cannot catch either one — both were found only by driving the
+rendered page in a real browser:
+
+* **The trading bar keeps a non-zero middle track.** `grid-template-columns` is
+  `minmax(0, 1fr) minmax(min-content, max-content) minmax(0, max-content)`. Two `auto`
+  tracks both grow to max-content, which starves the flexible middle track down to 0px
+  and draws the timeframe controls on top of the live-quote card; `max-content` on the
+  outer tracks instead lets the wrapping health/status row inflate the first column to
+  roughly 1700px and push the quote off-screen. A single `1fr` track keeps the outer
+  tracks at their natural width and lets the middle absorb the remainder.
+* **The verdict card never gets an artificially wide side column.** The Current Setup
+  rail is at most 640px wide, so a fixed `minmax(260px, 1fr)` side column squeezed the
+  verdict column to about 100px and wrapped a two-word state one character per line.
+  `repeat(auto-fit, minmax(280px, 1fr))` keeps the intended arrangement where the room
+  exists and falls back to a readable single column where it does not — decided by the
+  container, not by a viewport media query.
+
+When checking either by hand, measure the rendered element boxes rather than
+screenshotting at a single width: the timeframe group and the live-quote card must not
+intersect, and no text block should be narrower than ~120px while taller than ~110px.
+Both defects are invisible at 390px and obvious at 1440px.
 
 ### Backend / frontend boundary
 
@@ -1688,8 +1793,8 @@ execution, exchange authentication, balances, positions, leverage, and auto-trad
 out of scope for all steps.
 
 ```bash
-python -m pytest                        # complete Steps 1–11 Python suite (495 tests)
-node --test tests/frontend/*.test.mjs   # frontend logic tests (23 tests)
+python -m pytest                        # complete Python suite (1182 passed, 1 xfailed)
+node --test tests/frontend/*.test.mjs   # frontend tests, no dependencies (409 tests)
 ruff format --check src/trading_assistant/historical_validation src/trading_assistant/web tests/test_historical_validation.py tests/test_web_*.py tests/web_fixtures.py tests/test_web_frontend_contract.py
 ruff check src/trading_assistant/historical_validation src/trading_assistant/web tests/test_historical_validation.py tests/test_web_*.py tests/web_fixtures.py tests/test_web_frontend_contract.py
 ```
