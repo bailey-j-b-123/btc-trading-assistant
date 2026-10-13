@@ -1588,7 +1588,9 @@ presentation layer: the same endpoints, the same numbers, the same provenance.
 
 * **Trading bar (top).** Instrument, the chart timeframe controls (5M / 15M / 1H / 4H, plus
   the view-only 1D entry), the paper-mode badge, the live public price, the last confirmed
-  candle, the analysed-as-of instant, and runner / market-data health.
+  candle, the analysed-as-of instant, and runner / market-data health. A **More** menu keeps
+  Journal, Live / Paper, Statistics, Validation and Settings reachable without crowding the
+  trading controls.
 * **Main area.** The candlestick chart on the left; the **Current Setup** column on the
   right, carrying setup status, the multi-timeframe confirmation strip, the selected
   evidence explanation, the execution state, and what BRAIN is waiting for.
@@ -1617,9 +1619,15 @@ presentation layer: the same endpoints, the same numbers, the same provenance.
 * **A panel beside the chart, one per function** (`function_panel.js`), matching the approved
   design for each chart function: a colour legend, the nearest stored levels with their own
   bounds and touch counts, the detected pattern's name, lifecycle state and stored geometry,
-  the stored breakout / sweep / retest sequence, or the engine's own plan levels with the
-  risk/reward ratio the plan carries. Every figure is a stored value; nothing is derived
-  except the ratio between the plan's own levels, which the approved design asks for.
+  the stored breakout / sweep / retest sequence, or the engine's own plan levels. The plan's
+  **risk** and **reward** are shown as the distances the design asks for — entry-to-stop and
+  entry-to-final-target in price — beside the ratio, which is the plan's own `r_multiple` when
+  it states one and otherwise the ratio of those two distances. Every figure is a stored value;
+  the only arithmetic is subtracting the plan's own levels from each other.
+* **Trade-plan colours and areas follow the approved design.** Entry is blue, the stop and the
+  risk region between entry and stop are red, and the targets and the reward region between
+  entry and the final target are green (`planAreasFor` in `chart.js` places the shaded regions
+  from the plan's own levels; a missing or equal level shades nothing rather than guessing).
 * **Presentation rules that are not negotiable.** Prices, bands, touch counts, pattern
   shapes and lifecycle states, event states and plan levels are the backend's own values:
   nothing is invented, moved or re-labelled; no confidence percentage is ever shown for a
@@ -1633,6 +1641,11 @@ presentation layer: the same endpoints, the same numbers, the same provenance.
 * **Responsive.** The trading bar wraps and unsticks, the summary cards go two-up then
   one-up, and the Current Setup column moves under the chart on narrower screens, with
   controls staying at or above the 44px touch target.
+
+To hold the result against the approved pictures, `scripts/browser-audit` (its own small
+Node package, run by hand against a local server) captures a full-page shot per chart
+function with `--functions` and a chart-only shot with `--clip .chart-stage`; see its
+README for the exact steps.
 
 ### Backend / frontend boundary
 
@@ -1743,7 +1756,7 @@ out of scope for all steps.
 
 ```bash
 python -m pytest                        # complete Python suite (1182 passed, 1 xfailed)
-node --test tests/frontend/*.test.mjs   # frontend tests, no dependencies (351 tests)
+node --test tests/frontend/*.test.mjs   # frontend tests, no dependencies (373 tests)
 ruff format --check src/trading_assistant/historical_validation src/trading_assistant/web tests/test_historical_validation.py tests/test_web_*.py tests/web_fixtures.py tests/test_web_frontend_contract.py
 ruff check src/trading_assistant/historical_validation src/trading_assistant/web tests/test_historical_validation.py tests/test_web_*.py tests/web_fixtures.py tests/test_web_frontend_contract.py
 ```

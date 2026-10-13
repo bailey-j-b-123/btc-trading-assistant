@@ -268,20 +268,31 @@ test("the breakouts panel says so when nothing is stored or evidence is missing"
 // Trade plan
 // ---------------------------------------------------------------------------
 
-test("the trade plan panel shows the engine's own levels and the ratio between them", () => {
+test("the trade plan panel keeps the absolute prices in their own fields", () => {
   const model = functionPanelModel({ functionId: "trade_plan", plan: PLAN });
   assert.deepEqual(model.facts.map((row) => row.label), ["Direction", "Entry", "Stop", "Invalidation", "Target 1", "Target 2"]);
-  assert.equal(model.facts[1].value, "62,100.00");
-  assert.equal(model.facts[4].value, "62,500.00");
+  assert.equal(model.facts[1].value, "62,100.00", "entry price");
+  assert.equal(model.facts[2].value, "61,900.00", "stop price");
+  assert.equal(model.facts[3].value, "61,900.00", "invalidation price");
+  assert.equal(model.facts[4].value, "62,500.00", "target price");
+  assert.equal(model.facts[5].value, "62,900.00", "final target price");
   assert.equal(model.facts[5].meta, "4.00R from entry", "the plan's own R multiple");
-  assert.equal(model.rr.ratio, "4.00 : 1", "the last target's ratio when the plan states one");
-  assert.equal(model.rr.risk, "61,900.00");
-  assert.equal(model.rr.reward, "62,900.00");
-  assert.ok(model.rr.riskShare > 0 && model.rr.riskShare < 1);
-  assert.match(model.note, /Nothing here is an order/);
 });
 
-test("the trade plan panel computes the ratio from the plan levels when no multiple is stored", () => {
+test("the risk/reward panel shows entry-to-stop and entry-to-target distances, not prices", () => {
+  const model = functionPanelModel({ functionId: "trade_plan", plan: PLAN });
+  // Entry 62,100 · stop 61,900 → risk 200 · final target 62,900 → reward 800.
+  assert.equal(model.rr.risk, "200.00", "the risk amount is the entry-to-stop distance");
+  assert.equal(model.rr.reward, "800.00", "the reward amount is the entry-to-target distance");
+  assert.notEqual(model.rr.risk, model.facts[2].value, "the panel never labels a stop price as the risk amount");
+  assert.notEqual(model.rr.reward, model.facts[5].value, "nor a target price as the reward amount");
+  assert.equal(model.rr.targetLabel, "T2", "the reward is measured to the final target the plan carries");
+  assert.equal(model.rr.ratio, "4.00 : 1", "the ratio the plan itself states");
+  assert.equal(model.rr.riskShare, 200 / 1000, "the bar splits by the two distances");
+  assert.match(model.note, /entry-to-stop and entry-to-target distances/);
+});
+
+test("a short-side plan measures its distances from entry as well", () => {
   const model = functionPanelModel({
     functionId: "trade_plan",
     plan: {
@@ -293,7 +304,10 @@ test("the trade plan panel computes the ratio from the plan levels when no multi
       targets: [{ level: { value: "80" } }],
     },
   });
-  assert.equal(model.rr.ratio, "2.00 : 1", "reward 20 against risk 10, from the plan's own two levels");
+  assert.equal(model.rr.risk, "10.00", "the stop sits 10 above entry, so the risk distance is 10");
+  assert.equal(model.rr.reward, "20.00", "the target sits 20 below entry, so the reward distance is 20");
+  assert.equal(model.rr.ratio, "2.00 : 1", "the ratio of the two distances when the plan states no multiple");
+  assert.equal(model.rr.targetLabel, "T1");
   assert.equal(model.facts[0].value.startsWith("Bearish"), true);
 });
 
@@ -315,7 +329,26 @@ test("missing plan fields stay explicit UNKNOWN values", () => {
   assert.equal(model.facts[1].value, "UNKNOWN");
   assert.equal(model.facts[2].value, "UNKNOWN");
   assert.equal(model.facts[3].value, "UNKNOWN", "an absent invalidation value is UNKNOWN, never a filled-in level");
-  assert.equal(Boolean(model.rr), false, "no ratio is shown when the levels are not there to compute one");
+  assert.equal(Boolean(model.rr), false, "no ratio or distance is shown when the levels are not there to measure one");
+  const values = model.facts.map((row) => row.value);
+  assert.equal(values.length, 4, "direction, entry, stop and invalidation are still listed");
+  for (const value of values) assert.match(value, /^UNKNOWN/, "no field is filled in: every one is explicit UNKNOWN");
+  assert.equal(model.chip, "PLANNABLE", "the plan state itself is still reported");
+  assert.match(model.note, /Hypothetical paper levels/, "a plannable plan with unreadable levels still says what it is");
+});
+
+test("a plan whose targets carry no price shows no reward distance", () => {
+  const model = functionPanelModel({
+    functionId: "trade_plan",
+    plan: { state: "PLANNABLE", direction: "bullish", entry: { value: "100" }, stop: { value: "90" }, targets: [{ level: { value: null } }] },
+  });
+  assert.equal(Boolean(model.rr), false, "no reward distance can be measured without a target price");
+  assert.equal(model.facts[3].value, "UNKNOWN", "the target field itself stays explicit");
+  const zeroRisk = functionPanelModel({
+    functionId: "trade_plan",
+    plan: { state: "PLANNABLE", direction: "bullish", entry: { value: "100" }, stop: { value: "100" }, targets: [{ level: { value: "120" } }] },
+  });
+  assert.equal(Boolean(zeroRisk.rr), false, "a zero risk distance cannot produce a ratio");
 });
 
 test("an unknown or missing chart function falls back to the calm default panel", () => {

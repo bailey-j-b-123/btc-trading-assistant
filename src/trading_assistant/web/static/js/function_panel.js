@@ -59,6 +59,12 @@ function price(value) {
   return display === null || display === undefined ? UNKNOWN : display;
 }
 
+/** A price distance, formatted; an unformattable amount stays an explicit UNKNOWN. */
+function displayAmount(value) {
+  const { display } = displayRounded(value, 2);
+  return display === null || display === undefined ? UNKNOWN : display;
+}
+
 /** An instant, formatted; a missing instant stays an explicit UNKNOWN. */
 function when(iso) {
   return iso ? `${formatUtc(iso)}` : UNKNOWN;
@@ -347,15 +353,24 @@ function tradePlanModel({ plan, planState, reason }) {
       meta: isMissing(target?.r_multiple) ? null : `${displayRounded(target.r_multiple, 2).display}R from entry`,
     })),
   ];
-  const ratios = targets.map((target) => Number(target?.r_multiple)).filter((value) => Number.isFinite(value));
-  const planRatio = ratios.length ? ratios[ratios.length - 1] : null;
-  // The ratio the plan itself states when it states one; otherwise the exact
-  // levels the plan carries. Either way it is the plan's own numbers, never a
-  // figure invented here.
-  const risk = Number.isFinite(Number(entry)) && Number.isFinite(Number(stop)) ? Math.abs(Number(entry) - Number(stop)) : null;
-  const lastTarget = targets.length ? Number(targets[targets.length - 1]?.level?.value) : null;
-  const reward = Number.isFinite(Number(entry)) && Number.isFinite(lastTarget) ? Math.abs(lastTarget - Number(entry)) : null;
-  const ratio = planRatio ?? (risk && reward ? reward / risk : null);
+  // Risk and reward are DISTANCES in price, measured from entry: the amount the
+  // plan risks is how far entry sits from the stop, and the amount it targets is
+  // how far entry sits from the final target. The absolute entry, stop and target
+  // prices keep their own fields above; these two figures are the plan's own
+  // levels, subtracted — no other arithmetic happens here.
+  // Number(null) is 0, which would silently measure a distance to a level the
+  // backend never supplied. An absent value is NaN here, so nothing is measured.
+  const numeric = (value) => (value === null || value === undefined || value === "" ? Number.NaN : Number(value));
+  const entryNumber = numeric(entry);
+  const stopNumber = numeric(stop);
+  const lastTargetValue = targets.length ? numeric(targets[targets.length - 1]?.level?.value) : Number.NaN;
+  const risk = Number.isFinite(entryNumber) && Number.isFinite(stopNumber) ? Math.abs(entryNumber - stopNumber) : null;
+  const reward = Number.isFinite(entryNumber) && Number.isFinite(lastTargetValue) ? Math.abs(lastTargetValue - entryNumber) : null;
+  const statedRatio = targets.map((target) => Number(target?.r_multiple)).filter((value) => Number.isFinite(value)).pop() ?? null;
+  // Prefer the ratio the plan itself states; otherwise the ratio of the two
+  // distances above. Either way it is the plan's own numbers.
+  const ratio = statedRatio ?? (risk !== null && reward !== null && risk > 0 ? reward / risk : null);
+  const targetLabel = `T${targets.length}`;
   return {
     heading: "Trade Plan",
     chip: plan.state,
@@ -365,13 +380,14 @@ function tradePlanModel({ plan, planState, reason }) {
     list: [],
     rr: risk !== null && reward !== null && ratio !== null
       ? {
-          risk: price(stop),
-          reward: price(lastTarget),
+          risk: displayAmount(risk),
+          reward: displayAmount(reward),
+          targetLabel,
           ratio: `${displayRounded(ratio, 2).display} : 1`,
           riskShare: risk + reward > 0 ? risk / (risk + reward) : 0.5,
         }
       : null,
-    note: "Hypothetical paper levels from the engine's own plan, with the ratio the plan itself carries. Nothing here is an order, and levels appear only while the engine supplies a valid plan.",
+    note: "Hypothetical paper levels from the engine's own plan. Risk and reward are entry-to-stop and entry-to-target distances in price, and the ratio is the plan's own. Nothing here is an order, and levels appear only while the engine supplies a valid plan.",
   };
 }
 
@@ -456,14 +472,15 @@ export function functionPanel(model) {
     const share = Math.round(Math.min(Math.max(model.rr.riskShare, 0), 1) * 100);
     body.push(el("div", { class: "cfp-block" }, [
       el("div", { class: "cfp-block-title", text: "Risk / Reward" }),
-      el("div", { class: "cfp-rr-bar", role: "img", "aria-label": `Risk ${model.rr.risk}, reward ${model.rr.reward}, ratio ${model.rr.ratio}` }, [
+      el("div", { class: "cfp-rr-bar", role: "img", "aria-label": `Entry-to-stop risk ${model.rr.risk}, entry-to-target reward ${model.rr.reward}, ratio ${model.rr.ratio}` }, [
         el("span", { class: "cfp-rr-risk", style: { width: `${share}%` } }),
         el("span", { class: "cfp-rr-reward", style: { width: `${100 - share}%` } }),
       ]),
       el("div", { class: "cfp-rr-legend" }, [
         el("span", { class: "cfp-rr-risk-label", text: `Risk ${model.rr.risk}` }),
-        el("span", { class: "cfp-rr-reward-label", text: `Reward ${model.rr.reward}` }),
+        el("span", { class: "cfp-rr-reward-label", text: `Reward (${model.rr.targetLabel}) ${model.rr.reward}` }),
       ]),
+      el("div", { class: "cfp-rr-caption", text: "Distances in price, measured from entry" }),
       el("div", { class: "cfp-rr-ratio", text: `R:R ${model.rr.ratio}` }),
     ]));
   }

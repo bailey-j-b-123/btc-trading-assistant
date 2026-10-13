@@ -10,14 +10,17 @@ const DOWN = "#e0565b";
 const GRID = "#1a2130";
 const TEXT = "#707b91";
 
+// Approved dashboard design: a trade plan reads blue entry, red stop / risk and
+// green targets / reward. These are display colours only — the plan's own levels
+// and the engine that produced them are untouched.
 export const OVERLAY_COLORS = {
   zones: "#5b9bd5",
   range: "#b58cf0",
   equalLevels: "#e8a33d",
-  entry: "#2fbf7f",
+  entry: "#5b9bd5",
   stop: "#e0565b",
   invalidation: "#e8a33d",
-  targets: "#5b9bd5",
+  targets: "#2fbf7f",
   swings: "#707b91",
   reference: "#8ea0bd",
 };
@@ -215,6 +218,8 @@ export const DEFAULT_VISIBLE_CANDLES_NARROW = 60;
 
 /** Tablets get an intermediate window. Each tier is a presentation choice; the data window is unchanged. */
 export const DEFAULT_VISIBLE_CANDLES_TABLET = 90;
+/** Empty space kept to the right of the newest candle, on first load and when restoring a window. */
+export const DEFAULT_EDGE_MARGIN = 3;
 
 function defaultVisibleCandles() {
   const matches = (query) => typeof globalThis.matchMedia === "function" && globalThis.matchMedia(query).matches;
@@ -239,7 +244,7 @@ export function setCandles(handle, payload) {
     if (typeof timeScale.setVisibleLogicalRange === "function") {
       const last = candles.length - 1;
       const visible = defaultVisibleCandles();
-      timeScale.setVisibleLogicalRange({ from: Math.max(0, last - visible + 1), to: last + 3 });
+      timeScale.setVisibleLogicalRange({ from: Math.max(0, last - visible + 1), to: last + DEFAULT_EDGE_MARGIN });
     }
     handle.initialRangeApplied = true;
   }
@@ -313,25 +318,38 @@ export function restoreChartView(handle, captured) {
 }
 
 /**
- * The visible index window: the number of candles on screen and the right-edge offset.
+ * The visible index window, expressed the only way that survives a change of series length:
+ * the number of candles on screen (the zoom) and how far the right edge sits from the newest
+ * loaded candle (the place).
  *
  * A timeframe switch loads a different time base, so the same instants no longer mean the same
- * candles. The index window is then the comparable thing: the same zoom width and the same place
- * relative to the newest candle. Used only for timeframe changes; refreshes use captureChartView.
+ * candles, and the candle count changes too (a 1H view may hold 500 candles where the 5M view
+ * held 200). Absolute indices therefore cannot be carried across: they would leave the operator
+ * staring at ancient history after a switch. The width and the distance from the live edge can.
+ * Used only for timeframe changes; refreshes use captureChartView.
  */
 export function captureLogicalView(handle) {
   const timeScale = handle && !handle.destroyed && handle.chart && typeof handle.chart.timeScale === "function"
     ? handle.chart.timeScale()
     : null;
   if (!timeScale || typeof timeScale.getVisibleLogicalRange !== "function") return null;
+  const bars = Number.isFinite(handle.barCount) ? handle.barCount : 0;
+  if (bars <= 0) return null;
   const range = timeScale.getVisibleLogicalRange();
   if (!range || !Number.isFinite(range.from) || !Number.isFinite(range.to) || range.to <= range.from) return null;
-  return { from: range.from, to: range.to };
+  return {
+    width: range.to - range.from,
+    // Positive at the live edge (the usual case), larger when the window is panned into history.
+    edgeOffset: range.to - (bars - 1),
+  };
 }
 
 /**
- * Put back a window captured by captureLogicalView, clamped to the candles that are actually
- * loaded. A smaller series must not leave the chart showing a gap past its newest candle.
+ * Put back a window captured by captureLogicalView on the series that is loaded now.
+ *
+ * The same zoom (candle count) and the same distance from the newest candle are restored, then
+ * clamped to what exists: the window never starts before the first candle and never runs more
+ * than a small margin past the newest one, exactly like the default view.
  */
 export function restoreLogicalView(handle, captured) {
   const timeScale = handle && !handle.destroyed && handle.chart && typeof handle.chart.timeScale === "function"
@@ -340,14 +358,15 @@ export function restoreLogicalView(handle, captured) {
   if (!captured || !timeScale || typeof timeScale.setVisibleLogicalRange !== "function") return;
   const bars = Number.isFinite(handle.barCount) ? handle.barCount : 0;
   if (bars <= 0) return;
-  const width = Math.min(captured.to - captured.from, bars);
-  let to = captured.to;
+  const width = Math.min(Math.max(Number(captured.width) || 0, 1), bars);
   const lastIndex = bars - 1;
-  if (to > lastIndex + 3) to = lastIndex + 3;
+  const edgeOffset = Number.isFinite(Number(captured.edgeOffset)) ? Number(captured.edgeOffset) : 1;
+  const maxTo = lastIndex + DEFAULT_EDGE_MARGIN;
+  let to = Math.min(lastIndex + edgeOffset, maxTo);
   let from = to - width;
   if (from < 0) {
     from = 0;
-    to = width;
+    to = Math.min(width, maxTo);
   }
   timeScale.setVisibleLogicalRange({ from, to });
 }
@@ -414,6 +433,10 @@ export function clearOverlays(handle) {
   if (!handle) return;
   if (handle.setupBand) {
     handle.setupBand = null;
+    renderZoneBands(handle);
+  }
+  if (Array.isArray(handle.planAreas) && handle.planAreas.length) {
+    handle.planAreas = [];
     renderZoneBands(handle);
   }
   if (!Array.isArray(handle.priceLineHandles)) return;
@@ -517,7 +540,12 @@ export function applyOverlays(handle, payload = {}) {
       band.low > 0 && band.high >= band.low
     ? { low: band.low, high: band.high }
     : null;
-  if (handle.setupBand) createZoneLayer(handle);
+  // Plan risk and reward areas: the region between entry and stop (what the plan
+  // risks) and between entry and the final target (what it targets). Shaded only
+  // from the plan's own levels — entry stays blue, risk red, reward green, in line
+  // with the approved design. No area is drawn when a level is missing.
+  handle.planAreas = prefs.planLevels !== false && plan ? planAreasFor(plan) : [];
+  if (handle.setupBand || handle.planAreas.length) createZoneLayer(handle);
   renderZoneBands(handle);
 
   if (prefs.swings === true) {
@@ -688,6 +716,33 @@ export function addHigherTimeframeLines(handle, entries) {
 const ZONE_LABEL_MIN_GAP_PX = 16;
 /** The setup reference (backend reference bounds, display only): a neutral, unlabelled-by-role band. */
 const SETUP_BAND_STYLE = { fill: "rgba(143, 166, 255, 0.07)", edge: "#8fa6ff" };
+// Plan risk / reward shading. Same faintness convention as the bands above: the
+// fill marks the region, the price lines mark the exact levels.
+const PLAN_AREA_STYLE = {
+  risk: { fill: "rgba(224, 86, 91, 0.07)", edge: "#e0565b" },
+  reward: { fill: "rgba(47, 191, 127, 0.07)", edge: "#2fbf7f" },
+};
+
+/**
+ * The plan's own risk and reward regions, as {kind, low, high} rectangles.
+ *
+ * Risk is entry-to-stop and reward is entry-to-the-last-target, both measured
+ * from the levels the plan already carries. A region with a missing or equal
+ * bound is omitted rather than guessed, so a partial plan shades only what it
+ * really states. Display only: nothing here changes the plan.
+ */
+export function planAreasFor(plan) {
+  const entry = finiteNumber(plan?.entry?.value);
+  if (entry === null) return [];
+  const targets = Array.isArray(plan.targets) ? plan.targets : [];
+  const lastTarget = targets.length ? finiteNumber(targets[targets.length - 1]?.level?.value) : null;
+  const stop = finiteNumber(plan?.stop?.value);
+  const area = (kind, bound) => {
+    if (bound === null || bound === entry) return null;
+    return { kind, low: Math.min(entry, bound), high: Math.max(entry, bound) };
+  };
+  return [area("risk", stop), area("reward", lastTarget)].filter(Boolean);
+}
 // Fills are deliberately faint: candles must stay the focus (PR #38 follow-up). Edges are drawn at
 // reduced strength in CSS. Higher-timeframe bands use dashed edges and no fill (see styles.css).
 const ZONE_STYLE = {
@@ -764,6 +819,26 @@ export function renderZoneBands(handle) {
   layer.textContent = "";
   let offView = 0;
   const labels = [];
+  // Plan risk / reward areas sit under the bands and their labels.
+  for (const area of Array.isArray(handle.planAreas) ? handle.planAreas : []) {
+    const style = PLAN_AREA_STYLE[area.kind];
+    if (!style) continue;
+    const yHigh = series.priceToCoordinate(area.high);
+    const yLow = series.priceToCoordinate(area.low);
+    if (yHigh === null || yLow === null || yHigh === undefined || yLow === undefined) continue;
+    const top = Math.min(yHigh, yLow);
+    const bottom = Math.max(yHigh, yLow);
+    if (bottom < 0 || top > height) continue;
+    const clampedTop = Math.max(0, top);
+    const node = document.createElement("div");
+    node.className = `plan-area plan-area--${area.kind}`;
+    node.setAttribute?.("aria-hidden", "true");
+    node.style.top = `${clampedTop}px`;
+    node.style.height = `${Math.max(2, Math.min(height || bottom, bottom) - clampedTop)}px`;
+    node.style.setProperty("--zone-fill", style.fill);
+    node.style.setProperty("--zone-edge", style.edge);
+    layer.appendChild(node);
+  }
   if (handle.setupBand) {
     const yHigh = series.priceToCoordinate(handle.setupBand.high);
     const yLow = series.priceToCoordinate(handle.setupBand.low);

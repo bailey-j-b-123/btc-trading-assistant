@@ -15,8 +15,8 @@ Explanation: check that the working tree is clean first. If `git status` lists f
 cd ~/btc-trading-assistant
 git status
 git fetch origin
-git checkout arena/3ee2f955-btc-trading-assistant
-git pull --ff-only origin arena/3ee2f955-btc-trading-assistant
+git checkout arena/79460ece-btc-trading-assistant
+git pull --ff-only origin arena/79460ece-btc-trading-assistant
 ls scripts/browser-audit
 ```
 
@@ -56,13 +56,29 @@ The `ls` must print the path. If it says "No such file", install Google Chrome o
 Explanation: the first dashboard load can take about 20 seconds on a large database, longer when cold. The script waits for the decision card and chart, not a fixed delay.
 
 ```
-node audit.mjs --url http://127.0.0.1:8040/ --out ~/brain-shots/desktop --width 1440 --height 900 --clip .terminal-chart-card --timeout 300
+node audit.mjs --url http://127.0.0.1:8040/ --out ~/brain-shots/desktop --width 1440 --height 900 --clip .chart-stage --functions --timeout 300
 node audit.mjs --url http://127.0.0.1:8040/ --out ~/brain-shots/tablet --width 834 --height 1112 --timeout 300
 node audit.mjs --url http://127.0.0.1:8040/ --out ~/brain-shots/phone --width 390 --height 844 --timeout 300
 node retry-check.mjs http://127.0.0.1:8040/ ~/brain-shots/retry
 ```
 
 Each `node audit.mjs` run prints a JSON report and exits 0 only when the dashboard is ready, there is no overflow, and there are no page or console errors.
+
+### 5. Compare with the approved pictures
+
+`--functions` writes one full-page shot per chart function, named after the button it pressed:
+
+```
+~/brain-shots/desktop-fn-support_resistance.png
+~/brain-shots/desktop-fn-swings.png
+~/brain-shots/desktop-fn-patterns.png
+~/brain-shots/desktop-fn-breakouts.png
+~/brain-shots/desktop-fn-trade_plan.png
+```
+
+Those five, plus `desktop-full.png`, are the views to hold against the approved dashboard pictures. The
+`--clip .chart-stage` shot is the main area on its own (chart plus the function panel beside it), which is
+the easiest one to check for labels overlapping price action.
 
 ## Troubleshooting
 

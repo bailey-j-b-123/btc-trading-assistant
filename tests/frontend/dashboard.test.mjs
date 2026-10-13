@@ -1446,6 +1446,17 @@ test("the trading bar carries the approved instrument, timeframe, mode and healt
       ["Paper Trades", "Performance", "Diagnostics"],
     );
     assert.equal(findNodes(view, (node) => node.getAttribute?.("data-tab") === "diagnostics")[0].hidden, true, "diagnostics stay out of the way");
+    // The compact More menu keeps the read-only pages reachable without
+    // competing with the trading view.
+    const more = byClass(view, "more-menu")[0];
+    assert.ok(more, "the More menu renders in the trading bar");
+    assert.equal(more.tagName, "DETAILS", "closed by default, and keyboard-operable without script state");
+    assert.equal(more.open, false);
+    assert.equal(byClass(more, "more-summary")[0].textContent, "More");
+    const links = byClass(more, "more-link");
+    assert.deepEqual(links.map((node) => node.textContent), ["Journal", "Live / Paper", "Statistics", "Validation", "Settings"]);
+    assert.deepEqual(links.map((node) => node.getAttribute("href")), ["#/journal", "#/live", "#/statistics", "#/validation", "#/settings"]);
+    assert.equal(byClass(more, "more-list")[0].getAttribute("aria-label"), "More pages");
   });
 });
 

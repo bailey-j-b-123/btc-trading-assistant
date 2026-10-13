@@ -2807,6 +2807,29 @@ function summaryCard({ kicker, title, tone = "neutral", facts = [], body = [], f
 }
 
 /** Trading bar: instrument, chart timeframe controls, live price and data health. */
+/**
+ * The compact "More" menu: the read-only pages that are no longer part of the
+ * navigation stay reachable, one tap away, without competing with the trading
+ * view. Native <details> keeps it keyboard- and screen-reader-friendly with no
+ * script state to reset between renders.
+ */
+const MORE_LINKS = Object.freeze([
+  { href: "#/journal", label: "Journal" },
+  { href: "#/live", label: "Live / Paper" },
+  { href: "#/statistics", label: "Statistics" },
+  { href: "#/validation", label: "Validation" },
+  { href: "#/settings", label: "Settings" },
+]);
+
+function moreMenu() {
+  return el("details", { class: "more-menu" }, [
+    el("summary", { class: "more-summary", "aria-label": "More pages", text: "More" }),
+    el("nav", { class: "more-list", "aria-label": "More pages" }, MORE_LINKS.map((link) => (
+      el("a", { class: "more-link", href: link.href, text: link.label })
+    ))),
+  ]);
+}
+
 function tradingBar({ dashboard, forward, live, updateStatusNode, timeframeControls }) {
   const meta = dashboard?.meta || {};
   const symbol = meta.symbol || "UNKNOWN";
@@ -2834,6 +2857,7 @@ function tradingBar({ dashboard, forward, live, updateStatusNode, timeframeContr
       updateStatusNode,
     ]),
     el("div", { class: "commandbar-asof", text: `Analysed as of ${asOf} · stored closed candles only` }),
+    moreMenu(),
   ]);
 }
 

@@ -1492,12 +1492,6 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .zone-note { margin-top: 6px; font-size: 13px; color: var(--text-dim); }
 
 /* --- What BRAIN waits for, plan, what it sees ----------------------------------- */
-.dash-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
-  align-items: start;
-}
 .waiting-card { display: flex; flex-direction: column; gap: 12px; }
 .waiting-blockers ul { margin: 6px 0 0; padding-left: 18px; color: var(--text-dim); }
 .waiting-blockers li { margin-bottom: 6px; }
@@ -1578,15 +1572,11 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   cursor: pointer; font-weight: 700; color: var(--text-dim);
   min-height: var(--touch); display: flex; align-items: center; padding: 4px 0;
 }
-.diagnostics-body { display: grid; gap: 18px; margin-top: 16px; }
-.diagnostics-body > * { min-width: 0; }
 
 /* --- Responsive ----------------------------------------------------------------- */
 @media (max-width: 1180px) {
   .dash-main { grid-template-columns: minmax(0, 1fr); }
   .dash-context { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
-  .dash-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .dash-row > :last-child { grid-column: 1 / -1; }
   .paper-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .paper-grid > :last-child { grid-column: 1 / -1; }
 }
@@ -1595,8 +1585,8 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   .dash-context { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 760px) {
-  .dash-row, .paper-grid { grid-template-columns: minmax(0, 1fr); }
-  .dash-row > *, .paper-grid > * { grid-column: auto; }
+  .paper-grid { grid-template-columns: minmax(0, 1fr); }
+  .paper-grid > * { grid-column: auto; }
   .hero-state { font-size: 2.5rem; }
   .hero-reason { font-size: 16px; }
 }
@@ -1646,6 +1636,12 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .zone-band-setup-label { position: absolute; left: 6px; font-size: 10px; color: var(--zone-edge); pointer-events: none; }
 .zone-band--htf { background: transparent; border-style: dashed; border-width: 1px 0; }
 
+/* Plan risk / reward areas: what the plan risks (entry to stop) and targets
+   (entry to the final target). Fill only, using the same faintness as the S/R
+   bands — the plan's own price lines mark the exact levels, so no extra edge or
+   label competes with the candles. */
+.plan-area { position: absolute; left: 0; right: 0; background: var(--zone-fill); pointer-events: none; }
+
 /* Empty paper ledger: one statement, not a grid of zeros. */
 .paper-empty { max-width: 760px; display: flex; flex-direction: column; gap: 10px; }
 .paper-empty .card-title { margin: 0; font-size: 18px; }
@@ -1654,13 +1650,6 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 /* --- Live price and automatic updates --------------------------------------------- */
 /* Display only. These labels describe the quote and the stored-candle check; they never imply a
    trade signal. CURRENT / STALE / UNAVAILABLE are always shown in words, not colour alone. */
-.dash-live-strip {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 12px;
-  align-items: stretch;
-  margin-bottom: 12px;
-}
 .live-quote {
   display: flex; flex-direction: column; gap: 6px;
   padding: 14px 18px;
@@ -1696,7 +1685,6 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .dash-update-status[data-tone="updating"] .dash-update-label,
 .dash-update-status[data-tone="paused"] .dash-update-label { color: var(--blue); }
 @media (max-width: 760px) {
-  .dash-live-strip { grid-template-columns: minmax(0, 1fr); }
   .live-quote-value { font-size: 26px; }
 }
 @media (prefers-reduced-motion: reduce) { .live-quote * { transition: none; } }
@@ -1729,7 +1717,7 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
   grid-template-areas:
     "identity timeframes quote"
-    "health health asof";
+    "health asof more";
   gap: 10px 18px;
   align-items: center;
   padding: 12px 16px;
@@ -1836,11 +1824,6 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .dash-main { grid-template-columns: minmax(0, 1.75fr) minmax(300px, 0.85fr); }
 .dash-context { display: flex; flex-direction: column; gap: 14px; }
 .dash-context .hero-card { min-height: 0; }
-.setup-execution {
-  display: grid; gap: 5px; padding: 12px 14px;
-  border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--panel); border-left: 3px solid var(--blue);
-}
 .setup-row-label { color: var(--text-faint); font-size: 10px; font-weight: 750; letter-spacing: 0.1em; text-transform: uppercase; }
 .setup-row-value { color: var(--text); font-size: 13px; font-weight: 650; }
 .setup-row-detail { color: var(--text-muted); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
@@ -1889,12 +1872,13 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 @media (max-width: 1180px) {
   .dash-main { grid-template-columns: minmax(0, 1fr); }
   .dash-context { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
-  .dash-context > .setup-execution, .dash-context > .waiting-card, .dash-context > .evidence-explain { grid-column: 1 / -1; }
+  .dash-context > .waiting-card, .dash-context > .evidence-explain { grid-column: 1 / -1; }
   .dash-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dash-commandbar {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "identity" "timeframes" "quote" "health" "asof";
+    grid-template-areas: "identity" "timeframes" "quote" "health" "asof" "more";
   }
+  .more-menu { justify-self: start; }
   .commandbar-quote .live-quote { text-align: left; align-items: flex-start; }
   .commandbar-quote .live-quote-kicker { justify-content: flex-start; }
   .commandbar-asof { text-align: left; }
@@ -2087,4 +2071,30 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   .setup-row-icon { grid-row: 1 / 3; }
   .metric-tiles { grid-template-columns: minmax(0, 1fr); }
   .ledger-table td, .ledger-table th { white-space: normal; }
+}
+
+/* --- Compact "More" menu ---------------------------------------------------- */
+.more-menu { justify-self: end; align-self: center; position: relative; }
+.more-menu > summary {
+  list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  min-height: 32px; padding: 4px 12px; border: 1px solid var(--border-strong); border-radius: 999px;
+  background: var(--panel-3); color: var(--text-muted);
+  font-size: 11px; font-weight: 650; letter-spacing: 0.02em;
+}
+.more-menu > summary::-webkit-details-marker { display: none; }
+.more-menu > summary::after { content: "\25be"; font-size: 9px; color: var(--text-faint); }
+.more-menu[open] > summary { color: var(--text); border-color: var(--blue); background: var(--blue-dim); }
+.more-list {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
+  display: flex; flex-direction: column; gap: 2px; min-width: 190px; padding: 6px;
+  background: var(--panel-2); border: 1px solid var(--border-strong); border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.more-link {
+  display: flex; align-items: center; min-height: var(--touch); padding: 6px 10px;
+  border-radius: 8px; color: var(--text-dim); text-decoration: none; font-size: 12.5px;
+}
+.more-link:hover { background: var(--panel-3); color: var(--text); }
+@media (max-width: 1180px) {
+  .more-list { left: 0; right: auto; }
 }
