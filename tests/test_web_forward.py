@@ -220,6 +220,34 @@ def test_forward_api_has_no_order_or_account_surface(empty_client) -> None:
 # ----------------------------------------------------------------------
 
 
+def test_scoped_forward_poll_read_echoes_scope_and_stays_read_only(seeded_client) -> None:
+    """The dashboard's poll reads GET /api/forward scoped to the page with limit 8.
+
+    The browser only applies a response whose reported symbol/timeframe match the
+    page, and reads the runner heartbeat and paper tracker from the same payload.
+    The read must stay a ledger read: no candle fetch and no ledger write.
+    """
+
+    harness, client = seeded_client
+    service = client.app.state.services.forward
+    before = service.ledger.counts(exchange="binance", symbol=SYMBOL, timeframe=TIMEFRAME)
+
+    response = client.get(
+        "/api/forward",
+        params={"symbol": SYMBOL, "timeframe": TIMEFRAME, "limit": 8},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["symbol"] == SYMBOL
+    assert body["timeframe"] == TIMEFRAME
+    assert "runner" in body["status"]
+    assert body["paper_tracker"]["tracked_plans"]
+    assert len(body["observations"]["observations"]) <= 8
+
+    after = service.ledger.counts(exchange="binance", symbol=SYMBOL, timeframe=TIMEFRAME)
+    assert after == before
+
+
 def test_seeded_forward_view_shows_paper_observations_not_trades(seeded_client) -> None:
     harness, client = seeded_client
     body = client.get("/api/forward").json()

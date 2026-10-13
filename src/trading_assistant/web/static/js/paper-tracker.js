@@ -179,6 +179,11 @@ export function signalProvenanceViewModel(provenance, { timeframe = null } = {})
  *   dashboard refresh does not needlessly re-render.
  * - `sync(tracker)` re-seeds the signature after the card was rebuilt elsewhere.
  * - `stop()` cancels polling; a late in-flight response is discarded.
+ *
+ * The dashboard now polls the scoped forward read through
+ * `createForwardRefresher` (forward-refresh.js), which also keeps the header
+ * and paper results current. This tracker-only controller remains exported for
+ * its own contract tests.
  */
 export function createTrackerRefresher({
   fetchTracker,
