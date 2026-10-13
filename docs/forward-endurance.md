@@ -118,7 +118,10 @@ visual implementation and requires human review/manual integration.
 The initial machine run completed **1,000 closed boundaries per case** (2,000
 in total), using real default rules and separate cold Python processes. Both
 stored 17,133 observations, 34 naturally generated paper plans and 535 outcome
-versions. Stress retained one additional missing-data cycle audit; its 1,000
+versions. Final natural outcomes were 4 STOPPED, 5 TARGETS_REACHED and 25
+AMBIGUOUS; the ambiguous cases remain unscored because synthetic 1h inputs do
+not establish finer intrabar ordering. No win rate or monetary P&L is inferred.
+Stress retained one additional missing-data cycle audit; its 1,000
 resolved conclusions, frozen records, final slot and SQLite/FK checks passed.
 Six injected operating scenarios actually fired, including six failed source
 fetches, a fresh SQLite engine restart, a three-close catch-up, repeated polling,
