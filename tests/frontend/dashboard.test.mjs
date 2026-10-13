@@ -1572,7 +1572,15 @@ test("the bottom tabs switch panels without rebuilding the chart or refetching t
     press(tabs[1]); // Performance
     await drainMicrotasks();
     assert.equal(performance.hidden, false);
-    assert.match(performance.textContent, /Measured counts over the recorded ledger/);
+    assert.match(performance.textContent, /Recorded outcome counts/);
+    // The approved design's two realised-performance tiles are in the layout, and this
+    // payload has no paper-performance block, so both state that plainly.
+    const headline = byClass(performance, "metric-tile--headline");
+    assert.deepEqual(headline.map((tile) => tile.dataset.metric), ["win_rate", "total_pnl"]);
+    assert.match(headline[0].textContent, /Win rate/);
+    assert.match(headline[1].textContent, /Total P&L/);
+    assert.equal(headline.filter((tile) => tile.textContent.includes("Not available yet")).length, 2);
+    assert.doesNotMatch(performance.textContent, /Total P&L[\s\S]{0,40}\+?\d/, "no figure is shown for P&L");
     press(tabs[0]); // back to Paper Trades
     await drainMicrotasks();
     assert.equal(paper.hidden, false);

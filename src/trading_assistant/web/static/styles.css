@@ -2059,6 +2059,19 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .metric-tile-value { font-size: 22px; font-weight: 750; letter-spacing: -0.01em; }
 .metric-tile-detail { color: var(--text-faint); font-size: 10.5px; }
 
+/* Win rate and Total P&L: the approved design's two realised-performance tiles, kept in the
+   layout whether or not BRAIN can fill them in yet. */
+.performance-headline { display: grid; gap: 10px; }
+.performance-headline .metric-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.metric-tile--headline { gap: 5px; padding: 16px 18px; }
+.metric-tile--headline .metric-tile-value { font-size: 30px; font-variant-numeric: tabular-nums; }
+.metric-tile--headline[data-tone="green"] .metric-tile-value { color: var(--green); }
+.metric-tile--headline[data-tone="red"] .metric-tile-value { color: var(--red); }
+/* An unavailable figure is stated in words, at a size that reads as a statement rather than
+   as a blank value waiting to be filled in. */
+.metric-tile--unavailable .metric-tile-value { font-size: 19px; font-weight: 650; color: var(--text-muted); }
+.metric-tile-note { margin: 0; color: var(--text-faint); font-size: 11px; line-height: 1.5; max-width: 90ch; }
+
 /* --- Responsive ------------------------------------------------------------- */
 @media (max-width: 1180px) {
   .chart-stage { grid-template-columns: minmax(0, 1fr); }
@@ -2070,6 +2083,9 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   .setup-row-detail { grid-column: 2; text-align: left; }
   .setup-row-icon { grid-row: 1 / 3; }
   .metric-tiles { grid-template-columns: minmax(0, 1fr); }
+  /* The headline pair is two-up by default; on a phone it stacks like the counts above.
+     This rule is stated after the generic one because its selector is more specific. */
+  .performance-headline .metric-tiles { grid-template-columns: minmax(0, 1fr); }
   .ledger-table td, .ledger-table th { white-space: normal; }
 }
 

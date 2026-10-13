@@ -25,6 +25,7 @@ import {
   swingEmphasis,
 } from "../chart_functions.js";
 import { functionPanel, functionPanelModel } from "../function_panel.js";
+import { paperPerformanceModel } from "../paper-performance.js";
 import { canShowForming } from "../forming-display.js";
 import { asOfLine, freshnessBadge } from "../freshness.js";
 import { createBinanceFormingStream } from "../binance-forming-display.js";
@@ -2769,8 +2770,9 @@ export function performanceSection(dashboard, forward) {
   return el("section", { class: "paper-section performance-section", "aria-label": "Recorded performance" }, [
     el("div", { class: "section-head" }, [
       el("h2", { text: "Performance" }),
-      el("p", { class: "muted", text: "Measured counts over the recorded ledger. Proposed-level OHLC observations only — never realised P&L, and never a profitability claim." }),
+      el("p", { class: "muted", text: "Recorded outcome counts, plus the realised-performance tiles BRAIN cannot compute yet. Proposed-level OHLC observations only — never a profitability claim." }),
     ]),
+    performanceHeadlineTiles(dashboard),
     performanceTiles(forward),
     empty
       ? paperEmptyCard(forward)
@@ -3037,6 +3039,31 @@ function paperLedgerTable(forward) {
       ]),
     ]),
     el("p", { class: "ledger-note", text: "Every row is one recorded paper plan with the levels the engine proposed and the outcome state the ledger recorded. Outcome words are the backend's own; no profit or loss is shown because the ledger does not store one." }),
+  ]);
+}
+
+/**
+ * Win rate and Total P&L: the approved design's two realised-performance tiles.
+ *
+ * Every value comes from the backend's `paper_performance` block (see paper-performance.js).
+ * While BRAIN cannot compute one, the tile reads "Not available yet" — the reference pictures'
+ * figures were illustrative, and no example number, count-based ratio or proposed-level R is
+ * ever substituted for a real result.
+ */
+function performanceHeadlineTiles(dashboard) {
+  const model = paperPerformanceModel(dashboard);
+  return el("div", { class: "performance-headline" }, [
+    el("div", { class: "metric-tiles", "aria-label": "Recorded paper performance" }, model.tiles.map((tile) => (
+      el("div", {
+        class: `card metric-tile metric-tile--headline${tile.available ? "" : " metric-tile--unavailable"}`,
+        dataset: { tone: tile.tone, metric: tile.id },
+      }, [
+        el("span", { class: "metric-tile-label", text: tile.label }),
+        el("span", { class: "metric-tile-value", text: tile.value }),
+        el("span", { class: "metric-tile-detail", text: tile.detail }),
+      ])
+    ))),
+    el("p", { class: "metric-tile-note", text: model.note }),
   ]);
 }
 

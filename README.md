@@ -1599,19 +1599,34 @@ presentation layer: the same endpoints, the same numbers, the same provenance.
   tab that holds its full record. The complete market-bias and zone evidence keeps its place in
   the Diagnostics tab, and the engine's plan levels sit in the Current Setup column beside the
   decision.
+* **Performance tiles.** The approved design's **Win rate** and **Total P&L** tiles sit at the
+  top of the Performance tab. They read one payload key (`paper_performance`) and show a figure
+  only when the backend supplies one; today both read "Not available yet", each with its own
+  reason, and the surrounding note says plainly that no example figure is shown. The module
+  (`static/js/paper-performance.js`) does no arithmetic at all — it never divides outcome counts
+  into a win rate and never converts a proposed-level R into money. See
+  [`docs/paper-performance-reporting.md`](docs/paper-performance-reporting.md) for the agreed
+  definitions that work still requires.
 * **Bottom tabs.** Paper Trades (opens by default, tracker card first, then the recorded
-  plans as a table of entry, stop, targets, outcome word and state), Performance (recorded
-  outcome counts plus the existing read-only report), and Diagnostics. Diagnostics keeps every
-  earlier detail — the full setup list, the market frame, the band list, the technical record,
-  system details — in one tab instead of stacked panels.
+  plans as a table of entry, stop, targets, outcome word and state), Performance (the Win rate
+  and Total P&L tiles, then the recorded outcome counts and the existing read-only report), and
+  Diagnostics. Diagnostics keeps every earlier detail — the full setup list, the market frame,
+  the band list, the technical record, system details — in one tab instead of stacked panels.
 
-> **Where this deliberately differs from the reference designs.** The approved pattern-detection
-> picture shows a confidence percentage (87% / 62% / 48%) and the paper-trading picture shows a
-> profit figure (Total PnL +41.14). Neither exists in this system: the detector stores geometry,
-> not a score, and the ledger stores outcome states and proposed levels, not realised profit and
-> loss. The panels show the detector's own geometry numbers (matching extremes, depth, span) and
-> the ledger's own outcome words instead. Inventing the missing figures would break the
-> project's central rule, so the layout matches the design while the numbers stay honest.
+> **The figures in the reference designs are illustrative.** The pattern-detection picture shows
+> example confidence percentages and the paper-trading picture an example profit total. The
+> **layout** follows the design, including a Win rate tile and a Total P&L tile, and the
+> **values** are never examples: a figure appears only when BRAIN computes it from recorded
+> paper trades. Until then both tiles read **"Not available yet"** with the reason.
+>
+> That is the honest state of the data, not a gap in the dashboard. The detector stores geometry
+> rather than a confidence score, so the pattern panel shows the detector's own geometry
+> (matching extremes, depth, span); the ledger stores outcome states and proposed levels rather
+> than realised profit, so no count-based ratio or proposed-level R is presented as money. The
+> work needed to fill the two performance tiles in — win/loss definitions, exclusion of
+> ambiguous outcomes, trade sizing, fees, slippage and denominators — is specified separately in
+> [`docs/paper-performance-reporting.md`](docs/paper-performance-reporting.md) and is not part of
+> this redesign.
 * **Five chart functions.** Support / Resistance, Swing Highs / Lows, Chart Patterns,
   Breakouts / Retests, and Trade Plan. **Simple mode** (default) draws exactly one function
   at a time; **Detailed mode** draws several, including the operator's own layer switches
@@ -1756,7 +1771,7 @@ out of scope for all steps.
 
 ```bash
 python -m pytest                        # complete Python suite (1182 passed, 1 xfailed)
-node --test tests/frontend/*.test.mjs   # frontend tests, no dependencies (373 tests)
+node --test tests/frontend/*.test.mjs   # frontend tests, no dependencies (390 tests)
 ruff format --check src/trading_assistant/historical_validation src/trading_assistant/web tests/test_historical_validation.py tests/test_web_*.py tests/web_fixtures.py tests/test_web_frontend_contract.py
 ruff check src/trading_assistant/historical_validation src/trading_assistant/web tests/test_historical_validation.py tests/test_web_*.py tests/web_fixtures.py tests/test_web_frontend_contract.py
 ```
