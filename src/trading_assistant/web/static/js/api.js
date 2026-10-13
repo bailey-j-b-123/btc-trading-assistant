@@ -178,7 +178,7 @@ export const api = {
   meta: () => request("GET", "/api/meta"),
   settings: () => request("GET", "/api/settings"),
   dashboard: (params = {}) =>
-    request("GET", `/api/dashboard${queryString(params)}`, undefined, { timeoutMs: DASHBOARD_TIMEOUT_MS }),
+    fetchJsonWithin("GET", `/api/dashboard${queryString(params)}`, undefined, { deadlineMs: DASHBOARD_TIMEOUT_MS }),
   candles: (params = {}) => request("GET", `/api/market/candles${queryString(params)}`),
   /** Cheap boundary check for automatic refresh: newest stored closed candle, no analysis. */
   latestClosed: (params = {}) => request("GET", `/api/market/latest-closed${queryString(params)}`),
@@ -194,7 +194,8 @@ export const api = {
   statistics: (params = {}) => request("GET", `/api/statistics${queryString(params)}`),
   rollingStatistics: (params = {}) => request("GET", `/api/statistics/rolling${queryString(params)}`),
   validation: (params = {}) => request("GET", `/api/validation${queryString(params)}`),
-  forward: (params = {}) => request("GET", `/api/forward${queryString(params)}`),
+  forward: (params = {}) =>
+    fetchJsonWithin("GET", `/api/forward${queryString(params)}`, undefined, { deadlineMs: DASHBOARD_TIMEOUT_MS }),
   // Bounded scoped poll of the same report (see fetchJsonWithin): the whole read, headers and body, has a deadline.
   forwardPoll: (params = {}) =>
     fetchJsonWithin("GET", `/api/forward${queryString(params)}`, undefined, { deadlineMs: FORWARD_READ_DEADLINE_MS }),
