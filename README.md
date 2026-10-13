@@ -1592,15 +1592,34 @@ presentation layer: the same endpoints, the same numbers, the same provenance.
 * **Main area.** The candlestick chart on the left; the **Current Setup** column on the
   right, carrying setup status, the multi-timeframe confirmation strip, the selected
   evidence explanation, the execution state, and what BRAIN is waiting for.
-* **Four summary cards.** Market bias, nearest stored levels, the engine's trade plan, and
-  the paper ledger.
-* **Bottom tabs.** Paper Trades (opens by default, tracker card first), Performance, and
-  Diagnostics. Diagnostics keeps every earlier detail — the full setup list, the technical
-  record, system details — in one tab instead of stacked panels.
+* **Four summary cards.** Active setups, qualified plans, settled paper trades (with the
+  ledger's own outcome words, never a win/loss claim) and runner health. Each one selects the
+  tab that holds its full record. The complete market-bias and zone evidence keeps its place in
+  the Diagnostics tab, and the engine's plan levels sit in the Current Setup column beside the
+  decision.
+* **Bottom tabs.** Paper Trades (opens by default, tracker card first, then the recorded
+  plans as a table of entry, stop, targets, outcome word and state), Performance (recorded
+  outcome counts plus the existing read-only report), and Diagnostics. Diagnostics keeps every
+  earlier detail — the full setup list, the market frame, the band list, the technical record,
+  system details — in one tab instead of stacked panels.
+
+> **Where this deliberately differs from the reference designs.** The approved pattern-detection
+> picture shows a confidence percentage (87% / 62% / 48%) and the paper-trading picture shows a
+> profit figure (Total PnL +41.14). Neither exists in this system: the detector stores geometry,
+> not a score, and the ledger stores outcome states and proposed levels, not realised profit and
+> loss. The panels show the detector's own geometry numbers (matching extremes, depth, span) and
+> the ledger's own outcome words instead. Inventing the missing figures would break the
+> project's central rule, so the layout matches the design while the numbers stay honest.
 * **Five chart functions.** Support / Resistance, Swing Highs / Lows, Chart Patterns,
   Breakouts / Retests, and Trade Plan. **Simple mode** (default) draws exactly one function
   at a time; **Detailed mode** draws several, including the operator's own layer switches
   and older stored evidence.
+* **A panel beside the chart, one per function** (`function_panel.js`), matching the approved
+  design for each chart function: a colour legend, the nearest stored levels with their own
+  bounds and touch counts, the detected pattern's name, lifecycle state and stored geometry,
+  the stored breakout / sweep / retest sequence, or the engine's own plan levels with the
+  risk/reward ratio the plan carries. Every figure is a stored value; nothing is derived
+  except the ratio between the plan's own levels, which the approved design asks for.
 * **Presentation rules that are not negotiable.** Prices, bands, touch counts, pattern
   shapes and lifecycle states, event states and plan levels are the backend's own values:
   nothing is invented, moved or re-labelled; no confidence percentage is ever shown for a
@@ -1724,7 +1743,7 @@ out of scope for all steps.
 
 ```bash
 python -m pytest                        # complete Python suite (1182 passed, 1 xfailed)
-node --test tests/frontend/*.test.mjs   # frontend tests, no dependencies (334 tests)
+node --test tests/frontend/*.test.mjs   # frontend tests, no dependencies (351 tests)
 ruff format --check src/trading_assistant/historical_validation src/trading_assistant/web tests/test_historical_validation.py tests/test_web_*.py tests/web_fixtures.py tests/test_web_frontend_contract.py
 ruff check src/trading_assistant/historical_validation src/trading_assistant/web tests/test_historical_validation.py tests/test_web_*.py tests/web_fixtures.py tests/test_web_frontend_contract.py
 ```

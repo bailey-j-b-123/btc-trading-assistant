@@ -17,7 +17,6 @@ import {
   functionStatus,
   highlightedPattern,
   layersForSelection,
-  levelCatalogue,
   normalizeFunctionId,
   normalizeMode,
   overlayPrefsForSelection,
@@ -25,6 +24,7 @@ import {
   swingConnectors,
   swingEmphasis,
 } from "../chart_functions.js";
+import { functionPanel, functionPanelModel } from "../function_panel.js";
 import { canShowForming } from "../forming-display.js";
 import { asOfLine, freshnessBadge } from "../freshness.js";
 import { createBinanceFormingStream } from "../binance-forming-display.js";
@@ -601,6 +601,8 @@ function chartCard(initialDashboard) {
   const modeSwitch = el("div", { class: "chart-mode-switch", role: "group", "aria-label": "Display mode" });
   const modeButtons = new Map();
   const functionStatusNode = el("div", { class: "chart-function-status", role: "note", text: "" });
+  // The panel beside the chart explains the selected function from stored records only.
+  const functionPanelMount = el("div", { class: "chart-function-slot" });
   const patternPicker = el("div", { class: "chart-pattern-picker", role: "group", "aria-label": "Detected patterns", hidden: true });
   const patternPickerBody = el("div", { class: "chart-pattern-list" });
   const swingConnectorButton = el("button", {
@@ -747,8 +749,10 @@ function chartCard(initialDashboard) {
     // The S/R summary card and the function status read exactly the bands that were painted.
     viewed.paintedBands = [...viewedBands, ...higherBands];
     setZoneBands(handleRef.current, viewed.paintedBands, { onSelect: selectZoneBand });
-    // The status line counts the bands of this selection, so it is painted after them.
+    // The status line and the panel both read the bands of this selection, so they
+    // are painted after the bands are known.
     paintFunctionStatus();
+    paintFunctionPanel();
   };
   /**
    * Draw evidence for the viewed timeframe and the selected chart function.
@@ -786,6 +790,7 @@ function chartCard(initialDashboard) {
       : "";
     evidenceMeta.textContent = `${evidenceMetaText(viewed.evidence, viewed.timeframe)} ${evidenceCountText(viewed.model)}${counts}${htf}${zoneText}`;
     paintFunctionStatus();
+    paintFunctionPanel();
     renderItemList(viewed.model);
   };
 
@@ -864,6 +869,24 @@ function chartCard(initialDashboard) {
     functionStatusNode.dataset.tone = status.available ? "neutral" : "amber";
     functionStatusNode.textContent = `${fn.label}: ${status.text}`;
     renderPatternPicker();
+  };
+
+  /** Draw the explanation panel for the selected function, from stored records only. */
+  const paintFunctionPanel = () => {
+    const zb = viewed.overlays?.zone_bands || {};
+    clearNode(functionPanelMount).append(functionPanel(functionPanelModel({
+      functionId: activeChartFunction,
+      evidence: viewed.evidence,
+      bands: Array.isArray(viewed.paintedBands) ? viewed.paintedBands : [],
+      hidden: Number.isFinite(zb.hidden_count) ? zb.hidden_count : null,
+      merged: Number.isFinite(zb.merged_count) ? zb.merged_count : null,
+      reason: zb.reason || null,
+      plan: hasValidTradePlan(dashboard) ? dashboard.plan : null,
+      planState: dashboard?.planning?.state_detail || null,
+      planReason: planningReason(dashboard),
+      marketState: dashboard?.market_state || null,
+      selectedPatternId,
+    })));
   };
 
   /** One button per stored pattern record; selecting one switches the drawn example. */
@@ -1508,7 +1531,9 @@ function chartCard(initialDashboard) {
     formingStatus,
     confirmedStatus,
     ohlcLine,
-    host,
+    // The chart and its function panel sit side by side on a wide screen, and
+    // stack (chart first) on a narrow one.
+    el("div", { class: "chart-stage" }, [host, functionPanelMount]),
     evidenceMeta,
     itemList,
     markerKey,
@@ -1519,6 +1544,7 @@ function chartCard(initialDashboard) {
   refreshLayerButtons();
   updateLiquidityToggle();
   paintFunctionStatus();
+  paintFunctionPanel();
   if (!validCandles.length) {
     showChartOverlay(chartEmpty(
       "Candle data unavailable",
@@ -2745,6 +2771,7 @@ export function performanceSection(dashboard, forward) {
       el("h2", { text: "Performance" }),
       el("p", { class: "muted", text: "Measured counts over the recorded ledger. Proposed-level OHLC observations only — never realised P&L, and never a profitability claim." }),
     ]),
+    performanceTiles(forward),
     empty
       ? paperEmptyCard(forward)
       : el("div", { class: "paper-grid" }, [performanceCard(forward, dashboard?.meta || {})]),
@@ -2757,18 +2784,6 @@ export function performanceSection(dashboard, forward) {
 // (Paper Trades / Performance / Diagnostics). Everything below only ARRANGES
 // backend facts and existing cards; no value is calculated here.
 // ---------------------------------------------------------------------------
-
-/**
- * Give a summary slot the shared card shell class, whatever built its body. The
- * plan card keeps its own richer rows; the shell only makes the four cards look
- * like one row of equals.
- */
-function summaryShell(node) {
-  const classes = new Set(String(node.className || "").split(/\s+/).filter(Boolean));
-  classes.add("summary-card");
-  node.className = [...classes].join(" ");
-  return node;
-}
 
 /** Caption + value row used by the summary cards. */
 function summaryFact(label, value, tone = null) {
@@ -2848,74 +2863,242 @@ function marketBiasCard(dashboard) {
   });
 }
 
-/** Nearest stored levels, in the compact card form. Same source as the band layer. */
-function nearestLevelsCard(dashboard) {
-  const zb = dashboard?.overlays?.zone_bands;
-  const close = lastConfirmedClose(dashboard?.market?.candles);
-  const bands = levelCatalogue(relocateBands(Array.isArray(zb?.bands) ? zb.bands : [], close)).slice(0, 4);
-  const tf = String(zb?.timeframe || dashboard?.meta?.timeframe || "").toUpperCase();
-  const hidden = Number.isFinite(zb?.hidden_count) ? zb.hidden_count : 0;
-  const merged = Number.isFinite(zb?.merged_count) ? zb.merged_count : 0;
-  return summaryCard({
-    kicker: `Nearest levels${tf ? ` · ${tf}` : ""}`,
-    title: bands.length ? `Closest ${bands.length} stored band(s)` : "No stored bands",
-    tone: bands.length ? "neutral" : "amber",
-    facts: bands.map((band) => summaryFact(
-      band.role === "support" ? "Support" : band.role === "resistance" ? "Resistance" : "Price inside",
-      `${displayRounded(band.low, 2).display} – ${displayRounded(band.high, 2).display} · ${band.touchCount ?? "?"} touch${band.touchCount === 1 ? "" : "es"}${band.faded ? " · older, faded" : ""}`,
-      band.role === "support" ? "green" : band.role === "resistance" ? "red" : "amber",
-    )),
-    body: bands.length ? [] : [el("p", { class: "summary-empty", text: zb?.reason === "no_zones" ? "No support or resistance zones are stored at this instant." : "No zone bands to show for this view." })],
-    footer: `${hidden} further zone(s) hidden · ${merged} merged for display. Bounds and touches are the detector's own; nothing is invented or moved.`,
+/**
+ * One of the four compact summary cards of the approved layout: a tinted icon
+ * tile, the headline value, one line of detail, and (when it opens a tab) a
+ * chevron. Every value is the same one the tab itself shows.
+ */
+function statCard({ icon, label, value, detail, tone = "neutral", action = null, hint = null }) {
+  const content = [
+    el("span", { class: "stat-icon", "aria-hidden": "true", text: icon }),
+    el("span", { class: "stat-body" }, [
+      el("span", { class: "stat-label", text: label }),
+      el("span", { class: "stat-value", dataset: { tone }, text: value }),
+      el("span", { class: "stat-detail", text: detail }),
+    ]),
+  ];
+  if (action) content.push(el("span", { class: "stat-chevron", "aria-hidden": "true", text: "\u203a" }));
+  const props = {
+    class: `card summary-card stat-card${action ? " stat-card-link" : ""}`,
+    "aria-label": `${label}: ${value}`,
+    dataset: { tone },
+    title: hint || detail,
+  };
+  if (!action) return el("section", props, content);
+  return el("button", { ...props, type: "button", onclick: action }, content);
+}
+
+/** Active setups: the qualification snapshot's own counts, never a new tally. */
+function activeSetupsCard(dashboard, forward, setTab) {
+  const model = verdictViewModel(dashboard, forward);
+  const total = model.watchCount === null || model.qualifiedCount === null
+    ? null
+    : model.watchCount + model.qualifiedCount;
+  return statCard({
+    icon: "\u25a4",
+    label: "Active setups",
+    value: total === null ? "UNKNOWN" : String(total),
+    detail: model.qualifiedCount === null ? "qualified count unavailable" : `${model.qualifiedCount} qualified`,
+    tone: model.qualifiedCount ? "green" : "neutral",
+    action: setTab ? () => setTab("diagnostics") : null,
   });
 }
 
-/** The paper ledger summary: recorded counts only, never a performance claim. */
-function paperLedgerCard(forward) {
+/** Qualified plans: the engine's own plannable count, and nothing else. */
+function qualifiedPlansCard(dashboard, forward, setTab) {
+  const model = verdictViewModel(dashboard, forward);
+  return statCard({
+    icon: "\u25ce",
+    label: "Qualified plans",
+    value: model.plannedCount === null ? "UNKNOWN" : String(model.plannedCount),
+    detail: model.plannable ? "Plan available \u2014 paper only" : "No trade plan right now",
+    tone: model.plannable ? "blue" : "neutral",
+    action: setTab ? () => setTab("paper") : null,
+  });
+}
+
+/** Recorded outcomes by the backend's own state word, never a win/loss claim. */
+function outcomeCounts(model) {
+  const counts = new Map();
+  for (const plan of model.plans) {
+    if (!plan.settled) continue;
+    const text = outcomeStatusText(plan.outcomeStatus);
+    counts.set(text, (counts.get(text) || 0) + 1);
+  }
+  return counts;
+}
+
+/** Settled paper trades: ledger counts plus the recorded outcome labels. */
+function settledPaperTradesCard(forward, setTab) {
   const model = paperTrackerViewModel(forward?.paper_tracker);
   if (!model.available) {
-    return summaryCard({
-      kicker: "Paper ledger",
-      title: "Unavailable",
+    return statCard({
+      icon: "\u25a3",
+      label: "Settled paper trades",
+      value: "UNKNOWN",
+      detail: "The tracker payload did not load",
       tone: "amber",
-      body: [el("p", { class: "summary-empty", text: "The tracker payload did not load, so recorded plans stay UNKNOWN rather than guessed." })],
-      footer: "Open the Paper Trades tab for the ledger source.",
     });
   }
-  const latest = model.latestAssessment;
-  return summaryCard({
-    kicker: "Paper ledger",
-    title: model.unresolvedCount === null ? "Counts unavailable" : model.unresolvedCount > 0 ? `${model.unresolvedCount} unresolved` : "All settled",
+  const settled = model.recordedCount === null || model.unresolvedCount === null
+    ? null
+    : model.recordedCount - model.unresolvedCount;
+  const counts = outcomeCounts(model);
+  const detail = counts.size
+    ? [...counts.entries()].map(([text, count]) => `${count} ${text.toLowerCase()}`).join(" \u00b7 ")
+    : "no outcome recorded yet";
+  return statCard({
+    icon: "\u25a3",
+    label: "Settled paper trades",
+    value: settled === null ? "UNKNOWN" : String(settled),
+    detail,
     tone: model.unresolvedCount > 0 ? "amber" : "neutral",
-    facts: [
-      summaryFact("Recorded plans", model.recordedCount ?? "UNKNOWN"),
-      summaryFact("Resolved", model.recordedCount !== null && model.unresolvedCount !== null ? model.recordedCount - model.unresolvedCount : "UNKNOWN"),
-      summaryFact("Unresolved", model.unresolvedCount ?? "UNKNOWN"),
-      summaryFact("Latest assessment", latest ? `${latest.setupState || "UNKNOWN"} · ${latest.asOf ? formatUtc(latest.asOf) : "UNKNOWN"}` : "UNKNOWN"),
-    ],
-    footer: "Ledger facts and proposed-level observations only — not realised P&L, and not a performance claim.",
+    action: setTab ? () => setTab("paper") : null,
+    hint: "Proposed-level paper records only. No real orders, and not a profit-and-loss figure.",
   });
 }
 
-/** Execution row: what the journal action can do, and what it explicitly cannot. */
-function executionRow(dashboard) {
-  const availability = decisionAvailability(dashboard);
-  const latest = dashboard?.journal?.latest_decision || null;
-  const summary = confirmationSummary(dashboard);
-  const bits = [
-    summary.setupId ? `setup ${shortId(summary.setupId)}` : "no selected setup",
-    summary.setupState || null,
-    summary.direction ? directionLabel(summary.direction) : null,
-    summary.planState ? `plan ${planStateLabel(summary.planState)}` : "no plan",
-  ].filter(Boolean);
-  return el("div", { class: "setup-execution", "aria-label": "Execution" }, [
-    el("div", { class: "setup-row-label", text: "Execution" }),
-    el("div", { class: "setup-row-value", text: "Disabled by design — no orders, no account, no credentials." }),
-    el("div", { class: "setup-row-detail", text: bits.join(" · ") }),
-    latest
-      ? el("div", { class: "setup-row-detail", text: `Last recorded decision: ${decisionText(latest.decision)} at ${latest.recorded_at ? formatUtc(latest.recorded_at) : "UNKNOWN"}` })
-      : el("div", { class: "setup-row-detail", text: availability?.enabled ? "A journal decision can be recorded for this proposal." : disabledReasonText(availability?.reason) }),
+/** Runner and market-data health, exactly as the health view model reports it. */
+function runnerHealthCard(dashboard, forward, setTab) {
+  const health = systemHealthViewModel(dashboard, forward);
+  const runner = runnerDetailsViewModel(forward);
+  const updated = runner.heartbeat && runner.heartbeat !== "UNKNOWN"
+    ? `Last update ${runner.heartbeat}`
+    : `Runner ${runner.state} \u00b7 ${runner.pending}`;
+  return statCard({
+    icon: "\u25c9",
+    label: "Runner health",
+    value: health.label,
+    detail: updated,
+    tone: health.tone,
+    action: setTab ? () => setTab("diagnostics") : null,
+    hint: health.primary ? health.primary.detail : "Stored data is current and the runner reported no problem.",
+  });
+}
+
+/** A formatted stored price; a missing one stays an explicit UNKNOWN. */
+function priceText(value) {
+  return isMissing(value) ? "UNKNOWN" : displayRounded(value, 2).display;
+}
+
+/**
+ * The recorded paper ledger as a table, in the approved column form. The
+ * outcome column carries the backend's own state word: this table never shows a
+ * profit or a loss figure, because the ledger does not contain one.
+ */
+function paperLedgerTable(forward) {
+  const model = paperTrackerViewModel(forward?.paper_tracker);
+  if (!model.available || !model.plans.length) return null;
+  const head = ["Entry time (UTC)", "Entry", "Stop", "Targets", "Outcome", "State"];
+  const headRow = el("tr", {}, head.map((text) => el("th", { scope: "col", text })));
+  const rows = model.plans.map((plan) => {
+    const tone = plan.settled
+      ? (plan.outcomeStatus === "TARGETS_REACHED" ? "green" : plan.outcomeStatus === "STOPPED" || plan.outcomeStatus === "STOPPED_AFTER_TARGETS" ? "red" : "neutral")
+      : "amber";
+    return el("tr", { dataset: { tone } }, [
+      el("td", { class: "mono", text: plan.planTime ? formatUtc(plan.planTime) : "UNKNOWN" }),
+      el("td", { class: "mono", text: priceText(plan.entry) }),
+      el("td", { class: "mono", text: priceText(plan.stop) }),
+      el("td", { class: "mono", text: plan.targets.length ? plan.targets.map(priceText).join(" / ") : "UNKNOWN" }),
+      el("td", { text: outcomeStatusText(plan.outcomeStatus) }),
+      el("td", { text: plan.stateLabel }),
+    ]);
+  });
+  return el("section", { class: "card ledger-card", "aria-label": "Recorded paper plans" }, [
+    el("h3", { class: "ledger-title", text: "Recorded paper plans" }),
+    el("div", { class: "ledger-scroll" }, [
+      el("table", { class: "ledger-table" }, [
+        el("thead", {}, [headRow]),
+        el("tbody", {}, rows),
+      ]),
+    ]),
+    el("p", { class: "ledger-note", text: "Every row is one recorded paper plan with the levels the engine proposed and the outcome state the ledger recorded. Outcome words are the backend's own; no profit or loss is shown because the ledger does not store one." }),
   ]);
+}
+
+/** Counts of recorded ledger outcomes for the Performance tab. Counts only. */
+function performanceTiles(forward) {
+  const model = paperTrackerViewModel(forward?.paper_tracker);
+  if (!model.available) return null;
+  const settled = model.recordedCount === null || model.unresolvedCount === null
+    ? null
+    : model.recordedCount - model.unresolvedCount;
+  const counts = outcomeCounts(model);
+  const tiles = [
+    { label: "Recorded plans", value: model.recordedCount === null ? "UNKNOWN" : String(model.recordedCount), detail: "on the ledger" },
+    { label: "Settled", value: settled === null ? "UNKNOWN" : String(settled), detail: "final outcome recorded" },
+    { label: "Targets reached", value: String(counts.get("Targets reached") || 0), detail: "recorded outcome state" },
+    { label: "Stopped", value: String((counts.get("Stopped") || 0) + (counts.get("Stopped after targets") || 0)), detail: "recorded outcome state" },
+  ];
+  return el("div", { class: "metric-tiles", "aria-label": "Recorded outcome counts" }, tiles.map((tile) => (
+    el("div", { class: "card metric-tile" }, [
+      el("span", { class: "metric-tile-label", text: tile.label }),
+      el("span", { class: "metric-tile-value", text: tile.value }),
+      el("span", { class: "metric-tile-detail", text: tile.detail }),
+    ])
+  )));
+}
+
+/**
+ * The four Current Setup rows of the approved layout: market bias, setup
+ * status, confirmation and execution, each carrying the backend facts that
+ * produced it. Selecting a chart marker explains that marker in its own panel;
+ * it never replaces these rows.
+ */
+function setupRows(dashboard, forward) {
+  const state = dashboard?.market_state || null;
+  const trend = state?.available === true ? state.trend || null : null;
+  const qualification = dashboard?.qualification || {};
+  const summary = confirmationSummary(dashboard);
+  const availability = decisionAvailability(dashboard);
+  const plan = hasValidTradePlan(dashboard) ? dashboard.plan : null;
+  const family = summary.family ? familyLabel(summary.family) : null;
+  const direction = summary.direction ? directionLabel(summary.direction) : null;
+  const setupDetail = [direction, family].filter(Boolean).join(" \u00b7 ");
+  const rows = [
+    {
+      icon: trend ? directionArrow(trend.direction) : "\u25c6",
+      label: "Market bias",
+      value: trend ? directionLabel(trend.direction) : "UNKNOWN",
+      tone: trend?.direction === "bullish" ? "green" : trend?.direction === "bearish" ? "red" : "neutral",
+      detail: trend
+        ? `Structure read: ${trendReasonText(trend.reason)}.`
+        : backendNoticeText(state?.reason, "No market frame could be built at this instant."),
+    },
+    {
+      icon: "\u25c9",
+      label: "Setup status",
+      value: setupStateLabel(qualification.state) || "UNKNOWN",
+      tone: qualification.state === "QUALIFIED" ? "green" : qualification.state === "WATCH" ? "amber" : "neutral",
+      detail: setupDetail || "No candidate setup is being tracked.",
+    },
+    {
+      icon: plan ? "\u2713" : "\u25cc",
+      label: "Confirmation",
+      value: plan ? planStateLabel(plan.state) : "Not confirmed",
+      tone: plan ? (plan.direction === "bullish" ? "green" : plan.direction === "bearish" ? "red" : "blue") : "amber",
+      detail: plan
+        ? `Engine plan for ${family || "the selected setup"}; hypothetical paper levels only.`
+        : backendNoticeText(planningReason(dashboard), "No qualified trade plan right now."),
+    },
+    {
+      icon: availability?.enabled ? "\u25a3" : "\u2298",
+      label: "Execution",
+      value: availability?.enabled ? "Journal decision available" : "Not armed",
+      tone: "neutral",
+      detail: "Disabled by design \u2014 no orders, no account, no credentials. Recording a decision only appends to the paper journal.",
+    },
+  ];
+  return el("section", { class: "card setup-rows", "aria-label": "Current setup rows" }, rows.map((row) => (
+    el("div", { class: "setup-row", dataset: { tone: row.tone } }, [
+      el("span", { class: "setup-row-icon", "aria-hidden": "true", text: row.icon }),
+      el("span", { class: "setup-row-body" }, [
+        el("span", { class: "setup-row-label", text: row.label }),
+        el("span", { class: "setup-row-value", text: row.value }),
+      ]),
+      el("span", { class: "setup-row-detail", text: row.detail }),
+    ])
+  )));
 }
 
 /** A single tab button; selecting it shows its panel and hides the others. */
@@ -3199,18 +3382,22 @@ export async function renderDashboard(view, { refresh = false } = {}) {
         // rejecting. The selected-evidence explanation is mounted between them
         // so it can never replace the trading status (blueprint §4).
         decisionHero(dashboard, forward),
+        setupRows(dashboard, forward),
         compactHierarchyStrip(dashboard),
         chart.explainPanel,
-        executionRow(dashboard),
+        // The engine's own plan levels, in the panel form the approved Trade
+        // Plan design uses (the Trade Plan chart function shows the same
+        // numbers as a table beside the chart).
+        planCard(dashboard),
         waitingCard(dashboard, forward),
       ]),
     ]),
     // Four compact summary cards.
     el("div", { class: "tertiary-grid dash-summary-grid", "aria-label": "Summary cards" }, [
-      summaryShell(marketBiasCard(dashboard)),
-      summaryShell(nearestLevelsCard(dashboard)),
-      summaryShell(planCard(dashboard)),
-      summaryShell(paperLedgerCard(forward)),
+      activeSetupsCard(dashboard, forward, setTab),
+      qualifiedPlansCard(dashboard, forward, setTab),
+      settledPaperTradesCard(forward, setTab),
+      runnerHealthCard(dashboard, forward, setTab),
     ]),
     // Bottom tabs: Paper Trades, Performance, Diagnostics.
     dashboardTabs({ selected: selectedTab, onSelect: setTab }),
@@ -3219,6 +3406,7 @@ export async function renderDashboard(view, { refresh = false } = {}) {
       // and outcomes from the ledger, kept visible even when the newest
       // assessment says "No trade".
       trackerCard,
+      paperLedgerTable(forward),
       paperSection(dashboard, forward),
     ] }),
     tabPanel({ id: "performance", selected: selectedTab, label: "Performance", children: [
@@ -3229,6 +3417,7 @@ export async function renderDashboard(view, { refresh = false } = {}) {
       botWatchingCard(dashboard),
       explanationCard(dashboard),
       marketNowCard(dashboard),
+      marketBiasCard(dashboard),
       nearbyZonesCard(dashboard),
       systemDetailsCard(dashboard, forward),
     ] }),

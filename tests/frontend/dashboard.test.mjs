@@ -1424,7 +1424,21 @@ test("the trading bar carries the approved instrument, timeframe, mode and healt
     // Four compact summary cards under the main area, then the three bottom tabs.
     const summary = byClass(view, "dash-summary-grid")[0];
     assert.ok(summary, "the summary grid renders");
-    assert.equal(byClass(summary, "summary-card").length, 4);
+    const statCards = byClass(summary, "stat-card");
+    assert.deepEqual(
+      findNodes(summary, (node) => intoClass(node, "stat-label")).map((node) => node.textContent),
+      ["Active setups", "Qualified plans", "Settled paper trades", "Runner health"],
+    );
+    assert.equal(statCards.length, 4);
+    assert.match(statCards[3].textContent, /^◉Runner healthDATA CURRENT · RUNNER IDLE/);
+    // The four rows of the Current Setup column, from the backend's own facts.
+    const setup = byClass(view, "setup-rows")[0];
+    assert.deepEqual(
+      findNodes(setup, (node) => intoClass(node, "setup-row-label")).map((node) => node.textContent),
+      ["Market bias", "Setup status", "Confirmation", "Execution"],
+    );
+    assert.match(setup.textContent, /Market biasBullishStructure read: higher highs and higher lows\./);
+    assert.match(setup.textContent, /ExecutionNot armedDisabled by design/);
     const tabs = byClass(view, "dash-tabs")[0];
     assert.ok(tabs, "the bottom tabs render");
     assert.deepEqual(
@@ -1475,10 +1489,14 @@ test("the five chart functions are switchable and Simple mode draws one at a tim
     press(buttons[0]); // Support / Resistance
     await drainMicrotasks();
     assert.match(status.textContent, /^Support \/ Resistance: 1 band\(s\) shown nearest price first · 3 further band\(s\) hidden/);
-    // The bands the function draws are the stored, presented ones: bounds and
-    // touch counts come straight from the detector.
-    const levelsCard = byClass(view, "dash-summary-grid")[0];
-    assert.match(levelsCard.textContent, /61,500\.00 – 61,600\.00 · 2 touches/);
+    // The panel beside the chart explains the selected function from the stored,
+    // presented bands: bounds and touch counts come straight from the detector.
+    const panel = byClass(view, "chart-function-panel")[0];
+    assert.equal(panel.dataset.function, "support_resistance");
+    assert.match(panel.textContent, /Support & Resistance/);
+    assert.match(panel.textContent, /Support61,500\.00 – 61,600\.00/);
+    assert.match(panel.textContent, /2 touches/);
+    assert.match(panel.textContent, /Only the nearest active zones are drawn\./);
 
     press(buttons[3]); // Breakouts / Retests
     await drainMicrotasks();
