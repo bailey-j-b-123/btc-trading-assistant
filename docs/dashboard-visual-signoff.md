@@ -13,15 +13,17 @@ only — no engine, strategy, threshold or data change.
 
 | Approved reference | This build (screenshot) | Notes |
 | --- | --- | --- |
-| Main dashboard | `main-full.png` (Plan function, Simple) | Chart dominant; Current Setup = decision + 4 approved rows; hierarchy strip, plan card and waiting-for detail moved to Diagnostics |
-| Support & Resistance | `main-fn-support_resistance.png` | Stored bands only, nearest first; legend + records panel beside chart |
-| Swing Highs / Lows | `main-fn-swings.png` | HH/HL/LH/LL from stored swings only; Market Structure panel |
-| Chart Patterns | `fn-patterns-framed.png` | Confirmed Double bottom selected; stored geometry, **no confidence %** (backend stores none — reference figure is illustrative) |
-| Breakouts / Retests | `fn-breakouts-framed.png` | Stored breakout/retest records only; no invented continuation step |
-| Trade Plan | `main-fn-trade_plan.png` | Honest no-plan state on this demo series (engine built no PLANNABLE plan); entry/stop/target lines + R:R render when a plan exists (unit-tested) |
+| Main dashboard | `docs/visual-signoff/01-main-dashboard.png` (Plan function, Simple) | Chart dominant; Current Setup = decision + 4 approved rows; hierarchy strip, plan card and waiting-for detail moved to Diagnostics |
+| Support & Resistance | `docs/visual-signoff/02-support-resistance.png` | Stored bands only, nearest first; legend + records panel beside chart |
+| Swing Highs / Lows | `docs/visual-signoff/03-swings.png` | HH/HL/LH/LL from stored swings only; Market Structure panel |
+| Chart Patterns | `docs/visual-signoff/04-patterns.png` | Confirmed Double bottom selected; stored geometry, **no confidence %** (backend stores none — reference figure is illustrative) |
+| Breakouts / Retests | `docs/visual-signoff/05-breakouts.png` | Stored breakout/retest records only; no invented continuation step |
+| Trade Plan | `docs/visual-signoff/06-trade-plan.png` | Honest no-plan state on this demo series (engine built no PLANNABLE plan); entry/stop/target lines + R:R render when a plan exists (unit-tested) |
 
-Also captured: `main-detailed.png` (Detailed restores the evidence catalogue,
-marker key and window notes that Simple hides), `mobile-390.png`.
+Also captured: `docs/visual-signoff/07-detailed-mode.png` (Detailed restores the
+evidence catalogue, marker key and window notes that Simple hides) and
+`docs/visual-signoff/08-mobile-390.png`. All eight are committed in this PR under
+`docs/visual-signoff/` for direct comparison against the six approved designs.
 
 ## Demo environment
 
