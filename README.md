@@ -2313,7 +2313,7 @@ any analysis and without touching the decision hero or the chart. Scaling limit:
 full forward report, so its cost grows with the ledger; the tracker-only endpoint
 `GET /api/forward/paper-tracker` still exists, but the dashboard no longer polls it. If a read fails, the
 header reads `FORWARD STATUS UNAVAILABLE` instead of a green verdict, and the last good paper facts stay
-on screen with the time of that last good read; the next successful read recovers the display.
+on screen with the time of that last good read; the next successful read recovers the display. Each poll read has an operational deadline of 10 seconds covering the response headers and the JSON body: at the deadline the request is aborted, the read counts as failed (amber, then backoff), and a late response is discarded. This is a client-side limit only; the server is not stopped and no stored data changes.
 
 The Step 12 endpoints are strictly read-only: they never fetch candles, never run
 a forward pass, never write to the ledger, and accept no strategy thresholds.

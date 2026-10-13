@@ -2659,7 +2659,8 @@ function startForwardUpdates() {
     return;
   }
   forwardRefresher = createForwardRefresher({
-    fetchForward: () => api.forward({
+    // Bounded: the deadline covers headers AND body, and a timeout is a failed read (amber, then backoff).
+    fetchForward: () => api.forwardPoll({
       symbol: dashboardMeta?.symbol || undefined,
       timeframe: dashboardMeta?.timeframe || undefined,
       limit: 8,

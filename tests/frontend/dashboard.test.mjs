@@ -543,7 +543,7 @@ async function withDashboard(dashboard, forward, callback) {
   let forwardOverride = forward ?? null;
   let forwardHandler = null;
   const fetchCounts = new Map();
-  globalThis.fetch = async (path) => {
+  globalThis.fetch = async (path, init) => {
     const key = String(path);
     fetchCounts.set(key, (fetchCounts.get(key) || 0) + 1);
     if (key.startsWith("/api/forward/paper-tracker")) {
@@ -551,7 +551,7 @@ async function withDashboard(dashboard, forward, callback) {
       return { ok: true, json: async () => trackerOverride };
     }
     if (key.startsWith("/api/forward?") || key === "/api/forward") {
-      if (forwardHandler) return forwardHandler(key);
+      if (forwardHandler) return forwardHandler(key, init);
       if (!forwardOverride) throw new Error("missing forward fixture payload");
       return { ok: true, json: async () => forwardOverride };
     }
@@ -1392,6 +1392,20 @@ function stoppedForward(base) {
 const hasClass = (name) => (node) => (node.className || "").split(/\s+/).includes(name);
 const hasLabel = (label) => (node) => node.attributes?.["aria-label"] === label;
 
+/** The first approved label that renders a value; null only when none of them is on the page. */
+function metricValueAny(root, labels) {
+  for (const label of labels) {
+    const value = metricValue(root, label);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+/** The unresolved-count metric under either approved wording. */
+function unresolvedMetric(root) {
+  return metricValueAny(root, ["Unresolved", "Unsettled outcomes"]);
+}
+
 function metricValue(root, label) {
   const metric = findNodes(root, hasClass("performance-metric"))
     .find((node) => node.children[0]?.textContent === label);
@@ -1418,7 +1432,7 @@ test("unchanged candle: a STOPPED runner and a settled outcome reach the header,
       assert.match(header.textContent, /DATA CURRENT · RUNNER IDLE/);
       assert.equal(header.dataset.tone, "green");
       assert.equal(metricValue(view, "Settled outcomes"), "0");
-      assert.equal(metricValue(view, "Unresolved"), "1");
+      assert.equal(unresolvedMetric(view), "1");
       const heroBefore = findNodes(view, hasClass("hero-card"))[0];
       const chartBefore = findNodes(view, hasClass("dash-chart"))[0];
       const trackerBefore = findNodes(view, hasClass("paper-tracker"))[0];
@@ -1435,7 +1449,7 @@ test("unchanged candle: a STOPPED runner and a settled outcome reach the header,
       assert.equal(header.dataset.tone, "amber");
 
       assert.equal(metricValue(view, "Settled outcomes"), "1", "the settled count follows the ledger");
-      assert.equal(metricValue(view, "Unresolved"), "0");
+      assert.equal(unresolvedMetric(view), "0");
       const trackerAfter = findNodes(view, hasClass("paper-tracker"))[0];
       assert.notEqual(trackerAfter, trackerBefore, "the tracker card was replaced");
       assert.match(trackerAfter.textContent, /Latest outcome\s*Stopped/);
@@ -1582,6 +1596,90 @@ identityDefectTest("a forward read without a symbol is never trusted as the disp
 identityDefectTest("a forward read without a timeframe is never trusted as the displayed scope", (payload) => {
   delete payload.timeframe;
 });
+
+/**
+ * A forward read that never completes must not hold the poll forever. Both fakes below are the
+ * worst case: they IGNORE the abort signal, so only the operational deadline can release the read.
+ * The deadline covers the response headers AND the JSON body.
+ */
+function stalledForwardCase(mode) {
+  const where = mode === "headers" ? "its response headers" : "its JSON body";
+  test(`a forward read stalled on ${where} is released at the deadline, shows amber, and a valid retry recovers`, async () => {
+    const base = openForward();
+    await withDashboard(backendDashboard(), base, async ({ view, ids, setForwardHandler }) => {
+      const clock = fakeClock();
+      const realNow = Date.now;
+      let now = realNow();
+      Date.now = () => now;
+      try {
+        await renderOpen(view, base);
+        const header = headerStatus(ids);
+        assert.equal(header.dataset.tone, "green");
+        const renderedAt = now;
+
+        const records = [];
+        setForwardHandler((key, init) => {
+          const record = { key, signal: init?.signal ?? null, release: null };
+          records.push(record);
+          const held = new Promise((resolve) => {
+            record.release = resolve;
+          });
+          if (mode === "headers") {
+            // Late headers, delivered after the deadline: must be ignored.
+            record.lateValue = (payload) => okResponse(payload);
+            return held;
+          }
+          // Headers arrive at once; the body never completes. Late body: must be ignored.
+          record.lateValue = (payload) => payload;
+          return { ok: true, json: () => held };
+        });
+
+        // 600 seconds of 15 s poll ticks while the read stays stalled.
+        for (let tick = 0; tick < 40; tick += 1) {
+          now += 15000;
+          clock.fire();
+          await settle();
+          const unreleased = records.filter((record) => !(record.signal && record.signal.aborted));
+          assert.ok(unreleased.length <= 1, `at tick ${tick} at most one read is still active (saw ${unreleased.length})`);
+        }
+        assert.ok(records.length > 1, "the deadline released the stalled read, so the poll read again");
+        assert.ok(records.every((record) => record.signal instanceof AbortSignal), "every poll read carries an abort signal");
+        assert.equal(records[0].signal.aborted, true, "the stalled read was aborted at its deadline");
+
+        assert.notEqual(header.dataset.tone, "green", "a stalled read never leaves the green verdict");
+        assert.match(header.textContent, /FORWARD STATUS UNAVAILABLE/);
+        const statusLine = findNodes(view, hasClass("dash-forward-status"))[0];
+        assert.ok(statusLine, "the forward status line is rendered");
+        assert.match(statusLine.textContent, new RegExp(`Last good read: ${new Date(renderedAt).toISOString().slice(11, 19)} UTC`), "the last good time is unchanged");
+        assert.equal(metricValue(view, "Settled outcomes"), "0", "the last good paper facts stay on screen");
+
+        // The stalled responses arrive late, with a settled ledger. They must never overwrite the page.
+        const late = stoppedForward(base);
+        for (const record of records) record.release(record.lateValue(late));
+        await settle();
+        assert.notEqual(header.dataset.tone, "green");
+        assert.doesNotMatch(header.textContent, /STATUS STOPPED/, "a late response is not applied");
+        assert.equal(metricValue(view, "Settled outcomes"), "0", "a late response does not change the paper facts");
+
+        // A valid retry recovers: the next tick after the deadline reads the server and repaints green.
+        setForwardHandler((key) => okResponse(base));
+        for (let tick = 0; tick < 3 && header.dataset.tone !== "green"; tick += 1) {
+          now += 15000;
+          clock.fire();
+          await settle();
+        }
+        assert.equal(header.dataset.tone, "green", "a valid retry recovers");
+        assert.doesNotMatch(header.textContent, /FORWARD STATUS UNAVAILABLE/);
+      } finally {
+        Date.now = realNow;
+        clock.restore();
+      }
+    });
+  });
+}
+
+stalledForwardCase("headers");
+stalledForwardCase("json");
 
 test("a hidden tab or an open dialog pauses forward polling without a request; returning resumes it", async () => {
   const base = openForward();
