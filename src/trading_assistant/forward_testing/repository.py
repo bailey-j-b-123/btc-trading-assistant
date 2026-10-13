@@ -572,25 +572,36 @@ class ForwardLedgerRepository:
         ]
         if timeframe is not None:
             criteria.append(ForwardPaperPlanRow.timeframe == timeframe)
-        statement = (
-            select(ForwardPaperOutcomeRow)
+        newest_sequences = (
+            select(
+                ForwardPaperOutcomeRow.paper_plan_id,
+                func.max(ForwardPaperOutcomeRow.sequence).label("sequence"),
+            )
             .join(
                 ForwardPaperPlanRow,
                 ForwardPaperPlanRow.paper_plan_id
                 == ForwardPaperOutcomeRow.paper_plan_id,
             )
             .where(*criteria)
-            .order_by(
-                ForwardPaperOutcomeRow.paper_plan_id.asc(),
-                ForwardPaperOutcomeRow.sequence.asc(),
+            .group_by(ForwardPaperOutcomeRow.paper_plan_id)
+            .subquery()
+        )
+        # Filter by the immutable per-plan sequence before loading payloads.
+        # The existing unique (paper_plan_id, sequence) constraint selects one
+        # row per plan; historical versions remain available through their
+        # separate read API and need not be decoded for a latest-state query.
+        statement = (
+            select(ForwardPaperOutcomeRow)
+            .join(
+                newest_sequences,
+                (ForwardPaperOutcomeRow.paper_plan_id == newest_sequences.c.paper_plan_id)
+                & (ForwardPaperOutcomeRow.sequence == newest_sequences.c.sequence),
             )
+            .order_by(ForwardPaperOutcomeRow.paper_plan_id.asc())
         )
         with self._sessions() as session:
             rows = session.scalars(statement).all()
-        latest: dict[str, PaperOutcome] = {}
-        for row in rows:
-            latest[row.paper_plan_id] = _outcome_from_row(row)
-        return tuple(latest[key] for key in sorted(latest))
+            return tuple(_outcome_from_row(row) for row in rows)
 
     def get_outcome(self, outcome_id: str) -> PaperOutcome:
         """Recover one historical outcome version exactly as it was stored."""
