@@ -417,7 +417,7 @@ export function levelCatalogue(bands) {
  * function legitimately has nothing stored, its empty sentence is used instead
  * of a fabricated figure.
  */
-export function functionStatus({ functionId, evidence, model = null, plan = null, planState = null, extra = null }) {
+export function functionStatus({ functionId, evidence, model = null, plan = null, planState = null, extra = null, stages = null }) {
   const fn = chartFunctionById(normalizeFunctionId(functionId)) || CHART_FUNCTIONS[0];
   if (fn.id === "trade_plan") {
     const plannable = plan && plan.state === "PLANNABLE";
@@ -490,7 +490,14 @@ export function functionStatus({ functionId, evidence, model = null, plan = null
     if (storedTotal !== null) {
       parts.push(`${storedBreakouts ?? "?"} breakout(s) · ${storedFailed ?? "?"} failed · ${storedSweeps ?? "?"} sweep(s) · ${storedRetests ?? "?"} retest(s)`);
     }
-    if (shown !== null) parts.push(`${shown} drawn in the recent window`);
+    // The Breakouts & Retests screen reads as three annotated steps, so the
+    // status names those steps and their recorded statuses. `shown` counts the
+    // small per-event markers, which this screen does not draw.
+    if (stages && Array.isArray(stages.stages) && stages.stages.length) {
+      parts.push(stages.stages.map((stage) => `${stage.number} ${stage.title}: ${stage.status}`).join(" · "));
+    } else if (shown !== null) {
+      parts.push(`${shown} drawn in the recent window`);
+    }
     const hiddenOlder = optionalNumber(model?.hiddenOlder?.breakouts);
     if (hiddenOlder !== null && hiddenOlder > 0) parts.push(`${hiddenOlder} older item(s) outside the recent window`);
   }

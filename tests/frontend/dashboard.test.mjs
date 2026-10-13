@@ -1513,7 +1513,10 @@ test("the five chart functions are switchable and Simple mode draws one at a tim
     await drainMicrotasks();
     assert.match(status.textContent, /^Breakouts \/ Retests: 1 breakout\(s\) · 0 failed · 0 sweep\(s\) · 0 retest\(s\)/);
     assert.match(status.textContent, /1 later-known item\(s\) excluded at this instant/);
-    assert.doesNotMatch(status.textContent, /continuation/i, "no continuation is claimed");
+    // Continuation is one of the three steps, so it is named — but it is never
+    // claimed complete: the backend stores no continuation for this breakout.
+    assert.match(status.textContent, /3 Continuation: In Progress/);
+    assert.doesNotMatch(status.textContent, /3 Continuation: Confirmed/);
   });
 });
 

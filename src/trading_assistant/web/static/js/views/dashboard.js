@@ -39,11 +39,17 @@ import {
   DECISION_LABELS,
   DECISION_MEANINGS,
 } from "../decision.js";
+import { breakoutStages, drawableStages, stageFrame } from "../breakout_stages.js";
 import {
   captureChartView,
   captureLogicalView,
+  clearBreakoutAnnotations,
+  focusBarOnChart,
+  frameBarsOnChart,
+  redrawOverlays,
   restoreChartView,
   restoreLogicalView,
+  setBreakoutAnnotations,
   setZoneBands,
   applyOverlays,
   clearEvidence,
@@ -89,11 +95,13 @@ import {
   directionArrow,
   directionLabel,
   displayOrUnknown,
+  displayPrice,
   displayRounded,
   familyLabel,
   formatUtc,
   isMissing,
   shortId,
+  UNKNOWN_TEXT,
 } from "../format.js";
 import {
   backendNoticeText,
@@ -539,7 +547,7 @@ const HIGHER_TIMEFRAME = Object.freeze({ "5m": "15m", "15m": "1h", "1h": "4h" })
 /** Swing connector line colours, matching the structure marker tones. */
 const STRUCTURE_HIGH_COLOR = "#2fbf7f";
 const STRUCTURE_LOW_COLOR = "#e0565b";
-const CHART_MARKER_KEY = "▲ breakout (green up, red down) · ▼ sweep · grey = failed breakout · ● retest · HH/HL/LH/LL swings · patterns: DT double top, DB double bottom, H&S head and shoulders, iH&S inverse H&S (labels give the lifecycle state) · a dot with no label = label hidden to avoid collisions · click any marker for detail";
+const CHART_MARKER_KEY = "▲ breakout (green up, red down) · ▼ sweep · grey = failed breakout · ● retest (green held, red failed, grey as recorded) · Breakouts & Retests labels them BRK / SWP / FAIL / RT, one marker per stored event · HH/HL/LH/LL swings · patterns: DT double top, DB double bottom, H&S head and shoulders, iH&S inverse H&S (labels give the lifecycle state) · a dot with no label = label hidden to avoid collisions · click any marker for detail";
 const CHART_EXPLAIN_HINT = "Click a candle to see what BRAIN recorded there, when it became known, and whether it influenced the current assessment.";
 
 function evidenceMetaText(evidence, timeframe) {
@@ -651,6 +659,9 @@ function chartCard(initialDashboard) {
       : { available: false, reason: "the dashboard payload did not include chart evidence" },
     candleRows: rows,
     model: null,
+    // The breakout / retest / continuation sequence, read from stored records.
+    // Recomputed with the evidence model; null until the first render.
+    stages: null,
     htfBands: [],
     htfStatus: null,
   };
@@ -690,6 +701,17 @@ function chartCard(initialDashboard) {
       overlays: prefs.overlays,
     });
   };
+  /**
+   * Capture and put back the EXACT window for a redraw that reloads nothing.
+   *
+   * A function, mode, pattern or connector change redraws the same loaded
+   * candles, so the bar-index window (the zoom plus the distance from the live
+   * edge, including the right-hand margin) is restored exactly as it was.
+   * `captureChartView` stays where it belongs: refreshes and timeframe reloads,
+   * where the series itself changes and instants — not indices — must survive.
+   */
+  const captureRedrawView = () => captureLogicalView(handleRef.current);
+  const restoreRedrawView = (view) => restoreLogicalView(handleRef.current, view);
   const swingFunctionActive = () => activeChartFunction === "swings" || activeChartMode === DETAILED_MODE;
   const patternFunctionActive = () => activeChartFunction === "patterns" || activeChartMode === DETAILED_MODE;
   function stopForming() {
@@ -747,8 +769,12 @@ function chartCard(initialDashboard) {
     const higherBands = overlayPrefs.zones === true && effectivePrefs.layers?.htfLevels === true
       ? capBandsForDisplay(relocateBands(viewed.htfBands || [], viewedClose)).shown
       : [];
+    // Breakouts & Retests: the band the sequence happened at, from the stored
+    // breakout's own bounds. Painted by the existing zone painter, so it is
+    // shaded, positioned and labelled like every other stored band.
+    const sequenceBand = breakoutBand(viewed.stages);
     // The S/R summary card and the function status read exactly the bands that were painted.
-    viewed.paintedBands = [...viewedBands, ...higherBands];
+    viewed.paintedBands = [...viewedBands, ...higherBands, ...(sequenceBand ? [sequenceBand] : [])];
     setZoneBands(handleRef.current, viewed.paintedBands, { onSelect: selectZoneBand });
     // The status line and the panel both read the bands of this selection, so they
     // are painted after the bands are known.
@@ -769,12 +795,24 @@ function chartCard(initialDashboard) {
       mode: activeChartMode,
       selectedPatternId,
     });
+    const breakoutScreen = activeChartFunction === "breakouts";
+    // On the Breakouts & Retests screen the three numbered callouts ARE the
+    // chart's reading of these events, so the small per-event markers are not
+    // drawn on top of them. Every other selection — and Detailed mode, which
+    // keeps the operator's own layers on — is unchanged.
+    const annotate = breakoutScreen && activeChartMode !== DETAILED_MODE;
     viewed.model = buildEvidenceModel({
       evidence,
       candles: viewed.candleRows,
       asOfMs: decisionAsOfMs,
-      layers,
+      layers: annotate ? { ...layers, breakouts: false } : layers,
     });
+    // The three callouts, from stored records only. Read for the panel in both
+    // modes; painted on the chart in Simple mode, where they are the reading of
+    // these events.
+    viewed.stages = breakoutScreen
+      ? breakoutStages({ evidence: viewed.evidence, candles: viewed.candleRows })
+      : null;
     emphasiseStoredSwings(viewed.model);
     addSwingConnector(viewed.model);
     setEvidence(handle, viewed.model);
@@ -792,6 +830,7 @@ function chartCard(initialDashboard) {
     evidenceMeta.textContent = `${evidenceMetaText(viewed.evidence, viewed.timeframe)} ${evidenceCountText(viewed.model)}${counts}${htf}${zoneText}`;
     paintFunctionStatus();
     paintFunctionPanel();
+    paintBreakoutAnnotations();
     renderItemList(viewed.model);
   };
 
@@ -858,6 +897,7 @@ function chartCard(initialDashboard) {
       functionId: activeChartFunction,
       evidence: viewed.evidence,
       model: viewed.model,
+      stages: viewed.stages,
       plan: hasValidTradePlan(dashboard) ? dashboard.plan : null,
       planState: dashboard?.planning?.state_detail || null,
       extra: {
@@ -873,9 +913,129 @@ function chartCard(initialDashboard) {
   };
 
   /** Draw the explanation panel for the selected function, from stored records only. */
+  /**
+   * Draw the three numbered callouts. They belong to the Breakouts & Retests
+   * screen only, and each is drawn on the candle its own step belongs to — a
+   * step whose candle is not loaded is not drawn, never moved to a neighbour.
+   */
+  const paintBreakoutAnnotations = () => {
+    const handle = handleRef.current;
+    if (!handle) return;
+    const stages = drawableStages(viewed.stages?.stages || []);
+    if (!stages.length) {
+      clearBreakoutAnnotations(handle);
+      return;
+    }
+    ensureStagesInView(stages);
+    setBreakoutAnnotations(handle, stages, { onSelect: selectStage });
+  };
+
+  /**
+   * Move the window to the stored steps when not one of them is on screen, at
+   * the operator's own zoom: the number of candles on screen is preserved and
+   * only the window moves (see focusBarOnChart). Without it this screen would
+   * open on an empty stretch of chart with all three callouts off the side.
+   *
+   * It runs once per visit to the screen — it never drags the view back while
+   * the operator is looking at something else.
+   */
+  const ensureStagesInView = (stages) => {
+    const handle = handleRef.current;
+    if (!stagesInViewPending || !handle || !stages.length) return;
+    const range = handle.chart?.timeScale?.().getVisibleLogicalRange?.();
+    const onScreen = range && Number.isFinite(range.from) && Number.isFinite(range.to)
+      && stages.some((stage) => stage.barIndex >= range.from - 1 && stage.barIndex <= range.to + 1);
+    if (onScreen) {
+      stagesInViewPending = false;
+      return;
+    }
+    if (!Number.isFinite(stages[0].barIndex) || stages[0].barIndex < 0) return;
+    if (!focusBarOnChart(handle, stages[0].barIndex)) return;
+    stagesInViewPending = false;
+    scheduleRedraw(handle);
+  };
+
+  /**
+   * The band the stored breakout broke through, as a display band for the
+   * existing zone painter. The bounds are the backend's own; where a stored
+   * zone has exactly those bounds, its own role and touch count are kept.
+   */
+  const breakoutBand = (stageModel) => {
+    const band = stageModel?.band;
+    if (!band) return null;
+    const bullish = stageModel.direction !== "bearish";
+    const stored = (Array.isArray(viewed.overlays?.zone_bands?.bands) ? viewed.overlays.zone_bands.bands : [])
+      .find((entry) => Number(entry.band_low) === band.low && Number(entry.band_high) === band.high);
+    const base = stored
+      ? { ...stored }
+      : {
+          id: `breakout-band:${band.low}:${band.high}`,
+          band_low: String(band.low),
+          band_high: String(band.high),
+          center: String((band.low + band.high) / 2),
+          touch_count: null,
+          display_role: bullish ? "resistance" : "support",
+          source_timeframe: viewed.timeframe,
+        };
+    // Neutral blue-grey, not a directional colour: on this screen the band is
+    // the reference level the sequence is read against, and the callouts carry
+    // the story. A stored level (band_low equal to band_high) is given the
+    // minimum thickness below so it still reads as a wide, readable zone.
+    base.tone = "reference";
+    base.position = bullish ? "above_price" : "below_price";
+    base.label = bullish ? "Resistance Zone" : "Support Zone";
+    base.minHeightPx = 30;
+    base.breakoutStage = stageModel.stages?.[0] || null;
+    return base;
+  };
+
+  /**
+   * The BTC/USDT summary card, right of the chart. Every figure is the payload's
+   * own: the last stored close, the candle it belongs to, the stored trend and
+   * the data-freshness state. Nothing here is calculated or rounded anew.
+   */
+  const marketSummaryCard = () => {
+    const latest = dashboard?.market?.latest_closed_candle || null;
+    // Only figures the payload actually carries. A 24h high, low, volume or
+    // change is shown as Unavailable when this view's data does not include it:
+    // a placeholder is written, never a number.
+    const UNAVAILABLE_TEXT = "Unavailable";
+  const priceText = Number.isFinite(Number(latest?.close))
+      ? `$${displayPrice(latest.close).display}`
+      : UNKNOWN_TEXT;
+    // This view's payload carries no 24h roll-up, so the figure is stated as
+    // unavailable rather than filled in from the loaded candles.
+    const rows = [
+      { label: "Change", value: UNAVAILABLE_TEXT, tone: "neutral" },
+      { label: "24h high", value: UNAVAILABLE_TEXT, tone: "neutral" },
+      { label: "24h low", value: UNAVAILABLE_TEXT, tone: "neutral" },
+      { label: "24h volume", value: UNAVAILABLE_TEXT, tone: "neutral" },
+    ];
+    return el("aside", { class: "market-summary-card", "aria-label": "Market summary" }, [
+      el("div", { class: "msc-head" }, [
+        el("span", { class: "msc-icon", "aria-hidden": "true", text: "\u20bf" }),
+        el("span", { class: "msc-head-text" }, [
+          el("span", { class: "msc-symbol", text: symbol }),
+          el("span", { class: "msc-exchange", text: `${exchange} · ${viewedTimeframeLabel(viewed.timeframe)}` }),
+        ]),
+      ]),
+      // Which candle the price belongs to stays on the figure's tooltip: the
+      // card itself is the instrument, the price and the rows below it.
+      el("div", {
+        class: "msc-price",
+        text: priceText,
+        title: latest?.timestamp ? `Last closed candle ${formatUtc(latest.timestamp)}` : "Last closed candle unavailable",
+      }),
+      el("dl", { class: "msc-rows" }, rows.flatMap((row) => [
+        el("dt", { class: "msc-label", text: row.label }),
+        el("dd", { class: "msc-value", dataset: { tone: row.tone, unavailable: String(row.value === UNAVAILABLE_TEXT) }, text: row.value }),
+      ])),
+    ]);
+  };
+
   const paintFunctionPanel = () => {
     const zb = viewed.overlays?.zone_bands || {};
-    clearNode(functionPanelMount).append(functionPanel(functionPanelModel({
+    const nodes = [functionPanel(functionPanelModel({
       functionId: activeChartFunction,
       evidence: viewed.evidence,
       bands: Array.isArray(viewed.paintedBands) ? viewed.paintedBands : [],
@@ -887,7 +1047,11 @@ function chartCard(initialDashboard) {
       planReason: planningReason(dashboard),
       marketState: dashboard?.market_state || null,
       selectedPatternId,
-    })));
+      stages: viewed.stages,
+    }), { onSelectStage: selectStage, onFrameStages: frameStoredEvents })];
+    // The Breakouts & Retests screen pairs the chart with the market summary
+    // and the Breakout Logic panel; every other function keeps its own panel.
+    clearNode(functionPanelMount).append(...(activeChartFunction === "breakouts" ? [marketSummaryCard(), ...nodes] : nodes));
   };
 
   /** One button per stored pattern record; selecting one switches the drawn example. */
@@ -918,16 +1082,58 @@ function chartCard(initialDashboard) {
   function selectPattern(patternId) {
     const next = selectedPatternId === patternId ? null : patternId;
     selectedPatternId = next;
-    const keep = captureChartView(handleRef.current);
+    const keep = captureRedrawView();
     renderEvidence();
-    restoreChartView(handleRef.current, keep);
+    restoreRedrawView(keep);
   }
 
   function setSwingConnector(visible) {
     swingConnectorVisible = visible === true;
-    const keep = captureChartView(handleRef.current);
+    const keep = captureRedrawView();
     renderEvidence();
-    restoreChartView(handleRef.current, keep);
+    restoreRedrawView(keep);
+  }
+
+  /**
+   * Reposition the chart's DOM overlays on the next frame.
+   *
+   * Moving the view programmatically changes the price scale a frame later, so
+   * the overlays are repositioned once the chart has laid the new range out.
+   */
+  const scheduleRedraw = (handle) => {
+    if (!handle) return;
+    if (typeof requestAnimationFrame !== "function") {
+      redrawOverlays(handle);
+      return;
+    }
+    requestAnimationFrame(() => requestAnimationFrame(() => redrawOverlays(handle)));
+  };
+
+  /**
+   * Bring one step's candle into view, keeping the operator's current zoom, and
+   * explain what the backend recorded there.
+   *
+   * Only a step whose own candle is loaded is moved to: a step is never snapped
+   * to a neighbouring bar to make it reachable.
+   */
+  function selectStage(stage) {
+    if (!stage || !handleRef.current) return;
+    if (!Number.isFinite(stage.barIndex) || stage.barIndex < 0) return;
+    focusBarOnChart(handleRef.current, stage.barIndex);
+    scheduleRedraw(handleRef.current);
+    if (Number.isFinite(stage.timeSeconds)) showExplanationAt(stage.timeSeconds);
+  }
+
+  /** True while the Breakouts screen may still need to move the window to its steps. */
+  let stagesInViewPending = true;
+
+  /** Fit the three steps into the chart window. The one control that changes the zoom. */
+  function frameStoredEvents() {
+    const stages = viewed.stages?.stages || [];
+    const frame = stageFrame(stages);
+    if (!frame || !handleRef.current) return;
+    frameBarsOnChart(handleRef.current, frame.fromIndex, frame.toIndex);
+    scheduleRedraw(handleRef.current);
   }
 
   /**
@@ -940,10 +1146,18 @@ function chartCard(initialDashboard) {
     if (next === activeChartFunction) return;
     activeChartFunction = next;
     card.dataset.chartFunction = activeChartFunction;
-    const keep = captureChartView(handleRef.current);
+    // Opening the Breakouts screen may need to move the window to its steps;
+    // leaving it must never drag the view back.
+    stagesInViewPending = next === "breakouts";
+    const keep = captureRedrawView();
     renderEvidence();
     applyViewedOverlays();
-    restoreChartView(handleRef.current, keep);
+    restoreRedrawView(keep);
+    // The restore above puts the operator's view back, which can leave the
+    // stored steps off the side of this screen. Check once more, still at the
+    // operator's own zoom — this moves the window, never the zoom.
+    stagesInViewPending = next === "breakouts";
+    if (stagesInViewPending) paintBreakoutAnnotations();
     if (activeChartMode === DETAILED_MODE && loadPrefs().layers?.htfLevels === true) await refreshHigherLevels();
   }
 
@@ -953,10 +1167,10 @@ function chartCard(initialDashboard) {
     if (next === activeChartMode) return;
     activeChartMode = next;
     card.dataset.mode = activeChartMode;
-    const keep = captureChartView(handleRef.current);
+    const keep = captureRedrawView();
     renderEvidence();
     applyViewedOverlays();
-    restoreChartView(handleRef.current, keep);
+    restoreRedrawView(keep);
     if (activeChartMode === DETAILED_MODE && loadPrefs().layers?.htfLevels === true) await refreshHigherLevels();
   }
   /** One button per drawn evidence item; selecting it opens the same click-to-explain panel as a chart click. */
@@ -993,6 +1207,11 @@ function chartCard(initialDashboard) {
   };
   /** Click a band label: explain that zone (bounds, origin, touches, last test, position vs price). */
   const selectZoneBand = (band) => {
+    // The shaded band of the breakout sequence belongs to its first step.
+    if (band?.breakoutStage) {
+      selectStage(band.breakoutStage);
+      return;
+    }
     clearNode(explainBody);
     explainNote.textContent = band.htf
       ? `Higher-timeframe zone (${band.source_timeframe})`
@@ -1558,6 +1777,7 @@ function chartCard(initialDashboard) {
   updateLiquidityToggle();
   paintFunctionStatus();
   paintFunctionPanel();
+  paintBreakoutAnnotations();
   if (!validCandles.length) {
     showChartOverlay(chartEmpty(
       "Candle data unavailable",

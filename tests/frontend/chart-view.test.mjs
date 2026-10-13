@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { DEFAULT_EDGE_MARGIN, captureLogicalView, restoreLogicalView } from "../../src/trading_assistant/web/static/js/chart.js";
+import {
+  DEFAULT_EDGE_MARGIN,
+  FRAME_PAD_CANDLES,
+  captureLogicalView,
+  focusBarOnChart,
+  frameBarsOnChart,
+  restoreLogicalView,
+} from "../../src/trading_assistant/web/static/js/chart.js";
 
 /**
  * A timeframe switch loads a different series: different instants AND a different candle count.
@@ -136,4 +143,67 @@ test("a degenerate capture still yields a usable window", () => {
   const missing = handle({ bars: 100 });
   restoreLogicalView(missing, { width: 10 });
   assert.deepEqual(missing.calls, [{ from: 90, to: 100 }], "a missing edge offset defaults to the live edge");
+});
+
+// ---------------------------------------------------------------------------
+// Jumping to a stored event and framing the stored events.
+//
+// Switching a chart function must never move the operator's view; the
+// Breakouts & Retests navigator exists precisely because the stored events are
+// usually off-screen. A jump keeps the zoom, framing is the one explicit
+// action that changes it.
+// ---------------------------------------------------------------------------
+
+test("jumping to a stored event keeps the zoom and centres that event", () => {
+  // 200 candles, 20 on screen, right edge one candle past the newest.
+  const chart = handle({ bars: 200, from: 180, to: 200 });
+  const applied = focusBarOnChart(chart, 40);
+  assert.equal(applied.to - applied.from, 20, "the zoom (candles on screen) is unchanged");
+  assert.equal((applied.from + applied.to) / 2, 40, "the requested bar sits in the middle");
+
+  // A bar near the start: the window stays inside the series and keeps its width.
+  const start = focusBarOnChart(chart, 2);
+  assert.equal(start.from, 0, "clamped at the first candle");
+  assert.equal(start.to - start.from, 20, "still the same zoom");
+
+  // A bar near the live edge: clamped to the same margin the default view uses.
+  const edge = focusBarOnChart(chart, 199);
+  assert.equal(edge.to, 199 + DEFAULT_EDGE_MARGIN, "clamped at the newest candle plus the default margin");
+  assert.equal(edge.to - edge.from, 20);
+
+  assert.equal(focusBarOnChart(handle({ bars: 0 }), 5), null, "no candles means nothing to move");
+  assert.equal(focusBarOnChart(null, 5), null);
+  assert.equal(focusBarOnChart(handle({ bars: 200 }), Number.NaN), null, "a non-numeric bar is never applied");
+  assert.equal(focusBarOnChart(handle({ bars: 200, timeScale: false }), 5), null);
+});
+
+test("framing the stored events fits them with a margin and stays inside the series", () => {
+  const chart = handle({ bars: 500, from: 380, to: 502 });
+  const applied = frameBarsOnChart(chart, 125, 126);
+  assert.equal(applied.from, 125 - FRAME_PAD_CANDLES, "padding before the first event");
+  assert.equal(applied.to, 126 + FRAME_PAD_CANDLES, "padding after the last event");
+
+  // A span at the very start: never a negative index.
+  const start = frameBarsOnChart(chart, 1, 2);
+  assert.equal(start.from, 0);
+  assert.equal(start.to, 2 + FRAME_PAD_CANDLES);
+
+  // A span at the very end: clamped like the default view.
+  const end = frameBarsOnChart(chart, 495, 499);
+  assert.equal(end.to, 499 + DEFAULT_EDGE_MARGIN);
+  assert.equal(end.from, 495 - FRAME_PAD_CANDLES);
+
+  assert.equal(frameBarsOnChart(handle({ bars: 0 }), 1, 5), null, "nothing to frame");
+  assert.equal(frameBarsOnChart(handle({ bars: 500 }), null, 5), null, "a missing bar is never applied");
+});
+
+test("a jump never touches the frame helper's job: framing is the only zoom change", () => {
+  const chart = handle({ bars: 500, from: 380, to: 502 });
+  const before = chart.chart.timeScale().getVisibleLogicalRange();
+  focusBarOnChart(chart, 100);
+  const after = chart.chart.timeScale().getVisibleLogicalRange();
+  assert.equal(after.to - after.from, before.to - before.from, "jump: same number of candles");
+  frameBarsOnChart(chart, 100, 110);
+  const framed = chart.chart.timeScale().getVisibleLogicalRange();
+  assert.ok(framed.to - framed.from < before.to - before.from, "frame: a tighter window around the events");
 });

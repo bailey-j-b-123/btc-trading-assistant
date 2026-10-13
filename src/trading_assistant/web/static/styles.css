@@ -1406,10 +1406,66 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .zone-band-layer { position: absolute; inset: 0; pointer-events: none; z-index: 2; overflow: hidden; }
 .zone-band { position: absolute; left: 0; right: 0; background: var(--zone-fill); border-top: 1px solid var(--zone-edge); border-bottom: 1px solid var(--zone-edge); pointer-events: none; }
 .zone-band--htf { border-style: dashed; }
+/* The band a sequence is read against: a neutral blue-grey wash, never the
+   directional red/green of an S or R zone. */
+.zone-band--reference {
+  background: var(--zone-fill);
+  border-top: 1px solid var(--zone-edge);
+  border-bottom: 1px solid var(--zone-edge);
+}
 .zone-band--faded { opacity: 0.45; }
-.zone-band-label { position: absolute; right: 6px; pointer-events: auto; cursor: pointer; font-size: 10.5px; line-height: 1.2; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); background: rgba(7, 11, 22, 0.88); border: 1px solid var(--zone-edge); border-radius: 999px; padding: 2px 8px; max-width: 60%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.zone-band-label { position: absolute; right: 6px; pointer-events: auto; cursor: pointer; font-size: 11.5px; line-height: 1.2; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); background: rgba(7, 11, 22, 0.88); border: 1px solid var(--zone-edge); border-radius: 999px; padding: 2px 8px; max-width: 60%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .zone-band-label:focus-visible { outline: 2px solid var(--zone-edge); outline-offset: 2px; }
 .zone-band-offview { position: absolute; left: 8px; bottom: 8px; font-size: 11px; color: var(--text-muted); background: rgba(7, 11, 22, 0.88); padding: 2px 6px; border-radius: 6px; pointer-events: none; }
+
+/* Breakouts & Retests: three numbered callouts, each with an arrow to the candle
+   its step belongs to. Blue by design; the status inside carries the tone. */
+/* No clipping: a callout near an edge must stay readable in full, and nothing
+   here is allowed to spill outside the chart pane. */
+.breakout-anno-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.breakout-anno {
+  position: absolute;
+  display: flex; align-items: center; gap: 9px;
+  padding: 5px 14px 5px 5px;
+  border: 1.5px solid var(--blue); border-radius: 999px;
+  background: rgba(10, 17, 33, 0.96); color: var(--text);
+  font-size: 13px; font-weight: 700; letter-spacing: 0.01em; line-height: 1.2;
+  white-space: nowrap; cursor: pointer; pointer-events: auto;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5), 0 8px 22px rgba(0, 0, 0, 0.38);
+}
+.breakout-anno:hover { border-color: #7fb6e8; }
+.breakout-anno:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.breakout-anno-num {
+  flex: none; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--blue); color: #06101f;
+  display: grid; place-items: center; font-size: 14px; font-weight: 800;
+}
+/* A step with no stored record (an unconfirmed continuation, a retest not yet
+   recorded) is drawn as an outline, so it never reads as a confirmed event. */
+.breakout-anno[data-recorded="false"] { border-style: dashed; }
+.breakout-anno[data-recorded="false"] .breakout-anno-num {
+  background: transparent; border: 2px solid var(--blue); color: var(--blue);
+}
+.breakout-anno-title { color: #fff; }
+.breakout-anno-status { color: var(--text-muted); font-weight: 700; font-size: 12px; }
+.breakout-anno[data-tone="green"] .breakout-anno-status { color: var(--green); }
+.breakout-anno[data-tone="red"] .breakout-anno-status { color: var(--red); }
+.breakout-anno[data-tone="amber"] .breakout-anno-status { color: var(--amber); }
+.breakout-anno[data-tone="neutral"] .breakout-anno-status { color: var(--text-muted); }
+.breakout-anno-line {
+  position: absolute; height: 1.5px; transform-origin: 0 50%;
+  background: linear-gradient(90deg, rgba(91, 155, 213, 0.3), rgba(91, 155, 213, 0.9));
+  pointer-events: none;
+}
+.breakout-anno-line[data-pending="true"] { background: repeating-linear-gradient(90deg, rgba(91, 155, 213, 0.85) 0 5px, rgba(91, 155, 213, 0.15) 5px 10px); }
+.breakout-anno-arrow {
+  position: absolute; width: 0; height: 0; transform: translate(-50%, -50%);
+  border-top: 5px solid transparent; border-bottom: 5px solid transparent;
+  border-left: 9px solid var(--anno-tone, var(--blue));
+  pointer-events: none;
+}
+.breakout-anno-arrow[data-pending="true"] { opacity: 0.7; }
+.breakout-anno-offview { position: absolute; left: 8px; top: 8px; font-size: 11px; color: var(--text-muted); background: rgba(7, 11, 22, 0.88); padding: 2px 6px; border-radius: 6px; pointer-events: none; }
 
 
 /* ==========================================================================
@@ -1835,6 +1891,7 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   margin-top: 8px; padding: 8px 11px;
   border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2);
 }
+
 .chart-layer-details { margin-top: 10px; }
 .chart-layer-details > summary {
   cursor: pointer; color: var(--text-muted); font-size: 11px; font-weight: 650;
@@ -1917,12 +1974,12 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 }
 @media (max-width: 760px) {
   .dash-summary-grid { grid-template-columns: minmax(0, 1fr); }
-  .chart-function-button, .chart-mode-button, .pattern-button, .swing-connector-toggle, .tf-button { min-height: 40px; }
+  .chart-function-button, .chart-mode-button, .pattern-button, .swing-connector-toggle, .cfp-action, .tf-button { min-height: 40px; }
 }
 @media (max-width: 520px) {
   .dash-tab { flex: 1 1 auto; text-align: center; padding: 8px 10px; }
   .commandbar-symbol { font-size: 17px; }
-  .chart-function-button, .chart-mode-button, .pattern-button, .swing-connector-toggle, .tf-button { min-height: var(--touch); }
+  .chart-function-button, .chart-mode-button, .pattern-button, .swing-connector-toggle, .cfp-action, .tf-button { min-height: var(--touch); }
 }
 
 /* ==========================================================================
@@ -1938,12 +1995,46 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 /* --- Chart stage: candles and the function panel --------------------------- */
 .chart-stage {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
-  gap: 14px;
+  /* ~75 % candles, ~23 % the cards beside them, with one narrow gutter. The
+     chart is the subject of this screen; the panels are its reading. */
+  grid-template-columns: minmax(0, 75fr) minmax(200px, 23fr);
+  gap: 16px;
   align-items: start;
 }
 .chart-stage > .terminal-chart-wrap { min-width: 0; }
-.chart-function-slot { min-width: 0; }
+.chart-function-slot { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+
+/* BTC/USDT summary card, right of the chart on the Breakouts & Retests screen. */
+.market-summary-card {
+  padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--panel-2);
+}
+.msc-head { display: flex; align-items: center; gap: 10px; }
+.msc-head-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+/* The Bitcoin mark, so the card reads as the instrument at a glance. */
+.msc-icon {
+  flex: none; width: 30px; height: 30px; border-radius: 50%;
+  background: rgba(247, 147, 26, 0.16); color: #f7931a;
+  display: grid; place-items: center; font-size: 17px; font-weight: 800; line-height: 1;
+}
+.msc-symbol { font-family: var(--mono); font-size: 15px; font-weight: 800; color: var(--text); letter-spacing: 0.02em; }
+.msc-exchange { font-size: 11px; color: var(--text-faint); letter-spacing: 0.06em; text-transform: uppercase; }
+.msc-price {
+  margin-top: 12px; font-family: var(--mono); font-size: 26px; font-weight: 700;
+  letter-spacing: -0.01em; line-height: 1.1; color: var(--text); font-variant-numeric: tabular-nums;
+}
+.msc-rows {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 10px;
+  margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--border);
+}
+.msc-label { font-size: 11.5px; color: var(--text-faint); align-self: center; }
+.msc-value { margin: 0; font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--text); text-align: right; }
+/* A figure the payload does not carry is written, never guessed. */
+.msc-value[data-unavailable="true"] { color: var(--text-faint); font-weight: 600; font-style: italic; }
+.msc-value[data-tone="green"] { color: var(--green); }
+.msc-value[data-tone="red"] { color: var(--red); }
+.msc-value[data-tone="amber"] { color: var(--amber); }
 
 .chart-function-panel {
   display: flex;
@@ -1962,17 +2053,17 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .chart-function-panel[data-tone="blue"] { border-left: 3px solid var(--blue); }
 .cfp-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .cfp-heading { margin: 0; font-size: 14px; font-weight: 700; letter-spacing: -0.01em; }
-.cfp-chip {
+.cfp-chip { font-size: 11px;
   padding: 2px 8px; border-radius: 999px;
   border: 1px solid var(--border-strong); background: var(--neutral-chip);
-  font-family: var(--mono); font-size: 9.5px; font-weight: 750; letter-spacing: 0.06em;
+  font-family: var(--mono); font-size: 11px; font-weight: 750; letter-spacing: 0.06em;
   color: var(--text-dim); text-transform: uppercase; text-align: right;
 }
 .cfp-title { display: flex; flex-direction: column; gap: 4px; }
 .cfp-title-name { font-size: 13px; font-weight: 650; color: var(--text); }
 .cfp-state {
   align-self: flex-start; padding: 2px 8px; border-radius: 999px;
-  font-family: var(--mono); font-size: 9.5px; font-weight: 750; letter-spacing: 0.06em;
+  font-family: var(--mono); font-size: 11px; font-weight: 750; letter-spacing: 0.06em;
   text-transform: uppercase;
   border: 1px solid var(--border-strong); background: var(--neutral-chip); color: var(--text-dim);
 }
@@ -1980,7 +2071,7 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .cfp-state[data-tone="red"] { color: var(--red); background: var(--red-dim); border-color: rgba(224, 86, 91, 0.4); }
 .cfp-state[data-tone="amber"] { color: var(--amber); background: var(--amber-dim); border-color: rgba(232, 163, 61, 0.4); }
 .cfp-block { display: flex; flex-direction: column; gap: 6px; }
-.cfp-block-title { color: var(--text-faint); font-size: 9.5px; font-weight: 750; letter-spacing: 0.11em; text-transform: uppercase; }
+.cfp-block-title { color: var(--text-faint); font-size: 11px; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; }
 .cfp-legend, .cfp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .cfp-legend-row { display: grid; grid-template-columns: 10px minmax(0, auto); gap: 0 8px; align-items: baseline; }
 .cfp-legend-label { font-size: 11.5px; font-weight: 650; color: var(--text-dim); }
@@ -1991,7 +2082,7 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .cfp-legend-row[data-tone="amber"] .cfp-swatch { background: var(--amber); }
 .cfp-legend-row[data-tone="blue"] .cfp-swatch { background: var(--blue); }
 .cfp-facts { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 10px; margin: 0; }
-.cfp-fact-label { color: var(--text-faint); font-size: 10.5px; align-self: center; }
+.cfp-fact-label { color: var(--text-faint); font-size: 11.5px; align-self: center; }
 .cfp-fact-value { margin: 0; display: flex; flex-direction: column; align-items: flex-end; text-align: right; font-size: 12px; color: var(--text); overflow-wrap: anywhere; }
 .cfp-fact-value[data-tone="green"] { color: var(--green); }
 .cfp-fact-value[data-tone="red"] { color: var(--red); }
@@ -2002,6 +2093,69 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .cfp-row-title { font-size: 11.5px; font-weight: 650; color: var(--text-dim); }
 .cfp-row-value { justify-self: end; font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--text); }
 .cfp-row-meta { grid-column: 1 / -1; color: var(--text-faint); font-size: 10px; line-height: 1.4; }
+
+/* Breakout Logic: three numbered steps down the card, joined by a soft vertical
+   line, each with one short sentence and its recorded status as a right-hand
+   pill. No raw record lists and no metadata below 11px in Simple mode — the
+   stored numbers stay on the row's tooltip and in Detailed / Diagnostics. */
+.cfp-stages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.cfp-stage { position: relative; padding-left: 42px; min-height: 30px; }
+.cfp-stage-num {
+  position: absolute; left: 0; top: 0;
+  width: 26px; height: 26px; border-radius: 50%; background: var(--blue); color: #06101f;
+  display: grid; place-items: center; font-size: 13px; font-weight: 800; flex: none;
+}
+/* The progression line: from under each circle to the top of the next one. */
+.cfp-stage:not(:last-child)::before {
+  content: ""; position: absolute; left: 12px; top: 30px; bottom: -18px; width: 2px; border-radius: 1px;
+  background: linear-gradient(180deg, rgba(91, 155, 213, 0.5), rgba(91, 155, 213, 0.16));
+}
+/* A step with no stored record: an outline circle, never a filled "done" one. */
+.cfp-stage[data-recorded="false"] .cfp-stage-num {
+  background: transparent; border: 2px solid var(--blue); color: var(--blue);
+}
+.cfp-stage-button {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 8px; align-items: start; width: 100%;
+  padding: 0; border: 0; background: none;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.cfp-stage-button:hover .cfp-stage-title { color: #fff; }
+.cfp-stage-button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 6px; }
+.cfp-stage:not(:has(.cfp-stage-button)) {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 8px; align-items: start;
+}
+/* The body's children sit in the row grid, so the sentence can span the full
+   width of the card under the title instead of being squeezed beside the pill. */
+.cfp-stage-body { display: contents; }
+.cfp-stage-title { grid-column: 1; grid-row: 1; font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.25; }
+.cfp-stage-summary { grid-column: 1 / -1; grid-row: 2; font-size: 12px; line-height: 1.45; color: var(--text-muted); }
+.cfp-stage-status {
+  grid-column: 2; grid-row: 1; justify-self: end; align-self: start;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.01em;
+  /* A long status wraps rather than pushing the step title out of the card. */
+  white-space: normal; text-align: center; max-width: 100%;
+  padding: 4px 10px; border-radius: 999px;
+  background: var(--neutral-chip); color: var(--text-dim);
+}
+.cfp-stage-status[data-tone="green"] { background: var(--green-dim); color: var(--green); }
+.cfp-stage-status[data-tone="red"] { background: var(--red-dim); color: var(--red); }
+.cfp-stage-status[data-tone="amber"] { background: var(--amber-dim); color: var(--amber); }
+/* Key Idea: the one sentence the whole three-step layout is saying. */
+.cfp-key-idea {
+  border: 1px solid var(--border); border-left: 3px solid var(--blue);
+  border-radius: var(--radius-sm); background: var(--panel);
+  padding: 10px 12px; margin-top: 2px;
+}
+.cfp-key-idea-text { margin: 4px 0 0; font-size: 12px; line-height: 1.55; color: var(--text-dim); }
+.cfp-action {
+  width: 100%; min-height: 34px; padding: 7px 11px;
+  border: 1px solid var(--border-strong); border-radius: 8px;
+  background: transparent; color: var(--text-muted);
+  font-size: 11px; font-weight: 650; letter-spacing: 0.02em; cursor: pointer;
+}
+.cfp-action:hover { color: var(--text); border-color: var(--blue); }
+
 .cfp-row[data-tone="green"] { border-left: 3px solid var(--green); }
 .cfp-row[data-tone="red"] { border-left: 3px solid var(--red); }
 .cfp-row[data-tone="amber"] { border-left: 3px solid var(--amber); }
@@ -2014,7 +2168,7 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .cfp-rr-reward-label { color: var(--green); }
 .cfp-rr-caption { color: var(--text-faint); font-size: 10px; }
 .cfp-rr-ratio { font-family: var(--mono); font-size: 14px; font-weight: 750; text-align: right; color: var(--text); }
-.cfp-note { margin: 0; color: var(--text-faint); font-size: 10.5px; line-height: 1.45; }
+.cfp-note { margin: 0; color: var(--text-faint); font-size: 11px; line-height: 1.5; }
 
 /* --- Four summary cards ---------------------------------------------------- */
 .stat-card { flex-direction: row; align-items: center; gap: 12px; text-align: left; }
@@ -2209,12 +2363,19 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .setup-row-detail { grid-column: 2; font-size: 11.5px; }
 
 /* --- Chart card: the visual focus ------------------------------------------- */
-.terminal-chart-card { padding: 14px 16px 12px; box-shadow: none; }
+.terminal-chart-card {
+  padding: 14px 16px 12px; box-shadow: none;
+  /* Anything scrolled to this card lands BELOW the sticky bars, so the header
+     never sits over the chart or its callouts. */
+  scroll-margin-top: calc(var(--topbar-h, 60px) + 60px);
+}
 .terminal-chart-card .card-head { margin-bottom: 6px; }
 .chart-heading-title { font-size: 15px; font-weight: 700; }
 .chart-toolbar { gap: 8px; }
-.terminal-chart-wrap { height: clamp(460px, 58vh, 600px); }
-.chart-stage { grid-template-columns: minmax(0, 1fr) 292px; gap: 14px; margin-top: 10px; }
+/* The chart and the cards beside it start on the same line: no offset, so the
+   two columns of the composition read as one band across the screen. */
+.terminal-chart-wrap { height: clamp(520px, 78vh, 840px); margin-top: 0; }
+.chart-stage { grid-template-columns: minmax(0, 75fr) minmax(200px, 23fr); gap: 16px; margin-top: 10px; }
 .chart-function-panel {
   border-radius: var(--radius); background: var(--panel-2);
   padding: 14px; font-size: 12.5px; align-self: start;

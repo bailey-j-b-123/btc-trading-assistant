@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { breakoutStages } from "../../src/trading_assistant/web/static/js/breakout_stages.js";
 import { functionPanelModel } from "../../src/trading_assistant/web/static/js/function_panel.js";
 
 /**
@@ -241,27 +242,58 @@ test("an unavailable or empty pattern window keeps the empty sentence", () => {
 // Breakouts / retests
 // ---------------------------------------------------------------------------
 
-test("the breakouts panel lists only recorded events, newest first, with their own states", () => {
-  const model = functionPanelModel({ functionId: "breakouts", evidence: EVIDENCE });
-  assert.equal(model.heading, "Breakouts & Retests");
-  assert.equal(model.chip, "3 stored events");
-  assert.deepEqual(model.list.map((row) => row.value), ["held", "confirmed", "swept"]);
-  assert.match(model.list[0].title, /^Retest · Bullish/);
-  assert.match(model.list[0].meta, /band 61,900\.00 – 62,000\.00/);
-  assert.match(model.list[1].meta, /2 confirmation candles/);
-  assert.match(model.note, /A continuation is drawn only when the backend records one/);
-  assert.equal(model.list.some((row) => /continuation/i.test(row.title)), false, "no continuation is invented");
+test("the Breakout Logic panel shows the three steps with the status the backend recorded", () => {
+  const candles = Array.from({ length: 20 }, (_, index) => [ms(index), "62000", "62100", "61900", "62050", "10"]);
+  const model = functionPanelModel({
+    functionId: "breakouts",
+    evidence: EVIDENCE,
+    stages: breakoutStages({ evidence: EVIDENCE, candles }),
+  });
+  assert.equal(model.heading, "Breakout Logic");
+  assert.equal(model.chip, "Bullish sequence");
+  assert.deepEqual(model.stages.map((stage) => [stage.number, stage.title]), [[1, "Breakout"], [2, "Retest"], [3, "Continuation"]]);
+  assert.deepEqual(model.stages.map((stage) => stage.status), ["Completed", "Held", "In Progress"]);
+  // The band is the stored breakout's own reference band, passed through.
+  assert.equal(model.band.value, "61,900.00 – 62,000.00");
+  // Step 2 is the stored retest of that breakout, at its own candle.
+  assert.equal(model.stages[1].barIndex, 13);
+  // Continuation is named but never claimed complete: the backend stores none.
+  assert.equal(model.stages[2].status, "In Progress");
+  assert.equal(model.stages[2].tone, "amber");
+  // No continuation is stored, so the step is flagged unrecorded: the panel
+  // draws it as an outline circle and the chart draws a dashed leader line, so
+  // a step that is only being watched never reads as a confirmed event.
+  assert.equal(model.stages[2].recorded, false, "no continuation record exists");
+  assert.equal(model.stages[0].recorded, true, "the breakout is stored");
+  // One short sentence per step, and a Key Idea under them.
+  assert.deepEqual(model.stages.map((stage) => typeof stage.summary === "string" && stage.summary.length > 0), [true, true, true]);
+  assert.match(model.keyIdea, /now support\. The move on from the retest is what is being watched/);
+  // Each step carries where its callout sits relative to its candle.
+  assert.deepEqual(model.stages.map((stage) => `${stage.place}/${stage.nudge}`), ["above/none", "below/right", "above/none"]);
+  assert.match(model.note, /No step is marked complete without a stored record/);
 });
 
-test("the breakouts panel says so when nothing is stored or evidence is missing", () => {
+test("the Breakout Logic panel keeps its three steps when nothing is stored", () => {
+  const emptyEvidence = { available: true, breakouts: [], failed_breakouts: [], sweeps: [], retests: [] };
   const empty = functionPanelModel({
     functionId: "breakouts",
-    evidence: { available: true, breakouts: [], failed_breakouts: [], sweeps: [], retests: [] },
+    evidence: emptyEvidence,
+    stages: breakoutStages({ evidence: emptyEvidence, candles: [] }),
   });
-  assert.deepEqual(empty.list, []);
-  assert.match(empty.note, /No breakout, sweep or retest is stored/);
-  const unavailable = functionPanelModel({ functionId: "breakouts", evidence: { available: false, reason: "no window" } });
-  assert.match(unavailable.note, /nothing is drawn in its place/);
+  // Same layout, same three steps — only the statuses change.
+  assert.deepEqual(empty.stages.map((stage) => stage.title), ["Breakout", "Retest", "Continuation"]);
+  assert.deepEqual(empty.stages.map((stage) => stage.status), ["Not recorded", "Awaiting Confirmation", "Awaiting Confirmation"]);
+  assert.equal(empty.band, null, "no band is shown when nothing is stored");
+  assert.match(empty.note, /no breakout is stored/);
+
+  const unavailableEvidence = { available: false, reason: "no window" };
+  const unavailable = functionPanelModel({
+    functionId: "breakouts",
+    evidence: unavailableEvidence,
+    stages: breakoutStages({ evidence: unavailableEvidence, candles: [] }),
+  });
+  assert.deepEqual(unavailable.stages.map((stage) => stage.status), ["Not recorded", "Not recorded", "Not recorded"]);
+  assert.match(unavailable.note, /no window/);
 });
 
 // ---------------------------------------------------------------------------

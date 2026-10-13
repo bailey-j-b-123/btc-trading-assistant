@@ -295,50 +295,66 @@ function percentText(value) {
   return `${displayRounded(numeric, 2).display}%`;
 }
 
-/** Breakouts / Retests: the stored event sequence, with the backend's own states. */
-function breakoutsModel({ evidence }) {
-  const events = eventCatalogue(evidence?.available === true ? evidence : null);
-  if (!events.length) {
+/**
+ * Breakout Logic: the three steps of the sequence, in order, each with the
+ * status the backend recorded for it.
+ *
+ * The three steps are always shown — that is the layout — whatever the data
+ * says. A step with no stored record keeps its place and reads "Not recorded"
+ * or "In Progress"; it is never filled in from price movement.
+ */
+// One sentence, written for a person: what the whole three-step layout is
+// saying about this sequence. It never asserts an outcome the backend has not
+// stored, so a continuation that has not been recorded reads as a watch.
+const KEY_IDEA_BY_DIRECTION = Object.freeze({
+  bullish: "The broken band is now support. The move on from the retest is what is being watched.",
+  bearish: "The broken band is now resistance. The move on from the retest is what is being watched.",
+});
+
+function breakoutsModel({ evidence, stages }) {
+  const sequence = stages && typeof stages === "object" ? stages : null;
+  const list = Array.isArray(sequence?.stages) ? sequence.stages : [];
+  const direction = sequence?.direction || null;
+  const note = sequence?.available === false
+    ? `The layout is unchanged: all three steps stay in place. ${sequence.reason ? `Nothing is shown for them because ${sequence.reason}.` : ""}`.trim()
+    : "No step is marked complete without a stored record.";
+  if (!list.length) {
     return {
-      heading: "Breakouts & Retests",
+      heading: "Breakout Logic",
       chip: null,
       tone: "amber",
-      legend: [],
-      facts: [],
-      list: [],
-      note: evidence?.available === true
-        ? "No breakout, sweep or retest is stored in the recent part of this window."
-        : "Chart evidence is unavailable for this view, so nothing is drawn in its place.",
+      band: null,
+      stages: [],
+      frameAction: null,
+      note: "Chart evidence is unavailable for this view, so no step is recorded.",
     };
   }
-  const kinds = new Set(events.map((event) => event.kind));
   return {
-    heading: "Breakouts & Retests",
-    chip: `${events.length} stored event${events.length === 1 ? "" : "s"}`,
+    heading: "Breakout Logic",
+    chip: direction ? `${direction === "bearish" ? "Bearish" : "Bullish"} sequence` : null,
     tone: "blue",
-    legend: [...kinds].map((kind) => ({
-      label: EVENT_KINDS[kind] || kind,
-      tone: kind === "breakout" ? "green" : kind === "failed_breakout" ? "red" : kind === "sweep" ? "amber" : "blue",
-      meaning: kind === "breakout"
-        ? "A stored close beyond a stored reference band, with the confirmation the backend recorded."
-        : kind === "failed_breakout"
-          ? "A stored breakout that price closed back through."
-          : kind === "sweep"
-            ? "A stored move beyond a band that was reclaimed in the same candle."
-            : "A stored return to the broken band; the backend records whether it held.",
+    band: sequence.bandText
+      ? { label: direction === "bearish" ? "Broken support band" : "Broken resistance band", value: sequence.bandText, tone: direction === "bearish" ? "green" : "red" }
+      : null,
+    keyIdea: KEY_IDEA_BY_DIRECTION[direction] || KEY_IDEA_BY_DIRECTION.bullish,
+    stages: list.map((stage) => ({
+      key: stage.key,
+      number: stage.number,
+      title: stage.title,
+      status: stage.status,
+      tone: stage.tone,
+      detail: stage.detail,
+      summary: stage.summary || stage.title,
+      place: stage.place,
+      nudge: stage.nudge,
+      recorded: stage.recorded === true,
+      barIndex: Number.isFinite(stage.barIndex) ? stage.barIndex : -1,
+      timeText: stage.timeText,
     })),
-    facts: [],
-    list: events.slice(0, MAX_EVENTS).map((event) => ({
-      title: `${EVENT_KINDS[event.kind] || event.kind}${event.direction ? ` · ${directionLabel(event.direction)} ${directionArrow(event.direction)}` : ""}`,
-      value: event.state || UNKNOWN,
-      meta: [
-        when(event.knownAt),
-        event.bandLow !== null && event.bandHigh !== null ? `band ${price(event.bandLow)} – ${price(event.bandHigh)}` : null,
-        event.confirmationCandles === null ? null : `${event.confirmationCandles} confirmation candle${event.confirmationCandles === 1 ? "" : "s"}`,
-      ].filter(Boolean).join(" · "),
-      tone: event.kind === "failed_breakout" ? "red" : stateTone(event.state),
-    })),
-    note: "Every step shown was recorded by the backend, at the candle it was detected on. A continuation is drawn only when the backend records one — it never appears on its own.",
+    frameAction: list.some((stage) => Number.isFinite(stage.barIndex) && stage.barIndex >= 0)
+      ? "Frame all three steps"
+      : null,
+    note,
   };
 }
 
@@ -443,6 +459,7 @@ export function functionPanelModel({
   planReason = null,
   marketState = null,
   selectedPatternId = null,
+  stages = null,
 } = {}) {
   const fn = chartFunctionById(normalizeFunctionId(functionId)) || null;
   if (!fn) return null;
@@ -451,8 +468,41 @@ export function functionPanelModel({
   }
   if (fn.id === "swings") return { id: fn.id, ...swingsModel({ evidence, bands, marketState }) };
   if (fn.id === "patterns") return { id: fn.id, ...patternsModel({ evidence, selectedPatternId, bands }) };
-  if (fn.id === "breakouts") return { id: fn.id, ...breakoutsModel({ evidence }) };
+  if (fn.id === "breakouts") return { id: fn.id, ...breakoutsModel({ evidence, stages }) };
   return { id: fn.id, ...tradePlanModel({ plan, planState, reason: planReason }) };
+}
+
+/**
+ * One step of the sequence. With `onSelect` and a candle of its own it becomes a
+ * button that brings that candle into view; without one it stays plain text.
+ */
+function stageNode(stage, onSelect = null) {
+  const inner = [
+    el("span", { class: "cfp-stage-num", text: String(stage.number) }),
+    el("span", { class: "cfp-stage-body" }, [
+      el("span", { class: "cfp-stage-title", text: stage.title }),
+      // Simple mode shows one short sentence. The stored numbers, prices and
+      // times stay on the row's tooltip and in Detailed mode / Diagnostics.
+      el("span", { class: "cfp-stage-summary", text: stage.summary || stage.title }),
+    ]),
+    // Statuses are right-aligned pills, exactly as the layout shows them.
+    el("span", { class: "cfp-stage-status", dataset: { tone: stage.tone || "neutral" }, text: stage.status }),
+  ];
+  const attrs = {
+    class: "cfp-stage",
+    dataset: { stage: stage.key, tone: stage.tone || "neutral", recorded: String(stage.recorded === true) },
+  };
+  const jumpable = typeof onSelect === "function" && Number.isFinite(stage.barIndex) && stage.barIndex >= 0;
+  if (!jumpable) return el("li", attrs, inner);
+  return el("li", attrs, [
+    el("button", {
+      type: "button",
+      class: "cfp-stage-button",
+      "data-stage": stage.key,
+      title: `${stage.detail} — bring this candle into view (your zoom is kept)`,
+      onclick: () => onSelect(stage),
+    }, inner),
+  ]);
 }
 
 function rowNode(row, className) {
@@ -464,7 +514,7 @@ function rowNode(row, className) {
 }
 
 /** The panel node. Plain DOM built from the model above. */
-export function functionPanel(model) {
+export function functionPanel(model, { onSelectStage = null, onFrameStages = null } = {}) {
   if (!model) return el("aside", { class: "chart-function-panel", hidden: true });
   const body = [];
   if (model.title) {
@@ -535,6 +585,26 @@ export function functionPanel(model) {
       }),
     ]));
   }
+  if (model.band) {
+    body.push(el("div", { class: "cfp-block" }, [
+      el("div", { class: "cfp-block-title", text: "Reference band" }),
+      el("dl", { class: "cfp-facts" }, [
+        el("dt", { class: "cfp-fact-label", text: model.band.label }),
+        el("dd", { class: "cfp-fact-value", dataset: { tone: model.band.tone }, text: model.band.value }),
+      ]),
+    ]));
+  }
+  if (model.stages?.length) {
+    // No nested heading: "Breakout Logic" already heads the card, and the
+    // numbered circles joined by a line read as steps on their own.
+    body.push(el("ol", { class: "cfp-stages" }, model.stages.map((stage) => stageNode(stage, onSelectStage))));
+  }
+  if (model.keyIdea) {
+    body.push(el("div", { class: "cfp-block cfp-key-idea" }, [
+      el("div", { class: "cfp-block-title", text: "Key Idea" }),
+      el("p", { class: "cfp-key-idea-text", text: model.keyIdea }),
+    ]));
+  }
   if (model.levels?.length) {
     body.push(el("div", { class: "cfp-block" }, [
       el("div", { class: "cfp-block-title", text: "Key levels" }),
@@ -548,6 +618,17 @@ export function functionPanel(model) {
     body.push(el("div", { class: "cfp-block" }, [
       el("div", { class: "cfp-block-title", text: "Stored records" }),
       el("ul", { class: "cfp-list" }, model.list.map((row) => rowNode(row, "cfp-row"))),
+    ]));
+  }
+  if (model.frameAction && typeof onFrameStages === "function") {
+    body.push(el("div", { class: "cfp-block" }, [
+      el("button", {
+        type: "button",
+        class: "cfp-action",
+        "data-frame-stages": "true",
+        text: model.frameAction,
+        onclick: () => onFrameStages(),
+      }),
     ]));
   }
   if (model.note) body.push(el("p", { class: "cfp-note", text: model.note }));
