@@ -28,6 +28,7 @@ import { outcomeStatusText, setupStateLabel } from "./plain.js";
 import { el, emptyState } from "./util.js";
 
 const UNKNOWN_TEXT = "UNKNOWN";
+const booleanOrNull = value => typeof value === "boolean" ? value : null;
 
 /** Tracker poll cadence. Cheap ledger read; never triggers analysis. */
 export const TRACKER_REFRESH_INTERVAL_MS = 15_000;
@@ -58,8 +59,8 @@ export function trackerLedgerSignature(tracker) {
     asOf: tracker.as_of || null,
     plans: plans.map((plan) => [
       plan?.paper_plan_id || null,
-      plan?.settled === true,
-      plan?.occupies_slot === true,
+      booleanOrNull(plan?.settled),
+      booleanOrNull(plan?.occupies_slot),
       Number.isInteger(plan?.outcome_version_count) ? plan.outcome_version_count : null,
       plan?.outcome
         ? [
@@ -265,9 +266,9 @@ export function createTrackerRefresher({
 /** One tracked plan as the card renders it; missing facts stay UNKNOWN. */
 function trackedPlanViewModel(plan) {
   const outcome = plan?.outcome && typeof plan.outcome === "object" ? plan.outcome : null;
-  const settled = plan?.settled === true;
-  const occupies = plan?.occupies_slot === true;
-  const state = settled ? "settled" : occupies ? "active" : "unresolved";
+  const settled = booleanOrNull(plan?.settled);
+  const occupies = booleanOrNull(plan?.occupies_slot);
+  const state = settled === true ? "settled" : occupies === true ? "active" : settled === false ? "unresolved" : "unknown";
   return {
     id: plan?.paper_plan_id || null,
     shortId: isMissing(plan?.paper_plan_id) ? UNKNOWN_TEXT : shortId(plan.paper_plan_id),
@@ -292,7 +293,8 @@ function trackedPlanViewModel(plan) {
     outcomeRecordedAt: outcome?.recorded_at || null,
     outcomeObservedThrough: outcome?.observed_through || null,
     state,
-    stateLabel: settled ? "SETTLED" : occupies ? "ACTIVE" : "UNRESOLVED",
+    stateLabel: `${settled === null ? "OUTCOME UNKNOWN" : settled ? "SETTLED" : "UNSETTLED"} · ` +
+      `${occupies === null ? "SLOT UNKNOWN" : occupies ? "SLOT OCCUPIED" : "SLOT FREE"}`,
   };
 }
 
@@ -351,8 +353,8 @@ function trackerTone(model) {
 function trackerStateLine(model) {
   if (!model.available) return "UNKNOWN";
   if (model.unresolvedCount === null) return UNKNOWN_TEXT;
-  if (model.unresolvedCount > 0) return model.unresolvedCount === 1 ? "1 UNRESOLVED" : `${model.unresolvedCount} UNRESOLVED`;
-  return "ALL SETTLED";
+  if (model.unresolvedCount > 0) return `${model.unresolvedCount} ${model.unresolvedCount === 1 ? "SLOT" : "SLOTS"} OCCUPIED · shown plans`;
+  return "NO SLOTS OCCUPIED · shown plans";
 }
 
 /** One level cell; `display` is already presentation-formatted, `raw` the exact ledger text. */
@@ -451,7 +453,8 @@ function featuredPlanNode(plan) {
       trackerFact("Entry reached", entryReachedText(plan)),
       trackerFact("Latest outcome", outcomeText(plan)),
       trackerFact("Outcome recorded", outcomeTimestampText(plan)),
-      trackerFact("Plan state", plan.stateLabel === "SETTLED" ? "Settled — final" : "Unresolved — still observing"),
+      trackerFact("Outcome state", plan.settled === null ? UNKNOWN_TEXT : plan.settled ? "Settled" : "Unsettled — still observing"),
+      trackerFact("Paper slot", plan.occupiesSlot === null ? UNKNOWN_TEXT : plan.occupiesSlot ? "Occupied" : "Free"),
     ]),
     el("div", { class: "tracker-meta mono", text: [
       `Planned ${plan.planTime ? formatUtc(plan.planTime) : UNKNOWN_TEXT}`,

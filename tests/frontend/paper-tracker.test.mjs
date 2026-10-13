@@ -244,7 +244,7 @@ test("settled STOPPED trade shows levels, entry reached, outcome, timestamp and 
   assert.match(text, /Entry reached\s*YES at 2026-10-10 15:00 UTC/);
   assert.match(text, /Latest outcome\s*Stopped/);
   assert.match(text, /Outcome recorded\s*2026-10-11 02:00 UTC · observed through 2026-10-11 01:00 UTC/);
-  assert.match(text, /Plan state\s*Settled — final/);
+  assert.match(text, /Outcome state\s*Settled/);
   assert.match(text, /SETTLED/);
   assert.match(text, /Outcome versions 12/);
   assert.equal(card.dataset.trackerState, "settled");
@@ -261,7 +261,7 @@ test("a recorded plan stays on the tracker when the latest assessment says No tr
   assert.match(text, /Stopped/);
 });
 
-test("an unresolved plan without an outcome shows UNKNOWN entry reach and ACTIVE state", () => {
+test("an unsettled occupied plan without an outcome shows UNKNOWN entry reach", () => {
   const payload = trackerPayload({
     active_paper_plan_id: "plan-open-1",
     unresolved_paper_plan_count: 1,
@@ -304,9 +304,9 @@ test("an unresolved plan without an outcome shows UNKNOWN entry reach and ACTIVE
   assert.match(text, /Entry reached\s*UNKNOWN/);
   assert.match(text, /Latest outcome\s*No outcome recorded yet/);
   assert.match(text, /Outcome recorded\s*—/);
-  assert.match(text, /Plan state\s*Unresolved — still observing/);
-  assert.match(text, /ACTIVE/);
-  assert.match(text, /1 UNRESOLVED/);
+  assert.match(text, /Outcome state\s*Unsettled — still observing/);
+  assert.match(text, /UNSETTLED · SLOT OCCUPIED/);
+  assert.match(text, /1 SLOT OCCUPIED/);
   assert.equal(card.dataset.trackerState, "active");
 });
 
@@ -413,7 +413,7 @@ test("view model keeps ledger facts without live data", () => {
   assert.equal(plan.entryReached, true);
   assert.equal(plan.outcomeStatus, "STOPPED");
   assert.equal(plan.settled, true);
-  assert.equal(plan.stateLabel, "SETTLED");
+  assert.equal(plan.stateLabel, "SETTLED · SLOT FREE");
   assert.equal(model.latestAssessment.setupState, "NO_SETUP");
 });
 
@@ -647,4 +647,59 @@ test("blocked polls pause without fetching and stop() cancels the pending timer"
     refresher.stop();
     assert.equal(scheduler.timers[1].cleared, true, "the pending poll timer is cancelled");
   });
+});
+
+test("ambiguous settlement does not hide an occupied paper slot", () => {
+  const payload = trackerPayload({ unresolved_paper_plan_count: 1 });
+  const plan = payload.tracked_plans[0];
+  plan.outcome.status = "AMBIGUOUS";
+  plan.occupies_slot = true;
+  const text = paperTrackerCard(forward(payload)).textContent;
+  assert.match(text, /SETTLED · SLOT OCCUPIED/);
+  assert.match(text, /1 SLOT OCCUPIED/);
+  assert.match(text, /Outcome stateSettled/);
+  assert.match(text, /Paper slotOccupied/);
+});
+
+test("an unsettled outcome with a released slot is not labelled all settled", () => {
+  const payload = trackerPayload();
+  const plan = payload.tracked_plans[0];
+  plan.settled = false;
+  plan.occupies_slot = false;
+  plan.outcome.status = "INCOMPLETE_DATA";
+  const text = paperTrackerCard(forward(payload)).textContent;
+  assert.match(text, /NO SLOTS OCCUPIED/);
+  assert.match(text, /UNSETTLED · SLOT FREE/);
+  assert.match(text, /Outcome stateUnsettled/);
+  assert.doesNotMatch(text, /ALL SETTLED|Settled — final/);
+});
+
+test("ambiguity after slot release remains settled and ambiguous", () => {
+  const payload = trackerPayload();
+  payload.tracked_plans[0].outcome.status = "AMBIGUOUS";
+  const text = paperTrackerCard(forward(payload)).textContent;
+  assert.match(text, /SETTLED · SLOT FREE/);
+  assert.match(text, /NO SLOTS OCCUPIED/);
+  assert.match(text, /Ambiguous candle/);
+});
+
+test("missing or nonboolean outcome and slot flags stay unknown", () => {
+  for (const value of [undefined, null, "false"]) {
+    const payload = trackerPayload();
+    Object.assign(payload.tracked_plans[0], { settled: value, occupies_slot: value });
+    const text = paperTrackerCard(forward(payload)).textContent;
+    assert.match(text, /OUTCOME UNKNOWN · SLOT UNKNOWN/);
+    assert.match(text, /Outcome stateUNKNOWN/);
+    assert.match(text, /Paper slotUNKNOWN/);
+    assert.doesNotMatch(text, /Unsettled — still observing|SLOT FREE/);
+  }
+});
+
+test("a missing-to-explicit false flag update changes the tracker signature", () => {
+  const payload = trackerPayload();
+  delete payload.tracked_plans[0].settled;
+  delete payload.tracked_plans[0].occupies_slot;
+  const missing = trackerLedgerSignature(payload);
+  Object.assign(payload.tracked_plans[0], { settled: false, occupies_slot: false });
+  assert.notEqual(trackerLedgerSignature(payload), missing);
 });

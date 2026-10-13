@@ -1147,8 +1147,8 @@ test("the paper trade tracker is prominent, persistent, and ledger-driven", asyn
     assert.match(tracker.textContent, /84,379\.31/);
     assert.match(tracker.textContent, /YES/);
     assert.match(tracker.textContent, /Still open at cutoff/);
-    assert.match(tracker.textContent, /Unresolved — still observing/);
-    assert.match(tracker.textContent, /1 UNRESOLVED/);
+    assert.match(tracker.textContent, /Unsettled — still observing/);
+    assert.match(tracker.textContent, /1 SLOT OCCUPIED/);
     assert.equal(tracker.dataset.trackerState, "active");
     // Persistence: a later assessment that says WATCH/No trade does not remove the plan.
     assert.match(tracker.textContent, /stays on the tracker until its outcome settles/);
@@ -1227,7 +1227,7 @@ test("tracker updates when the runner records STOPPED after the dashboard refres
     assert.ok(cardBefore && heroBefore && chartWrapBefore);
     // The dashboard refreshed on the new candle while the plan was still open.
     assert.match(cardBefore.textContent, /Still open at cutoff/);
-    assert.match(cardBefore.textContent, /Unresolved — still observing/);
+    assert.match(cardBefore.textContent, /Unsettled — still observing/);
     assert.equal(cardBefore.dataset.trackerState, "active");
     const childCount = view.children.length;
 
@@ -1245,9 +1245,9 @@ test("tracker updates when the runner records STOPPED after the dashboard refres
     assert.equal(cardAfter.parentNode, view);
     assert.equal(cardBefore.parentNode, null);
     assert.match(cardAfter.textContent, /Latest outcome\s*Stopped/);
-    assert.match(cardAfter.textContent, /Plan state\s*Settled — final/);
+    assert.match(cardAfter.textContent, /Outcome state\s*Settled/);
     assert.match(cardAfter.textContent, /SETTLED/);
-    assert.match(cardAfter.textContent, /ALL SETTLED/);
+    assert.match(cardAfter.textContent, /NO SLOTS OCCUPIED/);
     assert.equal(cardAfter.dataset.trackerState, "settled");
     // The frozen entry/stop/targets are unchanged on the refreshed card.
     assert.match(cardAfter.textContent, /83,916\.01/);
@@ -1276,5 +1276,49 @@ test("tracker updates when the runner records STOPPED after the dashboard refres
     await drainMicrotasks();
     assert.equal(fetchTotal(fetchCounts, "/api/forward/paper-tracker"), trackerPolls, "no poll runs after navigation");
     assert.equal(findNodes(view, (node) => (node.className || "").split(/\s+/).includes("paper-tracker"))[0], stableCard);
+  });
+});
+
+// Outcome settlement is distinct from the backend paper-slot policy.
+test("settled ambiguous outcome and occupied slot are shown separately without scoring it as R", async () => {
+  const forward = forwardPayload();
+  const metrics = forward.report.metrics;
+  Object.assign(metrics, { completed_count: 1, unresolved_count: 0, ambiguous_count: 1 });
+  metrics.raw_observational_r = { status: "INSUFFICIENT_DATA", sample_size: 0, records_considered: 1, average: null };
+  const plan = forward.paper_tracker.tracked_plans[0];
+  plan.settled = true;
+  plan.occupies_slot = true;
+  plan.outcome.status = "AMBIGUOUS";
+  plan.outcome.ambiguous = true;
+  forward.observations.paper_plans = [{ ...plan, latest_outcome: { observation: { status: "AMBIGUOUS" } } }];
+  await withDashboard(backendDashboard(), forward, async ({ view }) => {
+    // renderDashboard is the real page path, not a separate test formatter.
+    await renderDashboard(view);
+    const rendered = findNodes(view, n => n.className.includes("paper-observations"))[0];
+    assert.ok(rendered);
+    assert.match(rendered.textContent, /Unsettled outcomes0/);
+    assert.match(rendered.textContent, /Settled outcomes1/);
+    assert.match(rendered.textContent, /Ambiguous1/);
+    assert.match(rendered.textContent, /Sample for R0 \/ 1/);
+    assert.doesNotMatch(rendered.textContent, /Active \(unresolved\)|Completed/);
+    const tracker = findNodes(view, n => n.className.includes("paper-tracker"))[0];
+    assert.match(tracker.textContent, /1 SLOT OCCUPIED/);
+    assert.match(tracker.textContent, /SETTLED · SLOT OCCUPIED/);
+    assert.match(tracker.textContent, /Outcome stateSettled/);
+  });
+});
+
+test("version-separated reports keep settlement totals unknown beside known tracker occupancy", async () => {
+  const forward = forwardPayload();
+  forward.report.combined_metrics_available = false;
+  forward.report.metrics = null;
+  await withDashboard(backendDashboard(), forward, async ({ view }) => {
+    await renderDashboard(view);
+    const paper = findNodes(view, n => n.className.includes("paper-observations"))[0];
+    assert.match(paper.textContent, /Unsettled outcomesUNKNOWN/);
+    assert.match(paper.textContent, /Settled outcomesUNKNOWN/);
+    assert.match(paper.textContent, /Sample for RUNKNOWN/);
+    const tracker = findNodes(view, n => n.className.includes("paper-tracker"))[0];
+    assert.match(tracker.textContent, /1 SLOT OCCUPIED/);
   });
 });
