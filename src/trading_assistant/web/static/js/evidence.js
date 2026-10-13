@@ -22,31 +22,6 @@
  */
 export const RECENT_EVENT_CANDLES = 40;
 
-/**
- * Short chart labels for the four stored event kinds. Used only when the
- * operator selects the Breakouts & Retests function, which draws one marker per
- * stored event; every other selection keeps the unlabelled, one-per-candle form
- * so a busy chart stays readable. The wording matches the marker key below the
- * chart, and the state behind each label stays in the click-to-explain panel.
- */
-export const EVENT_SHORT_TEXT = Object.freeze({
-  breakout: "BRK",
-  failed: "FAIL",
-  sweep: "SWP",
-  retest: "RT",
-});
-
-/**
- * Retest colours: the backend records whether the retest held, so the circle is
- * toned by that recorded state (green held, red failed, grey when the backend
- * stored neither). It is never toned by a direction the retest does not carry.
- */
-export function retestColor(state) {
-  if (state === "held") return BREAKOUT_UP;
-  if (state === "failed") return BREAKOUT_DOWN;
-  return SHAPE_NEUTRAL;
-}
-
 /** Layer model: what a user can switch on. Defaults keep the chart calm. */
 export const LAYER_DEFS = Object.freeze([
   {
@@ -312,12 +287,8 @@ function patternLines(pattern, { lastTime, candleSet }) {
  * @param {Array} args.candles stored candle rows [ms,o,h,l,c,v] on screen
  * @param {number|null} args.asOfMs displayed decision instant (epoch ms)
  * @param {object} args.layers normalised layer switches
- * @param {object|null} [args.breakoutOptions] how the breakout/retest layer is
- *        trimmed and labelled for the selected chart function (see
- *        chart_functions.breakoutOptions). Omitted, it is the calm default:
- *        RECENT_EVENT_CANDLES, one marker per candle, no label text.
  */
-export function buildEvidenceModel({ evidence, candles, asOfMs, layers, breakoutOptions = null }) {
+export function buildEvidenceModel({ evidence, candles, asOfMs, layers }) {
   const model = {
     markers: [],
     patternLines: [],
@@ -328,15 +299,6 @@ export function buildEvidenceModel({ evidence, candles, asOfMs, layers, breakout
     hiddenOlder: { breakouts: 0, candleSignals: 0 },
   };
   const normal = normalizeLayers(layers);
-  const options = breakoutOptions && typeof breakoutOptions === "object" ? breakoutOptions : {};
-  // recentCandles === null draws every stored event that sits on a loaded candle.
-  const recentCandles = options.recentCandles === null
-    ? null
-    : Number.isFinite(options.recentCandles) && Number(options.recentCandles) > 0
-      ? Math.trunc(Number(options.recentCandles))
-      : RECENT_EVENT_CANDLES;
-  const oneMarkerPerCandle = options.oneMarkerPerCandle !== false;
-  const labelEvents = options.labelEvents === true;
   if (!evidence || evidence.available !== true) return model;
   const candleSet = candleTimes(candles);
   if (candleSet.size === 0) return model;
@@ -344,10 +306,8 @@ export function buildEvidenceModel({ evidence, candles, asOfMs, layers, breakout
   const candleIndex = new Map(sortedTimes.map((time, index) => [time, index]));
   const labelCandidates = [];
   const lastTime = sortedTimes[sortedTimes.length - 1];
-  const recentFrom = recentCandles === null
-    ? null
-    : sortedTimes[Math.max(0, sortedTimes.length - recentCandles)];
-  const inRecentWindow = (time) => recentFrom === null || time >= recentFrom;
+  const recentFrom = sortedTimes[Math.max(0, sortedTimes.length - RECENT_EVENT_CANDLES)];
+  const inRecentWindow = (time) => time >= recentFrom;
 
   const register = (item, time, group) => {
     if (!model.byTime.has(time)) model.byTime.set(time, []);
@@ -429,33 +389,21 @@ export function buildEvidenceModel({ evidence, candles, asOfMs, layers, breakout
     }
     for (const [time, items] of [...byCandle.entries()].sort((a, b) => a[0] - b[0])) {
       items.sort((a, b) => BREAKOUT_PRIORITY.indexOf(a._kind) - BREAKOUT_PRIORITY.indexOf(b._kind));
-      // One marker per stored event, or one per candle: whichever the selected
-      // chart function asked for. The library stacks same-candle markers, so a
-      // candle holding a breakout and three retests shows all four, in stored
-      // priority order, each with its own shape and colour.
-      const drawn = oneMarkerPerCandle ? items.slice(0, 1) : items;
-      for (const primary of drawn) {
-        const down = primary.direction === "bearish" || primary.direction === "below";
-        const failed = primary.kind === "failed_breakout" || primary.state === "failed";
-        // The arrow points the way the breakout or sweep went (up = bullish, down = bearish).
-        // Retests have no direction arrow, so they use a plain circle.
-        const retest = primary._kind === "retest";
-        model.markers.push(makeMarker(time, {
-          position: down ? "aboveBar" : "belowBar",
-          shape: retest ? "circle" : down ? "arrowDown" : "arrowUp",
-          color: retest
-            ? retestColor(primary.state)
-            : failed
-              ? SHAPE_NEUTRAL
-              : down ? BREAKOUT_DOWN : BREAKOUT_UP,
-          // Labelled only for the Breakouts & Retests function, which draws one
-          // marker per event and nothing else: on every other selection the
-          // label text would collide on a dense chart, and the click-to-explain
-          // panel already names the event and its state exactly.
-          text: labelEvents ? (EVENT_SHORT_TEXT[primary._kind] || "") : "",
-          size: 1,
-        }));
-      }
+      const primary = items[0];
+      const down = primary.direction === "bearish" || primary.direction === "below";
+      const failed = primary.kind === "failed_breakout" || primary.state === "failed";
+      // The arrow points the way the breakout or sweep went (up = bullish, down = bearish).
+      // Retests have no direction arrow, so they use a plain circle.
+      const retest = primary._kind === "retest";
+      model.markers.push(makeMarker(time, {
+        position: down ? "aboveBar" : "belowBar",
+        shape: retest ? "circle" : down ? "arrowDown" : "arrowUp",
+        color: failed ? SHAPE_NEUTRAL : down ? BREAKOUT_DOWN : BREAKOUT_UP,
+        // Arrows and circles only: the label text would collide on a dense chart.
+        // The click-to-explain panel names the event and its state exactly.
+        text: "",
+        size: 1,
+      }));
       for (const item of items) {
         const { _text, _kind, ...clean } = item;
         void _text;

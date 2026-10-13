@@ -1411,6 +1411,45 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .zone-band-label:focus-visible { outline: 2px solid var(--zone-edge); outline-offset: 2px; }
 .zone-band-offview { position: absolute; left: 8px; bottom: 8px; font-size: 11px; color: var(--text-muted); background: rgba(7, 11, 22, 0.88); padding: 2px 6px; border-radius: 6px; pointer-events: none; }
 
+/* Breakouts & Retests: three numbered callouts, each with an arrow to the candle
+   its step belongs to. Blue by design; the status inside carries the tone. */
+.breakout-anno-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; overflow: hidden; }
+.breakout-anno {
+  position: absolute; transform: translate(-50%, 0);
+  display: flex; align-items: center; gap: 7px;
+  padding: 4px 11px 4px 4px;
+  border: 1px solid var(--blue); border-radius: 999px;
+  background: rgba(10, 17, 33, 0.94); color: var(--text);
+  font-size: 11px; font-weight: 650; letter-spacing: 0.01em; line-height: 1.2;
+  white-space: nowrap; cursor: pointer; pointer-events: auto;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+.breakout-anno:hover { border-color: #7fb6e8; }
+.breakout-anno:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.breakout-anno-num {
+  flex: none; width: 19px; height: 19px; border-radius: 50%;
+  background: var(--blue); color: #06101f;
+  display: grid; place-items: center; font-size: 11px; font-weight: 800;
+}
+.breakout-anno-title { color: var(--text); }
+.breakout-anno-status { color: var(--text-muted); font-weight: 700; }
+.breakout-anno[data-tone="green"] .breakout-anno-status { color: var(--green); }
+.breakout-anno[data-tone="red"] .breakout-anno-status { color: var(--red); }
+.breakout-anno[data-tone="amber"] .breakout-anno-status { color: var(--amber); }
+.breakout-anno[data-tone="neutral"] .breakout-anno-status { color: var(--text-muted); }
+.breakout-anno-line {
+  position: absolute; height: 1px; transform-origin: 0 50%;
+  background: linear-gradient(90deg, rgba(91, 155, 213, 0.25), rgba(91, 155, 213, 0.85));
+  pointer-events: none;
+}
+.breakout-anno-arrow {
+  position: absolute; width: 0; height: 0; transform: translate(-50%, -100%);
+  border-left: 5px solid transparent; border-right: 5px solid transparent;
+  border-top: 8px solid var(--anno-tone, var(--blue));
+  pointer-events: none;
+}
+.breakout-anno-offview { position: absolute; left: 8px; top: 8px; font-size: 11px; color: var(--text-muted); background: rgba(7, 11, 22, 0.88); padding: 2px 6px; border-radius: 6px; pointer-events: none; }
+
 
 /* ==========================================================================
    Dashboard layout (PR #38 redesign): one decision, one chart with its context,
@@ -1835,25 +1874,7 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   margin-top: 8px; padding: 8px 11px;
   border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2);
 }
-/* Breakouts & Retests: reach the stored events without resetting the operator's view. */
-.chart-event-nav[hidden] { display: none; }
-.chart-event-nav {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
-  margin-top: 8px; padding: 8px 11px;
-  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2);
-}
-.chart-event-nav-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.chart-event-button {
-  min-height: 34px; min-width: 34px; padding: 6px 11px;
-  border: 1px solid var(--border); border-radius: 999px;
-  background: transparent; color: var(--text-muted);
-  font-size: 11px; font-weight: 650; letter-spacing: 0.02em;
-  cursor: pointer; white-space: nowrap;
-}
-.chart-event-button:hover:not(:disabled) { border-color: var(--border-strong); color: var(--text); }
-.chart-event-button:disabled { opacity: 0.45; cursor: default; }
-.chart-event-button--frame { border-radius: 8px; }
-.chart-event-nav-note { color: var(--text-faint); font-size: 10px; line-height: 1.4; }
+
 .chart-layer-details { margin-top: 10px; }
 .chart-layer-details > summary {
   cursor: pointer; color: var(--text-muted); font-size: 11px; font-weight: 650;
@@ -1936,12 +1957,12 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 }
 @media (max-width: 760px) {
   .dash-summary-grid { grid-template-columns: minmax(0, 1fr); }
-  .chart-function-button, .chart-mode-button, .pattern-button, .swing-connector-toggle, .chart-event-button, .tf-button { min-height: 40px; }
+  .chart-function-button, .chart-mode-button, .pattern-button, .swing-connector-toggle, .cfp-action, .tf-button { min-height: 40px; }
 }
 @media (max-width: 520px) {
   .dash-tab { flex: 1 1 auto; text-align: center; padding: 8px 10px; }
   .commandbar-symbol { font-size: 17px; }
-  .chart-function-button, .chart-mode-button, .pattern-button, .swing-connector-toggle, .chart-event-button, .tf-button { min-height: var(--touch); }
+  .chart-function-button, .chart-mode-button, .pattern-button, .swing-connector-toggle, .cfp-action, .tf-button { min-height: var(--touch); }
 }
 
 /* ==========================================================================
@@ -1962,7 +1983,23 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   align-items: start;
 }
 .chart-stage > .terminal-chart-wrap { min-width: 0; }
-.chart-function-slot { min-width: 0; }
+.chart-function-slot { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+
+/* BTC/USDT summary card, right of the chart on the Breakouts & Retests screen. */
+.market-summary-card {
+  padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--panel-2);
+}
+.msc-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.msc-symbol { font-family: var(--mono); font-size: 15px; font-weight: 800; color: var(--text); letter-spacing: 0.02em; }
+.msc-exchange { font-size: 10px; color: var(--text-faint); letter-spacing: 0.08em; text-transform: uppercase; }
+.msc-rows { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; margin: 10px 0 0; }
+.msc-label { font-size: 10px; color: var(--text-faint); align-self: center; }
+.msc-value { margin: 0; font-family: var(--mono); font-size: 11.5px; font-weight: 700; color: var(--text); text-align: right; }
+.msc-value[data-tone="green"] { color: var(--green); }
+.msc-value[data-tone="red"] { color: var(--red); }
+.msc-value[data-tone="amber"] { color: var(--amber); }
 
 .chart-function-panel {
   display: flex;
@@ -2021,13 +2058,50 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .cfp-row-title { font-size: 11.5px; font-weight: 650; color: var(--text-dim); }
 .cfp-row-value { justify-self: end; font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--text); }
 .cfp-row-meta { grid-column: 1 / -1; color: var(--text-faint); font-size: 10px; line-height: 1.4; }
-/* A stored record the operator can jump to: the whole row is the button. */
-.cfp-row-button {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px;
-  width: 100%; padding: 0; border: 0; background: none;
+
+/* Breakout Logic: three numbered steps, each with the status that was recorded. */
+.cfp-stages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; counter-reset: none; }
+.cfp-stage {
+  border: 1px solid var(--border); border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-sm); background: var(--panel); overflow: hidden;
+}
+.cfp-stage[data-tone="green"] { border-left-color: var(--green); }
+.cfp-stage[data-tone="red"] { border-left-color: var(--red); }
+.cfp-stage[data-tone="amber"] { border-left-color: var(--amber); }
+.cfp-stage[data-recorded="false"] { border-style: dashed; border-left-style: solid; }
+.cfp-stage-button {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px; align-items: start; width: 100%;
+  padding: 9px 10px; border: 0; background: none;
   color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
-.cfp-row-button:hover .cfp-row-title { color: var(--text); }
+.cfp-stage-button:hover .cfp-stage-title { color: #fff; }
+.cfp-stage-button:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.cfp-stage:not(:has(.cfp-stage-button)) { padding: 9px 10px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: start; }
+.cfp-stage-num {
+  width: 22px; height: 22px; border-radius: 50%; background: var(--blue); color: #06101f;
+  display: grid; place-items: center; font-size: 12px; font-weight: 800; flex: none;
+}
+.cfp-stage-body { display: grid; gap: 2px; min-width: 0; }
+.cfp-stage-title { font-size: 12px; font-weight: 700; color: var(--text); }
+.cfp-stage-detail { font-size: 10.5px; line-height: 1.45; color: var(--text-muted); }
+.cfp-stage-meta { font-family: var(--mono); font-size: 9.5px; line-height: 1.4; color: var(--text-faint); }
+.cfp-stage-status {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.01em; white-space: nowrap;
+  padding: 3px 9px; border-radius: 999px;
+  background: var(--neutral-chip); color: var(--text-dim);
+}
+.cfp-stage-status[data-tone="green"] { background: var(--green-dim); color: var(--green); }
+.cfp-stage-status[data-tone="red"] { background: var(--red-dim); color: var(--red); }
+.cfp-stage-status[data-tone="amber"] { background: var(--amber-dim); color: var(--amber); }
+.cfp-action {
+  width: 100%; min-height: 34px; padding: 7px 11px;
+  border: 1px solid var(--border-strong); border-radius: 8px;
+  background: transparent; color: var(--text-muted);
+  font-size: 11px; font-weight: 650; letter-spacing: 0.02em; cursor: pointer;
+}
+.cfp-action:hover { color: var(--text); border-color: var(--blue); }
+
 .cfp-row[data-tone="green"] { border-left: 3px solid var(--green); }
 .cfp-row[data-tone="red"] { border-left: 3px solid var(--red); }
 .cfp-row[data-tone="amber"] { border-left: 3px solid var(--amber); }

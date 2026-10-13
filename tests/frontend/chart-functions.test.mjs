@@ -9,11 +9,8 @@ import {
   DEFAULT_CHART_MODE,
   DETAILED_MODE,
   SIMPLE_MODE,
-  breakoutOptions,
   chartFunctionById,
   eventCatalogue,
-  eventFrame,
-  eventNavigation,
   evidenceGroupsFor,
   filterEvidence,
   functionHint,
@@ -447,76 +444,4 @@ test("a function with nothing stored says so instead of showing a fabricated fig
   const unavailable = functionStatus({ functionId: "patterns", evidence: null });
   assert.equal(unavailable.available, false);
   assert.match(unavailable.text, /Chart evidence unavailable/);
-});
-
-// ---------------------------------------------------------------------------
-// Breakouts & Retests: reaching the stored events.
-//
-// The events are stored facts that often sit far from the live edge, so the
-// function that exists to show them must (a) stop trimming them and (b) offer a
-// way to reach them. Both are presentation only — nothing here invents an
-// event, a price or a candle.
-// ---------------------------------------------------------------------------
-
-const BREAKOUT_EVIDENCE = {
-  available: true,
-  breakouts: [
-    { id: "b1", kind: "breakout", time_ms: ms(20), known_at: iso(21), direction: "bullish" },
-    { id: "b2", kind: "breakout", time_ms: ms(120), known_at: iso(121), direction: "bearish" },
-  ],
-  failed_breakouts: [
-    { id: "f1", kind: "failed_breakout", time_ms: ms(40), known_at: iso(41), direction: "bullish" },
-  ],
-  sweeps: [],
-  retests: [
-    { id: "r1", kind: "retest", time_ms: ms(21), known_at: iso(22), direction: "bullish", state: "held" },
-    { id: "r2", kind: "retest", time_ms: ms(121), known_at: iso(122), direction: "bearish", state: "failed" },
-  ],
-};
-
-test("only the Breakouts & Retests function drops the density trim and labels its events", () => {
-  assert.deepEqual(breakoutOptions("breakouts"), {
-    recentCandles: null,
-    oneMarkerPerCandle: false,
-    labelEvents: true,
-  });
-  for (const id of CHART_FUNCTION_IDS.filter((entry) => entry !== "breakouts")) {
-    const options = breakoutOptions(id);
-    assert.equal(options.oneMarkerPerCandle, true, `${id} keeps one marker per candle`);
-    assert.equal(options.labelEvents, false, `${id} keeps the unlabelled form`);
-    assert.equal(typeof options.recentCandles, "number", `${id} keeps the recent-window trim`);
-  }
-  assert.deepEqual(breakoutOptions("nonsense"), breakoutOptions("trade_plan"), "unknown ids fall back to the calm default");
-  assert.deepEqual(breakoutOptions(null), breakoutOptions("trade_plan"));
-});
-
-test("event navigation offers only events whose candle is loaded, oldest first", () => {
-  const loaded = Array.from({ length: 100 }, (_, index) => [ms(index), "1", "1", "1", "1", "1"]);
-  const entries = eventNavigation(BREAKOUT_EVIDENCE, loaded);
-  assert.deepEqual(
-    entries.map((event) => event.id),
-    ["b1", "r1", "f1"],
-    "the two events past the loaded candles are not offered as jump targets",
-  );
-  assert.deepEqual(entries.map((event) => event.timeSeconds), [
-    Math.floor(ms(20) / 1000),
-    Math.floor(ms(21) / 1000),
-    Math.floor(ms(40) / 1000),
-  ]);
-  assert.deepEqual(eventNavigation(BREAKOUT_EVIDENCE, []), [], "nothing is offered without candles");
-  assert.deepEqual(eventNavigation(null, loaded), []);
-  assert.deepEqual(eventNavigation({ available: false }, loaded), []);
-});
-
-test("the frame spans the first and last candle that carries a stored event", () => {
-  const loaded = Array.from({ length: 200 }, (_, index) => [ms(index), "1", "1", "1", "1", "1"]);
-  const entries = eventNavigation(BREAKOUT_EVIDENCE, loaded);
-  assert.deepEqual(eventFrame(entries), {
-    fromSeconds: Math.floor(ms(20) / 1000),
-    toSeconds: Math.floor(ms(121) / 1000),
-    count: 5,
-  });
-  assert.equal(eventFrame([]), null, "nothing to frame is stated, never guessed");
-  assert.equal(eventFrame(null), null);
-  assert.equal(eventFrame(eventNavigation(BREAKOUT_EVIDENCE, [])), null);
 });

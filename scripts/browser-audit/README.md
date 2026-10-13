@@ -131,7 +131,7 @@ as above, or the optional sandbox Chromium package. No production database or
 API mocks are needed. See `docs/desktop-bottom-signoff.md` for this run's evidence
 and known sandbox/baseline console warnings.
 
-## Breakouts & Retests event regression
+## Breakouts & Retests layout regression
 
 Against the same **isolated synthetic demo** server, run from the repo root:
 
@@ -139,20 +139,21 @@ Against the same **isolated synthetic demo** server, run from the repo root:
 node scripts/browser-audit/breakouts-check.mjs http://127.0.0.1:8123 /tmp/brain-breakouts
 ```
 
-This drives the real dashboard in Chromium at 1440 × 980 and proves, on the
-seeded events only:
+This drives the real dashboard in Chromium at 1440 × 980 and proves the
+screen is the annotated layout, from the seeded records only:
 
-* selecting **Breakouts & Retests** draws a marker for every stored event, each
-  on the candle the backend detected it on;
-* the two marker columns add pixels over a breakout-layer-off baseline, so the
-  markers are on the canvas and not just in the model;
-* the function-level chart key appears, listing the abbreviations used;
-* the event navigator ("Back / Next / Frame events") steps through the stored
-  events **keeping the current zoom**, and framing fits them all;
-* switching to another function and back leaves the visible candle range
-  **exactly** where it was;
-* the function panel lists the stored records and the footer states the records
-  are backend-recorded.
+* the chart on the left with volume bars along the bottom;
+* a shaded **RESISTANCE ZONE** band across the chart, taken from the stored
+  breakout's own band bounds;
+* exactly **three numbered callouts** — 1 Breakout, 2 Retest, 3 Continuation —
+  each with a leader line and an arrow at the candle its own step belongs to
+  (the arrow's x is compared with the chart's own `timeToCoordinate` for that
+  stored candle), stacked so they never overlap;
+* the **BTC/USDT summary card** above the **Breakout Logic** panel on the
+  right, with the three steps and their recorded statuses — and Continuation
+  asserted "In Progress", never "Confirmed";
+* "Frame all three steps" fits the sequence, and switching to another function
+  and back leaves the visible candle range **exactly** where it was.
 
 It writes `breakouts-1440-full.png`, `breakouts-1440-stage.png`,
 `breakouts-1440-framed.png`, `breakouts-1440-after-return.png` and

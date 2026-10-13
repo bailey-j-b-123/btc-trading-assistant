@@ -461,21 +461,6 @@ function forwardPayload(timestamp = "2026-10-06T12:00:00Z") {
 function chartLibraryState() {
   const charts = [];
   const observers = [];
-  /**
-   * A time scale the tests can read. It records every applied range so a test
-   * can prove what a control did to the operator's view; `getVisibleRange`
-   * stays undefined so the time-based capture helpers keep reporting "nothing
-   * captured" exactly as they did before this existed.
-   */
-  const timeScaleOf = (record) => ({
-    getVisibleLogicalRange: () => record.range,
-    setVisibleLogicalRange: (next) => {
-      record.ranges.push(next);
-      record.range = next;
-    },
-    subscribeVisibleLogicalRangeChange: () => {},
-    unsubscribeVisibleLogicalRangeChange: () => {},
-  });
   class ResizeObserverMock {
     constructor(callback) { this.callback = callback; this.disconnected = false; observers.push(this); }
     observe() {}
@@ -483,15 +468,7 @@ function chartLibraryState() {
   }
   const library = {
     createChart: () => {
-      const record = {
-        removed: false,
-        candleData: [],
-        formingData: [],
-        volumeData: [],
-        lines: new Set(),
-        range: null,
-        ranges: [],
-      };
+      const record = { removed: false, candleData: [], formingData: [], volumeData: [], lines: new Set() };
       const series = {
         setData: (rows) => { record.candleData = rows; },
         createPriceLine: (options) => {
@@ -509,7 +486,6 @@ function chartLibraryState() {
         addCandlestickSeries: () => candleSeriesCount++ === 0 ? series : forming,
         addHistogramSeries: () => volume,
         priceScale: () => ({ applyOptions: () => {} }),
-        timeScale: () => timeScaleOf(record),
         resize: () => {},
         remove: () => { record.removed = true; },
       };
@@ -1537,7 +1513,10 @@ test("the five chart functions are switchable and Simple mode draws one at a tim
     await drainMicrotasks();
     assert.match(status.textContent, /^Breakouts \/ Retests: 1 breakout\(s\) · 0 failed · 0 sweep\(s\) · 0 retest\(s\)/);
     assert.match(status.textContent, /1 later-known item\(s\) excluded at this instant/);
-    assert.doesNotMatch(status.textContent, /continuation/i, "no continuation is claimed");
+    // Continuation is one of the three steps, so it is named — but it is never
+    // claimed complete: the backend stores no continuation for this breakout.
+    assert.match(status.textContent, /3 Continuation: In Progress/);
+    assert.doesNotMatch(status.textContent, /3 Continuation: Confirmed/);
   });
 });
 
@@ -1692,129 +1671,4 @@ test("desktop keeps Performance beside left tabs and restores narrow tab behavio
     assert.equal(fetchTotal(fetchCounts, "/api/dashboard"), calls);
   });
   assert.equal(removed, true, "responsive listener is removed on dashboard disposal");
-});
-
-/**
- * A stored breakout and a stored retest far apart in a 200-candle window, at the
- * same decision instant as `backendDashboard`. The candles are the fixture's own
- * shape; both events sit on loaded candles, which is the only case that can be
- * jumped to.
- */
-function breakoutDashboard() {
-  const dashboard = backendDashboard({
-    planning: { state: "PLANNABLE", reasons: [], missing_inputs: [], state_detail: null },
-    plan: {
-      state: "PLANNABLE",
-      direction: "bullish",
-      entry: { value: "62100" },
-      stop: { value: "61900" },
-      invalidation: { value: "61900" },
-      targets: [{ level: { value: "62500" }, r_multiple: "2" }],
-    },
-  });
-  const hour = 3_600_000;
-  const start = T12 - 199 * hour;
-  const utc = (value) => new Date(value).toISOString().replace(".000Z", "Z");
-  dashboard.market.candles = Array.from({ length: 200 }, (_, index) => [
-    start + index * hour,
-    "62000",
-    "62120",
-    "61920",
-    "62080",
-    "12.4",
-  ]);
-  dashboard.chart_evidence = {
-    available: true,
-    timeframe: "1h",
-    counts: { swings: 0, patterns: 0, breakouts: 1, failed_breakouts: 0, sweeps: 0, retests: 1 },
-    excluded_future_count: 0,
-    swings: [],
-    patterns: [],
-    breakouts: [
-      {
-        id: "bo-early",
-        direction: "bullish",
-        time_ms: start + 20 * hour,
-        known_at: utc(start + 21 * hour),
-        band_low: "61500",
-        band_high: "61600",
-      },
-    ],
-    failed_breakouts: [],
-    sweeps: [],
-    retests: [
-      {
-        id: "rt-later",
-        direction: "bullish",
-        state: "held",
-        time_ms: start + 120 * hour,
-        known_at: utc(start + 121 * hour),
-        band_low: "61500",
-        band_high: "61600",
-      },
-    ],
-    zones: [],
-  };
-  return dashboard;
-}
-
-test("Breakouts & Retests reaches the stored events without ever resetting the view", async () => {
-  await withDashboard(breakoutDashboard(), forwardPayload(), async ({ view, chartState, fetchCounts }) => {
-    await renderDashboard(view);
-    const chart = chartState.charts[0];
-    const range = () => ({ ...chart.range });
-    const width = (value) => value.to - value.from;
-    const nav = byClass(view, "chart-event-nav")[0];
-    assert.equal(nav.hidden, true, "the navigator belongs to the function it serves");
-
-    // Selecting the function must not move or re-zoom the operator's view.
-    const before = range();
-    press(findNodes(view, (node) => node.getAttribute?.("data-function") === "breakouts")[0]);
-    await drainMicrotasks();
-    assert.equal(nav.hidden, false);
-    assert.deepEqual(range(), before, "a function switch never resets the chart view");
-    assert.match(
-      byClass(view, "chart-event-nav-note")[0].textContent,
-      /2 stored events/,
-      "the navigator states the stored events it can reach",
-    );
-    assert.match(byClass(view, "chart-function-status")[0].textContent, /2 drawn on the loaded candles/);
-    const dashboardCalls = fetchTotal(fetchCounts, "/api/dashboard");
-
-    // Framing is the one control that changes the zoom: it fits the events.
-    press(findNodes(view, (node) => node.getAttribute?.("data-event-frame") === "true")[0]);
-    await drainMicrotasks();
-    const framed = range();
-    assert.notDeepEqual(framed, before, "framing moves the window to the stored events");
-    assert.ok(framed.from <= 20 && framed.to >= 120, "both events' candles are inside the framed window");
-    assert.equal(fetchTotal(fetchCounts, "/api/dashboard"), dashboardCalls, "navigating never re-runs the analysis");
-
-    // A jump keeps the zoom and explains the event it landed on.
-    const step = findNodes(view, (node) => node.getAttribute?.("data-event-step") === "1")[0];
-    press(step);
-    await drainMicrotasks();
-    const firstJump = range();
-    assert.equal(width(firstJump), width(framed), "jumping to a stored event keeps the zoom");
-    assert.match(byClass(view, "evidence-explain-when")[0].textContent, /Candle opened/);
-    press(step);
-    await drainMicrotasks();
-    assert.equal(width(range()), width(framed), "every jump keeps the zoom");
-    assert.notEqual(range().from, firstJump.from, "the two events sit on different candles");
-
-    // Each listed stored record jumps to its own candle.
-    // The list is newest-first, and every stored record jumps to its own candle.
-    const rows = findNodes(view, (node) => node.getAttribute?.("data-event-id"));
-    assert.deepEqual(rows.map((node) => node.getAttribute("data-event-id")), ["rt-later", "bo-early"]);
-    press(rows[1]);
-    await drainMicrotasks();
-    assert.ok(range().from <= 20 && range().to >= 20, "the selected record's candle is in view");
-    assert.equal(fetchTotal(fetchCounts, "/api/dashboard"), dashboardCalls, "no re-analysis on a jump");
-
-    // Leaving the function keeps the view exactly where the operator put it.
-    const beforeReturn = range();
-    press(findNodes(view, (node) => node.getAttribute?.("data-function") === "trade_plan")[0]);
-    await drainMicrotasks();
-    assert.deepEqual(range(), beforeReturn, "switching away does not move the view");
-    assert.equal(nav.hidden, true, "the navigator leaves with its function");
-  });
 });

@@ -180,6 +180,9 @@ export function createPriceChart(container, { height } = {}) {
     zoneLayer: null,
     zoneBandsState: null,
     zoneUnsubscribers: [],
+    breakoutAnnoLayer: null,
+    breakoutAnnoState: null,
+    annoUnsubscribers: [],
     // Raw loaded rows (ascending). Older pages are merged into these, never replaced.
     loadedRows: [],
     historyUnsubscribe: null,
@@ -191,6 +194,7 @@ export function createPriceChart(container, { height } = {}) {
     const nextHeight = Number(container.clientHeight) || 0;
     if (width > 0 && nextHeight > 0) chart.resize(width, nextHeight);
     renderZoneBands(handle);
+    renderBreakoutAnnotations(handle);
   };
 
   if (typeof ResizeObserver === "function") {
@@ -450,6 +454,186 @@ export function frameBarsOnChart(handle, fromIndex, toIndex, { pad = FRAME_PAD_C
   return range;
 }
 
+// ---------------------------------------------------------------------------
+// Breakout / Retest / Continuation callouts
+//
+// Three numbered callouts with an arrow to the candle each step belongs to.
+// They are drawn as DOM over the canvas, positioned from the chart's own
+// coordinates, exactly like the zone bands above: nothing here changes a
+// series, a candle or a stored value.
+// ---------------------------------------------------------------------------
+
+/** Rows the callouts stack into, top-down, so three of them never overlap. */
+const ANNO_ROW_HEIGHT = 40;
+/** Space between the top of the chart and the first callout row. */
+const ANNO_TOP_PAD = 14;
+/** Half a callout's width, used only to keep it inside the pane. */
+const ANNO_HALF_WIDTH = 66;
+/** A callout's height: the badge itself, used to start its arrow below it. */
+const ANNO_HEIGHT = 30;
+/** Gap kept between the arrowhead and the candle it points at. */
+const ANNO_ARROW_GAP = 9;
+
+function createBreakoutAnnoLayer(handle) {
+  const container = handle.container;
+  if (typeof document === "undefined" || !container || handle.breakoutAnnoLayer || typeof container.appendChild !== "function") return;
+  if (typeof globalThis.getComputedStyle === "function" && globalThis.getComputedStyle(container).position === "static") {
+    container.style.position = "relative";
+  }
+  const layer = document.createElement("div");
+  layer.className = "breakout-anno-layer";
+  layer.setAttribute?.("aria-hidden", "true");
+  container.appendChild(layer);
+  handle.breakoutAnnoLayer = layer;
+  const timeScale = handle.chart?.timeScale?.();
+  const render = () => renderBreakoutAnnotations(handle);
+  if (timeScale && typeof timeScale.subscribeVisibleLogicalRangeChange === "function") {
+    timeScale.subscribeVisibleLogicalRangeChange(render);
+    handle.annoUnsubscribers.push(() => timeScale.unsubscribeVisibleLogicalRangeChange?.(render));
+  }
+  if (typeof handle.chart?.subscribeCrosshairMove === "function") {
+    handle.chart.subscribeCrosshairMove(render);
+    handle.annoUnsubscribers.push(() => handle.chart.unsubscribeCrosshairMove?.(render));
+  }
+}
+
+/**
+ * Draw the three numbered callouts. `stages` come from breakout_stages.js: each
+ * carries the exact candle (bar index and time) and price it belongs to, so a
+ * callout is drawn only on that candle and never snapped to a neighbour.
+ */
+export function setBreakoutAnnotations(handle, stages, { onSelect } = {}) {
+  if (!handle || handle.destroyed || !handle.container) return;
+  if (typeof handle.container.appendChild !== "function" || typeof document === "undefined") return;
+  createBreakoutAnnoLayer(handle);
+  handle.breakoutAnnoState = {
+    stages: (Array.isArray(stages) ? stages : []).filter((stage) => stage && typeof stage === "object"),
+    onSelect: typeof onSelect === "function" ? onSelect : null,
+  };
+  renderBreakoutAnnotations(handle);
+}
+
+/** Remove every callout and its listeners. Safe to call repeatedly. */
+export function clearBreakoutAnnotations(handle) {
+  if (!handle) return;
+  for (const unsubscribe of handle.annoUnsubscribers || []) {
+    try {
+      unsubscribe();
+    } catch {
+      // The chart may already be removed; nothing else to release.
+    }
+  }
+  handle.annoUnsubscribers = [];
+  handle.breakoutAnnoState = null;
+  if (handle.breakoutAnnoLayer) {
+    handle.breakoutAnnoLayer.remove?.();
+    handle.breakoutAnnoLayer = null;
+  }
+}
+
+/** Position every callout from the current coordinates. Pure reads; no data change. */
+export function renderBreakoutAnnotations(handle) {
+  if (!handle || handle.destroyed || !handle.breakoutAnnoLayer) return;
+  const { series, chart } = handle;
+  const timeScale = chart?.timeScale?.();
+  if (!series || typeof series.priceToCoordinate !== "function" || !timeScale) return;
+  if (typeof timeScale.timeToCoordinate !== "function") return;
+  const layer = handle.breakoutAnnoLayer;
+  const width = Number(handle.container?.clientWidth) || 0;
+  const height = Number(handle.container?.clientHeight) || 0;
+  const { stages, onSelect } = handle.breakoutAnnoState || { stages: [], onSelect: null };
+  layer.textContent = "";
+  const drawn = stages.filter((stage) => Number.isFinite(stage.barIndex) && stage.barIndex >= 0);
+  let offView = 0;
+  drawn.forEach((stage, position) => {
+    const x = timeScale.timeToCoordinate(stage.timeSeconds);
+    const price = Number.isFinite(Number(stage.price)) ? Number(stage.price) : null;
+    const y = price === null ? null : series.priceToCoordinate(price);
+    if (x === null || x === undefined || y === null || y === undefined) {
+      offView += 1;
+      return;
+    }
+    if (x < 0 || x > width) {
+      offView += 1;
+      return;
+    }
+    const targetX = x;
+    const targetY = Math.min(Math.max(y, 0), height);
+    const halfWidth = Math.min(ANNO_HALF_WIDTH, Math.max(24, width / 2 - 4));
+    const badgeX = Math.min(Math.max(targetX, halfWidth + 4), Math.max(halfWidth + 4, width - halfWidth - 4));
+    const badgeY = Math.min(ANNO_TOP_PAD + position * ANNO_ROW_HEIGHT, Math.max(ANNO_TOP_PAD, height - ANNO_HEIGHT - 8));
+    const startX = badgeX;
+    const startY = badgeY + ANNO_HEIGHT;
+    const endX = targetX;
+    const endY = targetY - ANNO_ARROW_GAP;
+    const length = Math.hypot(endX - startX, endY - startY);
+    if (length > 1) {
+      const line = document.createElement("div");
+      line.className = "breakout-anno-line";
+      line.style.left = `${startX}px`;
+      line.style.top = `${startY}px`;
+      line.style.width = `${length}px`;
+      line.style.transform = `rotate(${Math.atan2(endY - startY, endX - startX)}rad)`;
+      // The three callouts are blue by design; the status inside each one
+      // carries the tone of what the backend recorded.
+      line.style.setProperty("--anno-tone", "var(--blue)");
+      layer.appendChild(line);
+    }
+    const arrow = document.createElement("div");
+    arrow.className = "breakout-anno-arrow";
+    arrow.style.left = `${targetX}px`;
+    arrow.style.top = `${targetY}px`;
+    arrow.style.setProperty("--anno-tone", "var(--blue)");
+    layer.appendChild(arrow);
+
+    const badge = document.createElement("button");
+    badge.type = "button";
+    badge.className = "breakout-anno";
+    badge.dataset.stage = stage.key;
+    badge.dataset.tone = stage.tone || "neutral";
+    badge.style.setProperty("--anno-tone", "var(--blue)");
+    badge.style.left = `${badgeX}px`;
+    badge.style.top = `${badgeY}px`;
+    badge.setAttribute?.("aria-label", `${stage.title}: ${stage.status}. ${stage.detail}`);
+    badge.title = `${stage.title} — ${stage.status}. ${stage.detail}`;
+    const numberBadge = document.createElement("span");
+    numberBadge.className = "breakout-anno-num";
+    numberBadge.textContent = String(stage.number);
+    badge.appendChild(numberBadge);
+    const title = document.createElement("span");
+    title.className = "breakout-anno-title";
+    title.textContent = stage.title;
+    badge.appendChild(title);
+    const status = document.createElement("span");
+    status.className = "breakout-anno-status";
+    status.textContent = stage.status;
+    badge.appendChild(status);
+    if (onSelect) badge.addEventListener("click", (event) => {
+      event.stopPropagation();
+      onSelect(stage);
+    });
+    layer.appendChild(badge);
+  });
+  if (offView) {
+    const note = document.createElement("div");
+    note.className = "breakout-anno-offview";
+    note.textContent = `${offView} callout${offView === 1 ? "" : "s"} outside the visible window`;
+    layer.appendChild(note);
+  }
+}
+
+/**
+ * Reposition both DOM overlays (zone bands and callouts) from the current
+ * coordinates. The chart library notifies its own subscribers when the operator
+ * pans or zooms, but not when the view is set programmatically — so a jump or a
+ * frame calls this directly instead of waiting for a notification that never
+ * comes.
+ */
+export function redrawOverlays(handle) {
+  renderZoneBands(handle);
+  renderBreakoutAnnotations(handle);
+}
+
 /**
  * Call onNearStart(range) when the visible range moves close to the oldest loaded candle.
  * Only one listener per chart: a later call replaces the earlier one.
@@ -532,6 +716,9 @@ export function clearOverlays(handle) {
 }
 
 export function destroyPriceChart(handle) {
+  if (handle) {
+    clearBreakoutAnnotations(handle);
+  }
   if (!handle || handle.destroyed) return;
   clearOverlays(handle);
   clearEvidence(handle);
@@ -967,7 +1154,10 @@ export function renderZoneBands(handle) {
     node.className = `zone-band zone-band--${band.position || "price_inside"}${band.htf ? " zone-band--htf" : ""}${band.faded ? " zone-band--faded" : ""}`;
     node.setAttribute?.("aria-hidden", "true");
     node.style.top = `${clampedTop}px`;
-    node.style.height = `${Math.max(2, clampedBottom - clampedTop)}px`;
+    // A stored band keeps its own thickness; a band that is a single stored
+    // level is given a minimum so it still reads as a zone, not a hairline.
+    const minHeight = Number.isFinite(Number(band.minHeightPx)) ? Math.max(2, Math.trunc(Number(band.minHeightPx))) : 2;
+    node.style.height = `${Math.max(minHeight, clampedBottom - clampedTop)}px`;
     node.style.setProperty("--zone-fill", style.fill);
     node.style.setProperty("--zone-edge", style.edge);
     layer.appendChild(node);
@@ -986,8 +1176,10 @@ export function renderZoneBands(handle) {
     label.style.top = `${y}px`;
     label.style.setProperty("--zone-edge", style.edge);
     const tf = band.source_timeframe ? String(band.source_timeframe).toUpperCase() : "";
-    label.textContent = `${style.short}${tf ? ` ${tf}` : ""} · ${band.touch_count ?? "?"}×`;
-    label.setAttribute("aria-label", `${band.display_role || band.position} zone ${band.band_low} to ${band.band_high}, ${tf || "viewed timeframe"}, ${band.touch_count ?? "unknown"} touches. Open explanation.`);
+    label.textContent = band.label || `${style.short}${tf ? ` ${tf}` : ""} · ${band.touch_count ?? "?"}×`;
+    label.setAttribute("aria-label", band.label
+      ? `${band.label} ${band.band_low} to ${band.band_high}, ${tf || "viewed timeframe"}. Open explanation.`
+      : `${band.display_role || band.position} zone ${band.band_low} to ${band.band_high}, ${tf || "viewed timeframe"}, ${band.touch_count ?? "unknown"} touches. Open explanation.`);
     label.addEventListener("click", (event) => {
       event.stopPropagation();
       onSelect?.(band);

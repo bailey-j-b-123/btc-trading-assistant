@@ -3,13 +3,13 @@
  * Breakouts & Retests regression against an isolated synthetic demo server.
  *
  * Proves, in a real browser and against the backend's own records, that the
- * function draws every stored breakout / failed breakout / sweep / retest at the
- * candle the backend detected it on, that the operator can reach them, and that
- * switching chart functions never moves the view.
+ * screen is the annotated layout: a large candlestick chart with a shaded
+ * reference band, exactly three numbered callouts (1 Breakout, 2 Retest,
+ * 3 Continuation) each with an arrow to its own candle, volume along the bottom,
+ * a BTC/USDT summary card and a Breakout Logic panel with the three steps and
+ * their recorded statuses — and that reaching them never resets the zoom.
  *
- * No API mocking, no invented events, no production database. Marker pixels are
- * measured as a DIFFERENCE against the same candles with the breakout layer off,
- * so candle pixels can never be mistaken for markers.
+ * No API mocking, no invented events, no production database.
  *
  * Usage: node scripts/browser-audit/breakouts-check.mjs http://127.0.0.1:8123 ./out
  */
@@ -25,21 +25,15 @@ mkdirSync(out, { recursive: true });
 const WIDTH = 1440;
 const HEIGHT = 1080;
 
-/** Marker colours evidence.js uses for the breakout family (breakout/sweep, retest, failed). */
-const MARKER_COLOURS = ["2fbf7f", "e0565b", "a7b0c2"];
-
 /**
  * Installed before any page script runs. Audit-only: nothing here touches the
- * application's own files. It exists so the check can read the REAL chart view
- * instead of trusting the DOM, and it never changes what the app draws.
- *  * records every chart instance the dashboard creates (the vendored export
- *    object is frozen, so the wrapper is installed as an own property on a
- *    prototype-linked shim rather than by mutating the library itself);
- *  * exposes __columnProbe(seconds), which counts marker-coloured pixels in the
- *    seven-pixel column at the exact x of a stored candle.
+ * application's own files, and nothing here changes what the app draws. It
+ * exists so the check can read the REAL chart view instead of trusting the DOM.
+ *
+ * The vendored library export is frozen, so the wrapper is installed as an own
+ * property on a prototype-linked shim rather than by mutating the library.
  */
 function installProbes() {
-  const colours = new Set(window.__markerColours);
   window.__brainCharts = [];
   let value;
   Object.defineProperty(window, "LightweightCharts", {
@@ -64,39 +58,18 @@ function installProbes() {
       value = next;
     },
   });
-  const paneCanvas = () => [...document.querySelectorAll(".terminal-chart-card canvas")]
-    .sort((left, right) => right.width * right.height - left.width * left.height)[0];
-  window.__paneWidth = () => {
-    const canvas = paneCanvas();
-    return canvas ? canvas.width : 0;
-  };
-  window.__columnProbe = (seconds) => {
-    const chart = window.__brainCharts[0];
-    const canvas = paneCanvas();
-    if (!chart || !canvas) return { x: null, pixels: 0, minY: null, maxY: null };
+  /** x of one candle, straight from the chart's own time scale. */
+  window.__xOf = (seconds) => {
+    const chart = window.__brainCharts?.[0];
+    if (!chart) return null;
     const x = chart.timeScale().timeToCoordinate(seconds);
-    if (x === null || x === undefined) return { x: null, pixels: 0, minY: null, maxY: null };
-    const left = Math.max(0, Math.round(x) - 3);
-    const width = Math.min(canvas.width - left, 7);
-    if (width <= 0) return { x, pixels: 0, minY: null, maxY: null };
-    const data = canvas.getContext("2d").getImageData(left, 0, width, canvas.height).data;
-    let pixels = 0;
-    let minY = null;
-    let maxY = null;
-    for (let row = 0; row < canvas.height; row += 1) {
-      for (let col = 0; col < width; col += 1) {
-        const i = (row * width + col) * 4;
-        if (data[i + 3] < 200) continue;
-        const hex = [data[i], data[i + 1], data[i + 2]]
-          .map((part) => part.toString(16).padStart(2, "0"))
-          .join("");
-        if (!colours.has(hex)) continue;
-        pixels += 1;
-        if (minY === null) minY = row;
-        maxY = row;
-      }
-    }
-    return { x, pixels, minY, maxY };
+    return x === null || x === undefined ? null : x;
+  };
+  /** y of one price, straight from the candlestick series. */
+  window.__yOfPrice = (price) => {
+    const series = window.__brainCharts?.[0] && window.__brainCharts[0].__series;
+    if (!series) return null;
+    return series.priceToCoordinate(price);
   };
 }
 
@@ -116,7 +89,6 @@ try {
   const consoleErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(message.text()); });
-  await page.evaluateOnNewDocument(`window.__markerColours = ${JSON.stringify(MARKER_COLOURS)};`);
   await page.evaluateOnNewDocument(installProbes);
   await page.setViewport({ width: WIDTH, height: HEIGHT, deviceScaleFactor: 1 });
   await page.goto(url, { waitUntil: "domcontentloaded" });
@@ -133,17 +105,35 @@ try {
     const range = window.__brainCharts?.[0]?.timeScale?.().getVisibleLogicalRange?.();
     return range ? { from: Math.round(range.from * 1e6) / 1e6, to: Math.round(range.to * 1e6) / 1e6 } : null;
   });
-  const probe = (seconds) => page.evaluate((value) => window.__columnProbe(value), seconds);
+  const xOf = (seconds) => page.evaluate((value) => window.__xOf(value), seconds);
   /**
    * A real mouse click on a chart control. The dashboard's trading bar is sticky,
    * so the control is centred first: a click that lands under the sticky bar
    * would hit the bar instead of the button.
    */
   const clickControl = async (selector) => {
+    await page.waitForSelector(selector, { visible: true, timeout: 30000 });
     await page.$eval(selector, (node) => node.scrollIntoView({ block: "center", inline: "nearest" }));
-    await new Promise((resolveWait) => setTimeout(resolveWait, 120));
+    await new Promise((resolveWait) => setTimeout(resolveWait, 150));
     await page.click(selector);
   };
+  const calloutState = () => page.evaluate(() => {
+    const nodes = [...document.querySelectorAll(".breakout-anno")];
+    const arrows = [...document.querySelectorAll(".breakout-anno-arrow")];
+    return {
+      badges: nodes.map((node) => ({
+        stage: node.dataset.stage,
+        number: node.querySelector(".breakout-anno-num")?.textContent || null,
+        title: node.querySelector(".breakout-anno-title")?.textContent || null,
+        status: node.querySelector(".breakout-anno-status")?.textContent || null,
+        left: Number.parseFloat(node.style.left),
+        top: Number.parseFloat(node.style.top),
+      })),
+      arrows: arrows.map((node) => ({ x: Number.parseFloat(node.style.left), y: Number.parseFloat(node.style.top) })),
+      lines: document.querySelectorAll(".breakout-anno-line").length,
+      offView: document.querySelector(".breakout-anno-offview")?.textContent || null,
+    };
+  });
 
   // --- Ground truth: the backend's own stored events, read independently of the UI.
   const stored = await page.evaluate(async () => {
@@ -152,34 +142,27 @@ try {
     const groups = [["breakouts", "breakout"], ["failed_breakouts", "failed_breakout"], ["sweeps", "sweep"], ["retests", "retest"]];
     for (const [group, kind] of groups) {
       for (const item of Array.isArray(payload?.[group]) ? payload[group] : []) {
-        rows.push({
-          id: item.id,
-          kind,
-          state: item.state ?? null,
-          direction: item.direction ?? null,
-          timeMs: Number(item.time_ms),
-          seconds: Math.floor(Number(item.time_ms) / 1000),
-        });
+        rows.push({ id: item.id, kind, state: item.state ?? null, direction: item.direction ?? null, timeMs: Number(item.time_ms), seconds: Math.floor(Number(item.time_ms) / 1000), bandLow: item.band_low ?? null, bandHigh: item.band_high ?? null });
       }
     }
     return { available: payload?.available === true, counts: payload?.counts || null, events: rows.sort((a, b) => a.seconds - b.seconds) };
   });
   assert.equal(stored.available, true, "chart evidence is available on the demo server");
-  assert.ok(stored.events.length > 0, "the demo database stores breakout/retest events to draw");
-  const seconds = stored.events.map((event) => event.seconds);
+  assert.ok(stored.events.length > 0, "the demo database stores breakout/retest events to show");
+  const breakoutSeconds = stored.events.filter((event) => event.kind === "breakout").map((event) => event.seconds)[0];
+  const retestStates = stored.events.filter((event) => event.kind === "retest").map((event) => event.state);
+  const retestSeconds = stored.events.filter((event) => event.kind === "retest").map((event) => event.seconds)[0];
+  const band = { low: Number(stored.events.find((event) => event.kind === "breakout")?.bandLow), high: Number(stored.events.find((event) => event.kind === "breakout")?.bandHigh) };
   report.storedEvents = {
     count: stored.events.length,
     counts: stored.counts,
-    distinctCandles: new Set(seconds).size,
-    first: new Date(stored.events[0].timeMs).toISOString(),
-    last: new Date(stored.events[stored.events.length - 1].timeMs).toISOString(),
+    breakoutCandle: new Date(breakoutSeconds * 1000).toISOString(),
+    retestCandle: new Date(retestSeconds * 1000).toISOString(),
+    retestStates,
+    band,
   };
 
-  // --- 1. Baseline: the same candles with the breakout layer off (Trade Plan default).
-  const baseline = [];
-  for (const value of seconds) baseline.push(await probe(value));
-
-  // --- 2. Select Breakouts & Retests: every stored event must be drawn, view unmoved.
+  // --- 1. Selecting the function must not move the view.
   const beforeSwitch = await logicalRange();
   await clickControl('[data-function="breakouts"]');
   await page.waitForFunction(() => document.querySelector(".chart-function-status")?.innerText.startsWith("Breakouts / Retests"));
@@ -188,115 +171,149 @@ try {
   assert.deepEqual(afterSwitch, beforeSwitch, "switching chart function must not move or re-zoom the view");
   report.checks.push({ name: "zoom preserved across a function switch", before: beforeSwitch, after: afterSwitch });
 
-  assert.equal(await page.$eval(".chart-event-nav", (node) => !node.hidden), true, "the stored-event navigator appears with its function");
-  const navNote = await page.$eval(".chart-event-nav-note", (node) => node.innerText);
-  assert.match(navNote, new RegExp(`${stored.events.length} stored event`), "the navigator states how many events are stored");
+  // --- 2. The status line names the three steps.
   const status = await statusText();
-  assert.match(status, new RegExp(`${stored.events.length} drawn on the loaded candles`), "every stored event is drawn");
-  assert.doesNotMatch(status, /outside the recent window/, "the selected function never trims its own events");
-  report.checks.push({ name: "status line", text: status, navNote });
+  assert.match(status, /1 Breakout:/, "step 1 is named");
+  assert.match(status, /2 Retest:/, "step 2 is named");
+  assert.match(status, /3 Continuation: In Progress/, "continuation is not claimed complete");
+  assert.doesNotMatch(status, /3 Continuation: Confirmed/);
+  report.checks.push({ name: "status line", text: status });
 
-  const itemRows = await page.$$eval(".chart-item-button", (nodes) => nodes.map((node) => node.innerText));
-  assert.equal(itemRows.length, stored.events.length, "every stored event is listed and reachable");
+  // --- 3. Right side: BTC/USDT summary card above the Breakout Logic panel.
+  const rightSide = await page.evaluate(() => {
+    const slot = document.querySelector(".chart-function-slot");
+    const summary = document.querySelector(".market-summary-card");
+    const panel = document.querySelector(".chart-function-panel");
+    if (!slot || !summary || !panel) return null;
+    const summaryBox = summary.getBoundingClientRect();
+    const panelBox = panel.getBoundingClientRect();
+    const chartBox = document.querySelector(".terminal-chart-wrap").getBoundingClientRect();
+    return {
+      order: summary.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING ? "summary-then-panel" : "panel-then-summary",
+      summaryAbove: summaryBox.bottom <= panelBox.top + 1,
+      rightOfChart: summaryBox.left >= chartBox.right - 1,
+      symbol: summary.querySelector(".msc-symbol")?.textContent || null,
+      summaryRows: [...summary.querySelectorAll(".msc-label")].map((node) => node.textContent),
+      heading: panel.querySelector(".cfp-heading")?.textContent || null,
+      chip: panel.querySelector(".cfp-chip")?.textContent || null,
+      band: [...panel.querySelectorAll(".cfp-block")].map((node) => node.querySelector(".cfp-block-title")?.textContent).filter(Boolean),
+      steps: [...panel.querySelectorAll(".cfp-stage")].map((node) => ({
+        stage: node.dataset.stage,
+        number: node.querySelector(".cfp-stage-num")?.textContent || null,
+        title: node.querySelector(".cfp-stage-title")?.textContent || null,
+        status: node.querySelector(".cfp-stage-status")?.textContent || null,
+        tone: node.querySelector(".cfp-stage-status")?.dataset.tone || null,
+        detail: node.querySelector(".cfp-stage-detail")?.textContent || null,
+        meta: node.querySelector(".cfp-stage-meta")?.textContent || null,
+      })),
+      note: panel.querySelector(".cfp-note")?.textContent || null,
+    };
+  });
+  assert.ok(rightSide, "the right-hand column renders the summary card and the panel");
+  assert.equal(rightSide.order, "summary-then-panel", "the summary card is above the Breakout Logic panel");
+  assert.ok(rightSide.summaryAbove, "and it sits above it, not beside it");
+  assert.ok(rightSide.rightOfChart, "both are right of the chart");
+  assert.equal(rightSide.symbol, "BTC/USDT");
+  assert.equal(rightSide.heading, "Breakout Logic");
+  assert.deepEqual(rightSide.steps.map((step) => step.number), ["1", "2", "3"]);
+  assert.deepEqual(rightSide.steps.map((step) => step.title), ["Breakout", "Retest", "Continuation"]);
+  assert.equal(rightSide.steps[0].status, "Confirmed", "the stored breakout is confirmed");
+  assert.equal(rightSide.steps[1].status, retestStates.includes("held") ? "Held" : "Observed", "the retest status is the backend's own state");
+  assert.equal(rightSide.steps[2].status, "In Progress", "continuation is in progress, not complete");
+  assert.equal(rightSide.steps[2].tone, "amber");
+  assert.match(rightSide.steps[0].detail, /broke the .* band/);
+  assert.match(rightSide.steps[1].detail, /held the band|No retest of this breakout is stored/);
+  assert.match(rightSide.steps[2].detail, /The backend has stored no continuation/);
+  assert.match(rightSide.note, /Continuation stays In Progress until the backend records one/);
+  assert.ok(rightSide.band.includes("Reference band"), "the broken band is stated");
+  report.checks.push({ name: "right-hand column", ...rightSide });
 
-  // --- 3. Frame events: every stored event's candle must land inside the window.
-  await clickControl('[data-event-frame="true"]');
+  // --- 4. Frame the three steps, then read the callouts.
+  await clickControl('[data-frame-stages="true"]');
   await new Promise((resolveWait) => setTimeout(resolveWait, 400));
   const framed = await logicalRange();
-  assert.ok(framed && framed.from < afterSwitch.from, "framing moves the window to the stored events");
-  assert.ok(framed.from >= 0, "the framed window stays inside the loaded candles");
-  const paneWidth = await page.evaluate(() => window.__paneWidth());
-  const drawn = [];
-  for (const value of seconds) drawn.push(await probe(value));
-  for (const [index, probe_] of drawn.entries()) {
-    assert.ok(probe_.x !== null, `event ${index} (${new Date(stored.events[index].timeMs).toISOString()}) is inside the visible window`);
-    assert.ok(probe_.x >= 0 && probe_.x <= paneWidth, `event ${index} sits inside the chart pane (x=${probe_.x})`);
-  }
-  report.checks.push({ name: "framed window", range: framed, paneWidth });
+  assert.ok(framed, "the framed range is readable");
+  report.checks.push({ name: "framed window", range: framed });
 
-  // --- 4. Marker pixels: the difference against the baseline proves they are drawn.
-  const perEvent = stored.events.map((event, index) => ({
-    id: event.id,
-    kind: event.kind,
-    state: event.state,
-    direction: event.direction,
-    time: new Date(event.timeMs).toISOString(),
-    x: drawn[index].x,
-    markerPixelsAdded: drawn[index].pixels - baseline[index].pixels,
-    markerBandY: drawn[index].minY === null ? null : [drawn[index].minY, drawn[index].maxY],
+  const callouts = await calloutState();
+  assert.equal(callouts.badges.length, 3, "exactly three numbered callouts are drawn");
+  assert.deepEqual(callouts.badges.map((badge) => badge.number), ["1", "2", "3"]);
+  assert.deepEqual(callouts.badges.map((badge) => badge.title), ["Breakout", "Retest", "Continuation"]);
+  assert.equal(callouts.lines, 3, "each callout has a leader line");
+  assert.equal(callouts.arrows.length, 3, "each callout has an arrow");
+  assert.equal(callouts.offView, null, "no callout is left outside the framed window");
+
+  // Each arrow points at the candle its step belongs to.
+  const breakoutX = await xOf(breakoutSeconds);
+  const retestX = await xOf(retestSeconds);
+  assert.ok(breakoutX !== null && retestX !== null, "both event candles are on screen after framing");
+  const near = (left, right) => Math.abs(left - right) <= 2;
+  assert.ok(near(callouts.arrows[0].x, breakoutX), `callout 1 points at the breakout candle (${callouts.arrows[0].x} vs ${breakoutX})`);
+  assert.ok(near(callouts.arrows[1].x, retestX), `callout 2 points at the retest candle (${callouts.arrows[1].x} vs ${retestX})`);
+  assert.ok(callouts.arrows[2].x > callouts.arrows[1].x, "callout 3 points at a candle after the retest");
+  assert.ok(callouts.arrows[0].y > 0 && callouts.arrows[0].y < HEIGHT, "the arrow is inside the chart pane");
+  // The callouts are stacked so they never overlap each other.
+  const tops = callouts.badges.map((badge) => badge.top);
+  assert.deepEqual(tops, [...tops].sort((left, right) => left - right), "the three callouts are stacked top-down, not overlapping");
+  report.checks.push({ name: "callouts", ...callouts, breakoutX, retestX });
+
+  // --- 5. The shaded reference band across the chart.
+  const bands = await page.evaluate(() => [...document.querySelectorAll(".zone-band")].map((node) => {
+    const box = node.getBoundingClientRect();
+    return { top: box.top, height: box.height, width: box.width, label: null };
   }));
-  const byColumn = new Map();
-  for (const row of perEvent) {
-    const key = String(row.x);
-    if (!byColumn.has(key)) byColumn.set(key, []);
-    byColumn.get(key).push(row);
-  }
-  const columns = [...byColumn.entries()].map(([x, rows]) => ({
-    x: Number(x),
-    candle: rows[0].time,
-    events: rows.length,
-    markerPixelsAdded: Math.max(...rows.map((row) => row.markerPixelsAdded)),
-    markerBandY: rows[0].markerBandY,
-  }));
-  for (const column of columns) {
-    assert.ok(column.markerPixelsAdded > 0, `a marker is drawn at x=${column.x} (candle ${column.candle})`);
-  }
-  report.checks.push({ name: "marker pixels at the recorded candles", columns, perEvent });
+  const labels = await page.evaluate(() => [...document.querySelectorAll(".zone-band-label")].map((node) => node.textContent));
+  assert.ok(labels.includes("RESISTANCE ZONE"), `the shaded band is labelled (labels: ${JSON.stringify(labels)})`);
+  const zone = bands[0];
+  assert.ok(zone && zone.width > 400, "the band spans the chart horizontally");
+  assert.ok(zone.height >= 12, "and is shaded with enough thickness to read as a zone");
+  report.checks.push({ name: "shaded band", labels, band: zone });
 
-  const scrollToChart = () => page.$eval(".chart-stage", (node) => window.scrollTo(0, window.scrollY + node.getBoundingClientRect().top - 120));
-  await scrollToChart();
-  // --- 6. The jump control reaches a stored event and keeps the zoom.
-  const zoomBeforeJump = await logicalRange();
-  const zoomWidth = (range) => range.to - range.from;
-  // Step through the whole stored sequence: several events share a candle, so a
-  // single press is not guaranteed to change candle.
-  const steps = [];
-  for (let index = 0; index < stored.events.length; index += 1) {
-    await clickControl('[data-event-step="1"]');
-    await new Promise((resolveWait) => setTimeout(resolveWait, 250));
-    steps.push(await logicalRange());
-  }
-  for (const step of steps) {
-    assert.ok(Math.abs(zoomWidth(step) - zoomWidth(zoomBeforeJump)) <= 0.001, "every jump keeps the zoom");
-  }
-  const distinctWindows = new Set(steps.map((step) => `${step.from}:${step.to}`));
-  assert.ok(
-    distinctWindows.size >= Math.min(report.storedEvents.distinctCandles, steps.length),
-    `every candle holding a stored event is reachable (${distinctWindows.size} window(s))`,
-  );
-  const jumpedCoordinates = [];
-  for (const value of seconds) jumpedCoordinates.push((await probe(value)).x);
-  assert.ok(jumpedCoordinates.some((x) => x !== null), "a stored event's candle is inside the window after a jump");
-  report.checks.push({ name: "jump keeps the zoom", zoomBeforeJump, steps, jumpedCoordinates });
+  // --- 6. Volume bars along the bottom of the pane.
+  const volume = await page.evaluate(() => {
+    const canvases = [...document.querySelectorAll(".terminal-chart-card canvas")];
+    const pane = canvases.sort((left, right) => right.width * right.height - left.width * left.height)[0];
+    if (!pane) return null;
+    const bottom = Math.round(pane.height * 0.82);
+    const data = pane.getContext("2d").getImageData(0, bottom, pane.width, pane.height - bottom).data;
+    let coloured = 0;
+    for (let index = 0; index < data.length; index += 4) {
+      if (data[index + 3] < 40) continue;
+      const [red, green, blue] = [data[index], data[index + 1], data[index + 2]];
+      // Volume bars are the app's green / red at 28% over the dark pane.
+      if ((green > red + 8 && green > blue + 8) || (red > green + 8 && red > blue + 8)) coloured += 1;
+    }
+    return { height: pane.height, bottom, coloured };
+  });
+  assert.ok(volume && volume.coloured > 500, `volume bars are drawn along the bottom (coloured pixels: ${volume?.coloured})`);
+  report.checks.push({ name: "volume bars", ...volume });
 
-  // --- 6b. Screenshots: the events visibly drawn at their candle locations.
-  await clickControl('[data-event-frame="true"]');
-  await new Promise((resolveWait) => setTimeout(resolveWait, 400));
-  await scrollToChart();
-  await page.screenshot({ path: resolve(out, "breakouts-1440-framed.png") });
-  await scrollToChart();
-  const framedStage = await page.$(".chart-stage");
-  await framedStage.screenshot({ path: resolve(out, "breakouts-1440-stage.png") });
+  // --- 7. Screenshots of the finished layout.
+  const stage = await page.$(".terminal-chart-card");
   await page.screenshot({ path: resolve(out, "breakouts-1440-full.png"), fullPage: true });
+  await stage.screenshot({ path: resolve(out, "breakouts-1440-stage.png") });
+  await page.screenshot({ path: resolve(out, "breakouts-1440-framed.png") });
 
-  // --- 7. Back to Trade Plan: the view must not move either.
+  // --- 8. Leaving and returning leaves the view where the operator put it.
   const beforeReturn = await logicalRange();
   await clickControl('[data-function="trade_plan"]');
   await page.waitForFunction(() => document.querySelector(".chart-function-status")?.innerText.startsWith("Trade Plan"));
-  assert.deepEqual(await logicalRange(), beforeReturn, "switching back does not move the view");
-  assert.equal(await page.$eval(".chart-event-nav", (node) => node.hidden), true, "the navigator belongs to its function only");
-  report.checks.push({ name: "zoom preserved switching back", beforeReturn, afterReturn: await logicalRange() });
-
+  const tradePlan = await logicalRange();
+  assert.deepEqual(tradePlan, beforeReturn, "switching away must not move the view");
   await clickControl('[data-function="breakouts"]');
   await page.waitForFunction(() => document.querySelector(".chart-function-status")?.innerText.startsWith("Breakouts / Retests"));
-  await scrollToChart();
+  const backAgain = await logicalRange();
+  assert.deepEqual(backAgain, beforeReturn, "switching back must not move the view");
+  assert.equal((await calloutState()).badges.length, 3, "the three callouts are drawn again");
   await page.screenshot({ path: resolve(out, "breakouts-1440-after-return.png") });
+  report.checks.push({ name: "zoom preserved switching away and back", beforeReturn, tradePlan, backAgain });
 
   report.pageErrors = pageErrors;
   report.consoleErrors = consoleErrors;
   assert.deepEqual(pageErrors, [], "no uncaught page errors");
-  writeFileSync(resolve(out, "breakouts-report.json"), `${JSON.stringify(report, null, 2)}\n`);
-  console.log(JSON.stringify(report, null, 2));
 } finally {
   await browser.close();
+  writeFileSync(resolve(out, "breakouts-report.json"), `${JSON.stringify(report, null, 2)}\n`);
 }
+
+console.log(JSON.stringify(report, null, 2));
