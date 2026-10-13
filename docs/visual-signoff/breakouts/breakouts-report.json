@@ -1,189 +1,1390 @@
 {
   "url": "http://127.0.0.1:8123",
-  "generatedAt": "2026-10-13T20:33:26.383Z",
-  "checks": [
+  "generatedAt": "2026-10-13T21:33:22.171Z",
+  "viewports": [
     {
-      "name": "zoom preserved across a function switch",
-      "before": {
-        "from": 380,
-        "to": 502
-      },
-      "after": {
-        "from": 380,
-        "to": 502
-      }
-    },
-    {
-      "name": "status line",
-      "text": "Breakouts / Retests: 2 breakout(s) · 0 failed · 0 sweep(s) · 4 retest(s) · 1 Breakout: Confirmed · 2 Retest: Held · 3 Continuation: In Progress."
-    },
-    {
-      "name": "right-hand column",
-      "order": "summary-then-panel",
-      "summaryAbove": true,
-      "rightOfChart": true,
-      "symbol": "BTC/USDT",
-      "summaryRows": [
-        "Last close",
-        "Candle",
-        "Trend",
-        "Data"
-      ],
-      "heading": "Breakout Logic",
-      "chip": "Bullish sequence",
-      "band": [
-        "Reference band",
-        "Steps"
-      ],
-      "steps": [
+      "label": "1536x864",
+      "width": 1536,
+      "height": 864,
+      "checks": [
         {
-          "stage": "breakout",
-          "number": "1",
-          "title": "Breakout",
-          "status": "Confirmed",
-          "tone": "green",
-          "detail": "Close 84,328.00 broke the 84,229.90 band by 0.12%",
-          "meta": "2026-09-28 05:00 UTC · 1 confirming candle · zone band"
+          "name": "stored events",
+          "count": 6,
+          "counts": {
+            "swings": 57,
+            "patterns": 4,
+            "breakouts": 2,
+            "failed_breakouts": 0,
+            "sweeps": 0,
+            "retests": 4,
+            "equal_levels": 32,
+            "zones": 3,
+            "candle_shapes": 164
+          },
+          "breakoutCandle": "2026-09-28T05:00:00.000Z",
+          "retestCandle": "2026-09-28T06:00:00.000Z",
+          "retestStates": [
+            "observed",
+            "observed",
+            "held",
+            "held"
+          ],
+          "band": {
+            "low": 84229.9,
+            "high": 84229.9
+          }
         },
         {
-          "stage": "retest",
-          "number": "2",
-          "title": "Retest",
-          "status": "Held",
-          "tone": "green",
-          "detail": "2 retest records are stored for this breakout and 1 of 2 held the band",
-          "meta": "2026-09-28 06:00 UTC · 89.50 from the band · 1 candle(s) after the breakout"
+          "name": "zoom preserved across a function switch",
+          "before": {
+            "from": 380,
+            "to": 502
+          },
+          "after": {
+            "from": 64,
+            "to": 186
+          },
+          "zoomWidth": 122
         },
         {
-          "stage": "continuation",
-          "number": "3",
-          "title": "Continuation",
-          "status": "In Progress",
-          "tone": "amber",
-          "detail": "The backend has stored no continuation for this breakout, so this step is not marked complete.",
-          "meta": "Price first traded past the breakout candle's high (84,372.20) at 84,424.70 (2026-09-28 07:00 UTC) — candle data, not a recorded continuation"
+          "name": "status line",
+          "text": "Breakouts / Retests: 2 breakout(s) · 0 failed · 0 sweep(s) · 4 retest(s) · 1 Breakout: Completed · 2 Retest: Held · 3 Continuation: In Progress."
+        },
+        {
+          "name": "right-hand column",
+          "order": "summary-then-panel",
+          "summaryAbove": true,
+          "rightOfChart": true,
+          "symbol": "BTC/USDT",
+          "summaryRows": [
+            "Change",
+            "24h high",
+            "24h low",
+            "24h volume"
+          ],
+          "heading": "Breakout Logic",
+          "chip": "Bullish sequence",
+          "band": [
+            "Reference band",
+            "Key Idea"
+          ],
+          "steps": [
+            {
+              "stage": "breakout",
+              "number": "1",
+              "title": "Breakout",
+              "status": "Completed",
+              "tone": "green",
+              "summary": "Price closed through the stored resistance band.",
+              "recorded": "true",
+              "statusRight": 1104
+            },
+            {
+              "stage": "retest",
+              "number": "2",
+              "title": "Retest",
+              "status": "Held",
+              "tone": "green",
+              "summary": "Price came back to the band and the retest held.",
+              "recorded": "true",
+              "statusRight": 1104
+            },
+            {
+              "stage": "continuation",
+              "number": "3",
+              "title": "Continuation",
+              "status": "In Progress",
+              "tone": "amber",
+              "summary": "Nothing recorded yet — the move on from the retest is still being watched.",
+              "recorded": "false",
+              "statusRight": 1104
+            }
+          ],
+          "metaCount": 0,
+          "keyIdea": "The broken band is now support. The move on from the retest is what is being watched.",
+          "note": "No step is marked complete without a stored record.",
+          "smallestFont": 11,
+          "panelContentRight": 1105,
+          "tops": {
+            "chart": 400,
+            "column": 400
+          },
+          "widths": {
+            "chart": 811,
+            "column": 249,
+            "row": 1076
+          },
+          "canvas": {
+            "width": 730,
+            "height": 646,
+            "shareOfCard": 41.3
+          }
+        },
+        {
+          "name": "composition",
+          "chartShare": 75.4,
+          "columnShare": 23.1,
+          "tops": {
+            "chart": 400,
+            "column": 400
+          },
+          "widths": {
+            "chart": 811,
+            "column": 249,
+            "row": 1076
+          }
+        },
+        {
+          "name": "framed window",
+          "range": {
+            "from": 119,
+            "to": 133
+          }
+        },
+        {
+          "name": "callouts",
+          "badges": [
+            {
+              "stage": "breakout",
+              "recorded": "true",
+              "place": "above",
+              "number": "1",
+              "title": "Breakout",
+              "status": "Completed",
+              "left": 211.833,
+              "top": 238.836,
+              "width": 207,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 811,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 611
+            },
+            {
+              "stage": "retest",
+              "recorded": "true",
+              "place": "below",
+              "number": "2",
+              "title": "Retest",
+              "status": "Held",
+              "left": 383.5,
+              "top": 334.561,
+              "width": 145,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 811,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 706
+            },
+            {
+              "stage": "continuation",
+              "recorded": "false",
+              "place": "above",
+              "number": "3",
+              "title": "Continuation",
+              "status": "In Progress",
+              "left": 292.667,
+              "top": 174.455,
+              "width": 240,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 811,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 546
+            }
+          ],
+          "pendingLine": 1,
+          "arrows": [
+            {
+              "x": 315.333,
+              "y": 295.836
+            },
+            {
+              "x": 364,
+              "y": 315.561
+            },
+            {
+              "x": 412.667,
+              "y": 231.455
+            }
+          ],
+          "lines": 3,
+          "offView": null,
+          "breakoutX": 315.33333333333337,
+          "retestX": 364,
+          "boxes": [
+            {
+              "stage": "breakout",
+              "left": 211.833,
+              "top": 238.836,
+              "right": 418.83299999999997,
+              "bottom": 276.836
+            },
+            {
+              "stage": "retest",
+              "left": 383.5,
+              "top": 334.561,
+              "right": 528.5,
+              "bottom": 372.561
+            },
+            {
+              "stage": "continuation",
+              "left": 292.667,
+              "top": 174.455,
+              "right": 532.6669999999999,
+              "bottom": 212.455
+            }
+          ]
+        },
+        {
+          "name": "shaded band",
+          "labels": [
+            "Resistance Zone"
+          ],
+          "band": {
+            "top": 739.8125,
+            "height": 30,
+            "width": 811,
+            "paneWidth": 811,
+            "fill": "rgba(122, 156, 196, 0.16)",
+            "edge": "color(srgb 0.560784 0.705882 0.85098 / 0.55)"
+          }
+        },
+        {
+          "name": "callouts under the header",
+          "header": {
+            "bottom": 188
+          },
+          "badges": [
+            {
+              "stage": "breakout",
+              "recorded": "true",
+              "place": "above",
+              "number": "1",
+              "title": "Breakout",
+              "status": "Completed",
+              "left": 211.833,
+              "top": 238.836,
+              "width": 207,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 811,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 611
+            },
+            {
+              "stage": "retest",
+              "recorded": "true",
+              "place": "below",
+              "number": "2",
+              "title": "Retest",
+              "status": "Held",
+              "left": 383.5,
+              "top": 334.561,
+              "width": 145,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 811,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 706
+            },
+            {
+              "stage": "continuation",
+              "recorded": "false",
+              "place": "above",
+              "number": "3",
+              "title": "Continuation",
+              "status": "In Progress",
+              "left": 292.667,
+              "top": 174.455,
+              "width": 240,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 811,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 546
+            }
+          ]
+        },
+        {
+          "name": "volume bars",
+          "height": 646,
+          "bottom": 530,
+          "coloured": 58337
+        },
+        {
+          "name": "zoom preserved switching away and back",
+          "beforeReturn": {
+            "from": 119,
+            "to": 133
+          },
+          "tradePlan": {
+            "from": 119,
+            "to": 133
+          },
+          "backAgain": {
+            "from": 119,
+            "to": 133
+          }
         }
       ],
-      "note": "Every status above is a stored record. Continuation stays In Progress until the backend records one — it is never marked complete because price moved."
+      "pageErrors": [],
+      "consoleErrors": [
+        "Applying inline style violates the following Content Security Policy directive 'style-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked.",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED"
+      ]
     },
     {
-      "name": "framed window",
-      "range": {
-        "from": 119,
-        "to": 133
-      }
-    },
-    {
-      "name": "callouts",
-      "badges": [
+      "label": "1440x900",
+      "width": 1440,
+      "height": 900,
+      "checks": [
         {
-          "stage": "breakout",
-          "number": "1",
-          "title": "Breakout",
-          "status": "Confirmed",
-          "left": 256.4,
-          "top": 14
+          "name": "stored events",
+          "count": 6,
+          "counts": {
+            "swings": 57,
+            "patterns": 4,
+            "breakouts": 2,
+            "failed_breakouts": 0,
+            "sweeps": 0,
+            "retests": 4,
+            "equal_levels": 32,
+            "zones": 3,
+            "candle_shapes": 164
+          },
+          "breakoutCandle": "2026-09-28T05:00:00.000Z",
+          "retestCandle": "2026-09-28T06:00:00.000Z",
+          "retestStates": [
+            "observed",
+            "observed",
+            "held",
+            "held"
+          ],
+          "band": {
+            "low": 84229.9,
+            "high": 84229.9
+          }
         },
         {
-          "stage": "retest",
-          "number": "2",
-          "title": "Retest",
-          "status": "Held",
-          "left": 296,
-          "top": 54
+          "name": "zoom preserved across a function switch",
+          "before": {
+            "from": 380,
+            "to": 502
+          },
+          "after": {
+            "from": 64,
+            "to": 186
+          },
+          "zoomWidth": 122
         },
         {
-          "stage": "continuation",
-          "number": "3",
-          "title": "Continuation",
-          "status": "In Progress",
-          "left": 335.6,
-          "top": 94
+          "name": "status line",
+          "text": "Breakouts / Retests: 2 breakout(s) · 0 failed · 0 sweep(s) · 4 retest(s) · 1 Breakout: Completed · 2 Retest: Held · 3 Continuation: In Progress."
+        },
+        {
+          "name": "right-hand column",
+          "order": "summary-then-panel",
+          "summaryAbove": true,
+          "rightOfChart": true,
+          "symbol": "BTC/USDT",
+          "summaryRows": [
+            "Change",
+            "24h high",
+            "24h low",
+            "24h volume"
+          ],
+          "heading": "Breakout Logic",
+          "chip": "Bullish sequence",
+          "band": [
+            "Reference band",
+            "Key Idea"
+          ],
+          "steps": [
+            {
+              "stage": "breakout",
+              "number": "1",
+              "title": "Breakout",
+              "status": "Completed",
+              "tone": "green",
+              "summary": "Price closed through the stored resistance band.",
+              "recorded": "true",
+              "statusRight": 1008
+            },
+            {
+              "stage": "retest",
+              "number": "2",
+              "title": "Retest",
+              "status": "Held",
+              "tone": "green",
+              "summary": "Price came back to the band and the retest held.",
+              "recorded": "true",
+              "statusRight": 1008
+            },
+            {
+              "stage": "continuation",
+              "number": "3",
+              "title": "Continuation",
+              "status": "In Progress",
+              "tone": "amber",
+              "summary": "Nothing recorded yet — the move on from the retest is still being watched.",
+              "recorded": "false",
+              "statusRight": 1008
+            }
+          ],
+          "metaCount": 0,
+          "keyIdea": "The broken band is now support. The move on from the retest is what is being watched.",
+          "note": "No step is marked complete without a stored record.",
+          "smallestFont": 11,
+          "panelContentRight": 1009,
+          "tops": {
+            "chart": 400,
+            "column": 400
+          },
+          "widths": {
+            "chart": 738,
+            "column": 226,
+            "row": 980
+          },
+          "canvas": {
+            "width": 658,
+            "height": 674,
+            "shareOfCard": 40.4
+          }
+        },
+        {
+          "name": "composition",
+          "chartShare": 75.3,
+          "columnShare": 23.1,
+          "tops": {
+            "chart": 400,
+            "column": 400
+          },
+          "widths": {
+            "chart": 738,
+            "column": 226,
+            "row": 980
+          }
+        },
+        {
+          "name": "framed window",
+          "range": {
+            "from": 119,
+            "to": 133
+          }
+        },
+        {
+          "name": "callouts",
+          "badges": [
+            {
+              "stage": "breakout",
+              "recorded": "true",
+              "place": "above",
+              "number": "1",
+              "title": "Breakout",
+              "status": "Completed",
+              "left": 180.633,
+              "top": 251.978,
+              "width": 207,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 738,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 624
+            },
+            {
+              "stage": "retest",
+              "recorded": "true",
+              "place": "below",
+              "number": "2",
+              "title": "Retest",
+              "status": "Held",
+              "left": 347.5,
+              "top": 347.953,
+              "width": 145,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 738,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 720
+            },
+            {
+              "stage": "continuation",
+              "recorded": "false",
+              "place": "above",
+              "number": "3",
+              "title": "Continuation",
+              "status": "In Progress",
+              "left": 251.867,
+              "top": 184.801,
+              "width": 240,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 738,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 556
+            }
+          ],
+          "pendingLine": 1,
+          "arrows": [
+            {
+              "x": 284.133,
+              "y": 308.978
+            },
+            {
+              "x": 328,
+              "y": 328.953
+            },
+            {
+              "x": 371.867,
+              "y": 241.801
+            }
+          ],
+          "lines": 3,
+          "offView": null,
+          "breakoutX": 284.1333333333333,
+          "retestX": 328,
+          "boxes": [
+            {
+              "stage": "breakout",
+              "left": 180.633,
+              "top": 251.978,
+              "right": 387.63300000000004,
+              "bottom": 289.978
+            },
+            {
+              "stage": "retest",
+              "left": 347.5,
+              "top": 347.953,
+              "right": 492.5,
+              "bottom": 385.953
+            },
+            {
+              "stage": "continuation",
+              "left": 251.867,
+              "top": 184.801,
+              "right": 491.86699999999996,
+              "bottom": 222.801
+            }
+          ]
+        },
+        {
+          "name": "shaded band",
+          "labels": [
+            "Resistance Zone"
+          ],
+          "band": {
+            "top": 755.796875,
+            "height": 30,
+            "width": 738,
+            "paneWidth": 738,
+            "fill": "rgba(122, 156, 196, 0.16)",
+            "edge": "color(srgb 0.560784 0.705882 0.85098 / 0.55)"
+          }
+        },
+        {
+          "name": "callouts under the header",
+          "header": {
+            "bottom": 188
+          },
+          "badges": [
+            {
+              "stage": "breakout",
+              "recorded": "true",
+              "place": "above",
+              "number": "1",
+              "title": "Breakout",
+              "status": "Completed",
+              "left": 180.633,
+              "top": 251.978,
+              "width": 207,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 738,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 624
+            },
+            {
+              "stage": "retest",
+              "recorded": "true",
+              "place": "below",
+              "number": "2",
+              "title": "Retest",
+              "status": "Held",
+              "left": 347.5,
+              "top": 347.953,
+              "width": 145,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 738,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 720
+            },
+            {
+              "stage": "continuation",
+              "recorded": "false",
+              "place": "above",
+              "number": "3",
+              "title": "Continuation",
+              "status": "In Progress",
+              "left": 251.867,
+              "top": 184.801,
+              "width": 240,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 738,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 556
+            }
+          ]
+        },
+        {
+          "name": "volume bars",
+          "height": 674,
+          "bottom": 553,
+          "coloured": 54681
+        },
+        {
+          "name": "zoom preserved switching away and back",
+          "beforeReturn": {
+            "from": 119,
+            "to": 133
+          },
+          "tradePlan": {
+            "from": 119,
+            "to": 133
+          },
+          "backAgain": {
+            "from": 119,
+            "to": 133
+          }
         }
       ],
-      "arrows": [
+      "pageErrors": [],
+      "consoleErrors": [
+        "Applying inline style violates the following Content Security Policy directive 'style-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked.",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED"
+      ]
+    },
+    {
+      "label": "1920x1080",
+      "width": 1920,
+      "height": 1080,
+      "checks": [
         {
-          "x": 256.4,
-          "y": 268.102
+          "name": "stored events",
+          "count": 6,
+          "counts": {
+            "swings": 57,
+            "patterns": 4,
+            "breakouts": 2,
+            "failed_breakouts": 0,
+            "sweeps": 0,
+            "retests": 4,
+            "equal_levels": 32,
+            "zones": 3,
+            "candle_shapes": 164
+          },
+          "breakoutCandle": "2026-09-28T05:00:00.000Z",
+          "retestCandle": "2026-09-28T06:00:00.000Z",
+          "retestStates": [
+            "observed",
+            "observed",
+            "held",
+            "held"
+          ],
+          "band": {
+            "low": 84229.9,
+            "high": 84229.9
+          }
         },
         {
-          "x": 296,
-          "y": 273.17
+          "name": "zoom preserved across a function switch",
+          "before": {
+            "from": 380,
+            "to": 502
+          },
+          "after": {
+            "from": 64,
+            "to": 186
+          },
+          "zoomWidth": 122
         },
         {
-          "x": 335.6,
-          "y": 211.112
+          "name": "status line",
+          "text": "Breakouts / Retests: 2 breakout(s) · 0 failed · 0 sweep(s) · 4 retest(s) · 1 Breakout: Completed · 2 Retest: Held · 3 Continuation: In Progress."
+        },
+        {
+          "name": "right-hand column",
+          "order": "summary-then-panel",
+          "summaryAbove": true,
+          "rightOfChart": true,
+          "symbol": "BTC/USDT",
+          "summaryRows": [
+            "Change",
+            "24h high",
+            "24h low",
+            "24h volume"
+          ],
+          "heading": "Breakout Logic",
+          "chip": "Bullish sequence",
+          "band": [
+            "Reference band",
+            "Key Idea"
+          ],
+          "steps": [
+            {
+              "stage": "breakout",
+              "number": "1",
+              "title": "Breakout",
+              "status": "Completed",
+              "tone": "green",
+              "summary": "Price closed through the stored resistance band.",
+              "recorded": "true",
+              "statusRight": 1368
+            },
+            {
+              "stage": "retest",
+              "number": "2",
+              "title": "Retest",
+              "status": "Held",
+              "tone": "green",
+              "summary": "Price came back to the band and the retest held.",
+              "recorded": "true",
+              "statusRight": 1368
+            },
+            {
+              "stage": "continuation",
+              "number": "3",
+              "title": "Continuation",
+              "status": "In Progress",
+              "tone": "amber",
+              "summary": "Nothing recorded yet — the move on from the retest is still being watched.",
+              "recorded": "false",
+              "statusRight": 1368
+            }
+          ],
+          "metaCount": 0,
+          "keyIdea": "The broken band is now support. The move on from the retest is what is being watched.",
+          "note": "No step is marked complete without a stored record.",
+          "smallestFont": 11,
+          "panelContentRight": 1369,
+          "tops": {
+            "chart": 400,
+            "column": 400
+          },
+          "widths": {
+            "chart": 921,
+            "column": 283,
+            "row": 1220
+          },
+          "canvas": {
+            "width": 840,
+            "height": 812,
+            "shareOfCard": 52.5
+          }
+        },
+        {
+          "name": "composition",
+          "chartShare": 75.5,
+          "columnShare": 23.2,
+          "tops": {
+            "chart": 400,
+            "column": 400
+          },
+          "widths": {
+            "chart": 921,
+            "column": 283,
+            "row": 1220
+          }
+        },
+        {
+          "name": "framed window",
+          "range": {
+            "from": 119,
+            "to": 133
+          }
+        },
+        {
+          "name": "callouts",
+          "badges": [
+            {
+              "stage": "breakout",
+              "recorded": "true",
+              "place": "above",
+              "number": "1",
+              "title": "Breakout",
+              "status": "Completed",
+              "left": 259.5,
+              "top": 316.753,
+              "width": 207,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 921,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 688
+            },
+            {
+              "stage": "retest",
+              "recorded": "true",
+              "place": "below",
+              "number": "2",
+              "title": "Retest",
+              "status": "Held",
+              "left": 438.5,
+              "top": 413.953,
+              "width": 145,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 921,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 786
+            },
+            {
+              "stage": "continuation",
+              "recorded": "false",
+              "place": "above",
+              "number": "3",
+              "title": "Continuation",
+              "status": "In Progress",
+              "left": 355,
+              "top": 235.792,
+              "width": 240,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 921,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 607
+            }
+          ],
+          "pendingLine": 1,
+          "arrows": [
+            {
+              "x": 363,
+              "y": 373.753
+            },
+            {
+              "x": 419,
+              "y": 394.953
+            },
+            {
+              "x": 475,
+              "y": 292.792
+            }
+          ],
+          "lines": 3,
+          "offView": null,
+          "breakoutX": 363,
+          "retestX": 419,
+          "boxes": [
+            {
+              "stage": "breakout",
+              "left": 259.5,
+              "top": 316.753,
+              "right": 466.5,
+              "bottom": 354.753
+            },
+            {
+              "stage": "retest",
+              "left": 438.5,
+              "top": 413.953,
+              "right": 583.5,
+              "bottom": 451.953
+            },
+            {
+              "stage": "continuation",
+              "left": 355,
+              "top": 235.792,
+              "right": 595,
+              "bottom": 273.79200000000003
+            }
+          ]
+        },
+        {
+          "name": "shaded band",
+          "labels": [
+            "Resistance Zone"
+          ],
+          "band": {
+            "top": 834.546875,
+            "height": 30,
+            "width": 921,
+            "paneWidth": 921,
+            "fill": "rgba(122, 156, 196, 0.16)",
+            "edge": "color(srgb 0.560784 0.705882 0.85098 / 0.55)"
+          }
+        },
+        {
+          "name": "callouts under the header",
+          "header": {
+            "bottom": 188
+          },
+          "badges": [
+            {
+              "stage": "breakout",
+              "recorded": "true",
+              "place": "above",
+              "number": "1",
+              "title": "Breakout",
+              "status": "Completed",
+              "left": 259.5,
+              "top": 316.753,
+              "width": 207,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 921,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 688
+            },
+            {
+              "stage": "retest",
+              "recorded": "true",
+              "place": "below",
+              "number": "2",
+              "title": "Retest",
+              "status": "Held",
+              "left": 438.5,
+              "top": 413.953,
+              "width": 145,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 921,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 786
+            },
+            {
+              "stage": "continuation",
+              "recorded": "false",
+              "place": "above",
+              "number": "3",
+              "title": "Continuation",
+              "status": "In Progress",
+              "left": 355,
+              "top": 235.792,
+              "width": 240,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 921,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 607
+            }
+          ]
+        },
+        {
+          "name": "volume bars",
+          "height": 812,
+          "bottom": 666,
+          "coloured": 84725
+        },
+        {
+          "name": "zoom preserved switching away and back",
+          "beforeReturn": {
+            "from": 119,
+            "to": 133
+          },
+          "tradePlan": {
+            "from": 119,
+            "to": 133
+          },
+          "backAgain": {
+            "from": 119,
+            "to": 133
+          }
         }
       ],
-      "lines": 3,
-      "offView": null,
-      "breakoutX": 256.4,
-      "retestX": 296
+      "pageErrors": [],
+      "consoleErrors": [
+        "Applying inline style violates the following Content Security Policy directive 'style-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked.",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED"
+      ]
     },
     {
-      "name": "shaded band",
-      "labels": [
-        "RESISTANCE ZONE"
+      "label": "390-mobile",
+      "width": 390,
+      "height": 844,
+      "checks": [
+        {
+          "name": "stored events",
+          "count": 6,
+          "counts": {
+            "swings": 57,
+            "patterns": 4,
+            "breakouts": 2,
+            "failed_breakouts": 0,
+            "sweeps": 0,
+            "retests": 4,
+            "equal_levels": 32,
+            "zones": 3,
+            "candle_shapes": 164
+          },
+          "breakoutCandle": "2026-09-28T05:00:00.000Z",
+          "retestCandle": "2026-09-28T06:00:00.000Z",
+          "retestStates": [
+            "observed",
+            "observed",
+            "held",
+            "held"
+          ],
+          "band": {
+            "low": 84229.9,
+            "high": 84229.9
+          }
+        },
+        {
+          "name": "zoom preserved across a function switch",
+          "before": {
+            "from": 440,
+            "to": 502
+          },
+          "after": {
+            "from": 94,
+            "to": 156
+          },
+          "zoomWidth": 62
+        },
+        {
+          "name": "status line",
+          "text": "Breakouts / Retests: 2 breakout(s) · 0 failed · 0 sweep(s) · 4 retest(s) · 1 Breakout: Completed · 2 Retest: Held · 3 Continuation: In Progress."
+        },
+        {
+          "name": "right-hand column",
+          "order": "summary-then-panel",
+          "summaryAbove": true,
+          "rightOfChart": false,
+          "symbol": "BTC/USDT",
+          "summaryRows": [
+            "Change",
+            "24h high",
+            "24h low",
+            "24h volume"
+          ],
+          "heading": "Breakout Logic",
+          "chip": "Bullish sequence",
+          "band": [
+            "Reference band",
+            "Key Idea"
+          ],
+          "steps": [
+            {
+              "stage": "breakout",
+              "number": "1",
+              "title": "Breakout",
+              "status": "Completed",
+              "tone": "green",
+              "summary": "Price closed through the stored resistance band.",
+              "recorded": "true",
+              "statusRight": 350
+            },
+            {
+              "stage": "retest",
+              "number": "2",
+              "title": "Retest",
+              "status": "Held",
+              "tone": "green",
+              "summary": "Price came back to the band and the retest held.",
+              "recorded": "true",
+              "statusRight": 350
+            },
+            {
+              "stage": "continuation",
+              "number": "3",
+              "title": "Continuation",
+              "status": "In Progress",
+              "tone": "amber",
+              "summary": "Nothing recorded yet — the move on from the retest is still being watched.",
+              "recorded": "false",
+              "statusRight": 350
+            }
+          ],
+          "metaCount": 0,
+          "keyIdea": "The broken band is now support. The move on from the retest is what is being watched.",
+          "note": "No step is marked complete without a stored record.",
+          "smallestFont": 11,
+          "panelContentRight": 351,
+          "tops": {
+            "chart": 688,
+            "column": 1143
+          },
+          "widths": {
+            "chart": 340,
+            "column": 340,
+            "row": 340
+          },
+          "canvas": {
+            "width": 260,
+            "height": 410,
+            "shareOfCard": 18.7
+          }
+        },
+        {
+          "name": "composition",
+          "chartShare": 100,
+          "columnShare": 100,
+          "tops": {
+            "chart": 688,
+            "column": 1143
+          },
+          "widths": {
+            "chart": 340,
+            "column": 340,
+            "row": 340
+          }
+        },
+        {
+          "name": "framed window",
+          "range": {
+            "from": 119,
+            "to": 133
+          }
+        },
+        {
+          "name": "callouts",
+          "badges": [
+            {
+              "stage": "breakout",
+              "recorded": "true",
+              "place": "above",
+              "number": "1",
+              "title": "Breakout",
+              "status": "Completed",
+              "left": 8.16667,
+              "top": 128.062,
+              "width": 207,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 340,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 517
+            },
+            {
+              "stage": "retest",
+              "recorded": "true",
+              "place": "below",
+              "number": "2",
+              "title": "Retest",
+              "status": "Held",
+              "left": 148.5,
+              "top": 221.691,
+              "width": 145,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 340,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 611
+            },
+            {
+              "stage": "continuation",
+              "recorded": "false",
+              "place": "above",
+              "number": "3",
+              "title": "Continuation",
+              "status": "In Progress",
+              "left": 26.3333,
+              "top": 87.2528,
+              "width": 240,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 340,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 476
+            }
+          ],
+          "pendingLine": 1,
+          "arrows": [
+            {
+              "x": 111.667,
+              "y": 185.062
+            },
+            {
+              "x": 129,
+              "y": 202.691
+            },
+            {
+              "x": 146.333,
+              "y": 144.253
+            }
+          ],
+          "lines": 3,
+          "offView": null,
+          "breakoutX": 111.66666666666669,
+          "retestX": 129,
+          "boxes": [
+            {
+              "stage": "breakout",
+              "left": 8.16667,
+              "top": 128.062,
+              "right": 215.16667,
+              "bottom": 166.062
+            },
+            {
+              "stage": "retest",
+              "left": 148.5,
+              "top": 221.691,
+              "right": 293.5,
+              "bottom": 259.69100000000003
+            },
+            {
+              "stage": "continuation",
+              "left": 26.3333,
+              "top": 87.2528,
+              "right": 266.3333,
+              "bottom": 125.2528
+            }
+          ]
+        },
+        {
+          "name": "shaded band",
+          "labels": [
+            "Resistance Zone"
+          ],
+          "band": {
+            "top": 622.390625,
+            "height": 30,
+            "width": 340,
+            "paneWidth": 340,
+            "fill": "rgba(122, 156, 196, 0.16)",
+            "edge": "color(srgb 0.560784 0.705882 0.85098 / 0.55)"
+          }
+        },
+        {
+          "name": "callouts under the header",
+          "header": {
+            "bottom": -10
+          },
+          "badges": [
+            {
+              "stage": "breakout",
+              "recorded": "true",
+              "place": "above",
+              "number": "1",
+              "title": "Breakout",
+              "status": "Completed",
+              "left": 8.16667,
+              "top": 128.062,
+              "width": 207,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 340,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 517
+            },
+            {
+              "stage": "retest",
+              "recorded": "true",
+              "place": "below",
+              "number": "2",
+              "title": "Retest",
+              "status": "Held",
+              "left": 148.5,
+              "top": 221.691,
+              "width": 145,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 340,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 611
+            },
+            {
+              "stage": "continuation",
+              "recorded": "false",
+              "place": "above",
+              "number": "3",
+              "title": "Continuation",
+              "status": "In Progress",
+              "left": 26.3333,
+              "top": 87.2528,
+              "width": 240,
+              "height": 38,
+              "fontSize": "13px",
+              "numberSize": 26,
+              "paneWidth": 340,
+              "insidePane": true,
+              "onTop": true,
+              "viewportTop": 476
+            }
+          ]
+        },
+        {
+          "name": "volume bars",
+          "height": 410,
+          "bottom": 336,
+          "coloured": 12715
+        },
+        {
+          "name": "zoom preserved switching away and back",
+          "beforeReturn": {
+            "from": 119,
+            "to": 133
+          },
+          "tradePlan": {
+            "from": 119,
+            "to": 133
+          },
+          "backAgain": {
+            "from": 119,
+            "to": 133
+          }
+        }
       ],
-      "band": {
-        "top": 36.578125,
-        "height": 14,
-        "width": 674,
-        "label": null
-      }
-    },
-    {
-      "name": "volume bars",
-      "height": 572,
-      "bottom": 469,
-      "coloured": 41588
-    },
-    {
-      "name": "zoom preserved switching away and back",
-      "beforeReturn": {
-        "from": 119,
-        "to": 133
-      },
-      "tradePlan": {
-        "from": 119,
-        "to": 133
-      },
-      "backAgain": {
-        "from": 119,
-        "to": 133
-      }
+      "pageErrors": [],
+      "consoleErrors": [
+        "Applying inline style violates the following Content Security Policy directive 'style-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked.",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED"
+      ]
     }
-  ],
-  "storedEvents": {
-    "count": 6,
-    "counts": {
-      "swings": 57,
-      "patterns": 4,
-      "breakouts": 2,
-      "failed_breakouts": 0,
-      "sweeps": 0,
-      "retests": 4,
-      "equal_levels": 32,
-      "zones": 3,
-      "candle_shapes": 164
-    },
-    "breakoutCandle": "2026-09-28T05:00:00.000Z",
-    "retestCandle": "2026-09-28T06:00:00.000Z",
-    "retestStates": [
-      "observed",
-      "observed",
-      "held",
-      "held"
-    ],
-    "band": {
-      "low": 84229.9,
-      "high": 84229.9
-    }
-  },
-  "pageErrors": [],
-  "consoleErrors": [
-    "Applying inline style violates the following Content Security Policy directive 'style-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked.",
-    "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
-    "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED"
   ]
 }

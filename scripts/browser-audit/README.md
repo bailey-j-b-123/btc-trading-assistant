@@ -139,25 +139,34 @@ Against the same **isolated synthetic demo** server, run from the repo root:
 node scripts/browser-audit/breakouts-check.mjs http://127.0.0.1:8123 /tmp/brain-breakouts
 ```
 
-This drives the real dashboard in Chromium at 1440 × 980 and proves the
+This drives the real dashboard in Chromium at **1536 × 864 (primary),
+1440 × 900, 1920 × 1080 and 390 × 844**, and proves at each size that the
 screen is the annotated layout, from the seeded records only:
 
-* the chart on the left with volume bars along the bottom;
-* a shaded **RESISTANCE ZONE** band across the chart, taken from the stored
-  breakout's own band bounds;
-* exactly **three numbered callouts** — 1 Breakout, 2 Retest, 3 Continuation —
-  each with a leader line and an arrow at the candle its own step belongs to
-  (the arrow's x is compared with the chart's own `timeToCoordinate` for that
-  stored candle), stacked so they never overlap;
-* the **BTC/USDT summary card** above the **Breakout Logic** panel on the
-  right, with the three steps and their recorded statuses — and Continuation
-  asserted "In Progress", never "Confirmed";
-* "Frame all three steps" fits the sequence, and switching to another function
-  and back leaves the visible candle range **exactly** where it was.
+* **the composition** — the chart is ~75 % of the row and the card column ~23 %,
+  the chart and the cards start on the same line, and the chart pane dominates
+  the card (width, height and area);
+* **the band** — a blue-grey translucent band labelled “Resistance Zone”,
+  at least 28 px thick on desktop (30 px in practice) and spanning the full
+  width of the pane, never the thin red strip it used to be;
+* **exactly three prominent callouts** — 1 Breakout, 2 Retest, 3 Continuation —
+  at least 13 px text on 26 px number circles, placed above / below-and-right /
+  above the candle each step belongs to, never overlapping each other, never
+  clipped, never covered by the sticky header, with each arrow's x compared
+  against the chart's own `timeToCoordinate` for that stored candle;
+* **pending steps drawn differently** — an unrecorded continuation is flagged
+  `recorded="false"` and drawn with an outline circle and a dashed leader line;
+* **the BTC/USDT card above the Breakout Logic panel** on the right, with the
+  three steps, their right-aligned status pills (`Completed` / `Held` /
+  `In Progress`), a Key Idea, no raw metadata rows and nothing smaller than
+  11 px in the column;
+* **volume bars** along the bottom of the pane, counted from real canvas pixels;
+* **the zoom is preserved** — switching to this function keeps the number of
+  candles on screen exactly (the window is only moved when not one stored step is
+  on screen), and switching away and back leaves the range untouched.
 
-It writes `breakouts-1440-full.png`, `breakouts-1440-stage.png`,
-`breakouts-1440-framed.png`, `breakouts-1440-after-return.png` and
-`breakouts-report.json` to the output directory, and
-exits nonzero on a failed assertion or an uncaught page error. Use `CHROME_PATH`
-as above, or the optional sandbox Chromium package. No production database or
+It writes `breakouts-<size>-default.png`, `-framed.png`, `-full.png`,
+`-stage.png` and `breakouts-report.json` to the output directory, and exits
+nonzero on a failed assertion or an uncaught page error. Use `CHROME_PATH` as
+above, or the optional sandbox Chromium package. No production database or
 API mocks are needed. See `docs/breakouts-signoff.md` for this run's evidence.

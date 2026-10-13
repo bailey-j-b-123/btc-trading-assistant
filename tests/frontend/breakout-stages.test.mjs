@@ -103,7 +103,7 @@ test("the breakout is reported as failed when the backend recorded the failure",
   assert.match(model.stages[0].detail, /closed back through/);
 });
 
-test("the retest status is the backend's own state, and Awaiting when none is stored", () => {
+test("the retest status is the backend's own state, and Awaiting Confirmation when none is stored", () => {
   const held = breakoutStages({ evidence: evidence(), candles: candles(30) });
   assert.equal(held.stages[1].status, "Held");
 
@@ -117,10 +117,10 @@ test("the retest status is the backend's own state, and Awaiting when none is st
     evidence: evidence({ retests: [{ id: "rt-1", state: "observed", breakout_id: "bo-1", time_ms: ms(11), known_at: iso(12), band_low: "84229.9", band_high: "84229.9" }] }),
     candles: candles(30),
   });
-  assert.equal(observed.stages[1].status, "Observed");
+  assert.equal(observed.stages[1].status, "Awaiting Confirmation");
 
   const none = breakoutStages({ evidence: evidence({ retests: [] }), candles: candles(30) });
-  assert.equal(none.stages[1].status, "Awaiting");
+  assert.equal(none.stages[1].status, "Awaiting Confirmation");
   assert.match(none.stages[1].detail, /No retest of this breakout is stored yet/);
 });
 
@@ -147,9 +147,23 @@ test("a continuation the backend did record is confirmed", () => {
     candles: candles(30),
   });
   const continuation = model.stages[2];
-  assert.equal(continuation.status, "Confirmed");
+  assert.equal(continuation.status, "Completed");
   assert.equal(continuation.tone, "green");
   assert.equal(continuation.barIndex, 18);
+});
+
+test("a step with no stored record is flagged unrecorded, so it is never drawn as confirmed", () => {
+  const model = breakoutStages({ evidence: evidence({ retests: [{ id: "rt-1", time_ms: ms(13), state: "held" }] }), candles: candles(20) });
+  // The stored breakout and retest are records; the continuation is not.
+  assert.deepEqual(model.stages.map((stage) => stage.recorded), [true, true, false]);
+  // The continuation still has a candle to point at, so it stays on the chart —
+  // drawn as an outline rather than a filled "done" marker.
+  assert.ok(Number.isFinite(model.stages[2].barIndex) && model.stages[2].barIndex >= 0);
+  // The callout arrangement: breakout above, retest below and to the right,
+  // continuation above.
+  assert.deepEqual(model.stages.map((stage) => `${stage.place}/${stage.nudge}`), ["above/none", "below/right", "above/none"]);
+  // Each step carries one short sentence for the panel.
+  for (const stage of model.stages) assert.match(stage.summary, /\S/);
 });
 
 test("the layout keeps its three steps when nothing is stored", () => {
@@ -158,7 +172,7 @@ test("the layout keeps its three steps when nothing is stored", () => {
     candles: candles(30),
   });
   assert.deepEqual(titles(empty), ["Breakout", "Retest", "Continuation"], "the layout is the same");
-  assert.deepEqual(statuses(empty), ["Not recorded", "Awaiting", "Awaiting"]);
+  assert.deepEqual(statuses(empty), ["Not recorded", "Awaiting Confirmation", "Awaiting Confirmation"]);
   assert.equal(empty.available, false);
   assert.equal(empty.band, null);
 

@@ -252,7 +252,7 @@ test("the Breakout Logic panel shows the three steps with the status the backend
   assert.equal(model.heading, "Breakout Logic");
   assert.equal(model.chip, "Bullish sequence");
   assert.deepEqual(model.stages.map((stage) => [stage.number, stage.title]), [[1, "Breakout"], [2, "Retest"], [3, "Continuation"]]);
-  assert.deepEqual(model.stages.map((stage) => stage.status), ["Confirmed", "Held", "In Progress"]);
+  assert.deepEqual(model.stages.map((stage) => stage.status), ["Completed", "Held", "In Progress"]);
   // The band is the stored breakout's own reference band, passed through.
   assert.equal(model.band.value, "61,900.00 – 62,000.00");
   // Step 2 is the stored retest of that breakout, at its own candle.
@@ -260,8 +260,17 @@ test("the Breakout Logic panel shows the three steps with the status the backend
   // Continuation is named but never claimed complete: the backend stores none.
   assert.equal(model.stages[2].status, "In Progress");
   assert.equal(model.stages[2].tone, "amber");
-  assert.equal(model.stages[2].recorded, true, "the step is on the chart, awaiting a record");
-  assert.match(model.note, /Continuation stays In Progress until the backend records one/);
+  // No continuation is stored, so the step is flagged unrecorded: the panel
+  // draws it as an outline circle and the chart draws a dashed leader line, so
+  // a step that is only being watched never reads as a confirmed event.
+  assert.equal(model.stages[2].recorded, false, "no continuation record exists");
+  assert.equal(model.stages[0].recorded, true, "the breakout is stored");
+  // One short sentence per step, and a Key Idea under them.
+  assert.deepEqual(model.stages.map((stage) => typeof stage.summary === "string" && stage.summary.length > 0), [true, true, true]);
+  assert.match(model.keyIdea, /now support\. The move on from the retest is what is being watched/);
+  // Each step carries where its callout sits relative to its candle.
+  assert.deepEqual(model.stages.map((stage) => `${stage.place}/${stage.nudge}`), ["above/none", "below/right", "above/none"]);
+  assert.match(model.note, /No step is marked complete without a stored record/);
 });
 
 test("the Breakout Logic panel keeps its three steps when nothing is stored", () => {
@@ -273,7 +282,7 @@ test("the Breakout Logic panel keeps its three steps when nothing is stored", ()
   });
   // Same layout, same three steps — only the statuses change.
   assert.deepEqual(empty.stages.map((stage) => stage.title), ["Breakout", "Retest", "Continuation"]);
-  assert.deepEqual(empty.stages.map((stage) => stage.status), ["Not recorded", "Awaiting", "Awaiting"]);
+  assert.deepEqual(empty.stages.map((stage) => stage.status), ["Not recorded", "Awaiting Confirmation", "Awaiting Confirmation"]);
   assert.equal(empty.band, null, "no band is shown when nothing is stored");
   assert.match(empty.note, /no breakout is stored/);
 

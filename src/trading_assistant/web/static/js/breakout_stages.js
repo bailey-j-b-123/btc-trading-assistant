@@ -26,11 +26,19 @@
 import { toSeconds } from "./evidence.js";
 import { displayRounded, formatUtc, isMissing } from "./format.js";
 
-/** The three steps of the sequence, in the order they happen. */
+/**
+ * The three steps of the sequence, in the order they happen.
+ *
+ * `place` is where the numbered callout sits relative to the candle it points
+ * at: the breakout and the continuation above their price action, the retest
+ * below and to the right of its candle, pointing back up at it. That is the
+ * arrangement of the approved layout, and it is also what keeps the three
+ * callouts from stacking on top of each other when the candles are close.
+ */
 export const STAGE_DEFS = Object.freeze([
-  Object.freeze({ key: "breakout", number: 1, title: "Breakout" }),
-  Object.freeze({ key: "retest", number: 2, title: "Retest" }),
-  Object.freeze({ key: "continuation", number: 3, title: "Continuation" }),
+  Object.freeze({ key: "breakout", number: 1, title: "Breakout", place: "above", nudge: "none" }),
+  Object.freeze({ key: "retest", number: 2, title: "Retest", place: "below", nudge: "right" }),
+  Object.freeze({ key: "continuation", number: 3, title: "Continuation", place: "above", nudge: "none" }),
 ]);
 
 /**
@@ -38,16 +46,22 @@ export const STAGE_DEFS = Object.freeze([
  * stored record, or an explicit statement that no record exists.
  */
 export const STAGE_STATUS = Object.freeze({
-  confirmed: Object.freeze({ label: "Confirmed", tone: "green" }),
+  completed: Object.freeze({ label: "Completed", tone: "green" }),
   held: Object.freeze({ label: "Held", tone: "green" }),
   failed: Object.freeze({ label: "Failed", tone: "red" }),
-  observed: Object.freeze({ label: "Observed", tone: "amber" }),
   inProgress: Object.freeze({ label: "In Progress", tone: "amber" }),
-  awaiting: Object.freeze({ label: "Awaiting", tone: "neutral" }),
+  awaitingConfirmation: Object.freeze({ label: "Awaiting Confirmation", tone: "amber" }),
   notRecorded: Object.freeze({ label: "Not recorded", tone: "neutral" }),
 });
 
 const UNKNOWN = "UNKNOWN";
+
+/** One short sentence per step, for the panel. The numbers stay in the tooltip. */
+const STAGE_SUMMARY = Object.freeze({
+  breakout: "Price closed through the stored resistance band.",
+  retest: "Price came back to the broken band.",
+  continuation: "The move on from the retest.",
+});
 
 function num(value) {
   const parsed = Number(value);
@@ -174,6 +188,9 @@ export function breakoutStages({ evidence, candles } = {}) {
     title: def.title,
     status: status.label,
     tone: status.tone,
+    place: def.place,
+    nudge: def.nudge,
+    summary: STAGE_SUMMARY[def.key] || def.title,
     recorded: false,
     timeSeconds: null,
     timeText: UNKNOWN,
@@ -206,7 +223,7 @@ export function breakoutStages({ evidence, candles } = {}) {
       bandText: null,
       stages: STAGE_DEFS.map((def) => shell(
         def,
-        def.key === "breakout" ? STAGE_STATUS.notRecorded : STAGE_STATUS.awaiting,
+        def.key === "breakout" ? STAGE_STATUS.notRecorded : STAGE_STATUS.awaitingConfirmation,
         def.key === "breakout"
           ? "No breakout is stored for this window at this instant."
           : "This step follows a breakout, and none is stored yet.",
@@ -226,10 +243,13 @@ export function breakoutStages({ evidence, candles } = {}) {
   const anchorClose = num(anchor.breakout_close);
   const breakoutPrice = anchorClose ?? (anchorEntry ? num(anchorEntry.row[4]) : null);
 
+  // `recorded` means the backend stored a record for this step. A step without
+  // one is drawn as an outline — on the chart and in the panel — so a step that
+  // is only being watched never looks like a confirmed event.
   const finish = (def, status, detail, extra = {}) => ({
     ...shell(def, status, detail, extra.meta ?? null),
-    ...extra,
     recorded: true,
+    ...extra,
   });
 
   // --- Step 1: the breakout itself ------------------------------------------
@@ -240,6 +260,7 @@ export function breakoutStages({ evidence, candles } = {}) {
     ? finish(STAGE_DEFS[0], STAGE_STATUS.failed,
       `Price closed back through the ${bandText ?? "reference"} band; the backend recorded the failure.`,
       {
+        summary: "Price broke the band, then closed back through it.",
         timeSeconds: anchorSeconds,
         timeText: msText(num(failure.time_ms) ?? num(anchor.time_ms)),
         price: num(failure.reentry_distance) !== null && band ? band.low : breakoutPrice,
@@ -247,13 +268,14 @@ export function breakoutStages({ evidence, candles } = {}) {
         onLoadedCandles: Boolean(anchorEntry),
         meta: anchorSeconds === null ? null : `${msText(num(anchor.time_ms))} · failed ${num(failure.elapsed_candles) ?? UNKNOWN} candle(s) later`,
       })
-    : finish(STAGE_DEFS[0], STAGE_STATUS.confirmed,
+    : finish(STAGE_DEFS[0], STAGE_STATUS.completed,
       [
         breakoutPrice !== null ? `Close ${priceText(breakoutPrice)}` : "A stored close",
         `broke the ${bandText ?? "reference"} band`,
         penetration ? `by ${penetration}` : null,
       ].filter(Boolean).join(" "),
       {
+        summary: `Price closed through the stored ${bullish ? "resistance" : "support"} band.`,
         timeSeconds: anchorSeconds,
         timeText: msText(num(anchor.time_ms)),
         price: breakoutPrice,
@@ -285,7 +307,7 @@ export function breakoutStages({ evidence, candles } = {}) {
 
   const retestStage = firstRetest
     ? finish(STAGE_DEFS[1],
-      heldCount > 0 ? STAGE_STATUS.held : failedCount > 0 ? STAGE_STATUS.failed : STAGE_STATUS.observed,
+      heldCount > 0 ? STAGE_STATUS.held : failedCount > 0 ? STAGE_STATUS.failed : STAGE_STATUS.awaitingConfirmation,
       [
         mine.length === 1
           ? "The stored retest of this breakout"
@@ -295,6 +317,12 @@ export function breakoutStages({ evidence, candles } = {}) {
         observedCount > 0 && heldCount === 0 && failedCount === 0 ? "and none is confirmed yet" : null,
       ].filter(Boolean).join(" "),
       {
+        summary: heldCount > 0
+          ? "Price came back to the band and the retest held."
+          : failedCount > 0
+            ? "Price came back to the band and the retest failed."
+            : "Price came back to the band; the backend has not confirmed it.",
+        recorded: true,
         timeSeconds: retestSeconds,
         timeText: msText(num(firstRetest.time_ms)),
         price: retestPrice,
@@ -306,9 +334,11 @@ export function breakoutStages({ evidence, candles } = {}) {
           num(firstRetest.elapsed_candles) !== null ? `${num(firstRetest.elapsed_candles)} candle(s) after the breakout` : null,
         ].filter(Boolean).join(" · "),
       })
-    : finish(STAGE_DEFS[1], STAGE_STATUS.awaiting,
+    : finish(STAGE_DEFS[1], STAGE_STATUS.awaitingConfirmation,
       "No retest of this breakout is stored yet.",
       {
+        summary: "No return to the band has been recorded yet.",
+        recorded: false,
         timeSeconds: anchorSeconds,
         timeText: msText(num(anchor.time_ms)),
         price: breakoutPrice,
@@ -326,9 +356,11 @@ export function breakoutStages({ evidence, candles } = {}) {
     ? continuationAnchor(rows, { breakoutIndex: anchorEntry ? anchorEntry.index : sinceIndex, fromIndex: sinceIndex, bullish })
     : null;
   const continuationStage = stored.length
-    ? finish(STAGE_DEFS[2], STAGE_STATUS.confirmed,
+    ? finish(STAGE_DEFS[2], STAGE_STATUS.completed,
       "The backend recorded continuation of this breakout.",
       {
+        summary: "The move went on after the retest.",
+        recorded: true,
         timeSeconds: toSeconds(num(stored[0].time_ms)),
         timeText: msText(num(stored[0].time_ms)),
         price: num(stored[0].price ?? stored[0].close) ?? (progress ? progress.value : retestPrice),
@@ -346,6 +378,8 @@ export function breakoutStages({ evidence, candles } = {}) {
     : finish(STAGE_DEFS[2], STAGE_STATUS.inProgress,
       "The backend has stored no continuation for this breakout, so this step is not marked complete.",
       {
+        summary: "Nothing recorded yet — the move on from the retest is still being watched.",
+        recorded: false,
         timeSeconds: progress ? toSeconds(progress.time) : retestSeconds,
         timeText: progress ? msText(progress.time) : (retestSeconds === null ? UNKNOWN : msText(num(firstRetest.time_ms))),
         price: progress ? progress.value : retestPrice,

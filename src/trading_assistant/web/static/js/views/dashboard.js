@@ -926,7 +926,33 @@ function chartCard(initialDashboard) {
       clearBreakoutAnnotations(handle);
       return;
     }
+    ensureStagesInView(stages);
     setBreakoutAnnotations(handle, stages, { onSelect: selectStage });
+  };
+
+  /**
+   * Move the window to the stored steps when not one of them is on screen, at
+   * the operator's own zoom: the number of candles on screen is preserved and
+   * only the window moves (see focusBarOnChart). Without it this screen would
+   * open on an empty stretch of chart with all three callouts off the side.
+   *
+   * It runs once per visit to the screen — it never drags the view back while
+   * the operator is looking at something else.
+   */
+  const ensureStagesInView = (stages) => {
+    const handle = handleRef.current;
+    if (!stagesInViewPending || !handle || !stages.length) return;
+    const range = handle.chart?.timeScale?.().getVisibleLogicalRange?.();
+    const onScreen = range && Number.isFinite(range.from) && Number.isFinite(range.to)
+      && stages.some((stage) => stage.barIndex >= range.from - 1 && stage.barIndex <= range.to + 1);
+    if (onScreen) {
+      stagesInViewPending = false;
+      return;
+    }
+    if (!Number.isFinite(stages[0].barIndex) || stages[0].barIndex < 0) return;
+    if (!focusBarOnChart(handle, stages[0].barIndex)) return;
+    stagesInViewPending = false;
+    scheduleRedraw(handle);
   };
 
   /**
@@ -951,12 +977,14 @@ function chartCard(initialDashboard) {
           display_role: bullish ? "resistance" : "support",
           source_timeframe: viewed.timeframe,
         };
-    // Shaded by the role it played in this sequence: a bullish breakout broke
-    // resistance, a bearish one broke support. A stored level (band_low equal to
-    // band_high) is given a minimum thickness so it still reads as a zone.
+    // Neutral blue-grey, not a directional colour: on this screen the band is
+    // the reference level the sequence is read against, and the callouts carry
+    // the story. A stored level (band_low equal to band_high) is given the
+    // minimum thickness below so it still reads as a wide, readable zone.
+    base.tone = "reference";
     base.position = bullish ? "above_price" : "below_price";
-    base.label = bullish ? "RESISTANCE ZONE" : "SUPPORT ZONE";
-    base.minHeightPx = 14;
+    base.label = bullish ? "Resistance Zone" : "Support Zone";
+    base.minHeightPx = 30;
     base.breakoutStage = stageModel.stages?.[0] || null;
     return base;
   };
@@ -968,21 +996,39 @@ function chartCard(initialDashboard) {
    */
   const marketSummaryCard = () => {
     const latest = dashboard?.market?.latest_closed_candle || null;
-    const trend = dashboard?.market_state?.trend || null;
+    // Only figures the payload actually carries. A 24h high, low, volume or
+    // change is shown as Unavailable when this view's data does not include it:
+    // a placeholder is written, never a number.
+    const UNAVAILABLE_TEXT = "Unavailable";
+  const priceText = Number.isFinite(Number(latest?.close))
+      ? `$${displayPrice(latest.close).display}`
+      : UNKNOWN_TEXT;
+    // This view's payload carries no 24h roll-up, so the figure is stated as
+    // unavailable rather than filled in from the loaded candles.
     const rows = [
-      { label: "Last close", value: latest?.close ? `$${displayPrice(latest.close).display}` : UNKNOWN_TEXT, tone: "neutral" },
-      { label: "Candle", value: latest?.timestamp ? formatUtc(latest.timestamp) : UNKNOWN_TEXT, tone: "neutral" },
-      { label: "Trend", value: trend?.direction ? `${String(trend.direction).toUpperCase()}` : UNKNOWN_TEXT, tone: trend?.direction === "bullish" ? "green" : trend?.direction === "bearish" ? "red" : "neutral" },
-      { label: "Data", value: dashboard?.freshness?.status ? String(dashboard.freshness.status) : UNKNOWN_TEXT, tone: dashboard?.freshness?.status === "CURRENT" ? "green" : "amber" },
+      { label: "Change", value: UNAVAILABLE_TEXT, tone: "neutral" },
+      { label: "24h high", value: UNAVAILABLE_TEXT, tone: "neutral" },
+      { label: "24h low", value: UNAVAILABLE_TEXT, tone: "neutral" },
+      { label: "24h volume", value: UNAVAILABLE_TEXT, tone: "neutral" },
     ];
     return el("aside", { class: "market-summary-card", "aria-label": "Market summary" }, [
       el("div", { class: "msc-head" }, [
-        el("span", { class: "msc-symbol", text: symbol }),
-        el("span", { class: "msc-exchange", text: `${exchange} · ${viewedTimeframeLabel(viewed.timeframe)}` }),
+        el("span", { class: "msc-icon", "aria-hidden": "true", text: "\u20bf" }),
+        el("span", { class: "msc-head-text" }, [
+          el("span", { class: "msc-symbol", text: symbol }),
+          el("span", { class: "msc-exchange", text: `${exchange} · ${viewedTimeframeLabel(viewed.timeframe)}` }),
+        ]),
       ]),
+      // Which candle the price belongs to stays on the figure's tooltip: the
+      // card itself is the instrument, the price and the rows below it.
+      el("div", {
+        class: "msc-price",
+        text: priceText,
+        title: latest?.timestamp ? `Last closed candle ${formatUtc(latest.timestamp)}` : "Last closed candle unavailable",
+      }),
       el("dl", { class: "msc-rows" }, rows.flatMap((row) => [
         el("dt", { class: "msc-label", text: row.label }),
-        el("dd", { class: "msc-value", dataset: { tone: row.tone }, text: row.value }),
+        el("dd", { class: "msc-value", dataset: { tone: row.tone, unavailable: String(row.value === UNAVAILABLE_TEXT) }, text: row.value }),
       ])),
     ]);
   };
@@ -1078,6 +1124,9 @@ function chartCard(initialDashboard) {
     if (Number.isFinite(stage.timeSeconds)) showExplanationAt(stage.timeSeconds);
   }
 
+  /** True while the Breakouts screen may still need to move the window to its steps. */
+  let stagesInViewPending = true;
+
   /** Fit the three steps into the chart window. The one control that changes the zoom. */
   function frameStoredEvents() {
     const stages = viewed.stages?.stages || [];
@@ -1097,10 +1146,18 @@ function chartCard(initialDashboard) {
     if (next === activeChartFunction) return;
     activeChartFunction = next;
     card.dataset.chartFunction = activeChartFunction;
+    // Opening the Breakouts screen may need to move the window to its steps;
+    // leaving it must never drag the view back.
+    stagesInViewPending = next === "breakouts";
     const keep = captureRedrawView();
     renderEvidence();
     applyViewedOverlays();
     restoreRedrawView(keep);
+    // The restore above puts the operator's view back, which can leave the
+    // stored steps off the side of this screen. Check once more, still at the
+    // operator's own zoom — this moves the window, never the zoom.
+    stagesInViewPending = next === "breakouts";
+    if (stagesInViewPending) paintBreakoutAnnotations();
     if (activeChartMode === DETAILED_MODE && loadPrefs().layers?.htfLevels === true) await refreshHigherLevels();
   }
 

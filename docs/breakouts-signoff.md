@@ -1,127 +1,126 @@
-# Breakouts & Retests — browser sign-off
+# Breakouts & Retests — layout sign-off
 
-Scope: presentation only. No detector, threshold, paper-trading, risk or
-performance code was touched. Every price, band, timestamp, count and status on
-this screen is a value the backend had already stored, passed through formatting
-only.
+Scope: **presentation only**. No detector, threshold, paper-trading, risk rule,
+performance figure, database or API contract was touched. Every price, band,
+timestamp, count and status on this screen is a value the backend had already
+stored, passed through formatting only.
 
-The screenshots come from the **isolated synthetic demo**
+Evidence comes from the **isolated synthetic demo**
 (`scripts/seed_demo_dashboard.py`, disposable SQLite database), driven in real
-Chromium by:
+Chromium at four viewport sizes by:
 
 ```
 node scripts/browser-audit/breakouts-check.mjs http://127.0.0.1:8123 /tmp/brain-breakouts
 ```
 
-## The screen
+Screenshots and the machine-readable report of this run are in
+[`docs/visual-signoff/breakouts/`](visual-signoff/breakouts/):
+
+| Size | Default view | Framed on the three steps | Whole page / composition |
+| --- | --- | --- | --- |
+| 1536 × 864 (primary) | `breakouts-1536x864-default.png` | `breakouts-1536x864-framed.png` | `breakouts-1536x864-full.png`, `breakouts-1536x864-stage.png` |
+| 1440 × 900 | `breakouts-1440x900-default.png` | `breakouts-1440x900-framed.png` | — |
+| 1920 × 1080 | `breakouts-1920x1080-default.png` | `breakouts-1920x1080-framed.png` | — |
+| 390 × 844 (phone) | `breakouts-390-mobile-default.png` | `breakouts-390-mobile-framed.png` | `breakouts-390-mobile-full.png` |
+
+`breakouts-report.json` holds every number quoted below.
+
+## The composition
 
 | Area | What it is |
 | --- | --- |
-| Left: the chart | Candlestick chart with volume bars along the bottom. |
-| Across the chart | A shaded **RESISTANCE ZONE** band, from the stored breakout's own `band_low` / `band_high`. |
-| On the chart | Exactly three numbered blue callouts — **1 Breakout**, **2 Retest**, **3 Continuation** — each with a leader line and an arrow at the candle its own step belongs to. |
-| Right, top | **BTC/USDT** summary card: last stored close, its candle time, the stored trend and the data-freshness state. |
-| Right, below | **Breakout Logic**: the three steps, in order, each with the status the backend recorded. |
+| Top | The existing dark-navy bar: the instrument on the left, the timeframe controls with 1H selected. Unobtrusive, and it never sits over the chart (the chart card carries a `scroll-margin-top`, and the callouts are placed against their candles, not pinned to the top edge of the pane). |
+| Left, ~75 % | The candlestick chart: green/red candles, subtle grid, price scale on the right edge, time scale along the bottom, volume histogram across the lower part of the pane. |
+| Across the chart | A **blue-grey translucent** band labelled **“Resistance Zone”**, 30 px thick, drawn from the stored breakout's own `band_low` / `band_high`. |
+| On the chart | Exactly three prominent blue circular callouts — **1 Breakout**, **2 Retest**, **3 Continuation** — each with a thin leader line and an arrow at the candle its own step belongs to. |
+| Right, ~23 % | **BTC/USDT** card on top, **Breakout Logic** card below it. Both start on the same line as the chart. |
 
-## What each callout says, and why
+## Measured at each size
 
-The three callouts are always drawn, in the same places, whatever the data
-says — that is the layout. Only the statuses change.
+| Check | 1536 × 864 | 1440 × 900 | 1920 × 1080 | 390 × 844 |
+| --- | --- | --- | --- | --- |
+| Chart share of the row | 75.4 % | 75.3 % | 75.5 % | 100 % (stacked) |
+| Card column share | 23.1 % | 23.1 % | 23.2 % | 100 % (under the chart) |
+| Chart top vs cards top | 400 / 400 | 400 / 400 | 400 / 400 | stacked |
+| Chart pane (px) | 730 × 646 | 658 × 674 | 840 × 812 | 260 × 410 |
+| Chart pane as a share of the card | 41.3 % | 40.4 % | 52.5 % | 18.7 % |
+| Band thickness / fill | 30 px `rgba(122,156,196,0.16)` | 30 px, same | 30 px, same | 30 px, same |
+| Band label | `Resistance Zone` | same | same | same |
+| Callout font / number circle | 13 px / 26 px | 13 px / 26 px | 13 px / 26 px | 13 px / 26 px |
+| Callouts overlapping each other | 0 | 0 | 0 | 0 |
+| Callouts clipped or covered | none | none | none | none |
+| Smallest font in the right column | 11 px | 11 px | 11 px | 11 px |
+| Raw metadata rows in Simple mode | 0 | 0 | 0 | 0 |
+| Volume pixels in the lower pane | 58,337 | 54,681 | 84,725 | 12,715 |
+| Uncaught page errors | 0 | 0 | 0 | 0 |
 
-| Step | Status on this run | Where it comes from |
-| --- | --- | --- |
-| 1 Breakout | **Confirmed** (green) | The stored breakout: close 84,328.00 broke the 84,229.90 band by 0.12%, with 1 confirming candle. A stored `failed_breakout` for the same breakout would read **Failed** instead. |
-| 2 Retest | **Held** (green) | The stored retest records for that breakout: `state: "held"`. `failed` reads **Failed**, a retest with no state reads **Observed**, and no stored retest reads **Awaiting**. |
-| 3 Continuation | **In Progress** (amber) | The backend stores no continuation event of its own, so this step is **never** marked complete. If one is ever stored it reads **Confirmed**; until then the callout points at where the move went on from, and the step says so in as many words. |
+## The three callouts
 
-A step whose candle is not loaded is not drawn — it is never snapped to a
+They are always drawn, in the same arrangement, whatever the data says — that is
+the layout. Only the statuses change.
+
+| Step | Placement | Status on this run | Where it comes from |
+| --- | --- | --- | --- |
+| 1 Breakout | Above the breakout candle, arrow down at it | **Completed** (green) | The stored breakout: close 84,328.00 broke the 84,229.90 band by 0.12 %, with 1 confirming candle. A stored `failed_breakout` for the same breakout reads **Failed**. |
+| 2 Retest | Below and to the right of the retest candle, arrow back up at it | **Held** (green) | The stored retest records for that breakout: `state: "held"`. `failed` reads **Failed**; a retest with no state reads **Awaiting Confirmation**; no stored retest at all reads **Awaiting Confirmation**. |
+| 3 Continuation | Above the later price action, arrow down at it | **In Progress** (amber) | The backend stores no continuation event of its own, so this step is **never** marked complete. |
+
+Where two callouts would land on the same place, the later one is stepped
+further from its candle until they clear each other, and every callout is
+clamped inside the pane — nothing is clipped, and number 1 is drawn whole at
+every size.
+
+A step with **no stored record** is drawn differently from a confirmed one: an
+outlined (not filled) number circle, a dashed leader line and a dashed border,
+plus `recorded="false"` on the element. On this run that is step 3.
+
+A step whose candle is not loaded is not drawn at all — it is never snapped to a
 neighbouring bar to make it visible.
 
-## Evidence from the run
+## The two right-hand cards
 
-Full machine-readable report: `docs/visual-signoff/breakouts/breakouts-report.json`.
-Run at 1440 × 980 against the demo database (600 hourly synthetic candles;
-breakout at 2026-09-28 05:00 UTC, retest at 06:00 UTC, band 84,229.90).
+**BTC/USDT** — the Bitcoin mark, the symbol, the exchange and timeframe, the
+last stored close in large type (which candle it belongs to stays on the
+figure's tooltip), then change, 24 h high, 24 h low and 24 h volume. This
+view's payload carries no 24-hour roll-up, so those four rows read
+**“Unavailable”** — a placeholder is written, never a number, and never a value
+taken from the reference screenshot.
 
-**Status line**
+**Breakout Logic** — the three numbered steps down the card, joined by a
+subtle vertical progression line. Each step carries one short sentence; the
+stored numbers, prices and times stay on the row's tooltip and in Detailed /
+Diagnostics, so Simple mode has no microscopic metadata. The status of each
+step is a pill on the right edge of the card:
 
-> `Breakouts / Retests: 2 breakout(s) · 0 failed · 0 sweep(s) · 4 retest(s) · 1 Breakout: Confirmed · 2 Retest: Held · 3 Continuation: In Progress.`
+* 1 Breakout — **Completed**
+* 2 Retest — **Held**
+* 3 Continuation — **In Progress**
 
-**Right-hand column** — the summary card is above the panel, and both sit right
-of the chart:
+Under them a compact **Key Idea**: “The broken band is now support. The move on
+from the retest is what is being watched.” Below that, the one control that
+changes the zoom (“Frame all three steps”) and the integrity note: *No step is
+marked complete without a stored record.*
 
-* card symbol `BTC/USDT`; rows: Last close, Candle, Trend, Data.
-* panel heading `Breakout Logic`, chip `Bullish sequence`, blocks
-  `Reference band` (84,229.90) and `Steps`:
+## Zoom and the window
 
-| # | Step | Status | Detail |
-| --- | --- | --- | --- |
-| 1 | Breakout | Confirmed | Close 84,328.00 broke the 84,229.90 band by 0.12% |
-| 2 | Retest | Held | 2 retest records are stored for this breakout and 1 of 2 held the band |
-| 3 | Continuation | In Progress | The backend has stored no continuation for this breakout, so this step is not marked complete |
+* Switching to this function **never changes the zoom**: the number of candles
+  on screen is preserved exactly (122 on this run).
+* The window is moved to the stored steps **only when not one of them is on
+  screen** — otherwise this screen would open on an empty stretch of chart with
+  all three callouts off the side. It happens once per visit; it never drags the
+  view back while the operator is looking at something else.
+* Switching away to another function and back leaves the range exactly where the
+  operator put it (119 → 133 before, during and after this run).
 
-Panel note: *“Every status above is a stored record. Continuation stays In
-Progress until the backend records one — it is never marked complete because
-price moved.”*
+## Known differences from the reference
 
-**Three callouts, each on its own candle.** After “Frame all three steps”
-(window `from: 119 → to: 133`):
+Stated plainly, because the approved screenshot is not available in this
+sandbox and cannot be compared side by side:
 
-| Callout | Arrow x | Arrow y | Candle |
-| --- | --- | --- | --- |
-| 1 Breakout | 256.4 | 268.1 | 2026-09-28 05:00 UTC |
-| 2 Retest | 296.0 | 273.2 | 2026-09-28 06:00 UTC |
-| 3 Continuation | 335.6 | 211.1 | 2026-09-28 07:00 UTC |
-
-The arrow x values are compared with the chart's own `timeToCoordinate` for the
-stored candles (256.4 and 296.0 — identical). Three leader lines, no callout
-left outside the window, and the badges are stacked at y 14 / 54 / 94 so they
-never overlap.
-
-**Shaded band.** One band, labelled `RESISTANCE ZONE`, 674 px wide (the full
-pane) and 14 px thick — a stored level is given a minimum thickness so it reads
-as a zone rather than a hairline.
-
-**Volume.** 41,588 coloured pixels in the bottom band of the pane.
-
-**Zoom is never reset for you.**
-
-| Step | Window |
-| --- | --- |
-| Default view on load | `380 → 502` |
-| After selecting Breakouts & Retests | `380 → 502` |
-| After “Frame all three steps” | `119 → 133` |
-| After switching to Trade plan | `119 → 133` |
-| After switching back | `119 → 133` |
-
-Exact equality on every switch; only the explicit “Frame all three steps”
-control moves the view.
-
-## Screenshots
-
-| File | What it shows |
-| --- | --- |
-| `docs/visual-signoff/breakouts/breakouts-1440-full.png` | The whole dashboard at 1440 × 980. |
-| `docs/visual-signoff/breakouts/breakouts-1440-stage.png` | The chart card: band, three callouts, volume. |
-| `docs/visual-signoff/breakouts/breakouts-1440-framed.png` | After “Frame all three steps”. |
-| `docs/visual-signoff/breakouts/breakouts-1440-after-return.png` | After switching away and back — the view is unchanged. |
-
-## Tests
-
-`npm test` → **424 pass / 0 fail**. New `tests/frontend/breakout-stages.test.mjs`
-pins the sequence model: the three steps are always returned in order; each is
-anchored to its own candle; a step whose candle is not loaded is never snapped to
-a neighbour; a failed breakout reads Failed; the retest status is the backend's
-own state; continuation is In Progress until a continuation is stored and
-Confirmed when one is; the layout keeps its three steps when nothing is stored or
-the evidence is unavailable. `tests/frontend/function-panel.test.mjs` pins the
-Breakout Logic panel, and `tests/frontend/chart-view.test.mjs` pins that a jump
-keeps the zoom while framing is the only control that changes it.
-
-## Known console output on this run
-
-`pageErrors: []`. The four console entries are pre-existing sandbox/offline
-noise, unrelated to the change and recorded (not suppressed) in the report:
-
-* one CSP `style-src 'self'` inline-style violation (present on the baseline);
-* three `wss://stream.binance.com:9443/ws/btcusdt@kline_1h` `ERR_CONNECTION_CLOSED` — the sandbox has no outbound WebSocket.
+1. **24 h figures are unavailable.** This view's payload carries no rolling
+   24-hour high, low, volume or change, so those rows read “Unavailable”.
+2. **The right-hand column is ~140 px taller than the chart at 1536 × 864**
+   (815 px against 674 px) — the two cards carry the three steps, the reference
+   band, the Key Idea, the frame control and the integrity note.
+3. The band is drawn **30 px thick** with a minimum thickness, because the
+   stored breakout band is a single level (`band_low == band_high`).

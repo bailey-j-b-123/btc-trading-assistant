@@ -303,13 +303,21 @@ function percentText(value) {
  * says. A step with no stored record keeps its place and reads "Not recorded"
  * or "In Progress"; it is never filled in from price movement.
  */
+// One sentence, written for a person: what the whole three-step layout is
+// saying about this sequence. It never asserts an outcome the backend has not
+// stored, so a continuation that has not been recorded reads as a watch.
+const KEY_IDEA_BY_DIRECTION = Object.freeze({
+  bullish: "The broken band is now support. The move on from the retest is what is being watched.",
+  bearish: "The broken band is now resistance. The move on from the retest is what is being watched.",
+});
+
 function breakoutsModel({ evidence, stages }) {
   const sequence = stages && typeof stages === "object" ? stages : null;
   const list = Array.isArray(sequence?.stages) ? sequence.stages : [];
   const direction = sequence?.direction || null;
   const note = sequence?.available === false
     ? `The layout is unchanged: all three steps stay in place. ${sequence.reason ? `Nothing is shown for them because ${sequence.reason}.` : ""}`.trim()
-    : "Every status above is a stored record. Continuation stays In Progress until the backend records one — it is never marked complete because price moved.";
+    : "No step is marked complete without a stored record.";
   if (!list.length) {
     return {
       heading: "Breakout Logic",
@@ -328,6 +336,7 @@ function breakoutsModel({ evidence, stages }) {
     band: sequence.bandText
       ? { label: direction === "bearish" ? "Broken support band" : "Broken resistance band", value: sequence.bandText, tone: direction === "bearish" ? "green" : "red" }
       : null,
+    keyIdea: KEY_IDEA_BY_DIRECTION[direction] || KEY_IDEA_BY_DIRECTION.bullish,
     stages: list.map((stage) => ({
       key: stage.key,
       number: stage.number,
@@ -335,7 +344,9 @@ function breakoutsModel({ evidence, stages }) {
       status: stage.status,
       tone: stage.tone,
       detail: stage.detail,
-      meta: stage.meta,
+      summary: stage.summary || stage.title,
+      place: stage.place,
+      nudge: stage.nudge,
       recorded: stage.recorded === true,
       barIndex: Number.isFinite(stage.barIndex) ? stage.barIndex : -1,
       timeText: stage.timeText,
@@ -470,9 +481,11 @@ function stageNode(stage, onSelect = null) {
     el("span", { class: "cfp-stage-num", text: String(stage.number) }),
     el("span", { class: "cfp-stage-body" }, [
       el("span", { class: "cfp-stage-title", text: stage.title }),
-      el("span", { class: "cfp-stage-detail", text: stage.detail }),
-      stage.meta ? el("span", { class: "cfp-stage-meta", text: stage.meta }) : null,
+      // Simple mode shows one short sentence. The stored numbers, prices and
+      // times stay on the row's tooltip and in Detailed mode / Diagnostics.
+      el("span", { class: "cfp-stage-summary", text: stage.summary || stage.title }),
     ]),
+    // Statuses are right-aligned pills, exactly as the layout shows them.
     el("span", { class: "cfp-stage-status", dataset: { tone: stage.tone || "neutral" }, text: stage.status }),
   ];
   const attrs = {
@@ -486,7 +499,7 @@ function stageNode(stage, onSelect = null) {
       type: "button",
       class: "cfp-stage-button",
       "data-stage": stage.key,
-      title: `Bring ${stage.title}'s candle into view (your zoom is kept)`,
+      title: `${stage.detail} — bring this candle into view (your zoom is kept)`,
       onclick: () => onSelect(stage),
     }, inner),
   ]);
@@ -582,9 +595,14 @@ export function functionPanel(model, { onSelectStage = null, onFrameStages = nul
     ]));
   }
   if (model.stages?.length) {
-    body.push(el("div", { class: "cfp-block" }, [
-      el("div", { class: "cfp-block-title", text: "Steps" }),
-      el("ol", { class: "cfp-stages" }, model.stages.map((stage) => stageNode(stage, onSelectStage))),
+    // No nested heading: "Breakout Logic" already heads the card, and the
+    // numbered circles joined by a line read as steps on their own.
+    body.push(el("ol", { class: "cfp-stages" }, model.stages.map((stage) => stageNode(stage, onSelectStage))));
+  }
+  if (model.keyIdea) {
+    body.push(el("div", { class: "cfp-block cfp-key-idea" }, [
+      el("div", { class: "cfp-block-title", text: "Key Idea" }),
+      el("p", { class: "cfp-key-idea-text", text: model.keyIdea }),
     ]));
   }
   if (model.levels?.length) {

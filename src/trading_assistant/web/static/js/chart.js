@@ -463,16 +463,34 @@ export function frameBarsOnChart(handle, fromIndex, toIndex, { pad = FRAME_PAD_C
 // series, a candle or a stored value.
 // ---------------------------------------------------------------------------
 
-/** Rows the callouts stack into, top-down, so three of them never overlap. */
-const ANNO_ROW_HEIGHT = 40;
-/** Space between the top of the chart and the first callout row. */
-const ANNO_TOP_PAD = 14;
-/** Half a callout's width, used only to keep it inside the pane. */
-const ANNO_HALF_WIDTH = 66;
-/** A callout's height: the badge itself, used to start its arrow below it. */
-const ANNO_HEIGHT = 30;
-/** Gap kept between the arrowhead and the candle it points at. */
-const ANNO_ARROW_GAP = 9;
+/**
+ * Where the callouts sit, following the approved layout:
+ *
+ *   1 Breakout     - above the breakout candle, arrow pointing down at it
+ *   2 Retest       - below and to the right of its candle, arrow back up at it
+ *   3 Continuation - above the later price action, arrow pointing down at it
+ *
+ * Each callout is placed against the candle its step belongs to, not in a fixed
+ * band across the top of the chart, so it stays visible with the candles it
+ * marks. Two callouts on the same side that would collide are stepped further
+ * from their candles until they clear each other.
+ */
+const ANNO_PLACE = Object.freeze({ above: "above", below: "below" });
+/** Clear space kept between a callout and the candle(ish) point it marks. */
+const ANNO_GAP = 26;
+/** How far to the right the retest callout is offset from its candle. */
+const ANNO_NUDGE_RIGHT = 92;
+/** Extra vertical step when two callouts on the same side would overlap. */
+const ANNO_STEP = 6;
+/** Gap between the arrowhead and the point it marks. */
+const ANNO_ARROW_GAP = 7;
+/** Keep every callout this far inside the pane so nothing is clipped. */
+const ANNO_EDGE_PAD = 6;
+
+/** Two boxes overlap when they share both a horizontal and a vertical span. */
+function annoOverlaps(a, b) {
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+}
 
 function createBreakoutAnnoLayer(handle) {
   const container = handle.container;
@@ -545,7 +563,9 @@ export function renderBreakoutAnnotations(handle) {
   layer.textContent = "";
   const drawn = stages.filter((stage) => Number.isFinite(stage.barIndex) && stage.barIndex >= 0);
   let offView = 0;
-  drawn.forEach((stage, position) => {
+  /** Boxes already placed, in layer coordinates, so the next callout can clear them. */
+  const placed = [];
+  drawn.forEach((stage) => {
     const x = timeScale.timeToCoordinate(stage.timeSeconds);
     const price = Number.isFinite(Number(stage.price)) ? Number(stage.price) : null;
     const y = price === null ? null : series.priceToCoordinate(price);
@@ -557,43 +577,21 @@ export function renderBreakoutAnnotations(handle) {
       offView += 1;
       return;
     }
-    const targetX = x;
-    const targetY = Math.min(Math.max(y, 0), height);
-    const halfWidth = Math.min(ANNO_HALF_WIDTH, Math.max(24, width / 2 - 4));
-    const badgeX = Math.min(Math.max(targetX, halfWidth + 4), Math.max(halfWidth + 4, width - halfWidth - 4));
-    const badgeY = Math.min(ANNO_TOP_PAD + position * ANNO_ROW_HEIGHT, Math.max(ANNO_TOP_PAD, height - ANNO_HEIGHT - 8));
-    const startX = badgeX;
-    const startY = badgeY + ANNO_HEIGHT;
-    const endX = targetX;
-    const endY = targetY - ANNO_ARROW_GAP;
-    const length = Math.hypot(endX - startX, endY - startY);
-    if (length > 1) {
-      const line = document.createElement("div");
-      line.className = "breakout-anno-line";
-      line.style.left = `${startX}px`;
-      line.style.top = `${startY}px`;
-      line.style.width = `${length}px`;
-      line.style.transform = `rotate(${Math.atan2(endY - startY, endX - startX)}rad)`;
-      // The three callouts are blue by design; the status inside each one
-      // carries the tone of what the backend recorded.
-      line.style.setProperty("--anno-tone", "var(--blue)");
-      layer.appendChild(line);
-    }
-    const arrow = document.createElement("div");
-    arrow.className = "breakout-anno-arrow";
-    arrow.style.left = `${targetX}px`;
-    arrow.style.top = `${targetY}px`;
-    arrow.style.setProperty("--anno-tone", "var(--blue)");
-    layer.appendChild(arrow);
+    const targetX = Math.min(Math.max(x, 2), Math.max(2, width - 2));
+    const targetY = Math.min(Math.max(y, 2), Math.max(2, height - 2));
+    // The retest callout sits to the right of its candle; the others sit over it.
+    const nudge = stage.nudge === "right" ? ANNO_NUDGE_RIGHT : 0;
+    const belowFirst = stage.place === ANNO_PLACE.below;
 
     const badge = document.createElement("button");
     badge.type = "button";
     badge.className = "breakout-anno";
     badge.dataset.stage = stage.key;
     badge.dataset.tone = stage.tone || "neutral";
+    // An unrecorded step is drawn as an outline with a dashed leader line, so a
+    // pending continuation never looks like a confirmed one.
+    badge.dataset.recorded = String(stage.recorded === true);
     badge.style.setProperty("--anno-tone", "var(--blue)");
-    badge.style.left = `${badgeX}px`;
-    badge.style.top = `${badgeY}px`;
     badge.setAttribute?.("aria-label", `${stage.title}: ${stage.status}. ${stage.detail}`);
     badge.title = `${stage.title} — ${stage.status}. ${stage.detail}`;
     const numberBadge = document.createElement("span");
@@ -612,7 +610,88 @@ export function renderBreakoutAnnotations(handle) {
       event.stopPropagation();
       onSelect(stage);
     });
+    // Hidden at the origin first: the real size is needed before it can be
+    // placed, and getting the size wrong is how a callout ends up clipped.
+    badge.style.left = "0px";
+    badge.style.top = "0px";
+    badge.style.visibility = "hidden";
     layer.appendChild(badge);
+    const badgeW = badge.offsetWidth || 0;
+    const badgeH = badge.offsetHeight || 0;
+
+    const maxLeft = Math.max(ANNO_EDGE_PAD, width - badgeW - ANNO_EDGE_PAD);
+    const badgeX = Math.min(Math.max(targetX + nudge - badgeW / 2, ANNO_EDGE_PAD), maxLeft);
+    const restY = (side) => (side === ANNO_PLACE.below
+      ? targetY + ANNO_GAP
+      : targetY - ANNO_GAP - badgeH);
+
+    // Prefer the side the layout gives this step; if the callout cannot fit
+    // there without covering another one, use the other side.
+    const sides = belowFirst ? [ANNO_PLACE.below, ANNO_PLACE.above] : [ANNO_PLACE.above, ANNO_PLACE.below];
+    let side = sides[0];
+    let badgeY = restY(side);
+    let box = null;
+    for (const attemptSide of sides) {
+      let y = restY(attemptSide);
+      for (let guard = 0; guard < 24; guard += 1) {
+        const candidate = { left: badgeX, top: y, right: badgeX + badgeW, bottom: y + badgeH };
+        const hit = placed.find((other) => annoOverlaps(candidate, other));
+        if (!hit) break;
+        // Step further away from the candle the callout belongs to.
+        y = attemptSide === ANNO_PLACE.below
+          ? hit.bottom + ANNO_STEP
+          : hit.top - badgeH - ANNO_STEP;
+      }
+      const fits = y >= ANNO_EDGE_PAD && y + badgeH <= height - ANNO_EDGE_PAD;
+      if (fits) {
+        side = attemptSide;
+        badgeY = y;
+        box = { left: badgeX, top: y, right: badgeX + badgeW, bottom: y + badgeH };
+        break;
+      }
+    }
+    if (!box) {
+      // No clear space: sit it just inside the edge on the preferred side
+      // rather than dropping the callout.
+      side = sides[0];
+      badgeY = Math.min(Math.max(restY(side), ANNO_EDGE_PAD), Math.max(ANNO_EDGE_PAD, height - badgeH - ANNO_EDGE_PAD));
+      box = { left: badgeX, top: badgeY, right: badgeX + badgeW, bottom: badgeY + badgeH };
+    }
+    badge.style.left = `${badgeX}px`;
+    badge.style.top = `${badgeY}px`;
+    badge.style.visibility = "";
+    badge.dataset.place = side;
+    placed.push(box);
+
+    // The line starts on the edge of the callout facing its candle and ends
+    // just short of the candle itself, with the arrowhead on the end of it.
+    const startX = badgeX + badgeW / 2;
+    const startY = side === ANNO_PLACE.below ? badgeY : badgeY + badgeH;
+    const endY = side === ANNO_PLACE.below ? targetY + ANNO_ARROW_GAP : targetY - ANNO_ARROW_GAP;
+    const endX = targetX;
+    const length = Math.hypot(endX - startX, endY - startY);
+    if (length > 2) {
+      const angle = Math.atan2(endY - startY, endX - startX);
+      const line = document.createElement("div");
+      line.className = "breakout-anno-line";
+      line.style.left = `${startX}px`;
+      line.style.top = `${startY}px`;
+      line.style.width = `${length}px`;
+      line.style.transform = `rotate(${angle}rad)`;
+      if (stage.recorded !== true) line.dataset.pending = "true";
+      // The three callouts are blue by design; the status inside each one
+      // carries the tone of what the backend recorded.
+      line.style.setProperty("--anno-tone", "var(--blue)");
+      layer.appendChild(line);
+      const arrow = document.createElement("div");
+      arrow.className = "breakout-anno-arrow";
+      arrow.style.left = `${endX}px`;
+      arrow.style.top = `${endY}px`;
+      arrow.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
+      if (stage.recorded !== true) arrow.dataset.pending = "true";
+      arrow.style.setProperty("--anno-tone", "var(--blue)");
+      layer.appendChild(arrow);
+    }
   });
   if (offView) {
     const note = document.createElement("div");
@@ -1015,6 +1094,10 @@ const ZONE_STYLE = {
   support: { fill: "rgba(46, 196, 182, 0.06)", edge: "#2ec4b6", short: "S" },
   resistance: { fill: "rgba(239, 83, 80, 0.06)", edge: "#ef5350", short: "R" },
   price_inside: { fill: "rgba(245, 166, 35, 0.08)", edge: "#f5a623", short: "IN" },
+  // The band the breakout sequence is read against: a neutral blue-grey wash
+  // rather than a directional colour. The step being described is the breakout,
+  // so the band it broke is a reference level, not a bullish or bearish zone.
+  reference: { fill: "rgba(122, 156, 196, 0.16)", edge: "#8fb4d9", short: "Z" },
 };
 
 function createZoneLayer(handle) {
@@ -1134,7 +1217,14 @@ export function renderZoneBands(handle) {
   }
   for (const band of bands) {
     // Position is where the band sits relative to price; the style key is the display role.
-    const styleKey = band.position === "below_price" ? "support" : band.position === "above_price" ? "resistance" : "price_inside";
+    // `reference` is set by the caller for the band a sequence is read against.
+    const styleKey = band.tone === "reference"
+      ? "reference"
+      : band.position === "below_price"
+        ? "support"
+        : band.position === "above_price"
+          ? "resistance"
+          : "price_inside";
     const style = ZONE_STYLE[styleKey];
     const high = Number(band.band_high);
     const low = Number(band.band_low);
@@ -1151,7 +1241,7 @@ export function renderZoneBands(handle) {
     const clampedTop = Math.max(0, top);
     const clampedBottom = Math.min(height || bottom, bottom);
     const node = document.createElement("div");
-    node.className = `zone-band zone-band--${band.position || "price_inside"}${band.htf ? " zone-band--htf" : ""}${band.faded ? " zone-band--faded" : ""}`;
+    node.className = `zone-band zone-band--${band.position || "price_inside"}${band.tone === "reference" ? " zone-band--reference" : ""}${band.htf ? " zone-band--htf" : ""}${band.faded ? " zone-band--faded" : ""}`;
     node.setAttribute?.("aria-hidden", "true");
     node.style.top = `${clampedTop}px`;
     // A stored band keeps its own thickness; a band that is a single stored
