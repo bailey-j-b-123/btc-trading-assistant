@@ -112,3 +112,21 @@ trading-bar child containment, non-overlap, horizontal overflow, all five
 view-only timeframe controls, the More menu and refresh. It writes a full-page
 screenshot per width and exits nonzero on a failed assertion or page error.
 Use the same `CHROME_PATH` setup as above. No production database is needed.
+
+## Desktop bottom-section regression (follow-up to PR #60)
+
+Against the same **isolated synthetic demo** server, run from the repo root:
+
+```
+node scripts/browser-audit/desktop-bottom-check.mjs http://127.0.0.1:8123 /tmp/brain-desktop-shots
+```
+
+This checks 1440 × 1080 and 1920 × 1080 in real Chrome/Chromium: Paper Trades /
+Diagnostics on the left, persistent right-hand Performance, alignment,
+horizontal overflow, missing-metric labels, refresh and narrow/desktop resize.
+It writes full-page and bottom/Diagnostics viewport screenshots plus a JSON
+report. Layout assertions and uncaught page errors fail the check; console
+errors are separately recorded for review, not suppressed. Use `CHROME_PATH`
+as above, or the optional sandbox Chromium package. No production database or
+API mocks are needed. See `docs/desktop-bottom-signoff.md` for this run's evidence
+and known sandbox/baseline console warnings.

@@ -1,0 +1,154 @@
+[
+  {
+    "width": 1440,
+    "paper": {
+      "overflowPx": 0,
+      "tabs": {
+        "left": 24,
+        "right": 1042,
+        "top": 1190.609375,
+        "bottom": 1248.609375,
+        "width": 1018,
+        "hidden": false
+      },
+      "left": {
+        "left": 24,
+        "right": 1042,
+        "top": 1262.609375,
+        "bottom": 1702.640625,
+        "width": 1018,
+        "hidden": false
+      },
+      "performance": {
+        "left": 1056,
+        "right": 1416,
+        "top": 1190.609375,
+        "bottom": 2278.4375,
+        "width": 360,
+        "hidden": false
+      },
+      "performanceTabHidden": true,
+      "unavailable": [
+        "WIN RATE\nNot available yet\nNo settled paper trades with an agreed win and loss definition yet.",
+        "TOTAL P&L\nNot available yet\nThe ledger stores proposed levels and outcome states, not fills, sizes, fees or slippage."
+      ]
+    },
+    "diagnostics": {
+      "overflowPx": 0,
+      "tabs": {
+        "left": 24,
+        "right": 1042,
+        "top": 210.609375,
+        "bottom": 268.609375,
+        "width": 1018,
+        "hidden": false
+      },
+      "left": {
+        "left": 24,
+        "right": 1042,
+        "top": 282.609375,
+        "bottom": 2543.921875,
+        "width": 1018,
+        "hidden": false
+      },
+      "performance": {
+        "left": 1056,
+        "right": 1416,
+        "top": 210.609375,
+        "bottom": 1298.4375,
+        "width": 360,
+        "hidden": false
+      },
+      "performanceTabHidden": true,
+      "unavailable": [
+        "WIN RATE\nNot available yet\nNo settled paper trades with an agreed win and loss definition yet.",
+        "TOTAL P&L\nNot available yet\nThe ledger stores proposed levels and outcome states, not fills, sizes, fees or slippage."
+      ]
+    },
+    "refreshAndResponsiveSwitch": "passed",
+    "errors": [],
+    "consoleErrors": [
+      "Refused to apply inline style because it violates the following Content Security Policy directive: \"style-src 'self'\". Either the 'unsafe-inline' keyword, a hash ('sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='), or a nonce ('nonce-...') is required to enable inline execution.\n",
+      "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+      "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+      "Refused to apply inline style because it violates the following Content Security Policy directive: \"style-src 'self'\". Either the 'unsafe-inline' keyword, a hash ('sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='), or a nonce ('nonce-...') is required to enable inline execution.\n",
+      "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED"
+    ]
+  },
+  {
+    "width": 1920,
+    "paper": {
+      "overflowPx": 0,
+      "tabs": {
+        "left": 144,
+        "right": 1402,
+        "top": 1190.609375,
+        "bottom": 1248.609375,
+        "width": 1258,
+        "hidden": false
+      },
+      "left": {
+        "left": 144,
+        "right": 1402,
+        "top": 1262.609375,
+        "bottom": 1671.203125,
+        "width": 1258,
+        "hidden": false
+      },
+      "performance": {
+        "left": 1416,
+        "right": 1776,
+        "top": 1190.609375,
+        "bottom": 2278.4375,
+        "width": 360,
+        "hidden": false
+      },
+      "performanceTabHidden": true,
+      "unavailable": [
+        "WIN RATE\nNot available yet\nNo settled paper trades with an agreed win and loss definition yet.",
+        "TOTAL P&L\nNot available yet\nThe ledger stores proposed levels and outcome states, not fills, sizes, fees or slippage."
+      ]
+    },
+    "diagnostics": {
+      "overflowPx": 0,
+      "tabs": {
+        "left": 144,
+        "right": 1402,
+        "top": 210.609375,
+        "bottom": 268.609375,
+        "width": 1258,
+        "hidden": false
+      },
+      "left": {
+        "left": 144,
+        "right": 1402,
+        "top": 282.609375,
+        "bottom": 2526.53125,
+        "width": 1258,
+        "hidden": false
+      },
+      "performance": {
+        "left": 1416,
+        "right": 1776,
+        "top": 210.609375,
+        "bottom": 1298.4375,
+        "width": 360,
+        "hidden": false
+      },
+      "performanceTabHidden": true,
+      "unavailable": [
+        "WIN RATE\nNot available yet\nNo settled paper trades with an agreed win and loss definition yet.",
+        "TOTAL P&L\nNot available yet\nThe ledger stores proposed levels and outcome states, not fills, sizes, fees or slippage."
+      ]
+    },
+    "refreshAndResponsiveSwitch": "passed",
+    "errors": [],
+    "consoleErrors": [
+      "Refused to apply inline style because it violates the following Content Security Policy directive: \"style-src 'self'\". Either the 'unsafe-inline' keyword, a hash ('sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='), or a nonce ('nonce-...') is required to enable inline execution.\n",
+      "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+      "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+      "Refused to apply inline style because it violates the following Content Security Policy directive: \"style-src 'self'\". Either the 'unsafe-inline' keyword, a hash ('sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='), or a nonce ('nonce-...') is required to enable inline execution.\n",
+      "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED"
+    ]
+  }
+]

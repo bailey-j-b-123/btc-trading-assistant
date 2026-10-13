@@ -2285,3 +2285,30 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
     grid-template-areas: "identity" "timeframes" "quote" "health" "asof" "more";
   }
 }
+
+/* Desktop bottom section only. Mobile/tablet retain PR #60's three-tab layout. */
+.dash-bottom { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+@media (min-width: 1181px) {
+  .dash-bottom {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    grid-template-rows: auto 1fr;
+    gap: 14px;
+    align-items: start;
+  }
+  .dash-bottom > .dash-tabs { grid-column: 1; grid-row: 1; }
+  .dash-bottom > .dash-tab-panel--paper,
+  .dash-bottom > .dash-tab-panel--diagnostics { grid-column: 1; grid-row: 2; min-width: 0; }
+  .dash-bottom > .dash-tab-panel--performance {
+    grid-column: 2; grid-row: 1 / 3; min-width: 0;
+    padding: 18px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+  }
+  .dash-tab[hidden] { display: none; }
+  .dash-bottom .performance-section .metric-tiles,
+  .dash-bottom .performance-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-bottom .metric-tile--headline { padding: 12px; }
+  .dash-bottom .metric-tile + .metric-tile { margin-top: 0; }
+}
