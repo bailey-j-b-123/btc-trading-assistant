@@ -303,7 +303,7 @@ function chartLibraryState() {
   return { charts, observers, ResizeObserverMock, library };
 }
 
-async function withDashboard({ dashboard, forward, market = {}, failCandles = [], failStructure = [], livePrice = null, WebSocketImpl = null }, callback) {
+async function withDashboard({ dashboard, forward, initialPrefs = {}, market = {}, failCandles = [], failStructure = [], livePrice = null, WebSocketImpl = null }, callback) {
   const keys = ["Node", "document", "window", "ResizeObserver", "getComputedStyle", "localStorage", "fetch"];
   const prior = new Map(keys.map((key) => [
     key,
@@ -339,7 +339,7 @@ async function withDashboard({ dashboard, forward, market = {}, failCandles = []
   globalThis.Node = MockNode;
   globalThis.ResizeObserver = chartState.ResizeObserverMock;
   globalThis.getComputedStyle = () => ({ getPropertyValue: () => "monospace" });
-  const storage = new Map();
+  const storage = new Map([["ta.presentation.v1", JSON.stringify(initialPrefs)]]);
   globalThis.localStorage = {
     getItem: (key) => storage.get(key) || null,
     setItem: (key, value) => { storage.set(key, value); prefWrites.push([key, value]); },
@@ -1004,4 +1004,21 @@ test("public Binance forming klines follow the 5M/15M/1H/4H chart view only, nev
       assert.equal(calls.filter((c) => c.method !== "GET").length, 0);
     });
   } finally { Date.now = originalNow; }
+});
+
+
+test("initial paper request shares the selected dashboard instrument and timeframe", async () => {
+  await withDashboard({ dashboard: dashboardFixture(), forward: forwardFixture(),
+    initialPrefs: { preferredSymbol: "ETH/USDT", preferredTimeframe: "5m" } }, async ({ view, calls }) => {
+    await renderDashboard(view);
+    const dashboards = calls.filter(c => new URL(c.path, "http://test.invalid").pathname === "/api/dashboard");
+    const forwards = calls.filter(c => new URL(c.path, "http://test.invalid").pathname === "/api/forward");
+    assert.equal(dashboards.length, 1);
+    assert.equal(forwards.length, 1);
+    for (const call of [...dashboards, ...forwards]) {
+      const url = new URL(call.path, "http://test.invalid");
+      assert.equal(url.searchParams.get("symbol"), "ETH/USDT");
+      assert.equal(url.searchParams.get("timeframe"), "5m");
+    }
+  });
 });

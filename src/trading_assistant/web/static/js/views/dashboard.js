@@ -2560,7 +2560,11 @@ export async function renderDashboard(view, { refresh = false } = {}) {
       symbol: prefs.preferredSymbol || undefined,
       timeframe: prefs.preferredTimeframe || undefined,
     }),
-    api.forward({ limit: 8 }),
+    api.forward({
+      symbol: prefs.preferredSymbol || undefined,
+      timeframe: prefs.preferredTimeframe || undefined,
+      limit: 8,
+    }),
   ]);
   if (generation !== renderGeneration) return false;
 
