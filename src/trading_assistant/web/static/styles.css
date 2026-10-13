@@ -1690,6 +1690,9 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   font-size: 13px; line-height: 1.45; color: var(--text-dim);
 }
 .dash-update-label { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; color: var(--text-dim); }
+.dash-status-stack { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.dash-forward-status { font-size: 12px; line-height: 1.45; color: var(--text-dim); }
+.dash-forward-status[data-tone="amber"] { color: var(--amber); }
 .dash-update-status[data-tone="current"] .dash-update-label { color: var(--green); }
 .dash-update-status[data-tone="stale"] .dash-update-label { color: var(--amber); }
 .dash-update-status[data-tone="unavailable"] .dash-update-label { color: var(--red); }

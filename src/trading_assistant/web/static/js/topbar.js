@@ -232,14 +232,36 @@ export function updateTopbar(dashboard, forward) {
       price.removeAttribute("title");
     }
   }
-  if (status) {
-    const health = systemHealthViewModel(dashboard, forward);
-    status.textContent = health.label;
-    status.dataset.tone = health.tone;
-    status.title = health.healthy
-      ? "Stored closed-candle data is current, the forward runner is running and no catch-up is pending."
-      : `${health.primary.detail} Expand System details for every check.`;
-  }
+  paintTopbarHealth(dashboard, forward);
+}
+
+/**
+ * Repaint only the health verdict. A forward poll calls this on every successful
+ * read, so the header follows the server's status even when the candle is unchanged.
+ */
+export function paintTopbarHealth(dashboard, forward) {
+  if (typeof document === "undefined") return;
+  const status = document.getElementById("topbar-status");
+  if (!status) return;
+  const health = systemHealthViewModel(dashboard, forward);
+  status.textContent = health.label;
+  status.dataset.tone = health.tone;
+  status.title = health.healthy
+    ? "Stored closed-candle data is current, the forward runner is running and no catch-up is pending."
+    : `${health.primary.detail} Expand System details for every check.`;
+}
+
+/**
+ * The forward status could not be read, so no runner health is claimed. Never green:
+ * the header says the status is unavailable and names when the last good read happened.
+ */
+export function paintTopbarUnavailable(detail) {
+  if (typeof document === "undefined") return;
+  const status = document.getElementById("topbar-status");
+  if (!status) return;
+  status.textContent = "FORWARD STATUS UNAVAILABLE";
+  status.dataset.tone = "amber";
+  status.title = detail;
 }
 
 let topbarGeneration = 0;

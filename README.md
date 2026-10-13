@@ -2303,10 +2303,17 @@ versions exist, and the engine's own settled/unresolved verdicts
 the ledger only: a recorded plan stays listed when a later assessment concludes
 "No trade" (both facts are shown side by side), older outcome versions are never
 overwritten, and no live display price changes any recorded state. Between
-candle refreshes the card refreshes itself from the lightweight read-only
-`GET /api/forward/paper-tracker` poll (signature-compared, backoff on failure),
-so an outcome the runner records after a dashboard refresh — with no new candle
-— is picked up without re-running any analysis or touching the chart.
+candle refreshes the dashboard refreshes its forward facts itself, with one read-only
+`GET /api/forward?symbol=…&timeframe=…&limit=8` read every 15 seconds, scoped to the displayed
+symbol and timeframe (one read in flight, backing off to 60 seconds after failures, paused while the
+tab is hidden or a dialog is open). That read returns the stored forward ledger only. The header runner
+health, the tracker card, the paper results and the measured performance therefore follow an outcome or
+a runner heartbeat recorded after the last dashboard refresh, even with no new candle, without re-running
+any analysis and without touching the decision hero or the chart. Scaling limit: this read returns the
+full forward report, so its cost grows with the ledger; the tracker-only endpoint
+`GET /api/forward/paper-tracker` still exists, but the dashboard no longer polls it. If a read fails, the
+header reads `FORWARD STATUS UNAVAILABLE` instead of a green verdict, and the last good paper facts stay
+on screen with the time of that last good read; the next successful read recovers the display. Each poll read has an operational deadline of 10 seconds covering the response headers and the JSON body: at the deadline the request is aborted, the read counts as failed (amber, then backoff), and a late response is discarded. This is a client-side limit only; the server is not stopped and no stored data changes.
 
 The Step 12 endpoints are strictly read-only: they never fetch candles, never run
 a forward pass, never write to the ledger, and accept no strategy thresholds.

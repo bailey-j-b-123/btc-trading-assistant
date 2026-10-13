@@ -55,6 +55,11 @@ export async function fetchJson(method, path, body, { timeoutMs = 0, fetchImpl =
   } catch {
     payload = null;
   }
+  return responseOrThrow(response, payload);
+}
+
+/** Map a parsed response to its payload, or to the typed ApiError the server's error body describes. */
+function responseOrThrow(response, payload) {
   if (!response.ok) {
     const detail = payload && payload.error ? payload.error : payload && payload.detail ? payload.detail : {};
     const code = typeof detail === "object" && detail.code ? detail.code : `http_${response.status}`;
@@ -67,6 +72,64 @@ export async function fetchJson(method, path, body, { timeoutMs = 0, fetchImpl =
     throw new ApiError(response.status, code, message);
   }
   return payload;
+}
+
+/**
+ * Operational deadline for the scoped stored-forward poll. It bounds the WHOLE read: the response
+ * headers AND the JSON body. It is a client-side limit only: the server is not stopped and no
+ * stored data is changed. It is shorter than the 15 s poll cadence, so a stalled read is released
+ * and reported as unavailable before the next tick.
+ */
+export const FORWARD_READ_DEADLINE_MS = 10000;
+
+/**
+ * Fetch JSON and give up after ``deadlineMs`` covering the response headers AND the body.
+ *
+ * Unlike ``fetchJson`` (whose timer ends at the headers), the deadline here spans ``response.json()``
+ * too. At the deadline the request's AbortController is aborted, so a real fetch releases its
+ * connection and body, and the call rejects with ``ApiError`` code ``timeout``. A read that finishes
+ * after the deadline is discarded: it can never resolve this call again. The shared ``Promise.race``
+ * is the release path for a read that ignores its abort signal.
+ */
+export async function fetchJsonWithin(method, path, body, { deadlineMs, fetchImpl = globalThis.fetch } = {}) {
+  if (!(deadlineMs > 0)) throw new Error("fetchJsonWithin requires a positive deadlineMs");
+  const controller = new AbortController();
+  const options = { method, headers: { Accept: "application/json" }, signal: controller.signal };
+  if (body !== undefined) {
+    options.headers["Content-Type"] = "application/json";
+    options.body = JSON.stringify(body);
+  }
+  let timer = null;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new ApiError(0, "timeout", `No complete response within ${Math.round(deadlineMs / 1000)} seconds.`));
+    }, deadlineMs);
+  });
+  const read = (async () => {
+    let response;
+    try {
+      response = await fetchImpl(path, options);
+    } catch (error) {
+      throw new ApiError(0, "network_error", error?.message || "The request did not complete.");
+    }
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    return { response, payload };
+  })();
+  // A read abandoned at the deadline may reject later (its abort); that must not become an unhandled rejection.
+  read.catch(() => {});
+  deadline.catch(() => {});
+  try {
+    const { response, payload } = await Promise.race([read, deadline]);
+    return responseOrThrow(response, payload);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function request(method, path, body, options) {
@@ -132,6 +195,9 @@ export const api = {
   rollingStatistics: (params = {}) => request("GET", `/api/statistics/rolling${queryString(params)}`),
   validation: (params = {}) => request("GET", `/api/validation${queryString(params)}`),
   forward: (params = {}) => request("GET", `/api/forward${queryString(params)}`),
+  // Bounded scoped poll of the same report (see fetchJsonWithin): the whole read, headers and body, has a deadline.
+  forwardPoll: (params = {}) =>
+    fetchJsonWithin("GET", `/api/forward${queryString(params)}`, undefined, { deadlineMs: FORWARD_READ_DEADLINE_MS }),
   // Lightweight read-only tracker poll: the ledger's paper_tracker block only,
   // so the dashboard card can pick up new/updated outcome versions without
   // re-requesting the full forward report or the dashboard analysis.

@@ -321,6 +321,9 @@ function backendDashboard(overrides = {}) {
 
 function forwardPayload(timestamp = "2026-10-06T12:00:00Z") {
   return {
+    // The real GET /api/forward always echoes its resolved scope at top level.
+    symbol: "BTC/USDT",
+    timeframe: "1h",
     disclaimer: "Paper trading and historical performance do not establish future profitability.",
     status: {
       market_data: {
@@ -510,11 +513,20 @@ async function withDashboard(dashboard, forward, callback) {
   globalThis.ResizeObserver = chartState.ResizeObserverMock;
   globalThis.getComputedStyle = () => ({ getPropertyValue: () => "monospace" });
   globalThis.localStorage = { getItem: () => null, setItem: () => {} };
+  const documentListeners = new Map();
+  const modalRoot = new MockNode("div");
+  modalRoot.childElementCount = 0;
+  ids.set("modal-root", modalRoot);
   globalThis.document = {
     documentElement: {},
+    hidden: false,
     // The dashboard listens for tab visibility to resume automatic updates.
-    addEventListener() {},
-    removeEventListener() {},
+    addEventListener(name, callback) {
+      documentListeners.set(name, [...(documentListeners.get(name) || []), callback]);
+    },
+    removeEventListener(name, callback) {
+      documentListeners.set(name, (documentListeners.get(name) || []).filter((item) => item !== callback));
+    },
     getElementById: (id) => ids.get(id) || null,
     createElement: (name) => new MockNode(name),
     createTextNode: (text) => {
@@ -527,13 +539,21 @@ async function withDashboard(dashboard, forward, callback) {
   // The tracker poll endpoint serves a mutable override so a test can record a
   // new outcome version between the dashboard render and a tracker poll.
   let trackerOverride = forward?.paper_tracker ?? null;
+  // Forward reads serve a mutable payload, or a handler that can hold or fail one read.
+  let forwardOverride = forward ?? null;
+  let forwardHandler = null;
   const fetchCounts = new Map();
-  globalThis.fetch = async (path) => {
+  globalThis.fetch = async (path, init) => {
     const key = String(path);
     fetchCounts.set(key, (fetchCounts.get(key) || 0) + 1);
     if (key.startsWith("/api/forward/paper-tracker")) {
       if (trackerOverride === null || trackerOverride === undefined) throw new Error("missing tracker fixture payload");
       return { ok: true, json: async () => trackerOverride };
+    }
+    if (key.startsWith("/api/forward?") || key === "/api/forward") {
+      if (forwardHandler) return forwardHandler(key, init);
+      if (!forwardOverride) throw new Error("missing forward fixture payload");
+      return { ok: true, json: async () => forwardOverride };
     }
     const payload = key.startsWith("/api/dashboard") ? dashboard : forward;
     if (!payload) throw new Error("missing fixture payload");
@@ -546,7 +566,15 @@ async function withDashboard(dashboard, forward, callback) {
       ids,
       chartState,
       fetchCounts,
-      setTrackerPayload(tracker) { trackerOverride = tracker; },
+      documentListeners,
+      modalRoot,
+      setTrackerPayload(tracker) {
+        trackerOverride = tracker;
+        // The tracker now arrives inside the scoped forward read as well.
+        if (forwardOverride) forwardOverride = { ...forwardOverride, paper_tracker: tracker };
+      },
+      setForwardPayload(payload) { forwardOverride = payload; },
+      setForwardHandler(handler) { forwardHandler = handler; },
     });
   } finally {
     disposeDashboard();
@@ -1197,6 +1225,9 @@ function stoppedTrackerFrom(payload) {
   return tracker;
 }
 
+/** The scoped, limit-8 stored forward read used by the dashboard poll (symbol/timeframe from the page). */
+const SCOPED_FORWARD_POLL = "/api/forward?symbol=BTC%2FUSDT&timeframe=1h&limit=8";
+
 function fetchTotal(fetchCounts, prefix) {
   return [...fetchCounts.entries()]
     .filter(([key]) => key.startsWith(prefix))
@@ -1260,8 +1291,10 @@ test("tracker updates when the runner records STOPPED after the dashboard refres
     assert.equal(findNodes(view, (node) => (node.className || "").split(/\s+/).includes("dash-chart"))[0], chartWrapBefore);
     assert.equal(chartState.charts.length, 1, "no new chart instance is created");
     assert.equal(fetchTotal(fetchCounts, "/api/dashboard"), 1, "the expensive dashboard analysis is NOT re-requested");
-    assert.equal(fetchTotal(fetchCounts, "/api/forward?"), 1, "the full forward report is NOT re-requested");
-    assert.ok(fetchTotal(fetchCounts, "/api/forward/paper-tracker") >= 1, "the cheap tracker poll served the update");
+    // Polling re-reads only the stored forward ledger, scoped to the displayed symbol/timeframe.
+    // The initial page load is the only unscoped read; the dashboard analysis is still not repeated.
+    assert.equal(fetchTotal(fetchCounts, "/api/forward?limit=8"), 1, "the initial forward read is not repeated");
+    assert.ok(fetchTotal(fetchCounts, SCOPED_FORWARD_POLL) >= 1, "the scoped stored forward poll served the update");
 
     // A repeat poll with unchanged ledger data re-renders nothing.
     const stableCard = cardAfter;
@@ -1271,10 +1304,533 @@ test("tracker updates when the runner records STOPPED after the dashboard refres
 
     // Navigation: dispose stops the refresher; a late poll neither fetches nor throws.
     disposeDashboard();
-    const trackerPolls = fetchTotal(fetchCounts, "/api/forward/paper-tracker");
+    const trackerPolls = fetchTotal(fetchCounts, SCOPED_FORWARD_POLL);
     for (const timer of timers.filter((item) => item.ms === TRACKER_REFRESH_INTERVAL_MS)) timer.fn();
     await drainMicrotasks();
-    assert.equal(fetchTotal(fetchCounts, "/api/forward/paper-tracker"), trackerPolls, "no poll runs after navigation");
+    assert.equal(fetchTotal(fetchCounts, SCOPED_FORWARD_POLL), trackerPolls, "no poll runs after navigation");
     assert.equal(findNodes(view, (node) => (node.className || "").split(/\s+/).includes("paper-tracker"))[0], stableCard);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scoped stored forward polling. The runner heartbeat, the paper tracker and the
+// paper/performance results must follow the stored forward ledger even when the
+// closed candle is unchanged. Polls never re-run the dashboard analysis and never
+// touch the decision hero, the chart, its zoom, or the scroll position.
+// ---------------------------------------------------------------------------
+
+/** Let every pending promise chain (fetch -> json -> apply) run to completion. */
+function settle() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+/**
+ * Controllable timers for the whole test body. Only timers scheduled while the
+ * clock is installed are captured; `fire()` runs each pending one exactly once.
+ */
+function fakeClock() {
+  const timers = [];
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
+  globalThis.setTimeout = (fn, ms) => {
+    const timer = { fn, ms, cancelled: false, fired: false };
+    timers.push(timer);
+    return timer;
+  };
+  globalThis.clearTimeout = (timer) => {
+    if (timer && typeof timer === "object") timer.cancelled = true;
+  };
+  return {
+    pending() {
+      return timers.filter((timer) => !timer.cancelled && !timer.fired);
+    },
+    fire() {
+      for (const timer of this.pending()) {
+        if (timer.cancelled || timer.fired) continue;
+        timer.fired = true;
+        timer.fn();
+      }
+    },
+    restore() {
+      globalThis.setTimeout = realSetTimeout;
+      globalThis.clearTimeout = realClearTimeout;
+    },
+  };
+}
+
+function okResponse(payload) {
+  return { ok: true, json: async () => payload };
+}
+
+/** The open-plan forward read, with the report counts the performance card reads. */
+function openForward() {
+  const forward = forwardPayload();
+  forward.symbol = "BTC/USDT";
+  forward.timeframe = "1h";
+  forward.report.metrics.completed_count = 0;
+  forward.report.metrics.unresolved_count = 1;
+  forward.report.metrics.outcome_status_counts = [{ value: "OPEN_AT_CUTOFF", count: 1 }];
+  return forward;
+}
+
+/** The same ledger after the runner stopped and the open plan settled as STOPPED. */
+function stoppedForward(base) {
+  const forward = structuredClone(base);
+  forward.status.runner = {
+    ...forward.status.runner,
+    status: "STOPPED",
+    recorded_at: "2026-10-06T13:30:00Z",
+    detail: "Runner stopped after the 13:00 cycle.",
+  };
+  forward.paper_tracker = stoppedTrackerFrom(base.paper_tracker);
+  forward.report.metrics.completed_count = 1;
+  forward.report.metrics.unresolved_count = 0;
+  forward.report.metrics.outcome_status_counts = [{ value: "STOPPED", count: 1 }];
+  return forward;
+}
+
+const hasClass = (name) => (node) => (node.className || "").split(/\s+/).includes(name);
+const hasLabel = (label) => (node) => node.attributes?.["aria-label"] === label;
+
+/** The first approved label that renders a value; null only when none of them is on the page. */
+function metricValueAny(root, labels) {
+  for (const label of labels) {
+    const value = metricValue(root, label);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+/** The unresolved-count metric under either approved wording. */
+function unresolvedMetric(root) {
+  return metricValueAny(root, ["Unresolved", "Unsettled outcomes"]);
+}
+
+function metricValue(root, label) {
+  const metric = findNodes(root, hasClass("performance-metric"))
+    .find((node) => node.children[0]?.textContent === label);
+  return metric ? metric.children[1].textContent : null;
+}
+
+function headerStatus(ids) {
+  return ids.get("topbar-status");
+}
+
+async function renderOpen(view, forward) {
+  const rendered = await renderDashboard(view);
+  assert.equal(rendered, true);
+  return forward;
+}
+
+test("unchanged candle: a STOPPED runner and a settled outcome reach the header, tracker and paper results on the scoped poll", async () => {
+  const base = openForward();
+  await withDashboard(backendDashboard(), base, async ({ view, ids, chartState, fetchCounts, setForwardPayload }) => {
+    const clock = fakeClock();
+    try {
+      await renderOpen(view, base);
+      const header = headerStatus(ids);
+      assert.match(header.textContent, /DATA CURRENT · RUNNER IDLE/);
+      assert.equal(header.dataset.tone, "green");
+      assert.equal(metricValue(view, "Settled outcomes"), "0");
+      assert.equal(unresolvedMetric(view), "1");
+      const heroBefore = findNodes(view, hasClass("hero-card"))[0];
+      const chartBefore = findNodes(view, hasClass("dash-chart"))[0];
+      const trackerBefore = findNodes(view, hasClass("paper-tracker"))[0];
+      const childCount = view.children.length;
+
+      // An unchanged closed candle, and the forward runner now STOPPED with the plan settled.
+      setForwardPayload(stoppedForward(base));
+      clock.fire();
+      await settle();
+
+      assert.doesNotMatch(header.textContent, /DATA CURRENT/, "the green verdict is removed");
+      assert.notEqual(header.dataset.tone, "green");
+      assert.match(header.textContent, /FORWARD RUNNER · STATUS STOPPED/);
+      assert.equal(header.dataset.tone, "amber");
+
+      assert.equal(metricValue(view, "Settled outcomes"), "1", "the settled count follows the ledger");
+      assert.equal(unresolvedMetric(view), "0");
+      const trackerAfter = findNodes(view, hasClass("paper-tracker"))[0];
+      assert.notEqual(trackerAfter, trackerBefore, "the tracker card was replaced");
+      assert.match(trackerAfter.textContent, /Latest outcome\s*Stopped/);
+      // Label-agnostic: the card and its featured plan are settled and show no open-state text.
+      assert.equal(trackerAfter.dataset.trackerState, "settled", "the card reports no unresolved plan");
+      const featuredPlan = findNodes(trackerAfter, hasClass("tracker-plan"))[0];
+      assert.ok(featuredPlan, "the featured plan is rendered");
+      assert.equal(featuredPlan.dataset.state, "settled");
+      assert.doesNotMatch(trackerAfter.textContent, /still observing/, "no open-state text remains");
+
+      // The decision hero, chart, zoom and page layout are untouched by the poll.
+      assert.equal(findNodes(view, hasClass("hero-card"))[0], heroBefore);
+      assert.equal(findNodes(view, hasClass("dash-chart"))[0], chartBefore);
+      assert.equal(view.children.length, childCount, "the page layout is not rebuilt");
+      assert.equal(chartState.charts.length, 1, "no new chart instance is created");
+      assert.equal(fetchTotal(fetchCounts, "/api/dashboard"), 1, "the dashboard analysis is NOT re-requested");
+      assert.equal(fetchTotal(fetchCounts, SCOPED_FORWARD_POLL), 1, "exactly one scoped forward read per tick");
+      assert.equal(fetchTotal(fetchCounts, "/api/dashboard/decisions"), 0, "no decision is recorded");
+    } finally {
+      clock.restore();
+    }
+  });
+});
+
+test("health follows the server verdict even when the tracker ledger is unchanged; unchanged report facts are not rebuilt", async () => {
+  const base = openForward();
+  await withDashboard(backendDashboard(), base, async ({ view, ids, setForwardPayload }) => {
+    const clock = fakeClock();
+    try {
+      await renderOpen(view, base);
+      const trackerBefore = findNodes(view, hasClass("paper-tracker"))[0];
+      const performanceBefore = findNodes(view, hasLabel("Paper and historical performance"))[0];
+      assert.ok(trackerBefore && performanceBefore);
+
+      // Only the runner heartbeat changes; the tracker and report are identical.
+      const runnerOnly = structuredClone(base);
+      runnerOnly.status.runner.status = "STOPPED";
+      runnerOnly.status.runner.detail = "Runner stopped.";
+      setForwardPayload(runnerOnly);
+      clock.fire();
+      await settle();
+
+      assert.match(headerStatus(ids).textContent, /FORWARD RUNNER · STATUS STOPPED/);
+      assert.equal(findNodes(view, hasClass("paper-tracker"))[0], trackerBefore, "unchanged tracker is not re-rendered");
+      assert.equal(findNodes(view, hasLabel("Paper and historical performance"))[0], performanceBefore, "unchanged report facts are not re-rendered");
+
+      // Repeat poll with no change at all: the health line is still applied, nothing else moves.
+      clock.fire();
+      await settle();
+      assert.match(headerStatus(ids).textContent, /FORWARD RUNNER · STATUS STOPPED/);
+      assert.equal(findNodes(view, hasClass("paper-tracker"))[0], trackerBefore);
+      assert.equal(findNodes(view, hasLabel("Paper and historical performance"))[0], performanceBefore);
+    } finally {
+      clock.restore();
+    }
+  });
+});
+
+test("a failed forward read removes the green header, keeps the last good paper facts marked unavailable, and a retry recovers", async () => {
+  const base = openForward();
+  await withDashboard(backendDashboard(), base, async ({ view, ids, setForwardHandler, setForwardPayload }) => {
+    const clock = fakeClock();
+    try {
+      await renderOpen(view, base);
+      const header = headerStatus(ids);
+      assert.equal(header.dataset.tone, "green");
+
+      setForwardHandler(async () => { throw new Error("network down"); });
+      clock.fire();
+      await settle();
+
+      assert.notEqual(header.dataset.tone, "green", "a failed read never leaves the green verdict");
+      assert.match(header.textContent, /FORWARD STATUS UNAVAILABLE/);
+      assert.match(header.title, /last good|Retrying|retry/i);
+      const status = findNodes(view, hasClass("dash-forward-status"))[0];
+      assert.ok(status, "the forward read status line is mounted");
+      assert.match(status.textContent, /unavailable/i);
+      // Last good paper facts remain on screen with the card still present.
+      assert.equal(metricValue(view, "Settled outcomes"), "0");
+      assert.match(findNodes(view, hasClass("paper-tracker"))[0].textContent, /Still open at cutoff/);
+
+      // Retry after the backoff recovers with the current ledger.
+      setForwardHandler(null);
+      setForwardPayload(stoppedForward(base));
+      clock.fire();
+      await settle();
+      assert.match(header.textContent, /FORWARD RUNNER · STATUS STOPPED/);
+      assert.equal(header.dataset.tone, "amber");
+      assert.equal(metricValue(view, "Settled outcomes"), "1");
+      assert.doesNotMatch(findNodes(view, hasClass("dash-forward-status"))[0].textContent, /unavailable/i);
+    } finally {
+      clock.restore();
+    }
+  });
+});
+
+/**
+ * A scoped read that does not positively identify the displayed instrument must never
+ * refresh the page. It fails as a read, so the header goes amber, and a valid retry recovers.
+ */
+function identityDefectTest(name, defect) {
+  test(name, async () => {
+    const base = openForward();
+    await withDashboard(backendDashboard(), base, async ({ view, ids, setForwardHandler }) => {
+      const clock = fakeClock();
+      try {
+        await renderOpen(view, base);
+        const header = headerStatus(ids);
+        assert.equal(header.dataset.tone, "green");
+
+        let served = null;
+        setForwardHandler(async (key) => (key.startsWith(SCOPED_FORWARD_POLL) ? okResponse(served) : okResponse(base)));
+        served = stoppedForward(base);
+        defect(served);
+        clock.fire();
+        await settle();
+        assert.notEqual(header.dataset.tone, "green", "an unverifiable scope never leaves the green verdict");
+        assert.match(header.textContent, /FORWARD STATUS UNAVAILABLE/);
+        assert.equal(metricValue(view, "Settled outcomes"), "0", "the last good paper facts stay on screen");
+        assert.doesNotMatch(headerStatus(ids).textContent, /STATUS STOPPED/, "the defective read is not applied");
+
+        // Retry after the failure backoff with a correctly scoped read recovers.
+        served = stoppedForward(base);
+        clock.fire();
+        await settle();
+        assert.match(header.textContent, /FORWARD RUNNER · STATUS STOPPED/);
+        assert.equal(metricValue(view, "Settled outcomes"), "1");
+      } finally {
+        clock.restore();
+      }
+    });
+  });
+}
+
+identityDefectTest("a forward read for another symbol is rejected as a failed read, then a correct retry recovers", (payload) => {
+  payload.symbol = "ETH/USDT";
+});
+identityDefectTest("a forward read for another timeframe is rejected as a failed read, then a correct retry recovers", (payload) => {
+  payload.timeframe = "4h";
+});
+identityDefectTest("a forward read without a symbol is never trusted as the displayed scope", (payload) => {
+  delete payload.symbol;
+});
+identityDefectTest("a forward read without a timeframe is never trusted as the displayed scope", (payload) => {
+  delete payload.timeframe;
+});
+
+/**
+ * A forward read that never completes must not hold the poll forever. Both fakes below are the
+ * worst case: they IGNORE the abort signal, so only the operational deadline can release the read.
+ * The deadline covers the response headers AND the JSON body.
+ */
+function stalledForwardCase(mode) {
+  const where = mode === "headers" ? "its response headers" : "its JSON body";
+  test(`a forward read stalled on ${where} is released at the deadline, shows amber, and a valid retry recovers`, async () => {
+    const base = openForward();
+    await withDashboard(backendDashboard(), base, async ({ view, ids, setForwardHandler }) => {
+      const clock = fakeClock();
+      const realNow = Date.now;
+      let now = realNow();
+      Date.now = () => now;
+      try {
+        await renderOpen(view, base);
+        const header = headerStatus(ids);
+        assert.equal(header.dataset.tone, "green");
+        const renderedAt = now;
+
+        const records = [];
+        setForwardHandler((key, init) => {
+          const record = { key, signal: init?.signal ?? null, release: null };
+          records.push(record);
+          const held = new Promise((resolve) => {
+            record.release = resolve;
+          });
+          if (mode === "headers") {
+            // Late headers, delivered after the deadline: must be ignored.
+            record.lateValue = (payload) => okResponse(payload);
+            return held;
+          }
+          // Headers arrive at once; the body never completes. Late body: must be ignored.
+          record.lateValue = (payload) => payload;
+          return { ok: true, json: () => held };
+        });
+
+        // 600 seconds of 15 s poll ticks while the read stays stalled.
+        for (let tick = 0; tick < 40; tick += 1) {
+          now += 15000;
+          clock.fire();
+          await settle();
+          const unreleased = records.filter((record) => !(record.signal && record.signal.aborted));
+          assert.ok(unreleased.length <= 1, `at tick ${tick} at most one read is still active (saw ${unreleased.length})`);
+        }
+        assert.ok(records.length > 1, "the deadline released the stalled read, so the poll read again");
+        assert.ok(records.every((record) => record.signal instanceof AbortSignal), "every poll read carries an abort signal");
+        assert.equal(records[0].signal.aborted, true, "the stalled read was aborted at its deadline");
+
+        assert.notEqual(header.dataset.tone, "green", "a stalled read never leaves the green verdict");
+        assert.match(header.textContent, /FORWARD STATUS UNAVAILABLE/);
+        const statusLine = findNodes(view, hasClass("dash-forward-status"))[0];
+        assert.ok(statusLine, "the forward status line is rendered");
+        assert.match(statusLine.textContent, new RegExp(`Last good read: ${new Date(renderedAt).toISOString().slice(11, 19)} UTC`), "the last good time is unchanged");
+        assert.equal(metricValue(view, "Settled outcomes"), "0", "the last good paper facts stay on screen");
+
+        // The stalled responses arrive late, with a settled ledger. They must never overwrite the page.
+        const late = stoppedForward(base);
+        for (const record of records) record.release(record.lateValue(late));
+        await settle();
+        assert.notEqual(header.dataset.tone, "green");
+        assert.doesNotMatch(header.textContent, /STATUS STOPPED/, "a late response is not applied");
+        assert.equal(metricValue(view, "Settled outcomes"), "0", "a late response does not change the paper facts");
+
+        // A valid retry recovers: the next tick after the deadline reads the server and repaints green.
+        setForwardHandler((key) => okResponse(base));
+        for (let tick = 0; tick < 3 && header.dataset.tone !== "green"; tick += 1) {
+          now += 15000;
+          clock.fire();
+          await settle();
+        }
+        assert.equal(header.dataset.tone, "green", "a valid retry recovers");
+        assert.doesNotMatch(header.textContent, /FORWARD STATUS UNAVAILABLE/);
+      } finally {
+        Date.now = realNow;
+        clock.restore();
+      }
+    });
+  });
+}
+
+stalledForwardCase("headers");
+stalledForwardCase("json");
+
+test("a hidden tab or an open dialog pauses forward polling without a request; returning resumes it", async () => {
+  const base = openForward();
+  await withDashboard(backendDashboard(), base, async ({ view, fetchCounts, documentListeners, modalRoot }) => {
+    const clock = fakeClock();
+    try {
+      await renderOpen(view, base);
+      globalThis.document.hidden = true;
+      clock.fire();
+      await settle();
+      assert.equal(fetchTotal(fetchCounts, SCOPED_FORWARD_POLL), 0, "no read while the tab is hidden");
+
+      globalThis.document.hidden = false;
+      for (const listener of documentListeners.get("visibilitychange") || []) listener();
+      await settle();
+      assert.equal(fetchTotal(fetchCounts, SCOPED_FORWARD_POLL), 1, "returning to the tab resumes polling at once");
+
+      modalRoot.childElementCount = 1;
+      clock.fire();
+      await settle();
+      assert.equal(fetchTotal(fetchCounts, SCOPED_FORWARD_POLL), 1, "no read while a dialog is open");
+      modalRoot.childElementCount = 0;
+      clock.fire();
+      await settle();
+      assert.equal(fetchTotal(fetchCounts, SCOPED_FORWARD_POLL), 2, "polling resumes when the dialog closes");
+    } finally {
+      clock.restore();
+    }
+  });
+});
+
+test("only one forward read is ever in flight, and a full refresh does not add a second poller", async () => {
+  const base = openForward();
+  await withDashboard(backendDashboard(), base, async ({ view, fetchCounts, setForwardHandler }) => {
+    const clock = fakeClock();
+    const held = [];
+    try {
+      await renderOpen(view, base);
+      setForwardHandler((key) => {
+        if (key.startsWith(SCOPED_FORWARD_POLL)) return new Promise((resolve) => held.push(() => resolve(okResponse(base))));
+        return Promise.resolve(okResponse(base));
+      });
+      clock.fire();
+      clock.fire();
+      clock.fire();
+      await settle();
+      assert.equal(fetchTotal(fetchCounts, SCOPED_FORWARD_POLL), 1, "a slow read is never duplicated");
+      held.shift()();
+      await settle();
+
+      // A second full render must reuse the single poller: one tick, one read.
+      assert.equal(await renderDashboard(view), true);
+      const before = fetchTotal(fetchCounts, SCOPED_FORWARD_POLL);
+      clock.fire();
+      await settle();
+      assert.equal(fetchTotal(fetchCounts, SCOPED_FORWARD_POLL) - before, 1, "one poller after a full refresh");
+    } finally {
+      clock.restore();
+    }
+  });
+});
+
+test("a forward read that returns after a full refresh is discarded, and a read for another scope is rejected", async () => {
+  const base = openForward();
+  const fresh = stoppedForward(base);
+  await withDashboard(backendDashboard(), base, async ({ view, ids, setForwardHandler }) => {
+    const clock = fakeClock();
+    const held = [];
+    try {
+      await renderOpen(view, base);
+      let scopedPolls = 0;
+      setForwardHandler((key) => {
+        if (key.startsWith(SCOPED_FORWARD_POLL)) {
+          scopedPolls += 1;
+          if (scopedPolls === 1) return new Promise((resolve) => held.push(() => resolve(okResponse(base))));
+          return Promise.resolve(okResponse({ ...base, symbol: "ETH/USDT" }));
+        }
+        return Promise.resolve(okResponse(fresh));
+      });
+      clock.fire();
+      await settle();
+      // The full refresh (new generation) lands first with the settled ledger.
+      assert.equal(await renderDashboard(view), true);
+      assert.match(headerStatus(ids).textContent, /FORWARD RUNNER · STATUS STOPPED/);
+      // The stale read from before the refresh now returns the old open ledger: discarded.
+      held.shift()();
+      await settle();
+      assert.match(headerStatus(ids).textContent, /FORWARD RUNNER · STATUS STOPPED/, "a stale generation never overwrites the newer render");
+      assert.match(findNodes(view, hasClass("paper-tracker"))[0].textContent, /Latest outcome\s*Stopped/);
+
+      // A response for a different symbol/timeframe is rejected, never displayed.
+      clock.fire();
+      await settle();
+      assert.equal(scopedPolls, 2);
+      assert.match(findNodes(view, hasClass("paper-tracker"))[0].textContent, /Latest outcome\s*Stopped/, "another scope never replaces this one");
+    } finally {
+      clock.restore();
+    }
+  });
+});
+
+test("navigation away discards a late forward read and leaves the page untouched", async () => {
+  const base = openForward();
+  await withDashboard(backendDashboard(), base, async ({ view, ids, setForwardHandler }) => {
+    const clock = fakeClock();
+    const held = [];
+    try {
+      await renderOpen(view, base);
+      const trackerBefore = findNodes(view, hasClass("paper-tracker"))[0];
+      const headerBefore = headerStatus(ids).textContent;
+      setForwardHandler((key) => {
+        if (key.startsWith(SCOPED_FORWARD_POLL)) return new Promise((resolve) => held.push(() => resolve(okResponse(stoppedForward(base)))));
+        return Promise.resolve(okResponse(base));
+      });
+      clock.fire();
+      await settle();
+      disposeDashboard();
+      held.shift()();
+      await settle();
+      assert.equal(findNodes(view, hasClass("paper-tracker"))[0], trackerBefore);
+      assert.equal(headerStatus(ids).textContent, headerBefore, "no header write after navigation");
+      clock.fire();
+      await settle();
+      assert.equal(held.length, 0, "no new read after navigation");
+    } finally {
+      clock.restore();
+    }
+  });
+});
+
+test("the stored-forward poll follows the dashboard's resolved scope, not saved preferences", async () => {
+  const base = openForward();
+  await withDashboard(backendDashboard(), base, async ({ view, fetchCounts }) => {
+    const clock = fakeClock();
+    try {
+      // Saved preferences name a different instrument; the page itself is BTC/USDT 1h.
+      globalThis.localStorage = {
+        getItem: () => JSON.stringify({ preferredSymbol: "ETH/USDT", preferredTimeframe: "4h" }),
+        setItem: () => {},
+      };
+      await renderOpen(view, base);
+      // The initial render's own forward read (PR 54's saved-preference scope) is recorded as a baseline;
+      // only the poll's additional reads are asserted against it.
+      const ethBaseline = fetchTotal(fetchCounts, "/api/forward?symbol=ETH");
+      const pollBaseline = fetchTotal(fetchCounts, SCOPED_FORWARD_POLL);
+      clock.fire();
+      await settle();
+      assert.equal(fetchTotal(fetchCounts, SCOPED_FORWARD_POLL) - pollBaseline, 1, "the poll reads the displayed BTC/USDT 1h scope");
+      assert.equal(fetchTotal(fetchCounts, "/api/forward?symbol=ETH") - ethBaseline, 0, "the poll never reads saved-preference scope");
+    } finally {
+      clock.restore();
+    }
   });
 });

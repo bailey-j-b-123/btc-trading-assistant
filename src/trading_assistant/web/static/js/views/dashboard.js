@@ -44,8 +44,8 @@ import {
   isoMs,
   itemsAtTime,
 } from "../evidence.js";
+import { createForwardRefresher } from "../forward-refresh.js";
 import {
-  createTrackerRefresher,
   paperTrackerCard,
   signalProvenanceViewModel,
 } from "../paper-tracker.js";
@@ -112,6 +112,8 @@ import {
 } from "../util.js";
 import {
   integerOrNull,
+  paintTopbarHealth,
+  paintTopbarUnavailable,
   runnerDetailsViewModel,
   setTopbarWarning,
   systemHealthViewModel,
@@ -1994,7 +1996,7 @@ function systemDetail(label, value) {
   ]);
 }
 
-function systemDetailsCard(dashboard, forward) {
+function systemDetailsCard(dashboard, forward, unavailable = null) {
   const status = forward?.status || {};
   const market = status.market_data || {};
   const missing = integerOrNull(market.missing_candle_count) ??
@@ -2007,7 +2009,7 @@ function systemDetailsCard(dashboard, forward) {
   return el("details", { class: "card terminal-card expandable system-details" }, [
     el("summary", { text: "System details" }),
     el("div", { class: "system-details-grid" }, [
-      systemDetail("Summary", health.label),
+      systemDetail("Summary", unavailable ?? health.label),
       systemDetail("Data health", healthLabel(market.data_health || dashboard?.freshness?.status)),
       systemDetail("Data health detail", healthDetailText(market.data_health_detail || dashboard?.freshness?.reason)),
       systemDetail("Latest stored candle", latestStored ? formatUtc(latestStored) : "UNKNOWN"),
@@ -2391,14 +2393,14 @@ export function paperSection(dashboard, forward) {
 }
 
 /** Expandable diagnostics: every setup, the raw technical record, and system details. Nothing is removed. */
-function diagnosticsSection(dashboard, forward) {
+function diagnosticsSection(dashboard, forward, systemDetails) {
   return el("details", { class: "card diagnostics", "aria-label": "Diagnostics" }, [
     el("summary", { text: "Diagnostics — every setup, the technical record and system checks" }),
     el("div", { class: "diagnostics-body" }, [
       multiTimeframeCard(dashboard),
       botWatchingCard(dashboard),
       explanationCard(dashboard),
-      systemDetailsCard(dashboard, forward),
+      systemDetails,
     ]),
   ]);
 }
@@ -2412,15 +2414,25 @@ function dashboardFailureNode(failure, onRetry) {
   ]);
 }
 
-// Session state for automatic updates. One live quote, one boundary poller, one tracker poller
-// and one status line, released by disposeDashboard (main.js calls it on every route change).
+// Session state for automatic updates. One live quote, one boundary poller, one scoped forward-ledger
+// poller and one status line, released by disposeDashboard (main.js calls it on every route change).
 let liveQuote = null;
 let updater = null;
-let trackerRefresher = null;
+let forwardRefresher = null;
 let trackerCardNode = null;
+let paperSectionNode = null;
+let systemDetailsNode = null;
+let forwardStatusNode = null;
 let dashboardView = null;
 let dashboardMeta = null;
 let currentAsOf = null;
+// The last accepted full render and the last accepted forward read. Forward polls repaint from these.
+let lastDashboard = null;
+let lastForward = null;
+let trackerSignature = null;
+let paperSignature = null;
+let lastGoodForwardAt = null;
+let forwardUnavailableSince = null;
 let updateStatus = { tone: "pending", label: "CHECKING", detail: "Checking for newly stored closed candles…" };
 let updateStatusNode = null;
 let visibilityListener = null;
@@ -2491,49 +2503,174 @@ function startAutomaticUpdates() {
   });
   // Register the listener before recording it, so disposal only removes a listener that exists.
   const onVisibility = () => {
-    if (!document.hidden) updater?.checkNow();
+    if (!document.hidden) {
+      updater?.checkNow();
+      forwardRefresher?.checkNow();
+    }
   };
   document.addEventListener("visibilitychange", onVisibility);
   visibilityListener = onVisibility;
   updater.start();
 }
 
-/**
- * Swap the tracker card for one built from a fresh ledger read. Only the
- * tracker node changes: the chart, its zoom/scroll, and the rest of the page
- * are untouched, and no dashboard analysis is re-requested.
- */
-function applyTrackerUpdate(tracker) {
-  const existing = trackerCardNode;
-  if (!existing || !existing.parentNode || !dashboardView) return;
-  const next = paperTrackerCard({ paper_label: tracker?.label, paper_tracker: tracker });
-  existing.replaceWith(next);
-  trackerCardNode = next;
+/** Stable JSON, used only to decide whether an already-rendered forward block changed. */
+function stableJson(value) {
+  return JSON.stringify(value ?? null);
+}
+
+/** The ledger facts the tracker card renders: a change of any of them re-renders the card. */
+function trackerSignatureOf(forward) {
+  return stableJson(forward?.paper_tracker ?? null);
 }
 
 /**
- * Lightweight, read-only tracker polling, independent of candle/chart
- * refreshes: the forward runner records outcome versions AFTER the candle is
- * stored (and after the dashboard refresh that noticed it), so the tracker
- * must pick up new or updated outcomes on its own cadence. Cheap endpoint,
- * signature-compared, no analysis rerun; `initialTracker` seeds the signature
- * so the first poll after a full refresh never re-renders unchanged data.
+ * The forward facts the paper results and measured performance render. The runner heartbeat age is
+ * deliberately not included: it moves on every read, so only the runner health line follows it.
  */
-function startTrackerUpdates(initialTracker) {
-  if (trackerRefresher) {
-    trackerRefresher.sync(initialTracker || null);
+function paperSignatureOf(forward) {
+  return stableJson({
+    present: Boolean(forward),
+    sample: forward?.status?.sample ?? null,
+    report: forward?.report ?? null,
+    observations: forward?.observations ?? null,
+    limitations: forward?.limitations ?? null,
+    disclaimer: forward?.disclaimer ?? null,
+    paper_label: forward?.paper_label ?? null,
+  });
+}
+
+/**
+ * A forward read may update the page only when it positively reports the displayed symbol AND
+ * timeframe. A read that names another scope, or that omits either field, cannot be verified and
+ * throws, so the controller records a failed read instead of applying it.
+ */
+function assertForwardIdentity(forward, meta) {
+  if (!meta || !forward || typeof forward !== "object") throw new Error("The forward read cannot be matched to this page.");
+  if (forward.symbol !== meta.symbol) {
+    throw new Error(`The forward read reported symbol ${JSON.stringify(forward.symbol ?? null)}, not ${meta.symbol}.`);
+  }
+  if (forward.timeframe !== meta.timeframe) {
+    throw new Error(`The forward read reported timeframe ${JSON.stringify(forward.timeframe ?? null)}, not ${meta.timeframe}.`);
+  }
+}
+
+function assertForwardPayload(payload) {
+  if (!payload || typeof payload !== "object") throw new Error("The forward read returned no payload.");
+  return payload;
+}
+
+function disclosureNodes(node, found = []) {
+  if (String(node?.tagName || "").toUpperCase() === "DETAILS") found.push(node);
+  for (const child of node?.children || []) disclosureNodes(child, found);
+  return found;
+}
+
+function disclosureTitle(node) {
+  const summary = [...(node.children || [])].find((child) => String(child.tagName || "").toUpperCase() === "SUMMARY");
+  return summary ? summary.textContent : "";
+}
+
+/** Keep each rebuilt disclosure open or closed exactly as the reader left the matching one. */
+function carryDisclosureState(previous, next) {
+  const remaining = disclosureNodes(previous);
+  for (const node of disclosureNodes(next)) {
+    const index = remaining.findIndex((item) => disclosureTitle(item) === disclosureTitle(node));
+    if (index === -1) continue;
+    node.open = remaining[index].open === true;
+    remaining.splice(index, 1);
+  }
+}
+
+/** Swap a mounted card for a rebuilt one in place. Returns the node now mounted at that position. */
+function replaceMounted(current, next) {
+  if (!current || !current.parentNode) return current;
+  carryDisclosureState(current, next);
+  current.replaceWith(next);
+  return next;
+}
+
+function lastGoodText() {
+  return lastGoodForwardAt === null ? "no earlier read on this page" : `${utcClock(lastGoodForwardAt)} UTC`;
+}
+
+function paintForwardStatus() {
+  if (!forwardStatusNode) return;
+  if (forwardUnavailableSince !== null) {
+    forwardStatusNode.dataset.tone = "amber";
+    forwardStatusNode.textContent = `Forward status unavailable since ${utcClock(forwardUnavailableSince)} UTC. Last good read: ${lastGoodText()}. Paper results and runner status may be out of date. Retrying automatically.`;
+  } else {
+    forwardStatusNode.dataset.tone = "neutral";
+    forwardStatusNode.textContent = `Forward status read ${lastGoodText()} · stored forward ledger, read-only.`;
+  }
+}
+
+/**
+ * Apply one accepted scoped forward read. Header health is repainted on EVERY successful read (the
+ * server status is the source of truth); the tracker and the paper results are rebuilt only when
+ * their ledger facts changed; the runner details are refreshed. The chart, decision hero and page
+ * layout are never touched, and no dashboard analysis is requested.
+ */
+function applyForwardPoll(forward) {
+  if (!dashboardView || !lastDashboard) return;
+  assertForwardIdentity(forward, dashboardMeta);
+  lastForward = forward;
+  lastGoodForwardAt = Date.now();
+  forwardUnavailableSince = null;
+  paintTopbarHealth(lastDashboard, forward);
+  const nextTracker = trackerSignatureOf(forward);
+  if (nextTracker !== trackerSignature) {
+    trackerSignature = nextTracker;
+    trackerCardNode = replaceMounted(trackerCardNode, paperTrackerCard(forward));
+  }
+  const nextPaper = paperSignatureOf(forward);
+  if (nextPaper !== paperSignature) {
+    paperSignature = nextPaper;
+    paperSectionNode = replaceMounted(paperSectionNode, paperSection(lastDashboard, forward));
+  }
+  systemDetailsNode = replaceMounted(systemDetailsNode, systemDetailsCard(lastDashboard, forward));
+  paintForwardStatus();
+}
+
+/**
+ * A forward read failed. Never leave a green verdict: the header says the status is unavailable and
+ * the last good paper facts stay on screen with the time of the last good read.
+ */
+function applyForwardFailure() {
+  if (!dashboardView || !lastDashboard) return;
+  if (forwardUnavailableSince === null) forwardUnavailableSince = Date.now();
+  paintTopbarUnavailable(`Forward status read failed, so no runner health is claimed. Last good read: ${lastGoodText()}. Retrying automatically.`);
+  systemDetailsNode = replaceMounted(
+    systemDetailsNode,
+    systemDetailsCard(lastDashboard, lastForward, `FORWARD STATUS UNAVAILABLE · last good read ${lastGoodText()}`),
+  );
+  paintForwardStatus();
+}
+
+/**
+ * Lightweight, read-only forward polling, independent of candle refreshes. It reads the stored
+ * forward ledger scoped to the displayed symbol/timeframe with the same limit as a full render. That
+ * read is the cost of a full forward report, not a tracker-only read, so the scaling limit is documented
+ * in the PR. It never invokes the dashboard analysis. A full render calls `rebase()`, which discards any
+ * read that started before it.
+ */
+function startForwardUpdates() {
+  if (forwardRefresher) {
+    forwardRefresher.rebase();
     return;
   }
-  trackerRefresher = createTrackerRefresher({
-    fetchTracker: () => api.forwardTracker({
+  forwardRefresher = createForwardRefresher({
+    // Bounded: the deadline covers headers AND body, and a timeout is a failed read (amber, then backoff).
+    fetchForward: () => api.forwardPoll({
       symbol: dashboardMeta?.symbol || undefined,
       timeframe: dashboardMeta?.timeframe || undefined,
-    }),
-    applyTracker: applyTrackerUpdate,
-    // A dialog or a hidden tab pauses polls; they resume on return.
+      limit: 8,
+    }).then(assertForwardPayload),
+    applyForward: applyForwardPoll,
+    applyFailure: applyForwardFailure,
+    // A dialog or a hidden tab pauses reads; they resume on return.
     isBlocked: () => document.hidden || Boolean(document.getElementById("modal-root")?.childElementCount),
   });
-  trackerRefresher.start(initialTracker || null);
+  forwardRefresher.start();
 }
 
 /**
@@ -2576,6 +2713,7 @@ export async function renderDashboard(view, { refresh = false } = {}) {
   const dashboard = dashboardResult.value || {};
   const forward = forwardResult.status === "fulfilled" ? forwardResult.value : null;
   updateTopbar(dashboard, forward);
+  if (!forward) paintTopbarUnavailable("Forward status read failed on this page load, so no runner health is claimed. Retrying automatically.");
   const meta = dashboard?.meta || {};
   dashboardMeta = { symbol: meta.symbol, timeframe: meta.timeframe };
 
@@ -2593,15 +2731,23 @@ export async function renderDashboard(view, { refresh = false } = {}) {
   const live = ensureLiveQuote(meta.symbol || "BTC/USDT");
   updateStatusNode = el("div", { class: "dash-update-status", role: "status", "aria-live": "polite" });
   paintUpdateStatus();
+  forwardStatusNode = el("div", { class: "dash-forward-status" });
+  forwardUnavailableSince = forward ? null : Date.now();
+  if (forward) lastGoodForwardAt = Date.now();
+  paintForwardStatus();
 
   // Build every child first. Moving the chart node into the new layout must happen before the old
   // children are cleared, so the chart keeps its handle and its canvas.
   const trackerCard = paperTrackerCard(forward);
   trackerCardNode = trackerCard;
+  const paper = paperSection(dashboard, forward);
+  paperSectionNode = paper;
+  const systemDetails = systemDetailsCard(dashboard, forward, forward ? null : "FORWARD STATUS UNAVAILABLE · this page load has no forward read");
+  systemDetailsNode = systemDetails;
   const children = [
     el("section", { class: "dash-live-strip", "aria-label": "Live price and automatic update status" }, [
       live.node,
-      updateStatusNode,
+      el("div", { class: "dash-status-stack" }, [updateStatusNode, forwardStatusNode]),
     ]),
     decisionHero(dashboard, forward),
     // Prominent, persistent Active/Recent paper-trade tracker: recorded plans
@@ -2620,8 +2766,8 @@ export async function renderDashboard(view, { refresh = false } = {}) {
       planCard(dashboard),
       marketNowCard(dashboard),
     ]),
-    paperSection(dashboard, forward),
-    diagnosticsSection(dashboard, forward),
+    paper,
+    diagnosticsSection(dashboard, forward, systemDetails),
   ];
   clearNode(view).append(...children);
   // The chart mounts after it is attached, as before; a reused chart is already mounted.
@@ -2631,10 +2777,14 @@ export async function renderDashboard(view, { refresh = false } = {}) {
   activeChart = chart;
   dashboardView = view;
   currentAsOf = typeof meta.as_of === "string" ? meta.as_of : null;
+  lastDashboard = dashboard;
+  lastForward = forward;
+  trackerSignature = trackerSignatureOf(forward);
+  paperSignature = paperSignatureOf(forward);
   startAutomaticUpdates();
-  // Independent, read-only tracker poll: catches outcome versions the runner
-  // records AFTER this refresh, without waiting for the next candle.
-  startTrackerUpdates(dashboard?.paper_tracker || null);
+  // Independent, read-only scoped forward poll: catches runner health, outcome versions and settled
+  // results the runner records AFTER this refresh, without waiting for the next candle.
+  startForwardUpdates();
   return true;
 }
 
@@ -2644,9 +2794,18 @@ export function disposeDashboard() {
   activeChart = null;
   updater?.stop();
   updater = null;
-  trackerRefresher?.stop();
-  trackerRefresher = null;
+  forwardRefresher?.stop();
+  forwardRefresher = null;
   trackerCardNode = null;
+  paperSectionNode = null;
+  systemDetailsNode = null;
+  forwardStatusNode = null;
+  lastDashboard = null;
+  lastForward = null;
+  trackerSignature = null;
+  paperSignature = null;
+  lastGoodForwardAt = null;
+  forwardUnavailableSince = null;
   if (visibilityListener) document.removeEventListener("visibilitychange", visibilityListener);
   visibilityListener = null;
   liveQuote?.destroy();
