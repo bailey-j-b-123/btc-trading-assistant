@@ -357,7 +357,7 @@ export function performanceViewModel(forward) {
         { label: "Entry reached", metric: metrics.entry_reached_rate },
         { label: "Entry not reached", metric: metrics.entry_not_reached_rate },
         { label: "Stopped after ordered entry", metric: metrics.stopped_rate },
-        { label: "Unresolved / open", metric: metrics.unresolved_rate },
+        { label: "Unsettled outcomes", metric: metrics.unresolved_rate },
         { label: "Ambiguous outcome", metric: metrics.ambiguous_rate },
         { label: "Incomplete data", metric: metrics.incomplete_rate },
         ...targetRates,
@@ -1670,7 +1670,7 @@ export function decisionCentreStatus(dashboard) {
 }
 
 
-/** Paper observations: active and completed plans, outcome status, ambiguous and unscored counts, with limitations. */
+/** Paper observations: settlement counts, outcome status, ambiguous and unscored counts. */
 export function paperObservationsViewModel(forward) {
   const model = performanceViewModel(forward);
   const metrics = model.combinedAvailable ? forward?.report?.metrics || null : null;
@@ -1678,8 +1678,8 @@ export function paperObservationsViewModel(forward) {
   return {
     available: Boolean(forward),
     paperPlans: model.paperPlans,
-    active: model.unresolvedOutcomes,
-    completed: model.resolvedOutcomes,
+    unsettled: model.unresolvedOutcomes,
+    settled: model.resolvedOutcomes,
     ambiguous: integerOrNull(metrics?.ambiguous_count),
     unscored: integerOrNull(metrics?.incomplete_data_count),
     withOutcome: integerOrNull(metrics?.paper_plans_with_outcome),
@@ -1711,8 +1711,8 @@ function paperObservationsCard(forward) {
   const count = (value) => (value === null ? "UNKNOWN" : String(value));
   const summary = el("div", { class: "paper-summary" }, [
     performanceMetric("Paper plans", count(model.paperPlans)),
-    performanceMetric("Active (unresolved)", count(model.active)),
-    performanceMetric("Completed", count(model.completed)),
+    performanceMetric("Unsettled outcomes", count(model.unsettled)),
+    performanceMetric("Settled outcomes", count(model.settled), "Settlement is separate from paper-slot occupancy; ambiguous outcomes remain excluded from R"),
     performanceMetric("Ambiguous", count(model.ambiguous), "Outcome could not be ordered from candles"),
     performanceMetric("Unscored · incomplete data", count(model.unscored), "Not scored; excluded from R"),
     performanceMetric("Sample for R", model.eligibleRSample === null || model.consideredRSample === null
@@ -1945,7 +1945,7 @@ function performanceCard(forward, meta) {
   const metrics = [
     performanceMetric("Paper plans", model.paperPlans === null ? "UNKNOWN" : String(model.paperPlans)),
     performanceMetric("Settled outcomes", model.resolvedOutcomes === null ? "UNKNOWN" : String(model.resolvedOutcomes)),
-    performanceMetric("Unresolved", model.unresolvedOutcomes === null ? "UNKNOWN" : String(model.unresolvedOutcomes)),
+    performanceMetric("Unsettled outcomes", model.unresolvedOutcomes === null ? "UNKNOWN" : String(model.unresolvedOutcomes)),
     performanceMetric("Eligible / considered R", rSample, metricStatusText(model.rSampleStatus)),
     performanceMetric("Mean observed R", meanObserved.display, `Descriptive OHLC observation · not expectancy${meanObserved.raw === null ? "" : ` · exact ${meanObserved.raw}`}`),
     performanceMetric("Mean friction-adjusted R", meanFriction.display, `Hypothetical only · not realised P&L${meanFriction.raw === null ? "" : ` · exact ${meanFriction.raw}`}`),
