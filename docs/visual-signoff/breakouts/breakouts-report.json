@@ -1,0 +1,211 @@
+{
+  "url": "http://127.0.0.1:8123",
+  "generatedAt": "2026-10-13T19:16:31.891Z",
+  "checks": [
+    {
+      "name": "zoom preserved across a function switch",
+      "before": {
+        "from": 380,
+        "to": 502
+      },
+      "after": {
+        "from": 380,
+        "to": 502
+      }
+    },
+    {
+      "name": "status line",
+      "text": "Breakouts / Retests: 2 breakout(s) · 0 failed · 0 sweep(s) · 4 retest(s) · 6 drawn on the loaded candles.",
+      "navNote": "6 stored events · 2026-09-28 03:00 UTC → 2026-09-28 04:00 UTC · jump keeps your zoom, Frame events fits them all"
+    },
+    {
+      "name": "framed window",
+      "range": {
+        "from": 119,
+        "to": 132
+      },
+      "paneWidth": 594
+    },
+    {
+      "name": "marker pixels at the recorded candles",
+      "columns": [
+        {
+          "x": 274.7857142857143,
+          "candle": "2026-09-28T03:00:00.000Z",
+          "events": 2,
+          "markerPixelsAdded": 647,
+          "markerBandY": [
+            227,
+            401
+          ]
+        },
+        {
+          "x": 317.2142857142857,
+          "candle": "2026-09-28T04:00:00.000Z",
+          "events": 4,
+          "markerPixelsAdded": 611,
+          "markerBandY": [
+            213,
+            422
+          ]
+        }
+      ],
+      "perEvent": [
+        {
+          "id": "eb44d6a3be1e0c9c611d672a60c6632966babbf5928ad15f35103601a8e693ff",
+          "kind": "breakout",
+          "state": null,
+          "direction": "bullish",
+          "time": "2026-09-28T03:00:00.000Z",
+          "x": 274.7857142857143,
+          "markerPixelsAdded": 647,
+          "markerBandY": [
+            227,
+            401
+          ]
+        },
+        {
+          "id": "f13900f908a2dfd61724fb79703646ce24d1a3ffd5ef655a55dd3a7ef19b663c",
+          "kind": "breakout",
+          "state": null,
+          "direction": "bullish",
+          "time": "2026-09-28T03:00:00.000Z",
+          "x": 274.7857142857143,
+          "markerPixelsAdded": 647,
+          "markerBandY": [
+            227,
+            401
+          ]
+        },
+        {
+          "id": "0b5007dd9a751e7552e782c0d29596e0dd42e1daef94925fcc99531210636efd",
+          "kind": "retest",
+          "state": "held",
+          "direction": "bullish",
+          "time": "2026-09-28T04:00:00.000Z",
+          "x": 317.2142857142857,
+          "markerPixelsAdded": 611,
+          "markerBandY": [
+            213,
+            422
+          ]
+        },
+        {
+          "id": "5e349f7ed77434f5246e9bc6d0a163f9c33be1cc51e03828a329ef88cc29fb0f",
+          "kind": "retest",
+          "state": "observed",
+          "direction": "bullish",
+          "time": "2026-09-28T04:00:00.000Z",
+          "x": 317.2142857142857,
+          "markerPixelsAdded": 611,
+          "markerBandY": [
+            213,
+            422
+          ]
+        },
+        {
+          "id": "a4c8e96eb8e4ad391328396596a434217e7e3b102a935e6a5efd4dc5f4fffb84",
+          "kind": "retest",
+          "state": "observed",
+          "direction": "bullish",
+          "time": "2026-09-28T04:00:00.000Z",
+          "x": 317.2142857142857,
+          "markerPixelsAdded": 611,
+          "markerBandY": [
+            213,
+            422
+          ]
+        },
+        {
+          "id": "cf2789b9b1a7adba0d915c68aa318a41bed6b17739bbb4cac9a896be5f491354",
+          "kind": "retest",
+          "state": "held",
+          "direction": "bullish",
+          "time": "2026-09-28T04:00:00.000Z",
+          "x": 317.2142857142857,
+          "markerPixelsAdded": 611,
+          "markerBandY": [
+            213,
+            422
+          ]
+        }
+      ]
+    },
+    {
+      "name": "jump keeps the zoom",
+      "zoomBeforeJump": {
+        "from": 119,
+        "to": 132
+      },
+      "steps": [
+        {
+          "from": 119,
+          "to": 132
+        },
+        {
+          "from": 119,
+          "to": 132
+        },
+        {
+          "from": 120,
+          "to": 133
+        },
+        {
+          "from": 120,
+          "to": 133
+        },
+        {
+          "from": 120,
+          "to": 133
+        },
+        {
+          "from": 120,
+          "to": 133
+        }
+      ],
+      "jumpedCoordinates": [
+        232.35714285714283,
+        232.35714285714283,
+        274.7857142857143,
+        274.7857142857143,
+        274.7857142857143,
+        274.7857142857143
+      ]
+    },
+    {
+      "name": "zoom preserved switching back",
+      "beforeReturn": {
+        "from": 119,
+        "to": 132
+      },
+      "afterReturn": {
+        "from": 119,
+        "to": 132
+      }
+    }
+  ],
+  "storedEvents": {
+    "count": 6,
+    "counts": {
+      "swings": 57,
+      "patterns": 4,
+      "breakouts": 2,
+      "failed_breakouts": 0,
+      "sweeps": 0,
+      "retests": 4,
+      "equal_levels": 32,
+      "zones": 3,
+      "candle_shapes": 164
+    },
+    "distinctCandles": 2,
+    "first": "2026-09-28T03:00:00.000Z",
+    "last": "2026-09-28T04:00:00.000Z"
+  },
+  "pageErrors": [],
+  "consoleErrors": [
+    "Applying inline style violates the following Content Security Policy directive 'style-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked.",
+    "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+    "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+    "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED"
+  ]
+}

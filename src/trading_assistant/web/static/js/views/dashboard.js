@@ -12,7 +12,10 @@ import {
   DEFAULT_CHART_FUNCTION,
   DEFAULT_CHART_MODE,
   DETAILED_MODE,
+  breakoutOptions,
   chartFunctionById,
+  eventFrame,
+  eventNavigation,
   filterEvidence,
   functionStatus,
   highlightedPattern,
@@ -42,6 +45,8 @@ import {
 import {
   captureChartView,
   captureLogicalView,
+  focusBarOnChart,
+  frameBarsOnChart,
   restoreChartView,
   restoreLogicalView,
   setZoneBands,
@@ -539,7 +544,7 @@ const HIGHER_TIMEFRAME = Object.freeze({ "5m": "15m", "15m": "1h", "1h": "4h" })
 /** Swing connector line colours, matching the structure marker tones. */
 const STRUCTURE_HIGH_COLOR = "#2fbf7f";
 const STRUCTURE_LOW_COLOR = "#e0565b";
-const CHART_MARKER_KEY = "▲ breakout (green up, red down) · ▼ sweep · grey = failed breakout · ● retest · HH/HL/LH/LL swings · patterns: DT double top, DB double bottom, H&S head and shoulders, iH&S inverse H&S (labels give the lifecycle state) · a dot with no label = label hidden to avoid collisions · click any marker for detail";
+const CHART_MARKER_KEY = "▲ breakout (green up, red down) · ▼ sweep · grey = failed breakout · ● retest (green held, red failed, grey as recorded) · Breakouts & Retests labels them BRK / SWP / FAIL / RT, one marker per stored event · HH/HL/LH/LL swings · patterns: DT double top, DB double bottom, H&S head and shoulders, iH&S inverse H&S (labels give the lifecycle state) · a dot with no label = label hidden to avoid collisions · click any marker for detail";
 const CHART_EXPLAIN_HINT = "Click a candle to see what BRAIN recorded there, when it became known, and whether it influenced the current assessment.";
 
 function evidenceMetaText(evidence, timeframe) {
@@ -606,6 +611,35 @@ function chartCard(initialDashboard) {
   const functionPanelMount = el("div", { class: "chart-function-slot" });
   const patternPicker = el("div", { class: "chart-pattern-picker", role: "group", "aria-label": "Detected patterns", hidden: true });
   const patternPickerBody = el("div", { class: "chart-pattern-list" });
+  // Breakouts & Retests: the stored events are usually far from the live edge,
+  // so the function that exists to show them needs a way to reach them. These
+  // controls only MOVE the view; they never re-read the backend, never change a
+  // stored record, and never move the view on their own.
+  // Which stored event the ◀ / ▶ controls are on. -1 until the operator steps.
+  const eventNav = el("div", { class: "chart-event-nav", role: "group", "aria-label": "Stored breakout and retest events", hidden: true });
+  const eventNavBody = el("div", { class: "chart-event-nav-actions" });
+  const eventNavNote = el("span", { class: "chart-event-nav-note", text: "" });
+  let eventCursor = -1;
+  const eventNavButtons = [
+    { step: -1, text: "◀", title: "Previous stored event (older) — your zoom is kept" },
+    { step: 1, text: "▶", title: "Next stored event (newer) — your zoom is kept" },
+  ].map((entry) => el("button", {
+    type: "button",
+    class: "chart-event-button",
+    "data-event-step": String(entry.step),
+    "aria-label": `${entry.step < 0 ? "Previous" : "Next"} stored event`,
+    title: entry.title,
+    text: entry.text,
+    onclick: () => stepEvent(entry.step),
+  }));
+  const frameEventsButton = el("button", {
+    type: "button",
+    class: "chart-event-button chart-event-button--frame",
+    "data-event-frame": "true",
+    title: "Fit every stored breakout, failed breakout, sweep and retest on the loaded candles into the chart window",
+    text: "Frame events",
+    onclick: () => frameStoredEvents(),
+  });
   const swingConnectorButton = el("button", {
     type: "button",
     class: "swing-connector-toggle",
@@ -651,6 +685,9 @@ function chartCard(initialDashboard) {
       : { available: false, reason: "the dashboard payload did not include chart evidence" },
     candleRows: rows,
     model: null,
+    // Stored breakout/retest events the navigator can jump to, oldest first.
+    // Recomputed with the evidence model; empty until the first render.
+    eventEntries: [],
     htfBands: [],
     htfStatus: null,
   };
@@ -690,6 +727,17 @@ function chartCard(initialDashboard) {
       overlays: prefs.overlays,
     });
   };
+  /**
+   * Capture and put back the EXACT window for a redraw that reloads nothing.
+   *
+   * A function, mode, pattern or connector change redraws the same loaded
+   * candles, so the bar-index window (the zoom plus the distance from the live
+   * edge, including the right-hand margin) is restored exactly as it was.
+   * `captureChartView` stays where it belongs: refreshes and timeframe reloads,
+   * where the series itself changes and instants — not indices — must survive.
+   */
+  const captureRedrawView = () => captureLogicalView(handleRef.current);
+  const restoreRedrawView = (view) => restoreLogicalView(handleRef.current, view);
   const swingFunctionActive = () => activeChartFunction === "swings" || activeChartMode === DETAILED_MODE;
   const patternFunctionActive = () => activeChartFunction === "patterns" || activeChartMode === DETAILED_MODE;
   function stopForming() {
@@ -769,12 +817,19 @@ function chartCard(initialDashboard) {
       mode: activeChartMode,
       selectedPatternId,
     });
+    // The Breakouts & Retests function draws every stored event on a loaded
+    // candle, one labelled marker each; every other selection keeps the calm
+    // one-per-candle, recent-window form. See chart_functions.breakoutOptions.
     viewed.model = buildEvidenceModel({
       evidence,
       candles: viewed.candleRows,
       asOfMs: decisionAsOfMs,
       layers,
+      breakoutOptions: breakoutOptions(activeChartFunction),
     });
+    // Jump targets for the event navigator: stored events whose candle is loaded.
+    viewed.eventEntries = eventNavigation(evidence, viewed.candleRows);
+    if (eventCursor >= viewed.eventEntries.length) eventCursor = -1;
     emphasiseStoredSwings(viewed.model);
     addSwingConnector(viewed.model);
     setEvidence(handle, viewed.model);
@@ -792,6 +847,7 @@ function chartCard(initialDashboard) {
     evidenceMeta.textContent = `${evidenceMetaText(viewed.evidence, viewed.timeframe)} ${evidenceCountText(viewed.model)}${counts}${htf}${zoneText}`;
     paintFunctionStatus();
     paintFunctionPanel();
+    renderEventNav();
     renderItemList(viewed.model);
   };
 
@@ -852,6 +908,9 @@ function chartCard(initialDashboard) {
     // apply in Detailed mode, where several layers may be shown at once.
     legacyLayers.hidden = activeChartMode !== DETAILED_MODE;
     patternPicker.hidden = !patternFunctionActive();
+    // The event navigator belongs to the function it serves, exactly like the
+    // pattern picker and the swing connector.
+    eventNav.hidden = activeChartFunction !== "breakouts";
     swingConnectorButton.hidden = !swingFunctionActive();
     swingConnectorButton.setAttribute("aria-pressed", String(swingConnectorVisible));
     const status = functionStatus({
@@ -887,7 +946,7 @@ function chartCard(initialDashboard) {
       planReason: planningReason(dashboard),
       marketState: dashboard?.market_state || null,
       selectedPatternId,
-    })));
+    }), { onSelectEvent: jumpToEventId }));
   };
 
   /** One button per stored pattern record; selecting one switches the drawn example. */
@@ -918,16 +977,89 @@ function chartCard(initialDashboard) {
   function selectPattern(patternId) {
     const next = selectedPatternId === patternId ? null : patternId;
     selectedPatternId = next;
-    const keep = captureChartView(handleRef.current);
+    const keep = captureRedrawView();
     renderEvidence();
-    restoreChartView(handleRef.current, keep);
+    restoreRedrawView(keep);
   }
 
   function setSwingConnector(visible) {
     swingConnectorVisible = visible === true;
-    const keep = captureChartView(handleRef.current);
+    const keep = captureRedrawView();
     renderEvidence();
-    restoreChartView(handleRef.current, keep);
+    restoreRedrawView(keep);
+  }
+
+  /**
+   * The bar index of a stored event's candle, or -1.
+   *
+   * Only an exact match on an already-loaded candle counts: an event is never
+   * snapped to a neighbouring bar to make it reachable.
+   */
+  function barIndexOfEvent(timeSeconds) {
+    if (!Number.isFinite(timeSeconds)) return -1;
+    const bars = toChartCandles(viewed.candleRows);
+    for (let index = 0; index < bars.length; index += 1) {
+      if (bars[index].time === timeSeconds) return index;
+    }
+    return -1;
+  }
+
+  /** Paint the event navigator: which events exist, and where they sit in time. */
+  function renderEventNav() {
+    const entries = Array.isArray(viewed.eventEntries) ? viewed.eventEntries : [];
+    const frame = eventFrame(entries);
+    for (const button of eventNavButtons) button.disabled = entries.length === 0;
+    frameEventsButton.disabled = entries.length === 0;
+    if (!entries.length) {
+      eventNavNote.textContent = "No stored breakout, sweep or retest sits on the loaded candles.";
+      return;
+    }
+    const span = frame.fromSeconds === frame.toSeconds
+      ? formatUtc(new Date(frame.fromSeconds * 1000).toISOString())
+      : `${formatUtc(new Date(frame.fromSeconds * 1000).toISOString())} → ${formatUtc(new Date(frame.toSeconds * 1000).toISOString())}`;
+    eventNavNote.textContent = `${entries.length} stored event${entries.length === 1 ? "" : "s"} · ${span} · jump keeps your zoom, Frame events fits them all`;
+  }
+
+  /**
+   * Bring one stored event's candle into view, keeping the operator's current
+   * zoom, and explain what the backend recorded there.
+   */
+  function jumpToEvent(index) {
+    const entries = Array.isArray(viewed.eventEntries) ? viewed.eventEntries : [];
+    if (!entries.length || !handleRef.current) return;
+    const next = ((Math.trunc(index) % entries.length) + entries.length) % entries.length;
+    const entry = entries[next];
+    const barIndex = barIndexOfEvent(entry.timeSeconds);
+    if (barIndex < 0) return;
+    eventCursor = next;
+    focusBarOnChart(handleRef.current, barIndex);
+    showExplanationAt(entry.timeSeconds);
+  }
+
+  /** Step to the previous (older) or next (newer) stored event. Wraps at both ends. */
+  function stepEvent(step) {
+    const entries = Array.isArray(viewed.eventEntries) ? viewed.eventEntries : [];
+    if (!entries.length) return;
+    const from = eventCursor >= 0 && eventCursor < entries.length ? eventCursor : (step < 0 ? 0 : -1);
+    jumpToEvent(from + step);
+  }
+
+  /** Fit every stored event on the loaded candles into the chart window. */
+  function frameStoredEvents() {
+    const entries = Array.isArray(viewed.eventEntries) ? viewed.eventEntries : [];
+    const frame = eventFrame(entries);
+    if (!frame || !handleRef.current) return;
+    const first = barIndexOfEvent(frame.fromSeconds);
+    const last = barIndexOfEvent(frame.toSeconds);
+    if (first < 0 || last < 0) return;
+    frameBarsOnChart(handleRef.current, first, last);
+  }
+
+  /** Jump to the stored record the operator selected in the function panel. */
+  function jumpToEventId(id) {
+    const entries = Array.isArray(viewed.eventEntries) ? viewed.eventEntries : [];
+    const index = entries.findIndex((entry) => entry.id === id);
+    if (index >= 0) jumpToEvent(index);
   }
 
   /**
@@ -940,10 +1072,10 @@ function chartCard(initialDashboard) {
     if (next === activeChartFunction) return;
     activeChartFunction = next;
     card.dataset.chartFunction = activeChartFunction;
-    const keep = captureChartView(handleRef.current);
+    const keep = captureRedrawView();
     renderEvidence();
     applyViewedOverlays();
-    restoreChartView(handleRef.current, keep);
+    restoreRedrawView(keep);
     if (activeChartMode === DETAILED_MODE && loadPrefs().layers?.htfLevels === true) await refreshHigherLevels();
   }
 
@@ -953,10 +1085,10 @@ function chartCard(initialDashboard) {
     if (next === activeChartMode) return;
     activeChartMode = next;
     card.dataset.mode = activeChartMode;
-    const keep = captureChartView(handleRef.current);
+    const keep = captureRedrawView();
     renderEvidence();
     applyViewedOverlays();
-    restoreChartView(handleRef.current, keep);
+    restoreRedrawView(keep);
     if (activeChartMode === DETAILED_MODE && loadPrefs().layers?.htfLevels === true) await refreshHigherLevels();
   }
   /** One button per drawn evidence item; selecting it opens the same click-to-explain panel as a chart click. */
@@ -1110,6 +1242,12 @@ function chartCard(initialDashboard) {
     modeSwitch.append(button);
   }
   patternPicker.append(el("span", { class: "control-caption", text: "DETECTED PATTERN" }), patternPickerBody);
+  eventNavBody.append(eventNavButtons[0], frameEventsButton, eventNavButtons[1]);
+  eventNav.append(
+    el("span", { class: "control-caption", text: "STORED EVENTS" }),
+    eventNavBody,
+    eventNavNote,
+  );
   toolbar.append(
     el("div", { class: "chart-control-row" }, [
       el("span", { class: "control-caption", text: "CHART FUNCTION" }),
@@ -1120,6 +1258,7 @@ function chartCard(initialDashboard) {
     ]),
     functionStatusNode,
     patternPicker,
+    eventNav,
   );
   toolbar.append(el("span", { class: "chart-toolbar-sep", "aria-hidden": "true" }));
 
@@ -1558,6 +1697,7 @@ function chartCard(initialDashboard) {
   updateLiquidityToggle();
   paintFunctionStatus();
   paintFunctionPanel();
+  renderEventNav();
   if (!validCandles.length) {
     showChartOverlay(chartEmpty(
       "Candle data unavailable",

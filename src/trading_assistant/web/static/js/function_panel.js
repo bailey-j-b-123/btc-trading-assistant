@@ -307,7 +307,7 @@ function breakoutsModel({ evidence }) {
       facts: [],
       list: [],
       note: evidence?.available === true
-        ? "No breakout, sweep or retest is stored in the recent part of this window."
+        ? "No breakout, sweep or retest is stored for this window at this instant."
         : "Chart evidence is unavailable for this view, so nothing is drawn in its place.",
     };
   }
@@ -329,6 +329,11 @@ function breakoutsModel({ evidence }) {
     })),
     facts: [],
     list: events.slice(0, MAX_EVENTS).map((event) => ({
+      // id and timeSeconds let the operator jump this exact record's candle into
+      // view. They are the backend's own record id and its own detected instant:
+      // neither is ever re-derived or moved.
+      id: event.id || null,
+      timeSeconds: Number.isFinite(Number(event.timeSeconds)) ? Number(event.timeSeconds) : null,
       title: `${EVENT_KINDS[event.kind] || event.kind}${event.direction ? ` · ${directionLabel(event.direction)} ${directionArrow(event.direction)}` : ""}`,
       value: event.state || UNKNOWN,
       meta: [
@@ -455,16 +460,40 @@ export function functionPanelModel({
   return { id: fn.id, ...tradePlanModel({ plan, planState, reason: planReason }) };
 }
 
-function rowNode(row, className) {
-  return el("li", { class: className, dataset: row.tone ? { tone: row.tone } : {} }, [
+/**
+ * One stored-record row. With `onSelect` and a jump target it becomes a button
+ * that brings that record's candle into view; without one it stays plain text,
+ * exactly as it was. Nothing about the record itself changes.
+ */
+function rowNode(row, className, onSelect = null) {
+  const body = [
     el("span", { class: `${className}-title`, text: row.title }),
     row.value ? el("span", { class: `${className}-value`, text: row.value }) : null,
     row.meta ? el("span", { class: `${className}-meta`, text: row.meta }) : null,
+  ];
+  const jumpable = typeof onSelect === "function" && row.id && Number.isFinite(row.timeSeconds);
+  if (!jumpable) {
+    return el("li", { class: className, dataset: row.tone ? { tone: row.tone } : {} }, body);
+  }
+  return el("li", { class: className, dataset: row.tone ? { tone: row.tone } : {} }, [
+    el("button", {
+      type: "button",
+      class: `${className}-button`,
+      "data-event-id": row.id,
+      title: "Bring this stored event's candle into view (your zoom is kept)",
+      onclick: () => onSelect(row.id),
+    }, body),
   ]);
 }
 
-/** The panel node. Plain DOM built from the model above. */
-export function functionPanel(model) {
+/**
+ * The panel node. Plain DOM built from the model above.
+ *
+ * `onSelectEvent(id)` is optional: when the chart can jump to a stored record's
+ * candle, the breakout/retest rows become jump buttons. Without it the panel is
+ * unchanged.
+ */
+export function functionPanel(model, { onSelectEvent = null } = {}) {
   if (!model) return el("aside", { class: "chart-function-panel", hidden: true });
   const body = [];
   if (model.title) {
@@ -547,7 +576,7 @@ export function functionPanel(model) {
   if (model.list?.length) {
     body.push(el("div", { class: "cfp-block" }, [
       el("div", { class: "cfp-block-title", text: "Stored records" }),
-      el("ul", { class: "cfp-list" }, model.list.map((row) => rowNode(row, "cfp-row"))),
+      el("ul", { class: "cfp-list" }, model.list.map((row) => rowNode(row, "cfp-row", onSelectEvent))),
     ]));
   }
   if (model.note) body.push(el("p", { class: "cfp-note", text: model.note }));

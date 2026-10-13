@@ -28,7 +28,14 @@
  * without ever changing what those records mean.
  */
 
-import { LAYER_DEFS, normalizeLayers, overlayPrefsFromLayers, toSeconds } from "./evidence.js";
+import {
+  LAYER_DEFS,
+  RECENT_EVENT_CANDLES,
+  candleTimes,
+  normalizeLayers,
+  overlayPrefsFromLayers,
+  toSeconds,
+} from "./evidence.js";
 
 /** One primary chart function at a time (Simple mode), or several (Detailed). */
 export const CHART_MODES = Object.freeze([
@@ -95,7 +102,7 @@ export const CHART_FUNCTIONS = Object.freeze([
     layer: "breakouts",
     overlays: Object.freeze({ zones: false, range: false, planLevels: false, equalLevels: false }),
     evidence: Object.freeze(["breakouts", "failed_breakouts", "sweeps", "retests"]),
-    empty: "No breakout, sweep or retest is stored in the recent part of this window.",
+    empty: "No breakout, sweep or retest is stored for this window at this instant.",
     hint: "Breakouts (▲/▼), liquidity sweeps (▼/▲), failed breakouts (grey) and retests (●), each at the candle BRAIN detected it, with its own confirmation state. Continuation is never drawn unless the backend recorded it.",
   },
   {
@@ -375,6 +382,7 @@ export function eventCatalogue(evidence) {
         confirmationCandles: Number.isFinite(Number(item.confirmation_candles))
           ? Number(item.confirmation_candles)
           : null,
+        timeSeconds: Number.isFinite(Number(item.time_ms)) ? toSeconds(Number(item.time_ms)) : null,
       });
     }
   };
@@ -383,6 +391,59 @@ export function eventCatalogue(evidence) {
   push(evidence?.failed_breakouts, "failed_breakout");
   push(evidence?.retests, "retest");
   return rows.sort((left, right) => (right.timeMs || 0) - (left.timeMs || 0));
+}
+
+/**
+ * How the breakout / retest layer is DRAWN for the selected chart function.
+ *
+ * The Breakouts & Retests function exists to show these events, so it draws
+ * every stored event that sits on a loaded candle: one marker per event, each
+ * with its own short label, never trimmed to the recent window. Events that
+ * share a candle are stacked by the chart library, so a breakout and the
+ * retests that followed it stay individually visible and individually
+ * clickable instead of collapsing into one marker.
+ *
+ * Every other selection keeps the calm density rule: at most one unlabelled
+ * marker per candle, and only inside the last RECENT_EVENT_CANDLES loaded
+ * candles. Which records EXIST is never affected — only how they are drawn.
+ */
+export function breakoutOptions(functionId) {
+  if (normalizeFunctionId(functionId) !== "breakouts") {
+    return Object.freeze({
+      recentCandles: RECENT_EVENT_CANDLES,
+      oneMarkerPerCandle: true,
+      labelEvents: false,
+    });
+  }
+  return Object.freeze({ recentCandles: null, oneMarkerPerCandle: false, labelEvents: true });
+}
+
+/**
+ * The stored breakout, failed-breakout, sweep and retest events the operator can
+ * jump to, oldest first — the order they happened in, left to right.
+ *
+ * An event is offered only when the candle it was detected on is already loaded
+ * on the chart. A jump target has to be an exact stored candle: no event is ever
+ * moved to a neighbouring bar to make a jump possible, and an event whose candle
+ * has not been loaded yet is not offered at all.
+ */
+export function eventNavigation(evidence, candles) {
+  const onScreen = candleTimes(candles);
+  return eventCatalogue(evidence)
+    .filter((event) => event.timeSeconds !== null && onScreen.has(event.timeSeconds))
+    .sort((left, right) => left.timeMs - right.timeMs);
+}
+
+/**
+ * The span those events occupy, as the first and last candle that carries one.
+ * Null when there is nothing on the loaded candles to frame.
+ */
+export function eventFrame(events) {
+  const times = (Array.isArray(events) ? events : [])
+    .map((event) => event.timeSeconds)
+    .filter((value) => Number.isFinite(value));
+  if (!times.length) return null;
+  return { fromSeconds: Math.min(...times), toSeconds: Math.max(...times), count: times.length };
 }
 
 /**
@@ -490,7 +551,7 @@ export function functionStatus({ functionId, evidence, model = null, plan = null
     if (storedTotal !== null) {
       parts.push(`${storedBreakouts ?? "?"} breakout(s) · ${storedFailed ?? "?"} failed · ${storedSweeps ?? "?"} sweep(s) · ${storedRetests ?? "?"} retest(s)`);
     }
-    if (shown !== null) parts.push(`${shown} drawn in the recent window`);
+    if (shown !== null) parts.push(`${shown} drawn on the loaded candles`);
     const hiddenOlder = optionalNumber(model?.hiddenOlder?.breakouts);
     if (hiddenOlder !== null && hiddenOlder > 0) parts.push(`${hiddenOlder} older item(s) outside the recent window`);
   }

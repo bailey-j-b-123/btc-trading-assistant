@@ -372,6 +372,85 @@ export function restoreLogicalView(handle, captured) {
 }
 
 /**
+ * The visible-range API of a live chart, or null when there is nothing to move.
+ * Kept separate from the logical-view helpers above because those carry a view
+ * across a RELOAD; these move the view the operator is already looking at.
+ */
+function liveTimeScale(handle) {
+  return handle && !handle.destroyed && handle.chart && typeof handle.chart.timeScale === "function"
+    ? handle.chart.timeScale()
+    : null;
+}
+
+/** Empty candles kept either side of a framed span, so the last event is not on the edge. */
+export const FRAME_PAD_CANDLES = 6;
+
+/**
+ * Bring one bar into view, keeping the operator's current zoom.
+ *
+ * The number of candles on screen is read from the chart and put back around the
+ * requested bar, so jumping to a stored event never changes how far the operator
+ * is zoomed in — only where the window sits. Presentation only: no row,
+ * timeframe, layer or stored value is touched.
+ *
+ * @returns {{from: number, to: number}|null} the applied logical range.
+ */
+export function focusBarOnChart(handle, index) {
+  const timeScale = liveTimeScale(handle);
+  if (!timeScale || typeof timeScale.setVisibleLogicalRange !== "function") return null;
+  const bars = Number.isFinite(handle.barCount) ? handle.barCount : 0;
+  if (bars <= 0 || !Number.isFinite(index)) return null;
+  const current = typeof timeScale.getVisibleLogicalRange === "function"
+    ? timeScale.getVisibleLogicalRange()
+    : null;
+  const measured = current && Number.isFinite(current.from) && Number.isFinite(current.to) && current.to > current.from
+    ? current.to - current.from
+    : null;
+  const width = Math.min(Math.max(measured ?? defaultVisibleCandles(), 1), bars);
+  const maxTo = bars - 1 + DEFAULT_EDGE_MARGIN;
+  let from = Math.round(Number(index) - width / 2);
+  let to = from + width;
+  if (from < 0) {
+    from = 0;
+    to = Math.min(width, maxTo);
+  }
+  if (to > maxTo) {
+    to = maxTo;
+    from = Math.max(0, to - width);
+  }
+  const range = { from, to };
+  timeScale.setVisibleLogicalRange(range);
+  return range;
+}
+
+/**
+ * Frame a span of bars: the one control that DOES change the zoom, because
+ * fitting the stored events is exactly what was asked for. Used by the
+ * Breakouts & Retests "frame events" control, never automatically.
+ *
+ * @returns {{from: number, to: number}|null} the applied logical range.
+ */
+export function frameBarsOnChart(handle, fromIndex, toIndex, { pad = FRAME_PAD_CANDLES } = {}) {
+  const timeScale = liveTimeScale(handle);
+  if (!timeScale || typeof timeScale.setVisibleLogicalRange !== "function") return null;
+  const bars = Number.isFinite(handle.barCount) ? handle.barCount : 0;
+  if (bars <= 0 || !Number.isFinite(fromIndex) || !Number.isFinite(toIndex)) return null;
+  const low = Math.min(fromIndex, toIndex);
+  const high = Math.max(fromIndex, toIndex);
+  const margin = Number.isFinite(pad) ? Math.max(0, Math.trunc(pad)) : 0;
+  const maxTo = bars - 1 + DEFAULT_EDGE_MARGIN;
+  let from = Math.max(0, Math.trunc(low) - margin);
+  let to = Math.min(maxTo, Math.trunc(high) + margin);
+  if (to <= from) {
+    from = Math.max(0, Math.min(from, maxTo - 1));
+    to = Math.min(maxTo, from + 1);
+  }
+  const range = { from, to };
+  timeScale.setVisibleLogicalRange(range);
+  return range;
+}
+
+/**
  * Call onNearStart(range) when the visible range moves close to the oldest loaded candle.
  * Only one listener per chart: a later call replaces the earlier one.
  */

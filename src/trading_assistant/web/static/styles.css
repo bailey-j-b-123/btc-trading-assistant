@@ -1835,6 +1835,25 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   margin-top: 8px; padding: 8px 11px;
   border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2);
 }
+/* Breakouts & Retests: reach the stored events without resetting the operator's view. */
+.chart-event-nav[hidden] { display: none; }
+.chart-event-nav {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  margin-top: 8px; padding: 8px 11px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2);
+}
+.chart-event-nav-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.chart-event-button {
+  min-height: 34px; min-width: 34px; padding: 6px 11px;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: transparent; color: var(--text-muted);
+  font-size: 11px; font-weight: 650; letter-spacing: 0.02em;
+  cursor: pointer; white-space: nowrap;
+}
+.chart-event-button:hover:not(:disabled) { border-color: var(--border-strong); color: var(--text); }
+.chart-event-button:disabled { opacity: 0.45; cursor: default; }
+.chart-event-button--frame { border-radius: 8px; }
+.chart-event-nav-note { color: var(--text-faint); font-size: 10px; line-height: 1.4; }
 .chart-layer-details { margin-top: 10px; }
 .chart-layer-details > summary {
   cursor: pointer; color: var(--text-muted); font-size: 11px; font-weight: 650;
@@ -1917,12 +1936,12 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 }
 @media (max-width: 760px) {
   .dash-summary-grid { grid-template-columns: minmax(0, 1fr); }
-  .chart-function-button, .chart-mode-button, .pattern-button, .swing-connector-toggle, .tf-button { min-height: 40px; }
+  .chart-function-button, .chart-mode-button, .pattern-button, .swing-connector-toggle, .chart-event-button, .tf-button { min-height: 40px; }
 }
 @media (max-width: 520px) {
   .dash-tab { flex: 1 1 auto; text-align: center; padding: 8px 10px; }
   .commandbar-symbol { font-size: 17px; }
-  .chart-function-button, .chart-mode-button, .pattern-button, .swing-connector-toggle, .tf-button { min-height: var(--touch); }
+  .chart-function-button, .chart-mode-button, .pattern-button, .swing-connector-toggle, .chart-event-button, .tf-button { min-height: var(--touch); }
 }
 
 /* ==========================================================================
@@ -2002,6 +2021,13 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .cfp-row-title { font-size: 11.5px; font-weight: 650; color: var(--text-dim); }
 .cfp-row-value { justify-self: end; font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--text); }
 .cfp-row-meta { grid-column: 1 / -1; color: var(--text-faint); font-size: 10px; line-height: 1.4; }
+/* A stored record the operator can jump to: the whole row is the button. */
+.cfp-row-button {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px;
+  width: 100%; padding: 0; border: 0; background: none;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.cfp-row-button:hover .cfp-row-title { color: var(--text); }
 .cfp-row[data-tone="green"] { border-left: 3px solid var(--green); }
 .cfp-row[data-tone="red"] { border-left: 3px solid var(--red); }
 .cfp-row[data-tone="amber"] { border-left: 3px solid var(--amber); }
