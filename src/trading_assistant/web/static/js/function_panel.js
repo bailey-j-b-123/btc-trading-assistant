@@ -30,6 +30,15 @@ import {
   swingCatalogue,
 } from "./chart_functions.js";
 import { directionArrow, directionLabel, displayRounded, formatUtc, isMissing } from "./format.js";
+import {
+  PATTERN_ICON_POINTS,
+  patternExplanation,
+  patternKeyLevels,
+  patternRecordFacts,
+  patternStateTitle,
+  patternTitle,
+  patternTone,
+} from "./pattern_view.js";
 import { trendReasonText } from "./plain.js";
 import { el } from "./util.js";
 
@@ -241,11 +250,20 @@ function patternsModel({ evidence, selectedPatternId, bands }) {
       legend: [],
       facts: [],
       list: [],
+      // The approved three-card column keeps its shape when nothing is stored:
+      // each card states plainly that there is nothing to show.
+      detection: null,
+      others: [],
+      keyLevels: patternKeyLevels(null),
+      recordFacts: [],
       note: "No chart pattern is stored for this window at this instant.",
     };
   }
   const raw = (Array.isArray(evidence?.patterns) ? evidence.patterns : [])
     .find((pattern) => pattern?.id === chosen.id) || {};
+  const rawById = new Map((Array.isArray(evidence?.patterns) ? evidence.patterns : [])
+    .filter((pattern) => pattern && typeof pattern === "object")
+    .map((pattern) => [pattern.id, pattern]));
   const geometry = raw.geometry && typeof raw.geometry === "object" ? raw.geometry : null;
   const facts = [
     { label: "State", value: chosen.state || UNKNOWN, tone: stateTone(chosen.state) },
@@ -285,6 +303,35 @@ function patternsModel({ evidence, selectedPatternId, bands }) {
       levels.resistance ? { label: "Stored level above price", value: `${price(levels.resistance.low)} – ${price(levels.resistance.high)}`, tone: "red" } : null,
       levels.support ? { label: "Stored level below price", value: `${price(levels.support.low)} – ${price(levels.support.high)}`, tone: "green" } : null,
     ].filter(Boolean),
+    // --- The approved three-card column (Pattern Detection, Other Detected
+    // Patterns, Key Levels). Every value below is the record's own; the score
+    // slot states that nothing is calculated, because the backend calculates
+    // nothing of the kind.
+    detection: {
+      id: chosen.id,
+      type: chosen.type,
+      name: patternTitle(chosen.type, chosen.label),
+      state: chosen.state || null,
+      stateTitle: patternStateTitle(chosen.state),
+      tone: patternTone(raw),
+      knownAt: chosen.knownAt,
+      score: { calculated: false, text: "Not calculated" },
+      explanation: patternExplanation(raw),
+    },
+    others: catalogue
+      .filter((entry) => entry.id !== chosen.id)
+      .map((entry) => ({
+        id: entry.id,
+        type: entry.type,
+        name: patternTitle(entry.type, entry.label),
+        state: entry.state || null,
+        stateTitle: patternStateTitle(entry.state),
+        tone: patternTone(rawById.get(entry.id) || entry),
+        current: entry.isLatestState,
+        knownAt: entry.knownAt,
+      })),
+    keyLevels: patternKeyLevels(raw),
+    recordFacts: patternRecordFacts(raw),
     note: "The shape drawn is the detector's own geometry. The detector stores geometry, not a confidence score, so no confidence percentage is shown.",
   };
 }
@@ -514,8 +561,17 @@ function rowNode(row, className) {
 }
 
 /** The panel node. Plain DOM built from the model above. */
-export function functionPanel(model, { onSelectStage = null, onFrameStages = null } = {}) {
+export function functionPanel(model, {
+  onSelectStage = null,
+  onFrameStages = null,
+  onSelectPattern = null,
+  onFitPattern = null,
+  mode = "simple",
+} = {}) {
   if (!model) return el("aside", { class: "chart-function-panel", hidden: true });
+  if (model.id === "patterns" && "detection" in model) {
+    return patternPanel(model, { onSelectPattern, onFitPattern, mode });
+  }
   const body = [];
   if (model.title) {
     body.push(el("div", { class: "cfp-title" }, [
@@ -642,5 +698,214 @@ export function functionPanel(model, { onSelectStage = null, onFrameStages = nul
       model.chip ? el("span", { class: "cfp-chip", text: model.chip }) : null,
     ]),
     ...body,
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// Chart Patterns: the approved three-card column
+//
+//   1. Pattern Detection   — icon, name, lifecycle badge, the score slot
+//                            ("Not calculated"), a short explanation;
+//   2. Other Detected Patterns — one selectable row per other stored record;
+//   3. Key Levels          — Neckline, Support, Resistance from the record.
+//
+// Plain DOM built from patternsModel above; nothing here computes a value.
+// ---------------------------------------------------------------------------
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** An SVG node when the document can make one; a plain span otherwise (tests). */
+function svgNode(tag, attrs = {}, children = []) {
+  if (typeof document === "undefined" || typeof document.createElementNS !== "function") {
+    return el("span", { class: `svg-fallback svg-${tag}`, "aria-hidden": "true" });
+  }
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [key, value] of Object.entries(attrs)) {
+    if (value !== null && value !== undefined) node.setAttribute(key, String(value));
+  }
+  for (const child of children) if (child) node.appendChild(child);
+  return node;
+}
+
+/** A pictogram of the pattern TYPE (not of the record). */
+function patternIcon(type, className) {
+  const points = PATTERN_ICON_POINTS[type] || PATTERN_ICON_POINTS.double_bottom;
+  return svgNode("svg", {
+    class: className,
+    viewBox: "0 0 100 60",
+    "aria-hidden": "true",
+    focusable: "false",
+  }, [
+    svgNode("polyline", {
+      points: points.map(([x, y]) => `${x},${y}`).join(" "),
+      fill: "none",
+      stroke: "currentColor",
+      "stroke-width": 5,
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+    }),
+  ]);
+}
+
+const CARD_ICONS = Object.freeze({
+  pulse: () => svgNode("svg", { class: "pd-head-icon", viewBox: "0 0 24 24", "aria-hidden": "true", focusable: "false" }, [
+    svgNode("polyline", {
+      points: "1,12 6,12 8.5,5 11.5,19 14.5,8 16.5,15 18,12 23,12",
+      fill: "none", stroke: "currentColor", "stroke-width": 1.8, "stroke-linecap": "round", "stroke-linejoin": "round",
+    }),
+  ]),
+  radar: () => svgNode("svg", { class: "pd-head-icon", viewBox: "0 0 24 24", "aria-hidden": "true", focusable: "false" }, [
+    svgNode("circle", { cx: 12, cy: 12, r: 8.5, fill: "none", stroke: "currentColor", "stroke-width": 1.8 }),
+    svgNode("circle", { cx: 12, cy: 12, r: 3.2, fill: "currentColor" }),
+  ]),
+  target: () => svgNode("svg", { class: "pd-head-icon", viewBox: "0 0 24 24", "aria-hidden": "true", focusable: "false" }, [
+    svgNode("circle", { cx: 12, cy: 12, r: 9, fill: "none", stroke: "currentColor", "stroke-width": 1.7 }),
+    svgNode("circle", { cx: 12, cy: 12, r: 5, fill: "none", stroke: "currentColor", "stroke-width": 1.7 }),
+    svgNode("circle", { cx: 12, cy: 12, r: 1.6, fill: "currentColor" }),
+  ]),
+});
+
+function cardHead(icon, title, extra = null) {
+  return el("div", { class: "pd-card-head" }, [
+    CARD_ICONS[icon](),
+    el("h3", { class: "pd-card-title", text: title }),
+    extra,
+  ]);
+}
+
+function detectionCard(model, { onFitPattern, mode }) {
+  const detection = model.detection;
+  const fit = detection && typeof onFitPattern === "function"
+    ? el("button", {
+        type: "button",
+        class: "pd-fit",
+        "data-fit-pattern": "true",
+        title: "Fit the whole selected pattern into the chart. This is the one control here that changes the zoom.",
+        text: "Fit to chart",
+        onclick: () => onFitPattern(),
+      })
+    : null;
+  if (!detection) {
+    return el("section", { class: "pd-card pd-card--detection", "aria-label": "Pattern detection", dataset: { empty: "true" } }, [
+      cardHead("pulse", "Pattern Detection"),
+      el("div", { class: "pd-body" }, [
+        el("p", { class: "pd-empty", text: model.note || "No chart pattern is stored for this window at this instant." }),
+      ]),
+    ]);
+  }
+  const body = [
+    el("div", { class: "pd-selected" }, [
+      el("div", { class: "pd-icon-tile", dataset: { tone: detection.tone } }, [patternIcon(detection.type, "pd-icon")]),
+      el("div", { class: "pd-selected-text" }, [
+        el("div", { class: "pd-name", text: detection.name }),
+        el("span", {
+          class: "pd-badge",
+          dataset: { tone: detection.tone, state: detection.state || "unknown" },
+          title: detection.knownAt ? `Lifecycle state recorded by the backend · known ${formatUtc(detection.knownAt)}` : "Lifecycle state recorded by the backend",
+          text: detection.stateTitle,
+        }),
+      ]),
+    ]),
+    // The score slot stays where the approved design puts it. The backend does
+    // not calculate a score, so the bar is empty and the value says so.
+    el("div", { class: "pd-score", dataset: { calculated: String(detection.score.calculated === true) } }, [
+      el("div", { class: "pd-score-row" }, [
+        el("span", { class: "pd-score-label", text: "Confidence" }),
+        el("span", { class: "pd-score-value", text: detection.score.text }),
+      ]),
+      el("div", {
+        class: "pd-score-track",
+        role: "img",
+        "aria-label": "Not calculated: the backend does not calculate a pattern score",
+        title: "The backend stores the pattern's geometry and lifecycle state only; it does not calculate a score.",
+      }),
+    ]),
+    el("div", { class: "pd-explain" }, [
+      el("div", { class: "pd-explain-title", text: "Explanation" }),
+      el("p", { class: "pd-explain-text", text: detection.explanation || "" }),
+    ]),
+  ];
+  if (mode === "detailed") {
+    // Detailed keeps the existing stored-record access: state, times, levels,
+    // the detector's own geometry and every stored point.
+    body.push(el("div", { class: "pd-record" }, [
+      el("div", { class: "pd-explain-title", text: "Stored record" }),
+      el("dl", { class: "pd-record-facts" }, [...(model.facts || []), ...(model.geometry || []), ...(model.recordFacts || [])]
+        .flatMap((fact) => [
+          el("dt", { text: fact.label }),
+          el("dd", { dataset: fact.tone ? { tone: fact.tone } : {}, text: fact.value }),
+        ])),
+    ]));
+  }
+  return el("section", { class: "pd-card pd-card--detection", "aria-label": "Pattern detection", dataset: { tone: detection.tone } }, [
+    cardHead("pulse", "Pattern Detection", fit),
+    el("div", { class: "pd-body" }, body),
+  ]);
+}
+
+function othersCard(model, { onSelectPattern, mode }) {
+  // Simple: one row per other pattern's CURRENT state. Detailed: every other
+  // stored state as well, each marked as the earlier state it is.
+  const rows = (model.others || []).filter((row) => mode === "detailed" || row.current);
+  const list = rows.length
+    ? el("ul", { class: "pd-others" }, rows.map((row) => {
+        const inner = [
+          patternIcon(row.type, "pd-row-icon"),
+          el("span", { class: "pd-row-name" }, [
+            el("span", { class: "pd-row-title", text: row.name }),
+            row.current ? null : el("span", { class: "pd-row-meta", text: "earlier state" }),
+          ]),
+          el("span", { class: "pd-badge pd-badge--small", dataset: { tone: row.tone, state: row.state || "unknown" }, text: row.stateTitle }),
+          el("span", { class: "pd-row-chevron", "aria-hidden": "true", text: "\u203a" }),
+        ];
+        const title = `${row.name} · ${row.stateTitle}${row.current ? "" : " (earlier state)"} · known ${row.knownAt ? formatUtc(row.knownAt) : UNKNOWN}. Select to draw this stored record.`;
+        return el("li", { class: "pd-other", dataset: { tone: row.tone } }, [
+          typeof onSelectPattern === "function"
+            ? el("button", {
+                type: "button",
+                class: "pd-other-button",
+                "data-select-pattern": row.id,
+                title,
+                "aria-label": `Show ${row.name}, ${row.stateTitle}`,
+                onclick: () => onSelectPattern(row.id),
+              }, inner)
+            : el("div", { class: "pd-other-button", title }, inner),
+        ]);
+      }))
+    : el("p", { class: "pd-empty", text: "No other patterns recorded" });
+  return el("section", { class: "pd-card pd-card--others", "aria-label": "Other detected patterns" }, [
+    cardHead("radar", "Other Detected Patterns"),
+    list,
+  ]);
+}
+
+function keyLevelsCard(model) {
+  return el("section", { class: "pd-card pd-card--levels", "aria-label": "Key levels" }, [
+    cardHead("target", "Key Levels"),
+    el("dl", { class: "pd-levels" }, (model.keyLevels || []).map((row) => el("div", {
+      class: "pd-level",
+      dataset: { level: row.key, available: String(row.available === true), tone: row.tone || "neutral" },
+      title: row.detail || "",
+    }, [
+      el("dt", { class: "pd-level-label" }, [
+        el("span", { text: row.label }),
+        " ",
+        el("span", { class: "pd-level-qualifier", text: row.qualifier }),
+      ]),
+      el("dd", { class: "pd-level-value", text: row.value }),
+    ]))),
+  ]);
+}
+
+/** The approved Chart Patterns column: three stacked cards. */
+export function patternPanel(model, { onSelectPattern = null, onFitPattern = null, mode = "simple" } = {}) {
+  return el("aside", {
+    class: "chart-function-panel pattern-panel",
+    "aria-label": "Chart pattern details",
+    dataset: { tone: model.tone || "neutral", function: "patterns", mode },
+  }, [
+    detectionCard(model, { onFitPattern, mode }),
+    othersCard(model, { onSelectPattern, mode }),
+    keyLevelsCard(model),
   ]);
 }

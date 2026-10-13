@@ -40,10 +40,15 @@ import {
   DECISION_MEANINGS,
 } from "../decision.js";
 import { breakoutStages, drawableStages, stageFrame } from "../breakout_stages.js";
+import { annotationFullyOnScreen, patternAnnotation } from "../pattern_view.js";
 import {
   captureChartView,
   captureLogicalView,
   clearBreakoutAnnotations,
+  clearPatternAnnotation,
+  holdWindowThroughResize,
+  setPatternAnnotation,
+  setPatternPane,
   focusBarOnChart,
   frameBarsOnChart,
   redrawOverlays,
@@ -628,6 +633,15 @@ function chartCard(initialDashboard) {
     "aria-label": "Forming candle display only", text: "FORMING — DISPLAY ONLY" });
   const confirmedStatus = el("div", { class: "chart-note confirmed-status", text: "Last confirmed stored close: unavailable" });
   const ohlcLine = el("div", { class: "chart-ohlc", "aria-live": "off", text: "Move over a candle for its confirmed OHLC." });
+  // Chart Patterns screen: the chart's own header line (instrument, timeframe,
+  // exchange and the OHLC of the hovered or newest stored candle), drawn at the
+  // top edge of the chart panel exactly where the approved layout puts it.
+  const chartPanelTitle = el("span", { class: "pch-title", text: "" });
+  const chartPanelOhlc = el("span", { class: "pch-ohlc", "aria-live": "off" });
+  const chartPanelHead = el("div", { class: "pattern-chart-head", "aria-label": "Candle OHLC" }, [chartPanelTitle, chartPanelOhlc]);
+  // Where the chart-function and mode switches sit while the Chart Patterns
+  // screen is open: the slim header bar, beside the timeframe selector.
+  const headerControls = el("div", { class: "chart-header-controls", role: "group", "aria-label": "Chart function controls" });
   const evidenceMeta = el("div", { class: "chart-evidence-meta", role: "note", text: "" });
   // Text alternative to the chart markers: every drawn item, reachable without hovering or clicking the canvas.
   const itemListBody = el("div", { class: "chart-items-body" });
@@ -714,6 +728,12 @@ function chartCard(initialDashboard) {
   const restoreRedrawView = (view) => restoreLogicalView(handleRef.current, view);
   const swingFunctionActive = () => activeChartFunction === "swings" || activeChartMode === DETAILED_MODE;
   const patternFunctionActive = () => activeChartFunction === "patterns" || activeChartMode === DETAILED_MODE;
+  /** The approved pattern-focused layout belongs to the Chart Patterns function only. */
+  const patternFocus = () => activeChartFunction === "patterns";
+  /** Bar index of one stored candle time on the loaded series, or -1. Never a neighbour. */
+  const barIndexOf = (timeSeconds) => toChartCandles(viewed.candleRows).findIndex((bar) => bar.time === timeSeconds);
+  /** True while the Chart Patterns screen may still need to bring the selected pattern into view. */
+  let patternInViewPending = false;
   function stopForming() {
     formingStream?.stop();
     formingStream = null;
@@ -790,6 +810,7 @@ function chartCard(initialDashboard) {
   const renderEvidence = () => {
     const handle = handleRef.current;
     if (!handle) return;
+    paintChartHead(null);
     const layers = selectionLayers();
     const evidence = filterEvidence(viewed.evidence, activeChartFunction, {
       mode: activeChartMode,
@@ -815,7 +836,20 @@ function chartCard(initialDashboard) {
       : null;
     emphasiseStoredSwings(viewed.model);
     addSwingConnector(viewed.model);
-    setEvidence(handle, viewed.model);
+    // Chart Patterns, Simple: the annotated shape below IS the chart's reading
+    // of the selected record, so the small pattern marker and zigzag lines are
+    // not drawn on top of it. The records stay in the model, so the count, the
+    // item list and click-to-explain are unchanged. Detailed keeps them all.
+    const patternAnnotated = patternFocus() && activeChartMode !== DETAILED_MODE;
+    const drawnModel = patternAnnotated
+      ? {
+          ...viewed.model,
+          markers: viewed.model.markers.filter((marker) => marker.shape !== "square"),
+          patternLines: viewed.model.patternLines.filter((line) => !String(line.role || "").startsWith("pattern-")),
+        }
+      : viewed.model;
+    setEvidence(handle, drawnModel);
+    paintPatternAnnotation();
     const counts = viewed.model.hiddenFuture
       ? ` · ${viewed.model.hiddenFuture} item(s) not yet known at this instant are hidden`
       : "";
@@ -911,6 +945,141 @@ function chartCard(initialDashboard) {
     functionStatusNode.textContent = `${fn.label}: ${status.text}`;
     renderPatternPicker();
   };
+
+  /**
+   * Chart Patterns: draw the selected stored record in the approved style
+   * (pattern_view.patternAnnotation). Any other function removes it.
+   */
+  const paintPatternAnnotation = () => {
+    const handle = handleRef.current;
+    if (!handle) return;
+    if (!patternFocus() || viewed.evidence?.available !== true) {
+      clearPatternAnnotation(handle);
+      viewed.patternAnnotation = null;
+      return;
+    }
+    const chosen = highlightedPattern(viewed.evidence, selectedPatternId);
+    const raw = chosen
+      ? (Array.isArray(viewed.evidence.patterns) ? viewed.evidence.patterns : []).find((pattern) => pattern?.id === chosen.id) || null
+      : null;
+    viewed.patternAnnotation = raw ? patternAnnotation(raw, viewed.candleRows) : null;
+    setPatternAnnotation(handle, viewed.patternAnnotation);
+    ensurePatternInView();
+  };
+
+  /**
+   * A timeframe with no stored candles: the Chart Patterns screen must not keep
+   * the previous timeframe's OHLC line or pattern cards under the new label.
+   */
+  const clearStalePatternScreen = () => {
+    viewed.candleRows = [];
+    paintChartHead(null);
+    if (patternFocus()) paintFunctionPanel();
+  };
+
+  /** Bar span of the drawn pattern on the loaded series, or null. */
+  const patternBarSpan = () => {
+    const annotation = viewed.patternAnnotation;
+    if (!annotation) return null;
+    const fromIndex = barIndexOf(annotation.fromSeconds);
+    const toIndex = barIndexOf(annotation.toSeconds);
+    return fromIndex >= 0 && toIndex >= 0 ? { fromIndex, toIndex } : null;
+  };
+
+  /**
+   * Centre the window on the selected pattern when it is not wholly on screen,
+   * at the operator's own zoom (focusBarOnChart keeps the number of candles on
+   * screen; a pattern wider than the window stays partly off it — only the
+   * explicit Fit button changes the zoom). Runs once when the screen opens and
+   * once per pattern selection; it never drags the view back afterwards.
+   */
+  const ensurePatternInView = () => {
+    const handle = handleRef.current;
+    if (!patternInViewPending || !handle) return;
+    const span = patternBarSpan();
+    if (!span) return;
+    const range = handle.chart?.timeScale?.().getVisibleLogicalRange?.();
+    patternInViewPending = false;
+    if (annotationFullyOnScreen(span, range)) return;
+    if (!focusBarOnChart(handle, Math.round((span.fromIndex + span.toIndex) / 2))) return;
+    scheduleRedraw(handle);
+  };
+
+  /** Fit the whole selected pattern into the window: the one control here that changes the zoom. */
+  function fitPattern() {
+    const handle = handleRef.current;
+    const span = patternBarSpan();
+    if (!handle || !span) return;
+    const width = Math.max(1, span.toIndex - span.fromIndex);
+    frameBarsOnChart(handle, span.fromIndex, span.toIndex, { pad: Math.round(width * 0.6) });
+    scheduleRedraw(handle);
+  }
+
+  /** Select one stored pattern record from the Other Detected Patterns card. */
+  function choosePattern(patternId) {
+    selectedPatternId = patternId;
+    const keep = captureRedrawView();
+    renderEvidence();
+    restoreRedrawView(keep);
+    // After the operator's window is restored: only then may it move to the
+    // newly selected pattern, and only if none of it is on screen.
+    patternInViewPending = true;
+    ensurePatternInView();
+    scheduleRedraw(handleRef.current);
+  }
+
+  /**
+   * Put the chart-function and mode switches in the header while the Chart
+   * Patterns screen is open, and back in the chart toolbar otherwise; split the
+   * chart into candle and volume panes for that screen only.
+   */
+  const applyPatternFocus = () => {
+    const focus = patternFocus();
+    const target = focus ? headerControls : controlHome;
+    if (controlRow.parentNode !== target) {
+      // The chart panel changes width with this layout: keep the same candles on screen.
+      holdWindowThroughResize(handleRef.current);
+      controlRow.remove();
+      target.append(controlRow);
+    }
+    setPatternPane(handleRef.current, focus);
+    paintChartHead(null);
+  };
+
+  /** The OHLC line of the Chart Patterns panel: the hovered candle, else the newest stored one. */
+  function paintChartHead(bar) {
+    chartPanelTitle.textContent = `${symbol} · ${viewedTimeframeLabel(viewed.timeframe)} · ${exchange ? exchange.toUpperCase() : "UNKNOWN"}`;
+    const candles = toChartCandles(viewed.candleRows);
+    const shown = bar || candles.at(-1) || null;
+    clearNode(chartPanelOhlc);
+    if (!shown) {
+      chartPanelOhlc.append(el("span", { class: "pch-none", text: "No stored candle" }));
+      return;
+    }
+    const up = Number(shown.close) >= Number(shown.open);
+    const tone = up ? "green" : "red";
+    const field = (key, value) => el("span", { class: "pch-field" }, [
+      el("span", { class: "pch-key", text: key }),
+      el("span", { class: "pch-value", dataset: { tone }, text: displayPrice(value).display ?? UNKNOWN_TEXT }),
+    ]);
+    const change = Number(shown.close) - Number(shown.open);
+    const changePct = Number(shown.open) ? (change / Number(shown.open)) * 100 : null;
+    chartPanelOhlc.append(
+      field("O", shown.open),
+      field("H", shown.high),
+      field("L", shown.low),
+      field("C", shown.close),
+      Number.isFinite(change)
+        ? el("span", {
+            class: "pch-change",
+            dataset: { tone },
+            title: "This candle's close minus its open",
+            text: `${change >= 0 ? "+" : "\u2212"}${displayPrice(Math.abs(change).toFixed(2)).display}${changePct === null ? "" : ` (${change >= 0 ? "+" : "\u2212"}${Math.abs(changePct).toFixed(2)}%)`}`,
+          })
+        : null,
+    );
+    chartPanelHead.title = `${bar ? "Hovered" : "Newest stored"} confirmed candle · opened ${formatUtc(new Date(shown.time * 1000).toISOString())}`;
+  }
 
   /** Draw the explanation panel for the selected function, from stored records only. */
   /**
@@ -1048,7 +1217,13 @@ function chartCard(initialDashboard) {
       marketState: dashboard?.market_state || null,
       selectedPatternId,
       stages: viewed.stages,
-    }), { onSelectStage: selectStage, onFrameStages: frameStoredEvents })];
+    }), {
+      onSelectStage: selectStage,
+      onFrameStages: frameStoredEvents,
+      onSelectPattern: choosePattern,
+      onFitPattern: fitPattern,
+      mode: activeChartMode,
+    })];
     // The Breakouts & Retests screen pairs the chart with the market summary
     // and the Breakout Logic panel; every other function keeps its own panel.
     clearNode(functionPanelMount).append(...(activeChartFunction === "breakouts" ? [marketSummaryCard(), ...nodes] : nodes));
@@ -1149,10 +1324,19 @@ function chartCard(initialDashboard) {
     // Opening the Breakouts screen may need to move the window to its steps;
     // leaving it must never drag the view back.
     stagesInViewPending = next === "breakouts";
+    patternInViewPending = false;
     const keep = captureRedrawView();
+    applyPatternFocus();
     renderEvidence();
     applyViewedOverlays();
     restoreRedrawView(keep);
+    // Opening Chart Patterns brings the selected pattern into view if it is
+    // off screen, at the operator's own zoom (the window moves, never the zoom).
+    if (next === "patterns") {
+      patternInViewPending = true;
+      ensurePatternInView();
+      scheduleRedraw(handleRef.current);
+    }
     // The restore above puts the operator's view back, which can leave the
     // stored steps off the side of this screen. Check once more, still at the
     // operator's own zoom — this moves the window, never the zoom.
@@ -1197,6 +1381,7 @@ function chartCard(initialDashboard) {
     itemListBody.append(list);
   };
   const showOhlc = (bar) => {
+    paintChartHead(bar || null);
     if (!bar) {
       ohlcLine.textContent = "Move over a candle for its confirmed OHLC.";
       return;
@@ -1329,14 +1514,19 @@ function chartCard(initialDashboard) {
     modeSwitch.append(button);
   }
   patternPicker.append(el("span", { class: "control-caption", text: "DETECTED PATTERN" }), patternPickerBody);
+  const controlRow = el("div", { class: "chart-control-row" }, [
+    el("span", { class: "control-caption", text: "CHART FUNCTION" }),
+    functionSwitch,
+    el("span", { class: "control-caption", text: "MODE" }),
+    modeSwitch,
+    swingConnectorButton,
+  ]);
+  // The row's home in the toolbar. `display: contents`, so the toolbar lays
+  // the row out exactly as before; the Chart Patterns screen lends the row to
+  // the header and puts it back here when another function is selected.
+  const controlHome = el("div", { class: "chart-control-home" }, [controlRow]);
   toolbar.append(
-    el("div", { class: "chart-control-row" }, [
-      el("span", { class: "control-caption", text: "CHART FUNCTION" }),
-      functionSwitch,
-      el("span", { class: "control-caption", text: "MODE" }),
-      modeSwitch,
-      swingConnectorButton,
-    ]),
+    controlHome,
     functionStatusNode,
     patternPicker,
   );
@@ -1558,7 +1748,9 @@ function chartCard(initialDashboard) {
     if (handleRef.current) {
       clearOverlays(handleRef.current);
       clearEvidence(handleRef.current);
+      clearPatternAnnotation(handleRef.current);
     }
+    viewed.patternAnnotation = null;
     viewed.model = null;
     viewed.history = null;
     historyNoteEl.textContent = "";
@@ -1633,6 +1825,7 @@ function chartCard(initialDashboard) {
       viewed.overlays = emptyOverlays();
       viewed.evidence = { available: false, reason: "no candles for this timeframe" };
       if (handleRef.current) setCandles(handleRef.current, []);
+      clearStalePatternScreen();
       const detail = candlesError
         ? `${candlesError.message} No substitute data is shown.`
         : `The backend returned ${timeframeEcho || "unlabelled"} data for a ${label} request; it is not shown.`;
@@ -1645,6 +1838,7 @@ function chartCard(initialDashboard) {
       viewed.overlays = emptyOverlays();
       viewed.evidence = { available: false, reason: "no stored closed candles at this decision time" };
       if (handleRef.current) setCandles(handleRef.current, []);
+      clearStalePatternScreen();
       const returned = Number.isInteger(candlesPayload.returned_count) ? candlesPayload.returned_count : fetchedRows.length;
       showChartOverlay(chartEmpty(
         `${label} data unavailable`,
@@ -1765,7 +1959,7 @@ function chartCard(initialDashboard) {
     ohlcLine,
     // The chart and its function panel sit side by side on a wide screen, and
     // stack (chart first) on a narrow one.
-    el("div", { class: "chart-stage" }, [host, functionPanelMount]),
+    el("div", { class: "chart-stage" }, [chartPanelHead, host, functionPanelMount]),
     evidenceMeta,
     itemList,
     markerKey,
@@ -1775,6 +1969,7 @@ function chartCard(initialDashboard) {
 
   refreshLayerButtons();
   updateLiquidityToggle();
+  applyPatternFocus();
   paintFunctionStatus();
   paintFunctionPanel();
   paintBreakoutAnnotations();
@@ -1793,6 +1988,7 @@ function chartCard(initialDashboard) {
     // the top of the dashboard, and the explanation panel sits in the Current
     // Setup column beside the trading status it must never replace.
     timeframeControls,
+    headerControls,
     explainPanel,
     update,
     canUpdate,
@@ -1804,6 +2000,7 @@ function chartCard(initialDashboard) {
       const handle = ensureChart();
       if (!handle) return;
       setCandles(handle, rows);
+      setPatternPane(handle, patternFocus());
       startForming(engineTimeframe, rows);
       void attachEngineHistory(handle, engineTimeframe, viewed.generation);
       applyViewedOverlays();
@@ -3065,7 +3262,7 @@ function moreMenu() {
   ]);
 }
 
-function tradingBar({ dashboard, forward, live, updateStatusNode, timeframeControls }) {
+function tradingBar({ dashboard, forward, live, updateStatusNode, timeframeControls, headerControls = null }) {
   const meta = dashboard?.meta || {};
   const symbol = meta.symbol || "UNKNOWN";
   const timeframe = meta.timeframe ? String(meta.timeframe).toUpperCase() : "UNKNOWN";
@@ -3077,11 +3274,12 @@ function tradingBar({ dashboard, forward, live, updateStatusNode, timeframeContr
   const latestClose = latest && !isMissing(latest.close) ? displayRounded(latest.close, 2).display : "UNKNOWN";
   return el("section", { class: "dash-commandbar", "aria-label": "Trading bar" }, [
     el("div", { class: "commandbar-identity" }, [
-      el("span", { class: "commandbar-symbol", text: symbol }),
+      el("span", { class: "commandbar-symbol", title: `Analysed as of ${asOf} · stored closed candles only`, text: symbol }),
       el("span", { class: "mode-pill", text: "PAPER MODE" }),
       el("span", { class: "commandbar-engine", text: `ENGINE ${timeframe}` }),
     ]),
     timeframeControls,
+    headerControls,
     el("div", { class: "commandbar-quote" }, [live.node]),
     el("div", { class: "commandbar-health" }, [
       el("span", { class: "commandbar-health-pill", dataset: { tone: health.tone }, role: "status", text: health.label }),
@@ -3092,6 +3290,15 @@ function tradingBar({ dashboard, forward, live, updateStatusNode, timeframeContr
       updateStatusNode,
     ]),
     el("div", { class: "commandbar-asof", text: `Analysed as of ${asOf} · stored closed candles only` }),
+    // Shown only in the Chart Patterns header, where the global bar (and its
+    // Refresh button) is folded away: the same refresh, nothing new.
+    el("button", {
+      type: "button",
+      class: "commandbar-refresh",
+      "aria-label": "Refresh dashboard",
+      title: "Refresh dashboard",
+      onclick: () => document.getElementById("refresh-dashboard")?.click?.(),
+    }, [el("span", { "aria-hidden": "true", text: "\u21bb" })]),
     moreMenu(),
   ]);
 }
@@ -3674,6 +3881,7 @@ export async function renderDashboard(view, { refresh = false } = {}) {
       live,
       updateStatusNode,
       timeframeControls: chart.timeframeControls,
+      headerControls: chart.headerControls,
     }),
     // Main area: the chart on the left, the Current Setup panel on the right.
     el("div", { class: "dash-main" }, [

@@ -193,8 +193,16 @@ export function createPriceChart(container, { height } = {}) {
     const width = Number(container.clientWidth) || 0;
     const nextHeight = Number(container.clientHeight) || 0;
     if (width > 0 && nextHeight > 0) chart.resize(width, nextHeight);
+    // A deliberate layout change (the Chart Patterns screen widens or narrows
+    // the chart) keeps the same candles on screen: the library would otherwise
+    // keep the pixels per candle and silently change the window.
+    const hold = handle.windowHold;
+    if (hold && Date.now() <= hold.until) restoreLogicalView(handle, hold.view);
+    else handle.windowHold = null;
     renderZoneBands(handle);
     renderBreakoutAnnotations(handle);
+    renderPatternAnnotation(handle);
+    renderPatternVolumeLabel(handle);
   };
 
   if (typeof ResizeObserver === "function") {
@@ -264,7 +272,10 @@ export function setCandles(handle, payload) {
     });
   }
   if (handle.volume && typeof handle.volume.setData === "function") handle.volume.setData(volumeRows);
+  // The newest stored volume, for the volume label of the Chart Patterns pane.
+  handle.lastVolume = volumeRows.length ? volumeRows[volumeRows.length - 1].value : null;
   renderZoneBands(handle);
+  renderPatternVolumeLabel(handle);
 }
 
 /**
@@ -349,6 +360,29 @@ export function captureLogicalView(handle) {
 }
 
 /**
+ * Keep the current window (same candles on screen) through the resizes a
+ * layout change is about to cause. Only for a deliberate layout switch; the
+ * hold expires on its own, so an ordinary window resize is never affected.
+ */
+export function holdWindowThroughResize(handle, ms = 1500) {
+  if (!handle || handle.destroyed) return;
+  const view = captureLogicalView(handle);
+  handle.windowHold = view ? { view, until: Date.now() + ms } : null;
+}
+
+/** After the screen itself moved the window, an active hold keeps the new one. */
+export function refreshWindowHold(handle, range = null) {
+  if (!handle || !handle.windowHold) return;
+  // The library applies a new visible range lazily, so the range just set is
+  // used as given rather than read back (a read-back can still be the old one).
+  const bars = Number.isFinite(handle.barCount) ? handle.barCount : 0;
+  const view = range && bars > 0 && Number.isFinite(range.from) && Number.isFinite(range.to) && range.to > range.from
+    ? { width: range.to - range.from, edgeOffset: range.to - (bars - 1) }
+    : captureLogicalView(handle);
+  if (view) handle.windowHold = { ...handle.windowHold, view };
+}
+
+/**
  * Put back a window captured by captureLogicalView on the series that is loaded now.
  *
  * The same zoom (candle count) and the same distance from the newest candle are restored, then
@@ -424,6 +458,8 @@ export function focusBarOnChart(handle, index) {
   }
   const range = { from, to };
   timeScale.setVisibleLogicalRange(range);
+  // A deliberate move: a layout hold in progress keeps this window, not the old one.
+  refreshWindowHold(handle, range);
   return range;
 }
 
@@ -451,6 +487,8 @@ export function frameBarsOnChart(handle, fromIndex, toIndex, { pad = FRAME_PAD_C
   }
   const range = { from, to };
   timeScale.setVisibleLogicalRange(range);
+  // A deliberate move: a layout hold in progress keeps this window, not the old one.
+  refreshWindowHold(handle, range);
   return range;
 }
 
@@ -711,6 +749,7 @@ export function renderBreakoutAnnotations(handle) {
 export function redrawOverlays(handle) {
   renderZoneBands(handle);
   renderBreakoutAnnotations(handle);
+  renderPatternAnnotation(handle);
 }
 
 /**
@@ -797,6 +836,8 @@ export function clearOverlays(handle) {
 export function destroyPriceChart(handle) {
   if (handle) {
     clearBreakoutAnnotations(handle);
+    clearPatternAnnotation(handle);
+    setPatternPane(handle, false);
   }
   if (!handle || handle.destroyed) return;
   clearOverlays(handle);
@@ -1282,4 +1323,474 @@ export function renderZoneBands(handle) {
     note.textContent = `${offView} zone${offView === 1 ? "" : "s"} outside the visible price range`;
     layer.appendChild(note);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Chart Patterns: the annotated pattern and the volume pane
+//
+// One stored pattern record is drawn over the candles in the approved style:
+// the shape in its tone colour through the record's own points, a light fill
+// up to the dashed neckline, a dashed line at the stored extreme, labels on
+// the record's own extremes, and an outlined title ("Double Bottom -
+// Confirmed") joined by a thin line to the confirmation candle. The geometry
+// comes from pattern_view.js; this layer only turns times and prices into
+// pixels with the chart's own coordinate functions, exactly like the zone
+// bands and breakout callouts above. It never changes a series or a value.
+// ---------------------------------------------------------------------------
+
+const PATTERN_TONE_COLORS = Object.freeze({
+  green: "#2ad19d",
+  red: "#e0565b",
+  amber: "#e8a33d",
+  neutral: "#8f9bb3",
+});
+const SVG_NS_CHART = "http://www.w3.org/2000/svg";
+/** Gap between the neckline and the bottom of the title box (approved layout). */
+const PATTERN_TITLE_GAP = 46;
+/** Candle pane / volume pane split used by the Chart Patterns screen. */
+const PATTERN_PANE = Object.freeze({
+  candles: { top: 0.15, bottom: 0.29 },
+  volume: { top: 0.82, bottom: 0 },
+  separator: 0.8,
+});
+/** The library's own defaults, restored when the screen is left. */
+const DEFAULT_PANE = Object.freeze({
+  candles: { top: 0.2, bottom: 0.1 },
+  volume: { top: 0.85, bottom: 0 },
+});
+
+function svgEl(tag, attrs = {}) {
+  const node = document.createElementNS(SVG_NS_CHART, tag);
+  for (const [key, value] of Object.entries(attrs)) {
+    if (value !== null && value !== undefined) node.setAttribute(key, String(value));
+  }
+  return node;
+}
+
+/** The candle area (excluding the price axis and the time axis), in pixels. */
+function paneSize(handle) {
+  const width = Number(handle.container?.clientWidth) || 0;
+  const height = Number(handle.container?.clientHeight) || 0;
+  let axisWidth = 0;
+  let axisHeight = 0;
+  try {
+    axisWidth = Number(handle.chart?.priceScale?.("right")?.width?.()) || 0;
+  } catch {
+    axisWidth = 0;
+  }
+  try {
+    axisHeight = Number(handle.chart?.timeScale?.()?.height?.()) || 0;
+  } catch {
+    axisHeight = 0;
+  }
+  return { width: Math.max(0, width - axisWidth), height: Math.max(0, height - axisHeight) };
+}
+
+/**
+ * Smooth monotone path through the given pixel points (Fritsch–Carlson).
+ * Monotone interpolation never overshoots between two points, so the drawn
+ * curve never dips below a stored bottom or rises above a stored top: it is a
+ * connector between the points, not a new low or high.
+ */
+export function monotonePath(points) {
+  const pts = [];
+  for (const point of points) {
+    if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) continue;
+    if (pts.length && Math.abs(point.x - pts[pts.length - 1].x) < 0.5) continue;
+    pts.push({ x: point.x, y: point.y });
+  }
+  if (pts.length < 2) return "";
+  const n = pts.length;
+  const dx = [];
+  const slope = [];
+  for (let i = 0; i < n - 1; i += 1) {
+    dx.push(pts[i + 1].x - pts[i].x);
+    slope.push((pts[i + 1].y - pts[i].y) / dx[i]);
+  }
+  const tangent = new Array(n).fill(0);
+  tangent[0] = slope[0];
+  tangent[n - 1] = slope[n - 2];
+  for (let i = 1; i < n - 1; i += 1) {
+    if (slope[i - 1] * slope[i] <= 0) {
+      tangent[i] = 0; // a turning point: flat, so each extreme reads as a rounded U
+    } else {
+      const a = dx[i - 1];
+      const b = dx[i];
+      tangent[i] = (3 * (a + b)) / ((2 * b + a) / slope[i - 1] + (b + 2 * a) / slope[i]);
+    }
+  }
+  // End points: limit the tangent so the end segment cannot overshoot either.
+  for (const i of [0, n - 1]) {
+    const s = i === 0 ? slope[0] : slope[n - 2];
+    if (Math.abs(tangent[i]) > Math.abs(3 * s)) tangent[i] = 3 * s;
+  }
+  let path = `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
+  for (let i = 0; i < n - 1; i += 1) {
+    const h = dx[i] / 3;
+    path += ` C${(pts[i].x + h).toFixed(1)},${(pts[i].y + tangent[i] * h).toFixed(1)}`
+      + ` ${(pts[i + 1].x - h).toFixed(1)},${(pts[i + 1].y - tangent[i + 1] * h).toFixed(1)}`
+      + ` ${pts[i + 1].x.toFixed(1)},${pts[i + 1].y.toFixed(1)}`;
+  }
+  return path;
+}
+
+function createPatternLayer(handle) {
+  const container = handle.container;
+  if (typeof document === "undefined" || !container || handle.patternLayer || typeof container.appendChild !== "function") return;
+  if (typeof document.createElementNS !== "function") return;
+  if (typeof globalThis.getComputedStyle === "function" && globalThis.getComputedStyle(container).position === "static") {
+    container.style.position = "relative";
+  }
+  const layer = document.createElement("div");
+  layer.className = "pattern-anno-layer";
+  layer.setAttribute?.("aria-hidden", "true");
+  container.appendChild(layer);
+  handle.patternLayer = layer;
+  handle.patternUnsubscribers = handle.patternUnsubscribers || [];
+  const timeScale = handle.chart?.timeScale?.();
+  // The price scale re-fits a frame after the visible range moves, so the
+  // layer is drawn again on the next frame as well.
+  const render = () => {
+    renderPatternAnnotation(handle);
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => renderPatternAnnotation(handle));
+  };
+  if (timeScale && typeof timeScale.subscribeVisibleLogicalRangeChange === "function") {
+    timeScale.subscribeVisibleLogicalRangeChange(render);
+    handle.patternUnsubscribers.push(() => timeScale.unsubscribeVisibleLogicalRangeChange?.(render));
+  }
+}
+
+/**
+ * Draw one stored pattern record (see pattern_view.patternAnnotation). Passing
+ * null removes it. The annotation is re-positioned on every pan, zoom and
+ * resize from the candle times and prices it carries.
+ */
+export function setPatternAnnotation(handle, annotation) {
+  if (!handle || handle.destroyed) return;
+  if (!annotation) {
+    clearPatternAnnotation(handle);
+    return;
+  }
+  createPatternLayer(handle);
+  handle.patternAnnotation = annotation;
+  renderPatternAnnotation(handle);
+}
+
+/** Remove the drawn pattern and its listeners. Safe to call repeatedly. */
+export function clearPatternAnnotation(handle) {
+  if (!handle) return;
+  for (const unsubscribe of handle.patternUnsubscribers || []) {
+    try {
+      unsubscribe();
+    } catch {
+      // The chart may already be removed; nothing else to release.
+    }
+  }
+  handle.patternUnsubscribers = [];
+  handle.patternAnnotation = null;
+  if (handle.patternLayer) {
+    handle.patternLayer.remove?.();
+    handle.patternLayer = null;
+  }
+}
+
+function patternLabel(layer, className, text, tone) {
+  const node = document.createElement("div");
+  node.className = className;
+  if (tone) node.dataset.tone = tone;
+  node.textContent = text;
+  node.style.left = "0px";
+  node.style.top = "0px";
+  node.style.visibility = "hidden";
+  layer.appendChild(node);
+  return node;
+}
+
+function placeLabel(node, left, top, { width, height }) {
+  const w = node.offsetWidth || 0;
+  const h = node.offsetHeight || 0;
+  const x = Math.min(Math.max(left, 4), Math.max(4, width - w - 4));
+  const y = Math.min(Math.max(top, 4), Math.max(4, height - h - 4));
+  node.style.left = `${x}px`;
+  node.style.top = `${y}px`;
+  node.style.visibility = "";
+  return { left: x, top: y, right: x + w, bottom: y + h };
+}
+
+/** Position the drawn pattern from the current coordinates. Pure reads. */
+export function renderPatternAnnotation(handle) {
+  if (!handle || handle.destroyed || !handle.patternLayer) return;
+  const annotation = handle.patternAnnotation;
+  const layer = handle.patternLayer;
+  layer.textContent = "";
+  if (!annotation) return;
+  const { series, chart } = handle;
+  const timeScale = chart?.timeScale?.();
+  if (!series || typeof series.priceToCoordinate !== "function" || !timeScale || typeof timeScale.timeToCoordinate !== "function") return;
+  const size = paneSize(handle);
+  if (size.width <= 0 || size.height <= 0) return;
+  layer.style.width = `${size.width}px`;
+  layer.style.height = `${size.height}px`;
+  const xOf = (time) => {
+    const x = timeScale.timeToCoordinate(time);
+    return x === null || x === undefined ? null : Number(x);
+  };
+  const yOf = (price) => {
+    const y = series.priceToCoordinate(price);
+    return y === null || y === undefined ? null : Number(y);
+  };
+  const curve = annotation.curve
+    .map((point) => ({ ...point, x: xOf(point.timeSeconds), y: yOf(point.price) }))
+    .filter((point) => point.x !== null && point.y !== null);
+  if (curve.length < 2) return;
+  const color = PATTERN_TONE_COLORS[annotation.tone] || PATTERN_TONE_COLORS.neutral;
+  const top = annotation.side === "top";
+  const xStart = curve[0].x;
+  const xEnd = curve[curve.length - 1].x;
+  const yNeck = annotation.neckline ? yOf(annotation.neckline.price) : null;
+
+  layer.dataset.patternId = String(annotation.id ?? "");
+  layer.dataset.state = String(annotation.state ?? "");
+  layer.dataset.tone = annotation.tone;
+
+  const svg = svgEl("svg", { class: "pattern-anno-svg", width: size.width, height: size.height, viewBox: `0 0 ${size.width} ${size.height}` });
+  const path = monotonePath(curve);
+  if (yNeck !== null) {
+    // Light wash between the shape and the neckline, strongest at the neckline.
+    const gradientId = `pattern-fill-${Math.random().toString(36).slice(2, 9)}`;
+    const defs = svgEl("defs");
+    const gradient = svgEl("linearGradient", { id: gradientId, x1: 0, y1: top ? 1 : 0, x2: 0, y2: top ? 0 : 1 });
+    gradient.appendChild(svgEl("stop", { offset: "0%", "stop-color": color, "stop-opacity": annotation.tone === "neutral" ? 0.08 : 0.16 }));
+    gradient.appendChild(svgEl("stop", { offset: "100%", "stop-color": color, "stop-opacity": 0.03 }));
+    defs.appendChild(gradient);
+    svg.appendChild(defs);
+    svg.appendChild(svgEl("path", {
+      class: "pattern-anno-fill",
+      d: `${path} L${xEnd.toFixed(1)},${yNeck.toFixed(1)} L${xStart.toFixed(1)},${yNeck.toFixed(1)} Z`,
+      fill: `url(#${gradientId})`,
+      stroke: "none",
+    }));
+    svg.appendChild(svgEl("line", {
+      class: "pattern-anno-neckline",
+      x1: xStart, y1: yNeck, x2: xEnd, y2: yNeck,
+      stroke: color, "stroke-width": 1.6, "stroke-dasharray": "8 6", "stroke-opacity": 0.95,
+    }));
+  }
+  if (annotation.extremeLine) {
+    const yExt = yOf(annotation.extremeLine.price);
+    const x1 = xOf(annotation.extremeLine.fromSeconds);
+    const x2 = xOf(annotation.extremeLine.toSeconds);
+    if (yExt !== null && x1 !== null && x2 !== null) {
+      // Stretched a little past the two stored extremes, like the approved line.
+      const pad = Math.max(18, Math.min(60, (x2 - x1) * 0.25));
+      svg.appendChild(svgEl("line", {
+        class: "pattern-anno-extreme",
+        x1: Math.max(xStart, x1 - pad), y1: yExt, x2: Math.min(xEnd, x2 + pad), y2: yExt,
+        stroke: color, "stroke-width": 1.4, "stroke-dasharray": "8 6", "stroke-opacity": 0.75,
+      }));
+    }
+  }
+  svg.appendChild(svgEl("path", {
+    class: "pattern-anno-curve",
+    d: path,
+    fill: "none",
+    stroke: color,
+    "stroke-width": 2.2,
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round",
+    "stroke-dasharray": annotation.state === "formed" ? "6 5" : null,
+  }));
+  layer.appendChild(svg);
+
+  // Labels on the record's own extremes, under a bottom / over a top.
+  const placed = [];
+  for (const point of annotation.extremes) {
+    const x = xOf(point.timeSeconds);
+    const y = yOf(point.price);
+    if (x === null || y === null || x < 0 || x > size.width) continue;
+    const node = patternLabel(layer, "pattern-anno-point", point.label, annotation.tone);
+    node.dataset.time = String(point.timeSeconds);
+    node.dataset.price = String(point.price);
+    const w = node.offsetWidth || 0;
+    const h = node.offsetHeight || 0;
+    // Clear of the dashed extreme line too, when it runs past this point.
+    const yLine = annotation.extremeLine ? yOf(annotation.extremeLine.price) : null;
+    const yEdge = yLine === null ? y : top ? Math.min(y, yLine) : Math.max(y, yLine);
+    // Kept above the volume pane: a label never sits on the histogram.
+    placed.push(placeLabel(node, x - w / 2, top ? yEdge - 10 - h : yEdge + 10, { width: size.width, height: candleFloor(handle, size) }));
+  }
+
+  if (yNeck === null) return;
+  const anchorX = xOf(annotation.labelAnchorSeconds) ?? (xStart + xEnd) / 2;
+  const target = annotation.confirmation
+    ? { x: xOf(annotation.confirmation.timeSeconds), y: yNeck }
+    : { x: anchorX, y: yNeck };
+
+  // Title box: centred over the record's middle point, above the neckline of a
+  // bottom pattern (below the neckline of a top pattern).
+  const title = patternLabel(layer, "pattern-anno-title", annotation.title, annotation.tone);
+  title.dataset.state = String(annotation.state ?? "");
+  const titleW = title.offsetWidth || 0;
+  const titleH = title.offsetHeight || 0;
+  // Outside the neckline (above it for a bottom), at the approved distance or,
+  // when the neckline is near the edge of the visible prices, closer to it.
+  const floor = candleFloor(handle, size);
+  const outsideTop = (gap) => (top ? yNeck + gap : yNeck - gap - titleH);
+  const fits = (y) => y >= 6 && y + titleH <= floor - 6;
+  let titleX = anchorX;
+  let titleTop = [PATTERN_TITLE_GAP, 14].map(outsideTop).find(fits);
+  if (titleTop === undefined) {
+    // No room outside at all: just inside the neckline, over the first half
+    // of the shape where the pattern leaves open space, never on the volume.
+    titleTop = top ? yNeck - PATTERN_TITLE_GAP - titleH : yNeck + PATTERN_TITLE_GAP;
+    titleX = Math.max(xStart + titleW / 2, (xStart + anchorX) / 2);
+  }
+  const titleBox = placeLabel(title, titleX - titleW / 2, titleTop, { width: size.width, height: floor });
+
+  // "Neckline": just over the line (under it for a top), at the middle point,
+  // moved left if the connector would run through it.
+  const neckLabel = patternLabel(layer, "pattern-anno-neckline-label", "Neckline", annotation.tone);
+  const neckW = neckLabel.offsetWidth || 0;
+  const neckH = neckLabel.offsetHeight || 0;
+  const connectorStartX = target.x === null
+    ? null
+    : Math.min(Math.max(target.x, titleBox.left + 24), titleBox.right - 24);
+  // Beside the middle point rather than on it: the middle candle's wick
+  // reaches the neckline, the label must not sit on it.
+  let neckX = anchorX - neckW / 2 - 16;
+  if (connectorStartX !== null && Math.abs(connectorStartX - neckX) < neckW) neckX = (xStart + anchorX) / 2;
+  // Where placeLabel will actually put it (held inside the pane).
+  const clampNeckX = (x) => Math.min(Math.max(x, neckW / 2 + 4), Math.max(neckW / 2 + 4, size.width - neckW / 2 - 4));
+  neckX = clampNeckX(neckX);
+  let neckY = top ? yNeck + 5 : yNeck - 5 - neckH;
+  const overlapsTitle = (x, y) => x - neckW / 2 < titleBox.right + 4 && x + neckW / 2 > titleBox.left - 4
+    && y < titleBox.bottom + 2 && y + neckH > titleBox.top - 2;
+  // Never under the title box: try the left end of the line, then the other
+  // side of the line at that end.
+  if (overlapsTitle(neckX, neckY)) neckX = Math.max(xStart, 0) + neckW / 2 + 6;
+  if (overlapsTitle(neckX, neckY)) neckY = top ? yNeck - 5 - neckH : yNeck + 5;
+  placeLabel(neckLabel, neckX - neckW / 2, neckY, size);
+
+  // Thin line from the title to the confirmation candle on the neckline.
+  if (target.x !== null && connectorStartX !== null) {
+    const startY = top ? titleBox.top : titleBox.bottom;
+    const endY = top ? target.y + 3 : target.y - 3;
+    if (Math.abs(endY - startY) > 4) {
+      svg.appendChild(svgEl("line", {
+        class: "pattern-anno-connector",
+        x1: connectorStartX, y1: startY, x2: target.x, y2: endY,
+        stroke: color, "stroke-width": 1.4, "stroke-opacity": 0.9,
+      }));
+    }
+  }
+}
+
+/** Lowest y of the candle area: the volume separator when the pattern pane is on. */
+function candleFloor(handle, size) {
+  return handle?.patternPaneOn ? Math.round(size.height * PATTERN_PANE.separator) : size.height;
+}
+
+/** "4.83K", "1.2M": a stored volume, compacted for the label only. */
+export function compactVolume(value) {
+  const number = Number(value);
+  if (value === null || value === undefined || !Number.isFinite(number)) return "—";
+  const abs = Math.abs(number);
+  if (abs >= 1e9) return `${(number / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${(number / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${(number / 1e3).toFixed(2)}K`;
+  return number.toFixed(2);
+}
+
+/**
+ * Split the chart into a candle pane and a volume pane for the Chart Patterns
+ * screen (approved layout: volume histogram along the bottom, its own label,
+ * candles above it), or restore the library defaults. Display only.
+ */
+export function setPatternPane(handle, on) {
+  if (!handle || !handle.chart) return;
+  const enable = on === true && !handle.destroyed;
+  if (Boolean(handle.patternPaneOn) === enable && (enable ? handle.patternVolumeLabel : true)) return;
+  handle.patternPaneOn = enable;
+  const margins = enable ? PATTERN_PANE : DEFAULT_PANE;
+  if (!handle.destroyed) {
+    try {
+      handle.series?.priceScale?.().applyOptions?.({ scaleMargins: margins.candles });
+      handle.chart.priceScale?.("volume")?.applyOptions?.({ scaleMargins: margins.volume });
+    } catch {
+      // A torn-down chart has nothing left to restyle.
+    }
+  }
+  if (!enable) {
+    handle.patternVolumeUnsubscribe?.();
+    handle.patternVolumeUnsubscribe = null;
+    handle.patternVolumeLabel?.remove?.();
+    handle.patternVolumeLabel = null;
+    handle.patternVolumeSeparator?.remove?.();
+    handle.patternVolumeSeparator = null;
+    handle.patternVolumeAxisMask?.remove?.();
+    handle.patternVolumeAxisMask = null;
+    return;
+  }
+  const container = handle.container;
+  if (typeof document === "undefined" || !container || typeof container.appendChild !== "function") return;
+  const separator = document.createElement("div");
+  separator.className = "pattern-volume-separator";
+  separator.setAttribute?.("aria-hidden", "true");
+  const label = document.createElement("div");
+  label.className = "pattern-volume-label";
+  // The candle price axis would keep printing prices beside the volume
+  // histogram; the volume pane has no price axis in the approved layout, so the
+  // axis strip beside it is covered (display only, no value is hidden that the
+  // candle pane does not show).
+  const axisMask = document.createElement("div");
+  axisMask.className = "pattern-volume-axis-mask";
+  axisMask.setAttribute?.("aria-hidden", "true");
+  container.appendChild(separator);
+  container.appendChild(axisMask);
+  container.appendChild(label);
+  handle.patternVolumeAxisMask = axisMask;
+  handle.patternVolumeSeparator = separator;
+  handle.patternVolumeLabel = label;
+  handle.patternHoverVolume = null;
+  if (typeof handle.chart.subscribeCrosshairMove === "function") {
+    const onMove = (param) => {
+      const bar = handle.volume ? param?.seriesData?.get?.(handle.volume) || null : null;
+      handle.patternHoverVolume = bar && Number.isFinite(Number(bar.value)) ? Number(bar.value) : null;
+      renderPatternVolumeLabel(handle);
+    };
+    handle.chart.subscribeCrosshairMove(onMove);
+    handle.patternVolumeUnsubscribe = () => handle.chart.unsubscribeCrosshairMove?.(onMove);
+  }
+  renderPatternVolumeLabel(handle);
+}
+
+/** Place the volume label and separator; show the hovered or newest stored volume. */
+export function renderPatternVolumeLabel(handle) {
+  if (!handle || handle.destroyed || !handle.patternVolumeLabel) return;
+  const size = paneSize(handle);
+  const y = Math.round(size.height * PATTERN_PANE.separator);
+  const separator = handle.patternVolumeSeparator;
+  if (separator) {
+    separator.style.top = `${y}px`;
+    separator.style.width = `${size.width}px`;
+  }
+  const axisMask = handle.patternVolumeAxisMask;
+  if (axisMask) {
+    // From a little above the separator, so no price tick is cut in half by it.
+    axisMask.style.top = `${y - 9}px`;
+    axisMask.style.left = `${size.width}px`;
+    axisMask.style.width = `${Math.max(0, (Number(handle.container?.clientWidth) || 0) - size.width)}px`;
+    axisMask.style.height = `${Math.max(0, size.height - y + 9)}px`;
+  }
+  const label = handle.patternVolumeLabel;
+  label.style.top = `${y + 8}px`;
+  label.textContent = "";
+  const name = document.createElement("span");
+  name.className = "pattern-volume-name";
+  name.textContent = "Volume";
+  const value = document.createElement("span");
+  value.className = "pattern-volume-value";
+  value.textContent = compactVolume(handle.patternHoverVolume ?? handle.lastVolume ?? null);
+  label.appendChild(name);
+  label.appendChild(value);
 }
