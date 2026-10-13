@@ -2539,12 +2539,19 @@ function paperSignatureOf(forward) {
   });
 }
 
-/** A forward read answers for the page only when it reports the displayed symbol and timeframe. */
-function forwardMatchesScope(forward, meta) {
-  if (!meta || !forward || typeof forward !== "object") return false;
-  if (typeof forward.symbol === "string" && forward.symbol !== meta.symbol) return false;
-  if (typeof forward.timeframe === "string" && forward.timeframe !== meta.timeframe) return false;
-  return true;
+/**
+ * A forward read may update the page only when it positively reports the displayed symbol AND
+ * timeframe. A read that names another scope, or that omits either field, cannot be verified and
+ * throws, so the controller records a failed read instead of applying it.
+ */
+function assertForwardIdentity(forward, meta) {
+  if (!meta || !forward || typeof forward !== "object") throw new Error("The forward read cannot be matched to this page.");
+  if (forward.symbol !== meta.symbol) {
+    throw new Error(`The forward read reported symbol ${JSON.stringify(forward.symbol ?? null)}, not ${meta.symbol}.`);
+  }
+  if (forward.timeframe !== meta.timeframe) {
+    throw new Error(`The forward read reported timeframe ${JSON.stringify(forward.timeframe ?? null)}, not ${meta.timeframe}.`);
+  }
 }
 
 function assertForwardPayload(payload) {
@@ -2604,7 +2611,8 @@ function paintForwardStatus() {
  * layout are never touched, and no dashboard analysis is requested.
  */
 function applyForwardPoll(forward) {
-  if (!dashboardView || !lastDashboard || !forwardMatchesScope(forward, dashboardMeta)) return;
+  if (!dashboardView || !lastDashboard) return;
+  assertForwardIdentity(forward, dashboardMeta);
   lastForward = forward;
   lastGoodForwardAt = Date.now();
   forwardUnavailableSince = null;

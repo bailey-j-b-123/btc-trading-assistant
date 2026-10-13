@@ -321,6 +321,9 @@ function backendDashboard(overrides = {}) {
 
 function forwardPayload(timestamp = "2026-10-06T12:00:00Z") {
   return {
+    // The real GET /api/forward always echoes its resolved scope at top level.
+    symbol: "BTC/USDT",
+    timeframe: "1h",
     disclaimer: "Paper trading and historical performance do not establish future profitability.",
     status: {
       market_data: {
@@ -1436,7 +1439,12 @@ test("unchanged candle: a STOPPED runner and a settled outcome reach the header,
       const trackerAfter = findNodes(view, hasClass("paper-tracker"))[0];
       assert.notEqual(trackerAfter, trackerBefore, "the tracker card was replaced");
       assert.match(trackerAfter.textContent, /Latest outcome\s*Stopped/);
-      assert.match(trackerAfter.textContent, /ALL SETTLED/);
+      // Label-agnostic: the card and its featured plan are settled and show no open-state text.
+      assert.equal(trackerAfter.dataset.trackerState, "settled", "the card reports no unresolved plan");
+      const featuredPlan = findNodes(trackerAfter, hasClass("tracker-plan"))[0];
+      assert.ok(featuredPlan, "the featured plan is rendered");
+      assert.equal(featuredPlan.dataset.state, "settled");
+      assert.doesNotMatch(trackerAfter.textContent, /still observing/, "no open-state text remains");
 
       // The decision hero, chart, zoom and page layout are untouched by the poll.
       assert.equal(findNodes(view, hasClass("hero-card"))[0], heroBefore);
@@ -1522,6 +1530,57 @@ test("a failed forward read removes the green header, keeps the last good paper 
       clock.restore();
     }
   });
+});
+
+/**
+ * A scoped read that does not positively identify the displayed instrument must never
+ * refresh the page. It fails as a read, so the header goes amber, and a valid retry recovers.
+ */
+function identityDefectTest(name, defect) {
+  test(name, async () => {
+    const base = openForward();
+    await withDashboard(backendDashboard(), base, async ({ view, ids, setForwardHandler }) => {
+      const clock = fakeClock();
+      try {
+        await renderOpen(view, base);
+        const header = headerStatus(ids);
+        assert.equal(header.dataset.tone, "green");
+
+        let served = null;
+        setForwardHandler(async (key) => (key.startsWith(SCOPED_FORWARD_POLL) ? okResponse(served) : okResponse(base)));
+        served = stoppedForward(base);
+        defect(served);
+        clock.fire();
+        await settle();
+        assert.notEqual(header.dataset.tone, "green", "an unverifiable scope never leaves the green verdict");
+        assert.match(header.textContent, /FORWARD STATUS UNAVAILABLE/);
+        assert.equal(metricValue(view, "Settled outcomes"), "0", "the last good paper facts stay on screen");
+        assert.doesNotMatch(headerStatus(ids).textContent, /STATUS STOPPED/, "the defective read is not applied");
+
+        // Retry after the failure backoff with a correctly scoped read recovers.
+        served = stoppedForward(base);
+        clock.fire();
+        await settle();
+        assert.match(header.textContent, /FORWARD RUNNER · STATUS STOPPED/);
+        assert.equal(metricValue(view, "Settled outcomes"), "1");
+      } finally {
+        clock.restore();
+      }
+    });
+  });
+}
+
+identityDefectTest("a forward read for another symbol is rejected as a failed read, then a correct retry recovers", (payload) => {
+  payload.symbol = "ETH/USDT";
+});
+identityDefectTest("a forward read for another timeframe is rejected as a failed read, then a correct retry recovers", (payload) => {
+  payload.timeframe = "4h";
+});
+identityDefectTest("a forward read without a symbol is never trusted as the displayed scope", (payload) => {
+  delete payload.symbol;
+});
+identityDefectTest("a forward read without a timeframe is never trusted as the displayed scope", (payload) => {
+  delete payload.timeframe;
 });
 
 test("a hidden tab or an open dialog pauses forward polling without a request; returning resumes it", async () => {
@@ -1664,10 +1723,14 @@ test("the stored-forward poll follows the dashboard's resolved scope, not saved 
         setItem: () => {},
       };
       await renderOpen(view, base);
+      // The initial render's own forward read (PR 54's saved-preference scope) is recorded as a baseline;
+      // only the poll's additional reads are asserted against it.
+      const ethBaseline = fetchTotal(fetchCounts, "/api/forward?symbol=ETH");
+      const pollBaseline = fetchTotal(fetchCounts, SCOPED_FORWARD_POLL);
       clock.fire();
       await settle();
-      assert.equal(fetchTotal(fetchCounts, SCOPED_FORWARD_POLL), 1, "the poll reads the displayed BTC/USDT 1h scope");
-      assert.equal(fetchTotal(fetchCounts, "/api/forward?symbol=ETH"), 0, "saved preferences never scope the poll");
+      assert.equal(fetchTotal(fetchCounts, SCOPED_FORWARD_POLL) - pollBaseline, 1, "the poll reads the displayed BTC/USDT 1h scope");
+      assert.equal(fetchTotal(fetchCounts, "/api/forward?symbol=ETH") - ethBaseline, 0, "the poll never reads saved-preference scope");
     } finally {
       clock.restore();
     }
