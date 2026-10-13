@@ -828,11 +828,37 @@ class ForwardTestService:
             timeframe=resolved_timeframe,
             target_boundary=target_boundary,
         )
+        # The immutable cycle bundle commits before outcome versions. A failed
+        # outcome write must be repaired before IDLE or the next slot decision,
+        # using only the already-committed close and the unchanged observer.
+        # Do not use this recovery path to recheck existing ambiguity/gap
+        # evidence on every idle poll.
+        recovered_outcomes = 0
+        committed_cycle = self.ledger.latest_complete_cycle(
+            exchange=exchange,
+            symbol=resolved_symbol,
+            timeframe=resolved_timeframe,
+            as_of=target_boundary,
+        )
+        if committed_cycle is not None:
+            recovered_outcomes = self._update_outcomes(
+                exchange=exchange,
+                symbol=resolved_symbol,
+                timeframe=resolved_timeframe,
+                boundary=committed_cycle.as_of,
+                interval=interval,
+                recorded_at=instant,
+                recover_committed_only=True,
+            )
         if pending == 0:
+            idle_status = (
+                HeartbeatStatus.PROCESSED if recovered_outcomes else HeartbeatStatus.IDLE
+            )
             heartbeat = self._heartbeat(
-                status=HeartbeatStatus.IDLE,
+                status=idle_status,
                 detail=(
                     "no new closed candle since the last recorded boundary"
+                    + (f"; recovered {recovered_outcomes} outcome version(s)" if recovered_outcomes else "")
                     + ("" if market_error is None else f"; market-data error: {market_error}")
                 ),
                 exchange=exchange,
@@ -842,7 +868,7 @@ class ForwardTestService:
                 cycles_processed=0,
                 observations_recorded=0,
                 paper_plans_created=0,
-                outcomes_recorded=0,
+                outcomes_recorded=recovered_outcomes,
                 pending_boundaries=0,
                 latest_cycle_as_of=None if latest_cycle is None else latest_cycle.as_of,
                 last_error=market_error,
@@ -851,7 +877,7 @@ class ForwardTestService:
                 runner_id=runner_id,
             )
             return ForwardRunResult(
-                status=HeartbeatStatus.IDLE,
+                status=idle_status,
                 detail=heartbeat.detail,
                 exchange=exchange,
                 symbol=resolved_symbol,
@@ -861,7 +887,7 @@ class ForwardTestService:
                 cycles_recorded=0,
                 observations_recorded=0,
                 paper_plans_created=0,
-                outcomes_recorded=0,
+                outcomes_recorded=recovered_outcomes,
                 pending_boundaries=0,
                 data_health=self._live_health(
                     exchange=exchange,
@@ -1036,7 +1062,7 @@ class ForwardTestService:
         cycles_recorded = 0
         observations_recorded = 0
         paper_plans_created = 0
-        outcomes_recorded = 0
+        outcomes_recorded = recovered_outcomes
         processed_boundaries: list[datetime] = []
         last_health = DataHealth.UNKNOWN
         for open_time in to_process:
@@ -1113,7 +1139,7 @@ class ForwardTestService:
                 recorded_at=instant,
             )
 
-        progressed = cycles_recorded > 0 or any(
+        progressed = outcomes_recorded > 0 or cycles_recorded > 0 or any(
             boundary in new_closes for boundary in processed_boundaries
         )
         status = HeartbeatStatus.PROCESSED if progressed else HeartbeatStatus.IDLE
@@ -1578,7 +1604,11 @@ class ForwardTestService:
             for cycle in cycles
             if not cycle.complete
             and cycle.status is not CycleStatus.INSUFFICIENT_HISTORY
-        } - {cycle.as_of - interval for cycle in cycles if cycle.complete}
+        } - {
+            cycle.as_of - interval
+            for cycle in cycles
+            if cycle.complete or cycle.status is CycleStatus.INSUFFICIENT_HISTORY
+        }
         next_boundary = self._next_new_boundary(
             complete_boundaries=[cycle.as_of for cycle in cycles if cycle.complete],
             timeframe=timeframe,
@@ -2447,6 +2477,7 @@ class ForwardTestService:
         boundary: datetime,
         interval,
         recorded_at: datetime,
+        recover_committed_only: bool = False,
     ) -> int:
         """Append new outcome versions for unresolved paper plans.
 
@@ -2462,6 +2493,11 @@ class ForwardTestService:
         successful re-check appends a new superseding outcome version.
         journal-outcome-v1 rows (including every historical AMBIGUOUS row) are
         never re-observed at all.
+
+        ``recover_committed_only`` repairs a partially finished committed close.
+        It does not recheck already-current outcomes or fetch new ambiguity
+        evidence. A same-end INCOMPLETE_DATA observation is retried only when
+        additional immutable base candles have actually been stored.
         """
 
         written = 0
@@ -2479,8 +2515,10 @@ class ForwardTestService:
             horizon_last_open = plan.plan_as_of + interval * (
                 plan.observation_horizon_candles - 1
             )
-            recheck_due = previous is not None and self._resolution_recheck_due(
-                previous, plan
+            recheck_due = (
+                not recover_committed_only
+                and previous is not None
+                and self._resolution_recheck_due(previous, plan)
             )
             if (
                 previous is not None
@@ -2492,7 +2530,18 @@ class ForwardTestService:
             observed_through = min(horizon_last_open, last_closed_open)
             if observed_through < plan.plan_as_of:
                 continue
+            recovered_gap = (
+                previous is not None
+                and previous.observed_through == observed_through
+                and previous.observation.status is OutcomeStatus.INCOMPLETE_DATA
+            )
             if previous is not None:
+                if (
+                    recover_committed_only
+                    and previous.observed_through >= observed_through
+                    and not recovered_gap
+                ):
+                    continue
                 if previous.observed_through > observed_through:
                     # A retried earlier close cannot shorten a recorded window.
                     continue
@@ -2513,6 +2562,12 @@ class ForwardTestService:
                 start_time=plan.plan_as_of,
                 end_time=observed_through,
             ).candles
+            if (
+                recover_committed_only
+                and recovered_gap
+                and len(candles) <= previous.observation.observed_candle_count
+            ):
+                continue
             outcome = self._observe_with_resolution(
                 plan=plan,
                 candles=candles,

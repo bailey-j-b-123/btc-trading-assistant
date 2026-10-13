@@ -399,6 +399,31 @@ class ForwardLedgerRepository:
         )
         return values[0] if values else None
 
+    def latest_complete_cycle(
+        self, *, exchange: str, symbol: str, timeframe: str, as_of: datetime
+    ) -> ForwardCycle | None:
+        """Latest committed conclusion, independent of unfinished sibling rows.
+
+        A recovered candle can have both an earlier missing-data row and a
+        COMPLETE row at the same close. Recovery needs the complete conclusion,
+        bounded by the caller's confirmed close, rather than an arbitrary tie.
+        """
+        statement = (
+            select(ForwardCycleRow)
+            .where(
+                ForwardCycleRow.exchange == exchange,
+                ForwardCycleRow.symbol == symbol,
+                ForwardCycleRow.timeframe == timeframe,
+                ForwardCycleRow.status == CycleStatus.COMPLETE.value,
+                ForwardCycleRow.as_of <= as_of,
+            )
+            .order_by(ForwardCycleRow.as_of.desc())
+            .limit(1)
+        )
+        with self._sessions() as session:
+            row = session.scalars(statement).first()
+            return None if row is None else _cycle_from_row(row)
+
     def observations(
         self,
         *,
