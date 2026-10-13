@@ -843,7 +843,20 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .looking-for-disclaimer { margin-top: 1px; color: var(--text-faint); font-size: 9px; font-style: italic; }
 .looking-for-details { margin-top: 1px; color: var(--text-muted); font-size: 10px; }
 .looking-for-details summary { cursor: pointer; }
-.looking-for-technical { display: grid; gap: 4px; max-height: 220px; overflow: auto; padding-top: 5px; }
+.looking-for-technical {
+  display: grid;
+  /* ``grid-template-columns`` must be explicit: the implicit ``auto`` track sizes to
+     max-content, so one long technical row (a rule id, a reference band) made the track
+     wider than the Current Setup rail and the rows were clipped 17px past the viewport
+     at 1440px, reachable only by scrolling inside this box. ``minmax(0, 1fr)`` plus
+     wrapping keeps every row inside the card. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  max-height: 220px;
+  overflow: auto;
+  padding-top: 5px;
+}
+.looking-for-technical .chart-note { overflow-wrap: anywhere; white-space: normal; }
 
 .chart-empty {
   background: linear-gradient(180deg, rgba(255,255,255,.018), rgba(255,255,255,.004)), var(--bg-elevated);
@@ -1411,7 +1424,12 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 /* --- The one decision ---------------------------------------------------- */
 .hero-card {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr);
+  /* Two columns only when the context rail is actually wide enough. A fixed
+     ``minmax(260px, 1fr)`` side column forced the verdict column down to ~100px on a
+     1440px laptop, which wrapped "No trade" one character per line. ``auto-fit``
+     collapses to a single column at that width and restores the two-column design on
+     wide screens, without a viewport media query (the rail, not the viewport, decides). */
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 18px 28px;
   padding: 26px 30px;
   border: 1px solid var(--border-strong);
@@ -1714,7 +1732,13 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   top: var(--topbar-h, 60px);
   z-index: 20;
   display: grid;
-  grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
+  /* Only the first track may absorb free space. Giving the outer tracks an ``auto`` max
+     let them grow to max-content and starve the flexible middle track, which dropped to
+     0px and drew the timeframe controls on top of the live-quote card; giving them
+     ``max-content`` made the row 2 content (a wrapping health/status row) inflate the
+     same column to ~1700px and push the quote off-screen. ``1fr`` + ``max-content``
+     keeps both outer tracks at their natural width and lets the middle take the rest. */
+  grid-template-columns: minmax(0, 1fr) minmax(min-content, max-content) minmax(0, max-content);
   grid-template-areas:
     "identity timeframes quote"
     "health asof more";
@@ -1988,6 +2012,7 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .cfp-rr-legend { display: flex; justify-content: space-between; font-size: 10px; }
 .cfp-rr-risk-label { color: var(--red); }
 .cfp-rr-reward-label { color: var(--green); }
+.cfp-rr-caption { color: var(--text-faint); font-size: 10px; }
 .cfp-rr-ratio { font-family: var(--mono); font-size: 14px; font-weight: 750; text-align: right; color: var(--text); }
 .cfp-note { margin: 0; color: var(--text-faint); font-size: 10.5px; line-height: 1.45; }
 

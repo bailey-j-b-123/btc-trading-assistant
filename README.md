@@ -1662,6 +1662,29 @@ Node package, run by hand against a local server) captures a full-page shot per 
 function with `--functions` and a chart-only shot with `--clip .chart-stage`; see its
 README for the exact steps.
 
+Two layout invariants are easy to break and are recorded here because a static
+review of the markup cannot catch either one — both were found only by driving the
+rendered page in a real browser:
+
+* **The trading bar keeps a non-zero middle track.** `grid-template-columns` is
+  `minmax(0, 1fr) minmax(min-content, max-content) minmax(0, max-content)`. Two `auto`
+  tracks both grow to max-content, which starves the flexible middle track down to 0px
+  and draws the timeframe controls on top of the live-quote card; `max-content` on the
+  outer tracks instead lets the wrapping health/status row inflate the first column to
+  roughly 1700px and push the quote off-screen. A single `1fr` track keeps the outer
+  tracks at their natural width and lets the middle absorb the remainder.
+* **The verdict card never gets an artificially wide side column.** The Current Setup
+  rail is at most 640px wide, so a fixed `minmax(260px, 1fr)` side column squeezed the
+  verdict column to about 100px and wrapped a two-word state one character per line.
+  `repeat(auto-fit, minmax(280px, 1fr))` keeps the intended arrangement where the room
+  exists and falls back to a readable single column where it does not — decided by the
+  container, not by a viewport media query.
+
+When checking either by hand, measure the rendered element boxes rather than
+screenshotting at a single width: the timeframe group and the live-quote card must not
+intersect, and no text block should be narrower than ~120px while taller than ~110px.
+Both defects are invisible at 390px and obvious at 1440px.
+
 ### Backend / frontend boundary
 
 The API returns authoritative structured data with explicit `UNKNOWN`/`null` states and
@@ -1771,7 +1794,7 @@ out of scope for all steps.
 
 ```bash
 python -m pytest                        # complete Python suite (1182 passed, 1 xfailed)
-node --test tests/frontend/*.test.mjs   # frontend tests, no dependencies (390 tests)
+node --test tests/frontend/*.test.mjs   # frontend tests, no dependencies (409 tests)
 ruff format --check src/trading_assistant/historical_validation src/trading_assistant/web tests/test_historical_validation.py tests/test_web_*.py tests/web_fixtures.py tests/test_web_frontend_contract.py
 ruff check src/trading_assistant/historical_validation src/trading_assistant/web tests/test_historical_validation.py tests/test_web_*.py tests/web_fixtures.py tests/test_web_frontend_contract.py
 ```

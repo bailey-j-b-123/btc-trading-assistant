@@ -52,6 +52,19 @@ const EVENT_KINDS = Object.freeze({
   retest: "Retest",
 });
 
+/**
+ * A finite number, or null when the value is absent or unparseable.
+ *
+ * This exists specifically to stop `Number(null)` — which is `0`, not `NaN` — from
+ * turning a level the backend never supplied into a real zero. Every plan figure that
+ * is compared, subtracted or divided goes through it first.
+ */
+function numericOrNull(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 /** A price, formatted; a missing or unformattable value stays an explicit UNKNOWN. */
 function price(value) {
   if (isMissing(value)) return UNKNOWN;
@@ -68,6 +81,17 @@ function displayAmount(value) {
 /** An instant, formatted; a missing instant stays an explicit UNKNOWN. */
 function when(iso) {
   return iso ? `${formatUtc(iso)}` : UNKNOWN;
+}
+
+/**
+ * The ratio line's text: the plan's own levels divided, the plan's stated R multiple, or
+ * UNKNOWN. A stated R multiple is marked "(plan)" so it is never mistaken for the ratio of
+ * the two distances shown beside it.
+ */
+function ratioText(rr) {
+  if (rr.ratioBasis === "levels") return `R:R ${rr.ratio}`;
+  if (rr.ratioBasis === "stated") return `R:R ${rr.ratio} (plan)`;
+  return `R:R ${UNKNOWN}`;
 }
 
 function roleLabel(role) {
@@ -358,18 +382,28 @@ function tradePlanModel({ plan, planState, reason }) {
   // how far entry sits from the final target. The absolute entry, stop and target
   // prices keep their own fields above; these two figures are the plan's own
   // levels, subtracted — no other arithmetic happens here.
-  // Number(null) is 0, which would silently measure a distance to a level the
-  // backend never supplied. An absent value is NaN here, so nothing is measured.
-  const numeric = (value) => (value === null || value === undefined || value === "" ? Number.NaN : Number(value));
-  const entryNumber = numeric(entry);
-  const stopNumber = numeric(stop);
-  const lastTargetValue = targets.length ? numeric(targets[targets.length - 1]?.level?.value) : Number.NaN;
-  const risk = Number.isFinite(entryNumber) && Number.isFinite(stopNumber) ? Math.abs(entryNumber - stopNumber) : null;
-  const reward = Number.isFinite(entryNumber) && Number.isFinite(lastTargetValue) ? Math.abs(lastTargetValue - entryNumber) : null;
-  const statedRatio = targets.map((target) => Number(target?.r_multiple)).filter((value) => Number.isFinite(value)).pop() ?? null;
-  // Prefer the ratio the plan itself states; otherwise the ratio of the two
-  // distances above. Either way it is the plan's own numbers.
-  const ratio = statedRatio ?? (risk !== null && reward !== null && risk > 0 ? reward / risk : null);
+  //
+  // Every one of these reads goes through numericOrNull, because Number(null) is 0:
+  // a level or an r_multiple the backend never supplied would otherwise be measured
+  // as a real zero — a distance to price 0, or an R:R of "0.00 : 1". An absent value
+  // stays absent here.
+  const finalTarget = targets.length ? targets[targets.length - 1] : null;
+  const entryNumber = numericOrNull(entry);
+  const stopNumber = numericOrNull(stop);
+  const lastTargetValue = numericOrNull(finalTarget?.level?.value);
+  const risk = entryNumber !== null && stopNumber !== null ? Math.abs(entryNumber - stopNumber) : null;
+  const reward = entryNumber !== null && lastTargetValue !== null ? Math.abs(lastTargetValue - entryNumber) : null;
+  // The ratio of the two distances above: the plan's own levels, divided. Preferred
+  // whenever both distances are measurable, so the ratio always agrees with the two
+  // figures shown beside it.
+  const levelRatio = risk !== null && reward !== null && risk > 0 ? reward / risk : null;
+  // Otherwise the plan's own R multiple for the FINAL target — the same target whose
+  // distance appears above, so the two can never describe different trades. A missing
+  // r_multiple is never read as zero, and a non-positive one is not a ratio.
+  const statedRatioRaw = numericOrNull(finalTarget?.r_multiple);
+  const statedRatio = statedRatioRaw !== null && statedRatioRaw > 0 ? statedRatioRaw : null;
+  // Neither available: the ratio is UNKNOWN. It is never defaulted to 0.
+  const ratio = levelRatio ?? statedRatio;
   const targetLabel = `T${targets.length}`;
   return {
     heading: "Trade Plan",
@@ -378,16 +412,18 @@ function tradePlanModel({ plan, planState, reason }) {
     legend: [],
     facts,
     list: [],
-    rr: risk !== null && reward !== null && ratio !== null
-      ? {
-          risk: displayAmount(risk),
-          reward: displayAmount(reward),
-          targetLabel,
-          ratio: `${displayRounded(ratio, 2).display} : 1`,
-          riskShare: risk + reward > 0 ? risk / (risk + reward) : 0.5,
-        }
-      : null,
-    note: "Hypothetical paper levels from the engine's own plan. Risk and reward are entry-to-stop and entry-to-target distances in price, and the ratio is the plan's own. Nothing here is an order, and levels appear only while the engine supplies a valid plan.",
+    // Shown whenever a plan is displayed, so a figure that cannot be computed is
+    // stated as UNKNOWN rather than silently dropped.
+    rr: {
+      risk: risk === null ? UNKNOWN : displayAmount(risk),
+      reward: reward === null ? UNKNOWN : displayAmount(reward),
+      targetLabel,
+      ratio: ratio === null ? UNKNOWN : `${displayRounded(ratio, 2).display} : 1`,
+      ratioBasis: levelRatio !== null ? "levels" : statedRatio !== null ? "stated" : null,
+      // No bar without both distances: a proportion needs two numbers.
+      riskShare: risk !== null && reward !== null && risk + reward > 0 ? risk / (risk + reward) : null,
+    },
+    note: "Hypothetical paper levels from the engine's own plan. Risk and reward are entry-to-stop and entry-to-target distances in price. The ratio is the reward distance over the risk distance, or the plan's own R multiple when the distances cannot be measured; where neither is available it reads UNKNOWN. Nothing here is an order, and levels appear only while the engine supplies a valid plan.",
   };
 }
 
@@ -469,19 +505,34 @@ export function functionPanel(model) {
     ]));
   }
   if (model.rr) {
-    const share = Math.round(Math.min(Math.max(model.rr.riskShare, 0), 1) * 100);
+    // The bar states a proportion, so it is drawn only when both distances are known.
+    // Without them the block still appears and says UNKNOWN, which is more honest than
+    // a bar at an arbitrary fill or a missing block that implies nothing to report.
+    const bar = model.rr.riskShare === null
+      ? null
+      : el("div", {
+          class: "cfp-rr-bar",
+          role: "img",
+          "aria-label": `Entry-to-stop risk ${model.rr.risk}, entry-to-target reward ${model.rr.reward}, ratio ${model.rr.ratio}`,
+        }, [
+          el("span", { class: "cfp-rr-risk", style: { width: `${Math.round(Math.min(Math.max(model.rr.riskShare, 0), 1) * 100)}%` } }),
+          el("span", { class: "cfp-rr-reward", style: { width: `${100 - Math.round(Math.min(Math.max(model.rr.riskShare, 0), 1) * 100)}%` } }),
+        ]);
     body.push(el("div", { class: "cfp-block" }, [
       el("div", { class: "cfp-block-title", text: "Risk / Reward" }),
-      el("div", { class: "cfp-rr-bar", role: "img", "aria-label": `Entry-to-stop risk ${model.rr.risk}, entry-to-target reward ${model.rr.reward}, ratio ${model.rr.ratio}` }, [
-        el("span", { class: "cfp-rr-risk", style: { width: `${share}%` } }),
-        el("span", { class: "cfp-rr-reward", style: { width: `${100 - share}%` } }),
-      ]),
+      bar,
       el("div", { class: "cfp-rr-legend" }, [
         el("span", { class: "cfp-rr-risk-label", text: `Risk ${model.rr.risk}` }),
         el("span", { class: "cfp-rr-reward-label", text: `Reward (${model.rr.targetLabel}) ${model.rr.reward}` }),
       ]),
       el("div", { class: "cfp-rr-caption", text: "Distances in price, measured from entry" }),
-      el("div", { class: "cfp-rr-ratio", text: `R:R ${model.rr.ratio}` }),
+      // The ratio says where it came from when it is the plan's own R multiple rather
+      // than the two distances above, so the two can never be read as contradicting.
+      el("div", {
+        class: "cfp-rr-ratio",
+        dataset: model.rr.ratioBasis ? { basis: model.rr.ratioBasis } : {},
+        text: ratioText(model.rr),
+      }),
     ]));
   }
   if (model.levels?.length) {

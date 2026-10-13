@@ -24,6 +24,25 @@
  * payload, with `win_rate` as a fraction in [0, 1] and `total_pnl` as `{ amount, currency }`.
  * Anything absent, unparseable or out of range reads as unavailable rather than as a guessed
  * number, and an explicit block-level `reason` is shown verbatim.
+ *
+ * ## A figure is shown only from an available report with stated provenance
+ *
+ * A number is displayable only when the report says it is available AND can say what the
+ * number is over and of what. Concretely, three gates must all pass:
+ *
+ *  1. `available` is strictly `true`. If the report says `available: false` it is unavailable,
+ *     **even if it also carries numbers**: a stale or partially built block must never reach
+ *     the screen. An absent flag is not an available report either.
+ *  2. Report provenance: `sample_size` (how many settled trades the figure is over) and
+ *     `as_of` (the instant it is measured to) are present and valid. A rate with no sample
+ *     size and a total with no boundary cannot be interpreted, so neither is shown.
+ *  3. Figure provenance: `win_rate` must be a fraction in [0, 1] and needs a sample of at
+ *     least one; `total_pnl` must be `{ amount, currency }` **and** the report must state its
+ *     cost basis in `gross_or_net`. A money total whose basis is unstated cannot be labelled
+ *     honestly, so it is withheld rather than guessed at.
+ *
+ * The cost basis is never assumed. A gross total is captioned "before fees and slippage"; the
+ * phrase "net of fees and slippage" appears only when the report itself says `net`.
  */
 
 import { formatUtc, isMissing } from "./format.js";
@@ -36,6 +55,16 @@ export const PAPER_PERFORMANCE_SOURCE = "paper_performance";
 
 const PERCENT_DECIMALS = 2;
 const MONEY_DECIMALS = 2;
+
+/** The only two cost-basis words the tiles will render a total under. */
+const NET_BASIS = "net";
+const GROSS_BASIS = "gross";
+
+/** The caption for each basis. The net wording is reachable only from `net`. */
+const BASIS_LABELS = {
+  [NET_BASIS]: "net of recorded fees and slippage",
+  [GROSS_BASIS]: "before fees and slippage (gross)",
+};
 
 function finiteNumberOrNull(value) {
   if (isMissing(value)) return null;
@@ -66,6 +95,28 @@ function moneyOrNull(value) {
   return { amount, currency: currency || null };
 }
 
+/** How many settled trades the figure is over: a whole, non-negative number, or null. */
+function sampleSizeOrNull(value) {
+  const number = finiteNumberOrNull(value);
+  if (number === null) return null;
+  return Number.isInteger(number) && number >= 0 ? number : null;
+}
+
+/** The instant the figure is measured to. Unparseable text is not a boundary. */
+function asOfOrNull(value) {
+  if (isMissing(value)) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  return Number.isFinite(Date.parse(text)) ? text : null;
+}
+
+/** The report's own cost basis, lowercased, or null when it does not state one. */
+function basisOrNull(value) {
+  if (isMissing(value)) return null;
+  const text = String(value).trim().toLowerCase();
+  return text === NET_BASIS || text === GROSS_BASIS ? text : null;
+}
+
 /** Group the integer part, keep the sign explicit, and always show two decimals. */
 function formatMoney(amount, currency) {
   const negative = amount < 0;
@@ -84,18 +135,41 @@ function formatWinRate(fraction) {
 /**
  * Build the two tiles from the dashboard payload.
  *
- * Returns `{ tiles, note, sampleLabel, asOfLabel }`. Each tile carries `available`,
- * `value` (the display string, already formatted) and `detail`. Nothing here reads
- * outcome counts, price levels or R multiples.
+ * Returns `{ tiles, note, sampleLabel, asOfLabel }`. Each tile carries `available`, `value`
+ * (the display string, already formatted) and `detail`. Nothing here reads outcome counts,
+ * price levels or R multiples.
+ *
+ * See the module header for the three gates a figure must pass. When a gate fails the tile
+ * states why, in preference order: the backend's own `reason`, then the specific provenance
+ * gap, then the standing explanation.
  */
 export function paperPerformanceModel(dashboard) {
   const block = dashboard?.[PAPER_PERFORMANCE_SOURCE];
   const usable = block && typeof block === "object" ? block : null;
   const backendReason = usable && !isMissing(usable.reason) ? String(usable.reason) : null;
-  const winRate = usable ? winRateOrNull(usable.win_rate) : null;
-  const money = usable ? moneyOrNull(usable.total_pnl) : null;
-  const sampleSize = usable ? finiteNumberOrNull(usable.sample_size) : null;
-  const asOf = usable && !isMissing(usable.as_of) ? String(usable.as_of) : null;
+  // `available` must be strictly true. Anything else — false, missing, null, a string — means
+  // the report has not declared itself usable, so no number in it is displayable.
+  const available = usable?.available === true;
+
+  const sampleSize = usable ? sampleSizeOrNull(usable.sample_size) : null;
+  const asOf = usable ? asOfOrNull(usable.as_of) : null;
+  const basis = usable ? basisOrNull(usable.gross_or_net) : null;
+  // Provenance of the report as a whole: how many trades, measured to when. Without both, a
+  // rate or a total cannot be interpreted, so neither figure is shown.
+  const provenanceOk = available && sampleSize !== null && asOf !== null;
+
+  const suppliedWinRate = usable ? winRateOrNull(usable.win_rate) : null;
+  const winRate = provenanceOk && sampleSize >= 1 ? suppliedWinRate : null;
+
+  const suppliedMoney = usable ? moneyOrNull(usable.total_pnl) : null;
+  // A total is only labelled once the report states whether it is gross or net.
+  const money = provenanceOk && basis !== null ? suppliedMoney : null;
+
+  const asOfLabel = asOf === null ? null : formatUtc(asOf);
+  const unavailableReason = backendReason
+    || (!available && usable ? "The report is not marked available." : null)
+    || (available && sampleSize === null ? "The report states no sample size." : null)
+    || (available && asOf === null ? "The report states no observation time." : null);
 
   const tiles = [
     {
@@ -105,8 +179,11 @@ export function paperPerformanceModel(dashboard) {
       value: winRate !== null ? formatWinRate(winRate) : NOT_AVAILABLE,
       tone: "neutral",
       detail: winRate !== null
-        ? `recorded paper trades${sampleSize === null ? "" : ` (${sampleSize} settled)`}`
-        : backendReason || "No settled paper trades with an agreed win and loss definition yet.",
+        ? `${sampleSize} settled paper trade${sampleSize === 1 ? "" : "s"}${asOfLabel ? ` · as of ${asOfLabel}` : ""}`
+        : unavailableReason
+          || (suppliedWinRate !== null && provenanceOk
+            ? "No settled paper trades to measure a rate over."
+            : "No settled paper trades with an agreed win and loss definition yet."),
     },
     {
       id: "total_pnl",
@@ -115,15 +192,19 @@ export function paperPerformanceModel(dashboard) {
       value: money !== null ? formatMoney(money.amount, money.currency) : NOT_AVAILABLE,
       tone: money === null ? "neutral" : money.amount > 0 ? "green" : money.amount < 0 ? "red" : "neutral",
       detail: money !== null
-        ? `${asOf ? `as of ${formatUtc(asOf)} · ` : ""}net of recorded fees and slippage`
-        : backendReason || "The ledger stores proposed levels and outcome states, not fills, sizes, fees or slippage.",
+        ? `${asOfLabel ? `as of ${asOfLabel} · ` : ""}${BASIS_LABELS[basis]}`
+        : unavailableReason
+          || (suppliedMoney !== null && provenanceOk && basis === null
+            ? "The report does not say whether the total is gross or net of fees and slippage."
+            : "The ledger stores proposed levels and outcome states, not fills, sizes, fees or slippage."),
     },
   ];
 
   return {
     tiles,
+    basis,
     sampleLabel: sampleSize === null ? null : `${sampleSize} settled paper trade${sampleSize === 1 ? "" : "s"}`,
-    asOfLabel: asOf === null ? null : formatUtc(asOf),
+    asOfLabel,
     note: "Both tiles stay empty until BRAIN can compute them from recorded paper trades. "
       + "No example figure is shown: proposed-level observations are not realised profit, and no "
       + "win or loss definition has been agreed yet. The follow-up plan covers the definitions, "

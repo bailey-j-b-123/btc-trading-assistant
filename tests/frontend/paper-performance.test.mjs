@@ -32,6 +32,21 @@ const RECORDED_ONLY = {
 
 const tileById = (model, id) => model.tiles.find((tile) => tile.id === id);
 
+/**
+ * A complete, valid report. Every supplied-metric test starts here and overrides one field,
+ * so a test that passes is passing because of that field and not because the rest of the
+ * provenance happened to be present.
+ */
+const report = (overrides = {}) => ({
+  available: true,
+  as_of: "2026-10-17T23:00:00Z",
+  sample_size: 42,
+  gross_or_net: "net",
+  win_rate: "0.4762",
+  total_pnl: { amount: "1234.5", currency: "USDT" },
+  ...overrides,
+});
+
 test("with no supplied metrics both tiles say Not available yet", () => {
   const model = paperPerformanceModel(RECORDED_ONLY);
   assert.equal(tileById(model, "win_rate").value, NOT_AVAILABLE);
@@ -80,39 +95,157 @@ test("the ledger's proposed levels and risk_per_unit are never multiplied into m
   assert.equal(tileById(model, "total_pnl").value, NOT_AVAILABLE);
 });
 
-test("a supplied win rate is shown as a formatted percentage", () => {
+test("a fully provenanced report is shown: formatted rate and a signed total", () => {
   const model = paperPerformanceModel({
     ...RECORDED_ONLY,
-    [PAPER_PERFORMANCE_SOURCE]: { available: true, win_rate: "0.4762", sample_size: 42 },
+    [PAPER_PERFORMANCE_SOURCE]: report({ win_rate: "0.4762", total_pnl: { amount: "1234.5", currency: "USDT" } }),
   });
-  const tile = tileById(model, "win_rate");
-  assert.equal(tile.available, true);
-  assert.equal(tile.value, "47.62%");
-  assert.match(tile.detail, /42 settled/);
+  const rate = tileById(model, "win_rate");
+  assert.equal(rate.available, true);
+  assert.equal(rate.value, "47.62%");
+  assert.match(rate.detail, /42 settled paper trades/);
+  assert.match(rate.detail, /2026-10-17 23:00 UTC/, "the observation time is stated");
+
+  const pnl = tileById(model, "total_pnl");
+  assert.equal(pnl.value, "+1,234.50 USDT");
+  assert.equal(pnl.tone, "green");
 });
 
+// --- the availability gate --------------------------------------------------------------
+
+test("available: false suppresses every number, even numbers carried in the block", () => {
+  // The dangerous case: a report that says it is unavailable but still carries a figure —
+  // stale, partially rebuilt, or computed over an empty sample. Nothing may be displayed.
+  const model = paperPerformanceModel({
+    [PAPER_PERFORMANCE_SOURCE]: report({ available: false, win_rate: "0.99", total_pnl: { amount: "9999", currency: "USDT" } }),
+  });
+  assert.equal(tileById(model, "win_rate").value, NOT_AVAILABLE);
+  assert.equal(tileById(model, "total_pnl").value, NOT_AVAILABLE);
+  assert.equal(tileById(model, "win_rate").available, false);
+  assert.equal(tileById(model, "total_pnl").available, false);
+  assert.equal(paperPerformanceUnavailable(model), true);
+  assert.doesNotMatch(model.tiles.map((tile) => `${tile.value} ${tile.detail}`).join(" "), /99|9,999|%/, "no figure or unit survives the gate");
+});
+
+test("available: false keeps the backend's own reason and reports the figures as withdrawn", () => {
+  const model = paperPerformanceModel({
+    [PAPER_PERFORMANCE_SOURCE]: report({ available: false, reason: "The report window contains no settled outcomes.", win_rate: "0.5" }),
+  });
+  assert.equal(tileById(model, "win_rate").detail, "The report window contains no settled outcomes.");
+  assert.equal(tileById(model, "win_rate").value, NOT_AVAILABLE);
+});
+
+test("an absent or non-true available flag is not an available report", () => {
+  for (const flag of [undefined, null, false, "true", 1, 0]) {
+    const model = paperPerformanceModel({
+      [PAPER_PERFORMANCE_SOURCE]: report({ available: flag, win_rate: "0.5", total_pnl: { amount: "10", currency: "USDT" } }),
+    });
+    assert.equal(tileById(model, "win_rate").value, NOT_AVAILABLE, `available: ${String(flag)} must not display a rate`);
+    assert.equal(tileById(model, "total_pnl").value, NOT_AVAILABLE, `available: ${String(flag)} must not display a total`);
+  }
+});
+
+// --- report provenance: sample size and observation time ---------------------------------
+
+test("a rate without a sample size is not shown", () => {
+  const model = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: report({ sample_size: undefined, win_rate: "0.4762" }) });
+  assert.equal(tileById(model, "win_rate").value, NOT_AVAILABLE);
+  assert.match(tileById(model, "win_rate").detail, /no sample size/i);
+});
+
+test("a figure without an observation time is not shown", () => {
+  const model = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: report({ as_of: undefined, total_pnl: { amount: "10", currency: "USDT" }, gross_or_net: "net" }) });
+  assert.equal(tileById(model, "total_pnl").value, NOT_AVAILABLE);
+  assert.match(tileById(model, "total_pnl").detail, /no observation time/i);
+});
+
+test("an unparseable observation time is not a boundary", () => {
+  for (const asOf of ["", "not a date", "17/10/2026", null]) {
+    const model = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: report({ as_of: asOf, win_rate: "0.5" }) });
+    assert.equal(tileById(model, "win_rate").value, NOT_AVAILABLE, `as_of ${JSON.stringify(asOf)} must be refused`);
+  }
+});
+
+test("an impossible sample size is refused", () => {
+  for (const size of [-1, 2.5, "", "many", null, NaN]) {
+    const model = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: report({ sample_size: size, win_rate: "0.5" }) });
+    assert.equal(tileById(model, "win_rate").value, NOT_AVAILABLE, `sample_size ${String(size)} must be refused`);
+  }
+});
+
+test("a zero sample cannot carry a rate, and says so", () => {
+  const model = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: report({ sample_size: 0, win_rate: "0" }) });
+  assert.equal(tileById(model, "win_rate").value, NOT_AVAILABLE);
+  assert.match(tileById(model, "win_rate").detail, /No settled paper trades to measure a rate over/);
+});
+
+// --- figure provenance: the cost basis ---------------------------------------------------
+
+test("a gross total is captioned gross and never described as net", () => {
+  const model = paperPerformanceModel({
+    [PAPER_PERFORMANCE_SOURCE]: report({ gross_or_net: "gross", total_pnl: { amount: "41.14", currency: "USDT" } }),
+  });
+  const tile = tileById(model, "total_pnl");
+  assert.equal(tile.available, true);
+  assert.equal(tile.value, "+41.14 USDT");
+  assert.match(tile.detail, /before fees and slippage/);
+  assert.match(tile.detail, /gross/);
+  assert.doesNotMatch(tile.detail, /\bnet\b/, "a gross total must never read as net of costs");
+  assert.equal(model.basis, "gross");
+});
+
+test("only an explicit net basis produces the net-of-costs wording", () => {
+  const net = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: report({ gross_or_net: "net" }) });
+  assert.match(tileById(net, "total_pnl").detail, /net of recorded fees and slippage/);
+  assert.doesNotMatch(tileById(net, "total_pnl").detail, /gross/);
+});
+
+test("the basis is read case-insensitively and any other word is refused", () => {
+  const upper = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: report({ gross_or_net: "NET" }) });
+  assert.equal(upper.basis, "net");
+  for (const basis of ["nett", "after costs", "", null, "true"]) {
+    const model = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: report({ gross_or_net: basis, total_pnl: { amount: "10", currency: "USDT" } }) });
+    assert.equal(tileById(model, "total_pnl").value, NOT_AVAILABLE, `basis ${JSON.stringify(basis)} must be refused`);
+  }
+});
+
+test("a total with no stated basis is withheld and explains why", () => {
+  const model = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: report({ gross_or_net: undefined, total_pnl: { amount: "10", currency: "USDT" } }) });
+  const tile = tileById(model, "total_pnl");
+  assert.equal(tile.available, false);
+  assert.equal(tile.value, NOT_AVAILABLE);
+  assert.match(tile.detail, /does not say whether the total is gross or net/);
+});
+
+test("the cost basis gate applies to the total only, not to a rate over the same report", () => {
+  // A win rate does not depend on fees or slippage, so an unstated basis must not suppress it.
+  const model = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: report({ gross_or_net: undefined, win_rate: "0.25", total_pnl: { amount: "10", currency: "USDT" } }) });
+  assert.equal(tileById(model, "win_rate").value, "25.00%");
+  assert.equal(tileById(model, "total_pnl").value, NOT_AVAILABLE);
+});
+
+// --- formatting and independence, unchanged ----------------------------------------------
+
 test("a win rate may arrive as a number or a string, and both render the same", () => {
-  const asString = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: { win_rate: "0.5" } });
-  const asNumber = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: { win_rate: 0.5 } });
+  const asString = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: report({ win_rate: "0.5" }) });
+  const asNumber = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: report({ win_rate: 0.5 }) });
   assert.equal(tileById(asString, "win_rate").value, "50.00%");
   assert.equal(tileById(asNumber, "win_rate").value, "50.00%");
 });
 
 test("a supplied total P&L is shown with its sign and currency", () => {
-  const gained = paperPerformanceModel({
-    [PAPER_PERFORMANCE_SOURCE]: { total_pnl: { amount: "1234.5", currency: "USDT" }, as_of: "2026-10-17T23:00:00Z" },
-  });
+  const gained = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: report({ total_pnl: { amount: "1234.5", currency: "USDT" } }) });
   assert.equal(tileById(gained, "total_pnl").value, "+1,234.50 USDT");
   assert.equal(tileById(gained, "total_pnl").tone, "green");
   assert.match(tileById(gained, "total_pnl").detail, /2026-10-17 23:00 UTC/);
 
-  const lost = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: { total_pnl: { amount: -41.14, currency: "USDT" } } });
+  const lost = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: report({ total_pnl: { amount: -41.14, currency: "USDT" } }) });
   assert.equal(tileById(lost, "total_pnl").value, "-41.14 USDT");
   assert.equal(tileById(lost, "total_pnl").tone, "red");
 });
 
 test("a zero P&L is a real figure and reads as neither a gain nor a loss", () => {
-  const model = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: { total_pnl: { amount: "0", currency: "USDT" } } });
+  const model = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: report({ total_pnl: { amount: "0", currency: "USDT" } }) });
   const tile = tileById(model, "total_pnl");
   assert.equal(tile.available, true);
   assert.equal(tile.value, "+0.00 USDT");
@@ -120,7 +253,7 @@ test("a zero P&L is a real figure and reads as neither a gain nor a loss", () =>
 });
 
 test("the two tiles fill in independently", () => {
-  const onlyPnl = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: { total_pnl: { amount: "10", currency: "USDT" } } });
+  const onlyPnl = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: report({ win_rate: null, total_pnl: { amount: "10", currency: "USDT" } }) });
   assert.equal(tileById(onlyPnl, "win_rate").value, NOT_AVAILABLE);
   assert.equal(tileById(onlyPnl, "total_pnl").available, true);
   assert.equal(paperPerformanceUnavailable(onlyPnl), false);
@@ -129,30 +262,34 @@ test("the two tiles fill in independently", () => {
 test("an explicit null from the backend stays unavailable rather than becoming zero", () => {
   // null is the backend saying "not computable". Number(null) is 0, which would otherwise
   // render a real-looking 0.00% win rate and a 0.00 P&L.
-  const model = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: { win_rate: null, total_pnl: null, sample_size: null } });
+  const model = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: report({ win_rate: null, total_pnl: null }) });
   assert.equal(tileById(model, "win_rate").value, NOT_AVAILABLE);
   assert.equal(tileById(model, "total_pnl").value, NOT_AVAILABLE);
 });
 
 test("malformed values are refused rather than rendered", () => {
   const cases = [
-    { win_rate: "" },
-    { win_rate: "not a rate" },
-    { win_rate: 1.5 },    // a win rate above 1 is not a win rate
-    { win_rate: -0.2 },
-    { total_pnl: "41.14" },              // a bare amount has no currency or provenance
-    { total_pnl: { amount: "abc" } },
-    { total_pnl: { amount: null, currency: "USDT" } },
+    ["win_rate", { win_rate: "" }],
+    ["win_rate", { win_rate: "not a rate" }],
+    ["win_rate", { win_rate: 1.5 }],   // a win rate above 1 is not a win rate
+    ["win_rate", { win_rate: -0.2 }],
+    ["total_pnl", { total_pnl: "41.14" }],              // a bare amount has no currency or provenance
+    ["total_pnl", { total_pnl: { amount: "abc" } }],
+    ["total_pnl", { total_pnl: { amount: null, currency: "USDT" } }],
   ];
-  for (const block of cases) {
-    const model = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: block });
-    assert.equal(paperPerformanceUnavailable(model), true, `${JSON.stringify(block)} must stay unavailable`);
+  for (const [id, block] of cases) {
+    // The other tile keeps its own valid figure: one malformed field must not take the
+    // whole report down, and must not be rendered either.
+    const model = paperPerformanceModel({ [PAPER_PERFORMANCE_SOURCE]: report(block) });
+    const tile = tileById(model, id);
+    assert.equal(tile.available, false, `${JSON.stringify(block)} must refuse ${id}`);
+    assert.equal(tile.value, NOT_AVAILABLE, `${JSON.stringify(block)} must not render a value`);
   }
 });
 
 test("the backend's own reason is shown verbatim when it supplies one", () => {
   const model = paperPerformanceModel({
-    [PAPER_PERFORMANCE_SOURCE]: { available: false, reason: "No settled outcome yet reached its observation cutoff." },
+    [PAPER_PERFORMANCE_SOURCE]: report({ available: false, reason: "No settled outcome yet reached its observation cutoff." }),
   });
   assert.equal(tileById(model, "win_rate").detail, "No settled outcome yet reached its observation cutoff.");
   assert.equal(tileById(model, "total_pnl").detail, "No settled outcome yet reached its observation cutoff.");

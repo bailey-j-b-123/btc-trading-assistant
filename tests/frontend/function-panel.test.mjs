@@ -329,7 +329,14 @@ test("missing plan fields stay explicit UNKNOWN values", () => {
   assert.equal(model.facts[1].value, "UNKNOWN");
   assert.equal(model.facts[2].value, "UNKNOWN");
   assert.equal(model.facts[3].value, "UNKNOWN", "an absent invalidation value is UNKNOWN, never a filled-in level");
-  assert.equal(Boolean(model.rr), false, "no ratio or distance is shown when the levels are not there to measure one");
+  // No distance can be measured, so each one says UNKNOWN rather than disappearing or
+  // defaulting to zero. The block still appears, which is how a reader can tell that the
+  // plan is being shown but its risk cannot be measured.
+  assert.equal(model.rr.risk, "UNKNOWN");
+  assert.equal(model.rr.reward, "UNKNOWN");
+  assert.equal(model.rr.ratio, "UNKNOWN");
+  assert.equal(model.rr.ratioBasis, null);
+  assert.equal(model.rr.riskShare, null, "no bar is drawn without two distances");
   const values = model.facts.map((row) => row.value);
   assert.equal(values.length, 4, "direction, entry, stop and invalidation are still listed");
   for (const value of values) assert.match(value, /^UNKNOWN/, "no field is filled in: every one is explicit UNKNOWN");
@@ -337,18 +344,108 @@ test("missing plan fields stay explicit UNKNOWN values", () => {
   assert.match(model.note, /Hypothetical paper levels/, "a plannable plan with unreadable levels still says what it is");
 });
 
-test("a plan whose targets carry no price shows no reward distance", () => {
+test("a plan whose targets carry no price shows the risk distance and an UNKNOWN reward", () => {
   const model = functionPanelModel({
     functionId: "trade_plan",
     plan: { state: "PLANNABLE", direction: "bullish", entry: { value: "100" }, stop: { value: "90" }, targets: [{ level: { value: null } }] },
   });
-  assert.equal(Boolean(model.rr), false, "no reward distance can be measured without a target price");
   assert.equal(model.facts[3].value, "UNKNOWN", "the target field itself stays explicit");
+  assert.equal(model.rr.risk, "10.00", "the risk distance is still measurable from entry and stop");
+  assert.equal(model.rr.reward, "UNKNOWN", "no reward distance can be measured without a target price");
+  assert.equal(model.rr.ratio, "UNKNOWN");
+  assert.equal(model.rr.riskShare, null);
+
   const zeroRisk = functionPanelModel({
     functionId: "trade_plan",
     plan: { state: "PLANNABLE", direction: "bullish", entry: { value: "100" }, stop: { value: "100" }, targets: [{ level: { value: "120" } }] },
   });
-  assert.equal(Boolean(zeroRisk.rr), false, "a zero risk distance cannot produce a ratio");
+  assert.equal(zeroRisk.rr.risk, "0.00", "an entry equal to the stop is a real zero distance");
+  assert.equal(zeroRisk.rr.ratio, "UNKNOWN", "a zero risk distance cannot produce a ratio");
+  assert.equal(zeroRisk.rr.reward, "20.00");
+});
+
+// --- r_multiple: null must never become zero --------------------------------------------
+
+test("a null r_multiple never becomes a 0.00 ratio", () => {
+  // Number(null) is 0, so the old code read an absent r_multiple as a stated ratio of zero
+  // and printed "R:R 0.00 : 1". A ratio of zero risk to reward is not what the plan says.
+  const model = functionPanelModel({
+    functionId: "trade_plan",
+    plan: {
+      state: "PLANNABLE",
+      direction: "bullish",
+      entry: { value: "100" },
+      stop: { value: "100" },
+      targets: [{ level: { value: "120" }, r_multiple: null }],
+    },
+  });
+  assert.notEqual(model.rr.ratio, "0.00 : 1", "a missing r_multiple is not a zero ratio");
+  assert.equal(model.rr.ratio, "UNKNOWN");
+  assert.equal(model.rr.ratioBasis, null);
+});
+
+test("the ratio comes from the plan's levels when both distances are measurable", () => {
+  const model = functionPanelModel({
+    functionId: "trade_plan",
+    plan: { state: "PLANNABLE", direction: "bullish", entry: { value: "100" }, stop: { value: "90" }, targets: [{ level: { value: "130" } }] },
+  });
+  assert.equal(model.rr.risk, "10.00");
+  assert.equal(model.rr.reward, "30.00");
+  assert.equal(model.rr.ratio, "3.00 : 1");
+  assert.equal(model.rr.ratioBasis, "levels", "the ratio is the reward distance over the risk distance");
+  assert.equal(model.rr.riskShare, 0.25);
+});
+
+test("the plan's own R multiple is used, and marked, when the distances cannot be measured", () => {
+  // No stop, so no risk distance: the plan's stated R multiple is all that is left.
+  const model = functionPanelModel({
+    functionId: "trade_plan",
+    plan: { state: "PLANNABLE", direction: "bullish", entry: { value: "100" }, stop: null, targets: [{ level: { value: "130" }, r_multiple: "2.5" }] },
+  });
+  assert.equal(model.rr.risk, "UNKNOWN");
+  assert.equal(model.rr.ratio, "2.50 : 1");
+  assert.equal(model.rr.ratioBasis, "stated");
+});
+
+test("the levels win over a stated R multiple, so the ratio always matches the distances", () => {
+  // A plan whose stated R multiple disagrees with its own levels. The displayed ratio must
+  // agree with the two distances beside it, or it reads as a contradiction on one row.
+  const model = functionPanelModel({
+    functionId: "trade_plan",
+    plan: { state: "PLANNABLE", direction: "bullish", entry: { value: "100" }, stop: { value: "90" }, targets: [{ level: { value: "130" }, r_multiple: "9.9" }] },
+  });
+  assert.equal(model.rr.ratio, "3.00 : 1");
+  assert.equal(model.rr.ratioBasis, "levels");
+});
+
+test("a missing r_multiple on the final target is not replaced by an earlier target's", () => {
+  // The reward distance shown is the final target's, so its ratio must be the final
+  // target's too. Borrowing T1's R multiple would describe a different reward.
+  const model = functionPanelModel({
+    functionId: "trade_plan",
+    plan: {
+      state: "PLANNABLE",
+      direction: "bullish",
+      entry: { value: "100" },
+      stop: null,
+      targets: [{ level: { value: "120" }, r_multiple: "2" }, { level: { value: "130" }, r_multiple: null }],
+    },
+  });
+  assert.equal(model.rr.ratio, "UNKNOWN");
+  assert.equal(model.rr.ratioBasis, null);
+  // facts: direction, entry, stop, invalidation, then one per target.
+  assert.equal(model.facts[4].meta, "2.00R from entry", "each target still reports its own R when it has one");
+  assert.equal(model.facts[5].meta, null, "a target without an R multiple reports none, not 0.00R");
+});
+
+test("a non-positive or unparseable r_multiple is not a ratio", () => {
+  for (const rMultiple of [0, "-1", "abc", "", null, undefined, NaN]) {
+    const model = functionPanelModel({
+      functionId: "trade_plan",
+      plan: { state: "PLANNABLE", direction: "bullish", entry: { value: "100" }, stop: null, targets: [{ level: { value: "NULL" }, r_multiple: rMultiple }] },
+    });
+    assert.equal(model.rr.ratio, "UNKNOWN", `r_multiple ${String(rMultiple)} must not render as a ratio`);
+  }
 });
 
 test("an unknown or missing chart function falls back to the calm default panel", () => {
