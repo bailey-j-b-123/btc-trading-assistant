@@ -112,3 +112,37 @@ strict expected failure remains unchanged. Do not shorten reference history,
 loosen thresholds or manufacture trades to make benchmarks or comparisons pass.
 Existing functional/dashboard PRs #53–59 are separate; this patch changes no
 visual implementation and requires human review/manual integration.
+
+## Recorded initial engineering run
+
+The initial machine run completed **1,000 closed boundaries per case** (2,000
+in total), using real default rules and separate cold Python processes. Both
+stored 17,133 observations, 34 naturally generated paper plans and 535 outcome
+versions. Stress retained one additional missing-data cycle audit; its 1,000
+resolved conclusions, frozen records, final slot and SQLite/FK checks passed.
+Six injected operating scenarios actually fired, including six failed source
+fetches, a fresh SQLite engine restart, a three-close catch-up, repeated polling,
+and separate cycle/outcome transaction interruptions. There were 997 duplicate
+closed-candle redispatches, without duplicate plans or terminal versions.
+
+| Actual case | Wall seconds | Median pass | p95 pass | Peak lifetime RSS | Sampled scratch peak |
+|---|---:|---:|---:|---:|---:|
+| Baseline | 1,124.08 | 0.945s | 2.514s | 1,166,049,280 bytes | 418,969,788 bytes |
+| Stress | 1,198.52 | 0.954s | 3.336s | 1,201,455,104 bytes | 420,000,175 bytes |
+
+Stress SQLite logical allocation grew from 299,008 to 411,275,264 bytes; file and
+sidecar growth was 411,009,248 bytes. The earlier baseline formatter did not
+record separate SQLite growth or exact input signatures; these missing values
+are not inferred. Its source hashes and full completed JSON were preserved. The
+baseline's ignored launch wrapper failed on an incorrect result-field name after
+successful engine checks/report save; the corrected stress launch passed.
+
+**Strict saved comparison failed**: frozen plans, latest outcome payloads and full
+outcome chains matched, but cycle/observation identity hashes differed. This is
+reported as a failure rather than hidden by excluding terminal facts. The older
+baseline predates report metadata and the settled-retry correction; final source
+passed all 33 focused checks and the full 1,215 Python tests (one original strict
+xfail), plus 298 frontend tests on Node22. Long runs do not claim exact final-build
+or continuous live-market certification. The remaining identity difference and
+substantial memory/storage growth require follow-up before unattended sustained
+paper operation. There is no profitability or monetary-performance claim.
