@@ -618,7 +618,7 @@ function chartCard(initialDashboard) {
   const handleRef = { current: null };
   const formingStatus = el("div", { class: "forming-status", role: "status",
     "aria-label": "Forming candle display only", text: "FORMING — DISPLAY ONLY" });
-  const confirmedStatus = el("div", { class: "chart-note", text: "Last confirmed stored close: unavailable" });
+  const confirmedStatus = el("div", { class: "chart-note confirmed-status", text: "Last confirmed stored close: unavailable" });
   const ohlcLine = el("div", { class: "chart-ohlc", "aria-live": "off", text: "Move over a candle for its confirmed OHLC." });
   const evidenceMeta = el("div", { class: "chart-evidence-meta", role: "note", text: "" });
   // Text alternative to the chart markers: every drawn item, reachable without hovering or clicking the canvas.
@@ -939,6 +939,7 @@ function chartCard(initialDashboard) {
     const next = normalizeFunctionId(functionId);
     if (next === activeChartFunction) return;
     activeChartFunction = next;
+    card.dataset.chartFunction = activeChartFunction;
     const keep = captureChartView(handleRef.current);
     renderEvidence();
     applyViewedOverlays();
@@ -951,6 +952,7 @@ function chartCard(initialDashboard) {
     const next = normalizeMode(mode);
     if (next === activeChartMode) return;
     activeChartMode = next;
+    card.dataset.mode = activeChartMode;
     const keep = captureChartView(handleRef.current);
     renderEvidence();
     applyViewedOverlays();
@@ -1377,6 +1379,12 @@ function chartCard(initialDashboard) {
       const handle = ensureChart();
       if (!handle || generation !== viewed.generation || viewed.cancelled) return;
       setCandles(handle, rows);
+      // Returning to the engine timeframe restores the captured zoom/place
+      // explicitly, exactly like any other timeframe switch: relying on the
+      // chart library's implicit range preservation across setData loses the
+      // view when the two series' stored windows do not overlap.
+      if (keepView) restoreChartView(handle, keepView);
+      else restoreLogicalView(handle, logicalView);
       startForming(timeframe, rows);
       renderEvidence();
       applyViewedOverlays();
@@ -1523,6 +1531,10 @@ function chartCard(initialDashboard) {
 
   const card = el("section", {
     class: "card terminal-card terminal-chart-card",
+    // Simple (default) keeps the chart card clean: the evidence catalogue,
+    // marker key and window notes are Detailed/Diagnostics material. CSS
+    // gates them on this dataset; the nodes stay mounted for both modes.
+    dataset: { mode: activeChartMode, chartFunction: activeChartFunction },
     "aria-label": `${symbol} price chart`,
   }, [
     el("div", { class: "card-head" }, [
@@ -3429,18 +3441,15 @@ export async function renderDashboard(view, { refresh = false } = {}) {
     el("div", { class: "dash-main" }, [
       el("div", { class: "dash-chart" }, [chart.node]),
       el("aside", { class: "dash-context", "aria-label": "Current setup" }, [
-        // Setup status, then confirmation, then what BRAIN is waiting for or
-        // rejecting. The selected-evidence explanation is mounted between them
-        // so it can never replace the trading status (blueprint §4).
+        // Current Setup stays a compact status rail (approved design): the
+        // decision, then the four setup rows. The multi-timeframe strip, the
+        // plan-level card and the waiting-for detail live in Diagnostics, so
+        // the chart stays the visual focus; the selected-evidence explanation
+        // stays mounted here so it can never replace the trading status
+        // (blueprint §4).
         decisionHero(dashboard, forward),
         setupRows(dashboard, forward),
-        compactHierarchyStrip(dashboard),
         chart.explainPanel,
-        // The engine's own plan levels, in the panel form the approved Trade
-        // Plan design uses (the Trade Plan chart function shows the same
-        // numbers as a table beside the chart).
-        planCard(dashboard),
-        waitingCard(dashboard, forward),
       ]),
     ]),
     // Four compact summary cards.
@@ -3464,6 +3473,9 @@ export async function renderDashboard(view, { refresh = false } = {}) {
       performanceSection(dashboard, forward),
     ] }),
     tabPanel({ id: "diagnostics", selected: selectedTab, label: "Diagnostics", children: [
+      compactHierarchyStrip(dashboard),
+      planCard(dashboard),
+      waitingCard(dashboard, forward),
       multiTimeframeCard(dashboard),
       botWatchingCard(dashboard),
       explanationCard(dashboard),

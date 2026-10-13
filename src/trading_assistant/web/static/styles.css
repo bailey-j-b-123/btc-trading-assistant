@@ -2139,3 +2139,140 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 @media (max-width: 1180px) {
   .more-list { left: 0; right: auto; }
 }
+
+/* =============================================================================
+   Dashboard V2 visual-correction pass (against the six approved references).
+   The approved screens share one grammar: a slim header, one dominant chart
+   card, a compact status rail, quiet panels (#0d1526 family) with hairline
+   borders, coloured icon tiles, and almost no prose under the chart. The
+   sections below restyle the existing V2 structure to that grammar without
+   moving any data or changing what a value means. Detailed/Diagnostics keep
+   every technical line; Simple (the default) hides them, it never deletes
+   them — the nodes stay mounted and every value stays one switch away.
+   ========================================================================== */
+
+/* --- Slim chrome ------------------------------------------------------------ */
+.topbar { padding: 8px 18px; }
+.dash-commandbar {
+  grid-template-areas: "identity timeframes quote" "health asof more";
+  padding: 10px 14px;
+  gap: 6px 16px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: none;
+}
+/* The health sentence and the update-status prose are Diagnostics material;
+   the pill alone carries the state on the trading bar (approved header). */
+.commandbar-health-detail, .dash-update-status { display: none; }
+.commandbar-asof { font-size: 10px; opacity: 0.85; }
+
+/* --- Main area: chart dominant, Current Setup a compact rail ----------------- */
+.dash-main {
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 14px;
+  align-items: start;
+}
+.dash-context { gap: 12px; }
+.dash-context .card { border-radius: var(--radius); box-shadow: none; }
+
+/* Decision hero, compressed to the rail's headline block. */
+.dash-context .hero-card { padding: 16px 18px; display: block; }
+.dash-context .hero-kicker { font-size: 10px; letter-spacing: 0.12em; }
+.dash-context .hero-state { font-size: 30px; line-height: 1.1; margin: 6px 0 4px; }
+.dash-context .hero-reason { font-size: 13px; line-height: 1.5; margin: 6px 0 0; }
+.dash-context .hero-side { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.dash-context .hero-facts { gap: 6px 14px; }
+.dash-context .hero-data { font-size: 10.5px; }
+
+/* The four Current Setup rows, as in the approved main design: tinted icon
+   tile, small caps label, coloured value, and the plain-language detail. */
+.setup-rows { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.setup-row {
+  display: grid; grid-template-columns: 40px minmax(0, 1fr);
+  gap: 4px 12px; align-items: center;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+.setup-row-icon {
+  grid-row: 1 / 3; width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 10px; font-size: 17px;
+  background: var(--neutral-chip); color: var(--text-dim);
+}
+.setup-row[data-tone="green"] .setup-row-icon { background: var(--green-dim); color: var(--green); }
+.setup-row[data-tone="red"] .setup-row-icon { background: var(--red-dim); color: var(--red); }
+.setup-row[data-tone="amber"] .setup-row-icon { background: var(--amber-dim); color: var(--amber); }
+.setup-row[data-tone="blue"] .setup-row-icon { background: var(--blue-dim); color: var(--blue); }
+.setup-row-value[data-tone], .setup-row[data-tone="green"] .setup-row-value { color: var(--green); }
+.setup-row[data-tone="red"] .setup-row-value { color: var(--red); }
+.setup-row[data-tone="amber"] .setup-row-value { color: var(--amber); }
+.setup-row-detail { grid-column: 2; font-size: 11.5px; }
+
+/* --- Chart card: the visual focus ------------------------------------------- */
+.terminal-chart-card { padding: 14px 16px 12px; box-shadow: none; }
+.terminal-chart-card .card-head { margin-bottom: 6px; }
+.chart-heading-title { font-size: 15px; font-weight: 700; }
+.chart-toolbar { gap: 8px; }
+.terminal-chart-wrap { height: clamp(460px, 58vh, 600px); }
+.chart-stage { grid-template-columns: minmax(0, 1fr) 292px; gap: 14px; margin-top: 10px; }
+.chart-function-panel {
+  border-radius: var(--radius); background: var(--panel-2);
+  padding: 14px; font-size: 12.5px; align-self: start;
+}
+.cfp-heading { font-size: 15px; }
+.chart-ohlc { font-family: var(--mono); font-size: 11px; color: var(--text-dim); margin-top: 8px; }
+.forming-status { font-size: 9.5px; letter-spacing: 0.1em; margin-top: 8px; }
+.chart-function-status {
+  border: none; background: transparent; padding: 6px 2px 0; margin-top: 6px;
+  font-size: 12px; color: var(--text-dim);
+}
+/* Simple keeps the under-chart area clean (approved screens show none of this
+   prose under the candles); Detailed restores the catalogue, the marker key
+   and the window notes. Nothing is removed from the DOM. */
+.terminal-chart-card[data-mode="simple"] .chart-evidence-meta,
+.terminal-chart-card[data-mode="simple"] .chart-items,
+.terminal-chart-card[data-mode="simple"] .chart-marker-key,
+.terminal-chart-card[data-mode="simple"] .chart-view-note,
+.terminal-chart-card[data-mode="simple"] .chart-history-note,
+.terminal-chart-card[data-mode="simple"] .confirmed-status { display: none; }
+
+/* --- Summary cards + tabs ----------------------------------------------------- */
+.dash-summary-grid { gap: 12px; }
+.stat-card { box-shadow: none; border-radius: var(--radius); padding: 14px 16px; }
+.stat-value { font-size: 24px; }
+.dash-tabs { gap: 4px; }
+.ledger-table th { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-faint); }
+
+/* --- More menu: never opens off-screen ---------------------------------------
+   The menu is end-aligned in its bar at every width, so the panel must stay
+   right-anchored too. The earlier <=1180px left-flip (panel from the menu's
+   left edge) pushed the open panel up to 92px past phone/tablet viewports. */
+.more-menu { justify-self: end; }
+.more-list { left: auto; right: 0; }
+@media (max-width: 1180px) {
+  .more-list { left: auto; right: 0; }
+  .dash-main { grid-template-columns: minmax(0, 1fr) 320px; }
+}
+@media (max-width: 1020px) {
+  .dash-main { grid-template-columns: minmax(0, 1fr); }
+  .chart-stage { grid-template-columns: minmax(0, 1fr); }
+  .terminal-chart-wrap { height: clamp(380px, 52vh, 520px); }
+}
+
+/* --- Visual-correction refinements (from the 1560px reference comparison) ---- */
+/* Setup rows: label/value left, plain detail as its own column (approved row). */
+.setup-row { grid-template-columns: 40px minmax(105px, 0.8fr) minmax(0, 1.2fr); }
+.setup-row-icon { grid-row: 1 / 2; }
+.setup-row-detail { grid-column: 3; grid-row: 1 / 2; align-self: center; }
+/* The decision block keeps its verdict + reason; the paper-candidate/orders
+   facts repeat the setup rows and live in Diagnostics-grade detail. */
+.dash-context .hero-facts { display: none; }
+.dash-context .hero-side { border-top: none; margin-top: 8px; padding-top: 0; }
+/* Selected-evidence panel appears only once a candle/marker is selected. */
+.dash-context .evidence-explain:has(.evidence-explain-hint) { display: none; }
+/* Quiet chrome lines: one OHLC line is enough above the candles in Simple. */
+.terminal-chart-card[data-mode="simple"] .chart-heading-meta { display: none; }
+.commandbar-quote .live-quote-note { display: none; }
+.stat-value { font-size: 22px; line-height: 1.15; overflow-wrap: anywhere; }
+.cfp-facts { grid-template-columns: minmax(84px, 0.9fr) minmax(0, 1.1fr); }
+.cfp-fact-label { overflow-wrap: anywhere; }
