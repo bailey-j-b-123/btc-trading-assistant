@@ -1563,13 +1563,14 @@ To work with real data, download candles first (Step 2 `MarketDataService.update
 
 ### Desktop and mobile behaviour
 
-Five primary areas are reached from a **sidebar on desktop** and a **bottom tab bar on
-mobile** (thumb-reachable, one-handed): **Dashboard, Journal, Statistics, Validation, Settings.**
-The active section is highlighted with `aria-current="page"`.
+The app is one page: **the trading dashboard**. The earlier read-only views (journal,
+live/paper, statistics, validation, settings) are no longer part of the navigation; they
+remain reachable for existing direct links (`#/journal`, `#/live`, `#/statistics`,
+`#/validation`, `#/settings`), and the dashboard's own bottom tabs carry their content.
 
-* **Desktop** lays out cards in a single column under a sticky top bar that always shows
-  symbol, latest stored price and the freshness badge. The candlestick chart is ~420px
-  with overlay toggle chips (zones, range, equal levels, plan levels, swings).
+* **Desktop** lays out the approved trading dashboard: one trading bar, the candlestick
+  chart beside the Current Setup panel, four compact summary cards, and three bottom tabs
+  (Paper Trades, Performance, Diagnostics).
 * **Mobile (≤860px)** is designed intentionally, not shrunk: the top bar compacts, cards
   stack, the chart drops to ~320px, decision buttons become full-width ≥44px touch
   targets, tables become cards, and the nav becomes a fixed bottom bar with
@@ -1579,6 +1580,40 @@ The active section is highlighted with `aria-current="page"`.
 The web manifest and meta tags make the app **installable to a home screen** (PWA-ready
 presentation), but Step 10 deliberately ships **no service worker and no push
 infrastructure** — that deployment concern is deferred.
+
+### Dashboard V2 — the approved trading layout
+
+The dashboard follows the approved BRAIN Dashboard V2 design and is still purely a
+presentation layer: the same endpoints, the same numbers, the same provenance.
+
+* **Trading bar (top).** Instrument, the chart timeframe controls (5M / 15M / 1H / 4H, plus
+  the view-only 1D entry), the paper-mode badge, the live public price, the last confirmed
+  candle, the analysed-as-of instant, and runner / market-data health.
+* **Main area.** The candlestick chart on the left; the **Current Setup** column on the
+  right, carrying setup status, the multi-timeframe confirmation strip, the selected
+  evidence explanation, the execution state, and what BRAIN is waiting for.
+* **Four summary cards.** Market bias, nearest stored levels, the engine's trade plan, and
+  the paper ledger.
+* **Bottom tabs.** Paper Trades (opens by default, tracker card first), Performance, and
+  Diagnostics. Diagnostics keeps every earlier detail — the full setup list, the technical
+  record, system details — in one tab instead of stacked panels.
+* **Five chart functions.** Support / Resistance, Swing Highs / Lows, Chart Patterns,
+  Breakouts / Retests, and Trade Plan. **Simple mode** (default) draws exactly one function
+  at a time; **Detailed mode** draws several, including the operator's own layer switches
+  and older stored evidence.
+* **Presentation rules that are not negotiable.** Prices, bands, touch counts, pattern
+  shapes and lifecycle states, event states and plan levels are the backend's own values:
+  nothing is invented, moved or re-labelled; no confidence percentage is ever shown for a
+  pattern; a continuation is drawn only when the backend recorded one; plan levels appear
+  only when the engine supplies a `PLANNABLE` plan. Unavailable evidence shows the backend's
+  own reason instead of a guess, and a count that is absent stays `UNKNOWN` rather than
+  becoming zero.
+* **Zoom is preserved.** Switching chart function, display mode, or timeframe keeps the
+  visible window: a same-timeframe redraw puts back the same instants, and a timeframe
+  switch keeps the same number of candles at the same place relative to the newest one.
+* **Responsive.** The trading bar wraps and unsticks, the summary cards go two-up then
+  one-up, and the Current Setup column moves under the chart on narrower screens, with
+  controls staying at or above the 44px touch target.
 
 ### Backend / frontend boundary
 
@@ -1688,8 +1723,8 @@ execution, exchange authentication, balances, positions, leverage, and auto-trad
 out of scope for all steps.
 
 ```bash
-python -m pytest                        # complete Steps 1–11 Python suite (495 tests)
-node --test tests/frontend/*.test.mjs   # frontend logic tests (23 tests)
+python -m pytest                        # complete Python suite (1182 passed, 1 xfailed)
+node --test tests/frontend/*.test.mjs   # frontend tests, no dependencies (334 tests)
 ruff format --check src/trading_assistant/historical_validation src/trading_assistant/web tests/test_historical_validation.py tests/test_web_*.py tests/web_fixtures.py tests/test_web_frontend_contract.py
 ruff check src/trading_assistant/historical_validation src/trading_assistant/web tests/test_historical_validation.py tests/test_web_*.py tests/web_fixtures.py tests/test_web_frontend_contract.py
 ```

@@ -665,12 +665,20 @@ test("compactHierarchyViewModel projects the backend payload without recomputing
 test("the compact strip sits next to the chart and shows every engine role", async () => {
   await withDashboard({ dashboard: dashboardFixture(), forward: forwardFixture() }, async ({ view }) => {
     await renderDashboard(view);
-    // The strip is the single multi-timeframe view, in the context column beside the chart (PR #38 redesign).
+    // The strip is the single multi-timeframe view, in the Current Setup column
+    // beside the chart. (The approved redesign leads that column with the setup
+    // status, so the strip is no longer the first child — it is still inside it.)
     const stack = findOne(view, (node) => (node.className || "").split(" ").includes("dash-context"));
     assert.ok(stack);
-    assert.equal(stack.children[0].getAttribute("aria-label"), "Multi-timeframe status");
     const strip = stripNode(view);
     assert.ok(strip);
+    let ancestor = strip.parentNode;
+    let insideContext = false;
+    while (ancestor) {
+      if (ancestor === stack) { insideContext = true; break; }
+      ancestor = ancestor.parentNode;
+    }
+    assert.ok(insideContext, "the multi-timeframe strip sits in the context column beside the chart");
     const text = strip.textContent;
     for (const expected of [
       "Multi-timeframe status",

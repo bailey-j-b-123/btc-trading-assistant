@@ -313,6 +313,46 @@ export function restoreChartView(handle, captured) {
 }
 
 /**
+ * The visible index window: the number of candles on screen and the right-edge offset.
+ *
+ * A timeframe switch loads a different time base, so the same instants no longer mean the same
+ * candles. The index window is then the comparable thing: the same zoom width and the same place
+ * relative to the newest candle. Used only for timeframe changes; refreshes use captureChartView.
+ */
+export function captureLogicalView(handle) {
+  const timeScale = handle && !handle.destroyed && handle.chart && typeof handle.chart.timeScale === "function"
+    ? handle.chart.timeScale()
+    : null;
+  if (!timeScale || typeof timeScale.getVisibleLogicalRange !== "function") return null;
+  const range = timeScale.getVisibleLogicalRange();
+  if (!range || !Number.isFinite(range.from) || !Number.isFinite(range.to) || range.to <= range.from) return null;
+  return { from: range.from, to: range.to };
+}
+
+/**
+ * Put back a window captured by captureLogicalView, clamped to the candles that are actually
+ * loaded. A smaller series must not leave the chart showing a gap past its newest candle.
+ */
+export function restoreLogicalView(handle, captured) {
+  const timeScale = handle && !handle.destroyed && handle.chart && typeof handle.chart.timeScale === "function"
+    ? handle.chart.timeScale()
+    : null;
+  if (!captured || !timeScale || typeof timeScale.setVisibleLogicalRange !== "function") return;
+  const bars = Number.isFinite(handle.barCount) ? handle.barCount : 0;
+  if (bars <= 0) return;
+  const width = Math.min(captured.to - captured.from, bars);
+  let to = captured.to;
+  const lastIndex = bars - 1;
+  if (to > lastIndex + 3) to = lastIndex + 3;
+  let from = to - width;
+  if (from < 0) {
+    from = 0;
+    to = width;
+  }
+  timeScale.setVisibleLogicalRange({ from, to });
+}
+
+/**
  * Call onNearStart(range) when the visible range moves close to the oldest loaded candle.
  * Only one listener per chart: a later call replaces the earlier one.
  */

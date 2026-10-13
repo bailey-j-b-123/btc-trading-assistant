@@ -1700,3 +1700,219 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   .live-quote-value { font-size: 26px; }
 }
 @media (prefers-reduced-motion: reduce) { .live-quote * { transition: none; } }
+
+/* ==========================================================================
+   BRAIN Dashboard V2 — approved layout
+   --------------------------------------------------------------------------
+   One trading bar, one chart with the Current Setup panel beside it, four
+   compact summary cards, and three bottom tabs. Colours keep their meaning:
+   green = bullish / support / profit concept, red = bearish / resistance /
+   risk, blue = selected control and entry, amber = pending or warning. Every
+   card is a rounded panel on the dark navy canvas; nothing here changes data.
+   ========================================================================== */
+
+/* --- Brand lockup ---------------------------------------------------------- */
+.topbar-brand .brand-name { font-weight: 780; font-size: 15px; letter-spacing: 0.08em; }
+.topbar-brand .brand-sub { letter-spacing: 0.02em; }
+@media (max-width: 520px) {
+  .brand-text { display: flex; }
+  .brand-sub { display: none; }
+  .topbar-brand .brand-name { font-size: 12px; letter-spacing: 0.06em; }
+}
+
+/* --- Trading bar ----------------------------------------------------------- */
+.dash-commandbar {
+  position: sticky;
+  top: var(--topbar-h, 60px);
+  z-index: 20;
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
+  grid-template-areas:
+    "identity timeframes quote"
+    "health health asof";
+  gap: 10px 18px;
+  align-items: center;
+  padding: 12px 16px;
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+}
+.commandbar-identity { grid-area: identity; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.commandbar-symbol { font-size: 20px; font-weight: 750; letter-spacing: -0.01em; }
+.commandbar-engine {
+  font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+  color: var(--text-dim); background: var(--neutral-chip);
+  border: 1px solid var(--border-strong); border-radius: 999px; padding: 3px 9px;
+}
+.chart-timeframe-controls { grid-area: timeframes; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.commandbar-quote { grid-area: quote; min-width: 0; }
+.commandbar-quote .live-quote {
+  padding: 6px 12px; gap: 2px; border-radius: var(--radius);
+  background: var(--panel-3); border-color: var(--border-strong);
+  align-items: flex-end; text-align: right;
+}
+.commandbar-quote .live-quote-kicker { justify-content: flex-end; gap: 8px; }
+.commandbar-quote .live-quote-title { font-size: 9px; letter-spacing: 0.09em; }
+.commandbar-quote .live-quote-value { font-size: 22px; }
+.commandbar-quote .live-quote-note { font-size: 10px; color: var(--text-faint); }
+.commandbar-health { grid-area: health; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
+.commandbar-health-pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--border-strong); background: var(--neutral-chip);
+  font-family: var(--mono); font-size: 10px; font-weight: 750; letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+.commandbar-health-pill[data-tone="green"] { color: var(--green); background: var(--green-dim); border-color: rgba(47, 191, 127, 0.4); }
+.commandbar-health-pill[data-tone="amber"] { color: var(--amber); background: var(--amber-dim); border-color: rgba(232, 163, 61, 0.4); }
+.commandbar-health-pill[data-tone="red"] { color: var(--red); background: var(--red-dim); border-color: rgba(224, 86, 91, 0.4); }
+.commandbar-health-detail { color: var(--text-muted); font-size: 11px; overflow-wrap: anywhere; }
+.commandbar-asof { grid-area: asof; color: var(--text-faint); font-size: 10px; text-align: right; }
+.control-caption {
+  color: var(--text-faint); font-size: 9px; font-weight: 750;
+  letter-spacing: 0.12em; text-transform: uppercase;
+}
+.tf-button {
+  min-height: 34px; min-width: 40px; padding: 5px 10px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: transparent; color: var(--text-dim);
+  font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.tf-button:hover { border-color: var(--border-strong); color: var(--text); }
+.tf-button[aria-pressed="true"] {
+  background: var(--blue-dim); border-color: var(--blue); color: var(--text);
+}
+.tf-button--daily { border-style: dashed; }
+.tf-button--daily[aria-pressed="true"] { border-style: solid; }
+
+/* --- Chart-function controls ---------------------------------------------- */
+.chart-control-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.chart-function-switch, .chart-mode-switch, .chart-pattern-list {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+}
+.chart-function-button, .chart-mode-button, .pattern-button, .swing-connector-toggle {
+  min-height: 34px; padding: 6px 11px;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: transparent; color: var(--text-muted);
+  font-size: 11px; font-weight: 650; letter-spacing: 0.02em;
+  cursor: pointer; white-space: nowrap;
+}
+.chart-function-button:hover, .chart-mode-button:hover, .pattern-button:hover, .swing-connector-toggle:hover {
+  border-color: var(--border-strong); color: var(--text);
+}
+.chart-function-button[aria-pressed="true"], .chart-mode-button[aria-pressed="true"] {
+  background: var(--blue-dim); border-color: var(--blue); color: var(--text);
+}
+.pattern-button[aria-pressed="true"] {
+  background: var(--amber-dim); border-color: var(--amber); color: var(--text);
+}
+.swing-connector-toggle { border-radius: 8px; }
+.swing-connector-toggle[aria-pressed="true"] { background: var(--panel-3); border-color: var(--border-strong); color: var(--text-dim); }
+.chart-function-status {
+  margin-top: 8px; padding: 8px 11px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--panel-2); color: var(--text-dim);
+  font-size: 12px; line-height: 1.4; overflow-wrap: anywhere;
+}
+.chart-function-status[data-tone="amber"] { border-color: rgba(232, 163, 61, 0.35); color: var(--text-muted); }
+.chart-pattern-picker[hidden] { display: none; }
+.chart-pattern-picker {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin-top: 8px; padding: 8px 11px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2);
+}
+.chart-layer-details { margin-top: 10px; }
+.chart-layer-details > summary {
+  cursor: pointer; color: var(--text-muted); font-size: 11px; font-weight: 650;
+  min-height: var(--touch); display: flex; align-items: center;
+}
+.chart-layer-details[hidden] { display: none; }
+.chart-layer-body { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0 2px; }
+.chart-layer-note { flex-basis: 100%; margin: 2px 0 0; color: var(--text-faint); font-size: 10px; line-height: 1.4; }
+
+/* --- Main area: chart + Current Setup -------------------------------------- */
+.dash-main { grid-template-columns: minmax(0, 1.75fr) minmax(300px, 0.85fr); }
+.dash-context { display: flex; flex-direction: column; gap: 14px; }
+.dash-context .hero-card { min-height: 0; }
+.setup-execution {
+  display: grid; gap: 5px; padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--panel); border-left: 3px solid var(--blue);
+}
+.setup-row-label { color: var(--text-faint); font-size: 10px; font-weight: 750; letter-spacing: 0.1em; text-transform: uppercase; }
+.setup-row-value { color: var(--text); font-size: 13px; font-weight: 650; }
+.setup-row-detail { color: var(--text-muted); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+
+/* --- Four compact summary cards -------------------------------------------- */
+.dash-summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.summary-card { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.summary-card-head { display: flex; flex-direction: column; gap: 3px; }
+.summary-card-title { font-size: 15px; font-weight: 700; line-height: 1.25; overflow-wrap: anywhere; }
+.summary-card[data-tone="green"] .summary-card-title { color: var(--green); }
+.summary-card[data-tone="red"] .summary-card-title { color: var(--red); }
+.summary-card[data-tone="amber"] .summary-card-title { color: var(--amber); }
+.summary-facts { display: grid; gap: 7px; }
+.summary-fact { display: grid; gap: 2px; padding: 7px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2); }
+.summary-fact[data-tone="green"] { border-left: 3px solid var(--green); }
+.summary-fact[data-tone="red"] { border-left: 3px solid var(--red); }
+.summary-fact[data-tone="amber"] { border-left: 3px solid var(--amber); }
+.summary-fact-label { color: var(--text-faint); font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.summary-fact-value { color: var(--text-dim); font-size: 13px; overflow-wrap: anywhere; }
+.summary-empty { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.45; }
+.summary-footer { margin: 0; color: var(--text-faint); font-size: 10px; line-height: 1.45; }
+
+/* --- Bottom tabs ----------------------------------------------------------- */
+.dash-tabs {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 6px; border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--panel);
+}
+.dash-tab {
+  min-height: var(--touch); padding: 8px 16px;
+  border: 1px solid transparent; border-radius: 10px;
+  background: transparent; color: var(--text-muted);
+  font-size: 13px; font-weight: 650; letter-spacing: 0.01em;
+  cursor: pointer;
+}
+.dash-tab:hover { color: var(--text); background: var(--panel-2); }
+.dash-tab[aria-selected="true"] {
+  background: var(--blue-dim); border-color: var(--blue); color: var(--text);
+}
+.dash-tab-panel { display: flex; flex-direction: column; gap: 16px; }
+.dash-tab-panel[hidden] { display: none !important; }
+.performance-section .paper-grid { grid-template-columns: minmax(0, 1fr); }
+.performance-section .paper-grid > :last-child { grid-column: auto; }
+
+/* --- Responsive ------------------------------------------------------------ */
+@media (max-width: 1180px) {
+  .dash-main { grid-template-columns: minmax(0, 1fr); }
+  .dash-context { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  .dash-context > .setup-execution, .dash-context > .waiting-card, .dash-context > .evidence-explain { grid-column: 1 / -1; }
+  .dash-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-commandbar {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "identity" "timeframes" "quote" "health" "asof";
+  }
+  .commandbar-quote .live-quote { text-align: left; align-items: flex-start; }
+  .commandbar-quote .live-quote-kicker { justify-content: flex-start; }
+  .commandbar-asof { text-align: left; }
+}
+@media (max-width: 900px) {
+  .dash-context { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 1020px) {
+  /* The page header wraps here, so the trading bar scrolls with the page instead of
+     sticking to a height it cannot measure. */
+  .dash-commandbar { position: static; }
+}
+@media (max-width: 760px) {
+  .dash-summary-grid { grid-template-columns: minmax(0, 1fr); }
+  .chart-function-button, .chart-mode-button, .pattern-button, .swing-connector-toggle, .tf-button { min-height: 40px; }
+}
+@media (max-width: 520px) {
+  .dash-tab { flex: 1 1 auto; text-align: center; padding: 8px 10px; }
+  .commandbar-symbol { font-size: 17px; }
+  .chart-function-button, .chart-mode-button, .pattern-button, .swing-connector-toggle, .tf-button { min-height: var(--touch); }
+}

@@ -6,6 +6,26 @@
  */
 
 import { api, describeRequestFailure } from "../api.js";
+import {
+  CHART_FUNCTIONS,
+  CHART_MODES,
+  DEFAULT_CHART_FUNCTION,
+  DEFAULT_CHART_MODE,
+  DETAILED_MODE,
+  chartFunctionById,
+  eventCatalogue,
+  filterEvidence,
+  functionStatus,
+  highlightedPattern,
+  layersForSelection,
+  levelCatalogue,
+  normalizeFunctionId,
+  normalizeMode,
+  overlayPrefsForSelection,
+  patternCatalogue,
+  swingConnectors,
+  swingEmphasis,
+} from "../chart_functions.js";
 import { canShowForming } from "../forming-display.js";
 import { asOfLine, freshnessBadge } from "../freshness.js";
 import { createBinanceFormingStream } from "../binance-forming-display.js";
@@ -21,7 +41,9 @@ import {
 } from "../decision.js";
 import {
   captureChartView,
+  captureLogicalView,
   restoreChartView,
+  restoreLogicalView,
   setZoneBands,
   applyOverlays,
   clearEvidence,
@@ -39,6 +61,7 @@ import {
 } from "../chart.js";
 import {
   buildEvidenceModel,
+  candleTimes,
   evidenceCountText,
   evidenceItemRows,
   isoMs,
@@ -47,6 +70,7 @@ import {
 import {
   createTrackerRefresher,
   paperTrackerCard,
+  paperTrackerViewModel,
   signalProvenanceViewModel,
 } from "../paper-tracker.js";
 import { explainEvidence, explainZoneBand } from "../explain.js";
@@ -126,6 +150,19 @@ export { hasValidTradePlan };
 
 let renderGeneration = 0;
 let activeChart = null;
+
+/**
+ * Chart-function selection (approved dashboard design, presentation only).
+ *
+ * Session state, not storage: choosing a different chart function changes what
+ * is DRAWN on the chart. It never re-reads the engine, never changes a setup,
+ * plan, journal row or forward observation, and it is reset on a page reload to
+ * the calm default (Trade Plan, Simple mode).
+ */
+let activeChartFunction = DEFAULT_CHART_FUNCTION;
+let activeChartMode = DEFAULT_CHART_MODE;
+let selectedPatternId = null;
+let swingConnectorVisible = false;
 
 function countFromMap(map, key) {
   if (!map || typeof map !== "object") return null;
@@ -422,6 +459,16 @@ export const CHART_TIMEFRAMES = [
   { id: "4h", label: "4H" },
 ];
 
+/**
+ * The daily control of the approved design. It is deliberately NOT part of
+ * CHART_TIMEFRAMES: those four are the stored engine hierarchy, while the daily
+ * candles only exist when the operator has configured and stored them. The
+ * control therefore reads stored 1d candles like any other timeframe and shows
+ * the backend's own empty state when none are stored — no daily candle, level
+ * or structure is ever synthesised here.
+ */
+export const CHART_DAILY_TIMEFRAME = Object.freeze({ id: "1d", label: "1D" });
+
 const ENGINE_CHART_NOTE = "Confirmed history is stored closed candles only. Any ghost forming candle is public Binance Spot data, display only; it is never confirmed here.";
 const BINANCE_EXCHANGE_ID = "binance";
 const BINANCE_FORMING_LABEL = "BINANCE SPOT KLINE";
@@ -489,6 +536,9 @@ const CHART_LAYER_TOGGLES = Object.freeze([
 
 /** Next higher timeframe whose stored structure may be shown on this chart. */
 const HIGHER_TIMEFRAME = Object.freeze({ "5m": "15m", "15m": "1h", "1h": "4h" });
+/** Swing connector line colours, matching the structure marker tones. */
+const STRUCTURE_HIGH_COLOR = "#2fbf7f";
+const STRUCTURE_LOW_COLOR = "#e0565b";
 const CHART_MARKER_KEY = "▲ breakout (green up, red down) · ▼ sweep · grey = failed breakout · ● retest · HH/HL/LH/LL swings · patterns: DT double top, DB double bottom, H&S head and shoulders, iH&S inverse H&S (labels give the lifecycle state) · a dot with no label = label hidden to avoid collisions · click any marker for detail";
 const CHART_EXPLAIN_HINT = "Click a candle to see what BRAIN recorded there, when it became known, and whether it influenced the current assessment.";
 
@@ -542,7 +592,27 @@ function chartCard(initialDashboard) {
     class: "chart-wrap terminal-chart-wrap",
     "aria-label": `${symbol} ${viewedTimeframeLabel(engineTimeframe)} candlestick chart`,
   });
-  const toolbar = el("div", { class: "chart-toolbar", role: "group", "aria-label": "Chart timeframe and layers" });
+  // --- Approved chart-function controls (blueprint §2) ----------------------
+  // Simple mode draws one primary function at a time; Detailed mode keeps the
+  // operator's other layers on. Both only change what is DRAWN from stored
+  // evidence — never a detector, a threshold, a setup or a plan.
+  const toolbar = el("div", { class: "chart-toolbar", role: "group", "aria-label": "Chart functions and display mode" });
+  const functionSwitch = el("div", { class: "chart-function-switch", role: "group", "aria-label": "Chart function" });
+  const functionButtons = new Map();
+  const modeSwitch = el("div", { class: "chart-mode-switch", role: "group", "aria-label": "Display mode" });
+  const modeButtons = new Map();
+  const functionStatusNode = el("div", { class: "chart-function-status", role: "note", text: "" });
+  const patternPicker = el("div", { class: "chart-pattern-picker", role: "group", "aria-label": "Detected patterns", hidden: true });
+  const patternPickerBody = el("div", { class: "chart-pattern-list" });
+  const swingConnectorButton = el("button", {
+    type: "button",
+    class: "swing-connector-toggle",
+    "data-swing-connector": "true",
+    "aria-pressed": String(swingConnectorVisible),
+    title: "Optional subtle line joining the stored confirmed swings. Display only.",
+    text: "Connect swings",
+    onclick: () => setSwingConnector(!swingConnectorVisible),
+  });
   const handleRef = { current: null };
   const formingStatus = el("div", { class: "forming-status", role: "status",
     "aria-label": "Forming candle display only", text: "FORMING — DISPLAY ONLY" });
@@ -558,10 +628,15 @@ function chartCard(initialDashboard) {
   const explainBody = el("div", { class: "evidence-explain-body", "aria-live": "polite" }, [
     el("p", { class: "evidence-explain-hint", text: CHART_EXPLAIN_HINT }),
   ]);
-  const explainPanel = el("section", { class: "evidence-explain", "aria-label": "Click-to-explain evidence" }, [
-    el("div", { class: "evidence-explain-title", text: "Click-to-explain" }),
+  const explainNote = el("div", { class: "evidence-explain-when", text: "" });
+  const explainPanel = el("section", { class: "evidence-explain", "aria-label": "Selected evidence detail" }, [
+    el("div", { class: "evidence-explain-title", text: "Selected evidence" }),
+    explainNote,
     explainBody,
   ]);
+  // The explanation panel is mounted by the layout in the Current Setup column,
+  // beside the trading status it must never replace (blueprint §4). It is
+  // created here because this is where chart selections and band clicks happen.
   let formingStream = null;
   let eventRelease = null;
   const viewed = {
@@ -594,6 +669,27 @@ function chartCard(initialDashboard) {
     emptyNode = null;
   };
   const planForOverlays = () => (hasValidTradePlan(dashboard) ? dashboard.plan : null);
+
+  /**
+   * Layer switches and overlay switches for the current chart-function choice.
+   * The stored preference object is never rewritten here: the selection only
+   * decides what this render passes to the chart.
+   */
+  const selectionLayers = () => {
+    const prefs = loadPrefs();
+    return layersForSelection({ mode: activeChartMode, functionId: activeChartFunction, layers: prefs.layers });
+  };
+  const selectionOverlayPrefs = () => {
+    const prefs = loadPrefs();
+    return overlayPrefsForSelection({
+      mode: activeChartMode,
+      functionId: activeChartFunction,
+      layers: prefs.layers,
+      overlays: prefs.overlays,
+    });
+  };
+  const swingFunctionActive = () => activeChartFunction === "swings" || activeChartMode === DETAILED_MODE;
+  const patternFunctionActive = () => activeChartFunction === "patterns" || activeChartMode === DETAILED_MODE;
   function stopForming() {
     formingStream?.stop();
     formingStream = null;
@@ -629,11 +725,13 @@ function chartCard(initialDashboard) {
   const applyViewedOverlays = () => {
     if (!handleRef.current) return;
     const prefs = loadPrefs();
+    const overlayPrefs = selectionOverlayPrefs();
+    const effectivePrefs = { ...prefs, layers: selectionLayers(), overlays: overlayPrefs };
     applyOverlays(handleRef.current, {
       overlays: viewed.overlays || {},
       plan: planForOverlays(),
       scenarioBand: scenarioBand(dashboard?.looking_for, viewed.timeframe),
-      prefs,
+      prefs: effectivePrefs,
     });
     // Support/resistance bands: the viewed timeframe's presented bands, plus higher-timeframe bands when that layer is on.
     // Every band is positioned against the VIEWED chart's last confirmed close, not the close of the timeframe
@@ -641,37 +739,201 @@ function chartCard(initialDashboard) {
     const viewedClose = lastConfirmedClose(viewed.candleRows);
     // Calm default: at most the nearest band per side plus one containing price, per timeframe. The
     // rest are still stored and listed in the nearby-zones card; they are simply not painted on candles.
-    const viewedBands = prefs.overlays?.zones === true && Array.isArray(viewed.overlays?.zone_bands?.bands)
+    const viewedBands = overlayPrefs.zones === true && Array.isArray(viewed.overlays?.zone_bands?.bands)
       ? capBandsForDisplay(relocateBands(viewed.overlays.zone_bands.bands, viewedClose)).shown
       : [];
-    const higherBands = prefs.layers?.htfLevels === true
+    const higherBands = overlayPrefs.zones === true && effectivePrefs.layers?.htfLevels === true
       ? capBandsForDisplay(relocateBands(viewed.htfBands || [], viewedClose)).shown
       : [];
-    setZoneBands(handleRef.current, [...viewedBands, ...higherBands], { onSelect: selectZoneBand });
+    // The S/R summary card and the function status read exactly the bands that were painted.
+    viewed.paintedBands = [...viewedBands, ...higherBands];
+    setZoneBands(handleRef.current, viewed.paintedBands, { onSelect: selectZoneBand });
+    // The status line counts the bands of this selection, so it is painted after them.
+    paintFunctionStatus();
   };
-  /** Draw evidence for the viewed timeframe. Clears previous evidence first. */
+  /**
+   * Draw evidence for the viewed timeframe and the selected chart function.
+   * Clears previous evidence first. Simple mode filters the payload down to the
+   * selected function's own groups, so candles keep the space; Detailed mode
+   * draws everything the stored payload and the operator's layers allow.
+   */
   const renderEvidence = () => {
     const handle = handleRef.current;
     if (!handle) return;
-    const layers = loadPrefs().layers;
+    const layers = selectionLayers();
+    const evidence = filterEvidence(viewed.evidence, activeChartFunction, {
+      mode: activeChartMode,
+      selectedPatternId,
+    });
     viewed.model = buildEvidenceModel({
-      evidence: viewed.evidence,
+      evidence,
       candles: viewed.candleRows,
       asOfMs: decisionAsOfMs,
       layers,
     });
+    emphasiseStoredSwings(viewed.model);
+    addSwingConnector(viewed.model);
     setEvidence(handle, viewed.model);
     const counts = viewed.model.hiddenFuture
       ? ` · ${viewed.model.hiddenFuture} item(s) not yet known at this instant are hidden`
       : "";
-    const htf = layers.htfLevels === true && viewed.htfStatus ? ` · ${viewed.htfStatus}` : "";
+    const htf = activeChartMode === DETAILED_MODE && layers.htfLevels === true && viewed.htfStatus
+      ? ` · ${viewed.htfStatus}`
+      : "";
     const zb = viewed.overlays?.zone_bands;
-    const zoneText = loadPrefs().overlays?.zones === true && zb && zb.reason !== "no_zones"
+    const overlayPrefs = selectionOverlayPrefs();
+    const zoneText = overlayPrefs.zones === true && zb && zb.reason !== "no_zones"
       ? ` · S/R bands: ${zb.bands?.length ?? 0} shown, ${zb.hidden_count ?? 0} hidden, ${zb.merged_count ?? 0} merged`
       : "";
     evidenceMeta.textContent = `${evidenceMetaText(viewed.evidence, viewed.timeframe)} ${evidenceCountText(viewed.model)}${counts}${htf}${zoneText}`;
+    paintFunctionStatus();
     renderItemList(viewed.model);
   };
+
+  /**
+   * Major/minor swing emphasis, from stored references only (see
+   * swingEmphasis): a swing is major when a stored zone or pattern is built on
+   * it. Only the marker size changes — never its label, price or position.
+   */
+  const emphasiseStoredSwings = (model) => {
+    if (!model || !swingFunctionActive()) return;
+    const zones = Array.isArray(viewed.evidence?.zones) ? viewed.evidence.zones : [];
+    const patterns = Array.isArray(viewed.evidence?.patterns) ? viewed.evidence.patterns : [];
+    const majors = new Set();
+    for (const item of model.items) {
+      if (item.group !== "structure") continue;
+      if (swingEmphasis(item, { zones, patterns }) === "major") majors.add(`${item.timeSeconds}:${item.text || item.label}`);
+    }
+    for (const marker of model.markers) {
+      if (majors.has(`${marker.time}:${marker.text}`)) marker.size = 1.9;
+    }
+  };
+
+  /** Optional subtle connector line through the stored confirmed swings. */
+  const addSwingConnector = (model) => {
+    if (!model || !swingConnectorVisible || !swingFunctionActive()) return;
+    const zones = Array.isArray(viewed.evidence?.zones) ? viewed.evidence.zones : [];
+    const patterns = Array.isArray(viewed.evidence?.patterns) ? viewed.evidence.patterns : [];
+    const onScreen = candleTimes(viewed.candleRows);
+    const connectors = swingConnectors(viewed.evidence, { zones, patterns });
+    for (const [kind, points] of connectors) {
+      const data = points
+        .filter((point) => onScreen.has(point.time))
+        .sort((left, right) => left.time - right.time);
+      if (data.length < 2) continue;
+      model.patternLines.push({
+        id: `swing-connector:${kind}`,
+        role: "swing-connector",
+        color: kind === "high" ? STRUCTURE_HIGH_COLOR : STRUCTURE_LOW_COLOR,
+        lineStyle: 3,
+        lineWidth: 1,
+        points: data,
+      });
+    }
+  };
+
+  /** Toolbar state, the selected function's honest status line, and its pickers. */
+  const paintFunctionStatus = () => {
+    for (const [id, button] of functionButtons) {
+      button.setAttribute("aria-pressed", String(id === activeChartFunction));
+    }
+    for (const [id, button] of modeButtons) {
+      button.setAttribute("aria-pressed", String(id === activeChartMode));
+    }
+    const fn = chartFunctionById(activeChartFunction);
+    toolbar.dataset.mode = activeChartMode;
+    toolbar.dataset.function = activeChartFunction;
+    // Layer toggles stay in the DOM (their contract is unchanged) but they only
+    // apply in Detailed mode, where several layers may be shown at once.
+    legacyLayers.hidden = activeChartMode !== DETAILED_MODE;
+    patternPicker.hidden = !patternFunctionActive();
+    swingConnectorButton.hidden = !swingFunctionActive();
+    swingConnectorButton.setAttribute("aria-pressed", String(swingConnectorVisible));
+    const status = functionStatus({
+      functionId: activeChartFunction,
+      evidence: viewed.evidence,
+      model: viewed.model,
+      plan: hasValidTradePlan(dashboard) ? dashboard.plan : null,
+      planState: dashboard?.planning?.state_detail || null,
+      extra: {
+        bands: viewed.paintedBands || [],
+        hiddenCount: viewed.overlays?.zone_bands?.hidden_count ?? null,
+        mergedCount: viewed.overlays?.zone_bands?.merged_count ?? null,
+        reason: viewed.overlays?.zone_bands?.reason ?? null,
+      },
+    });
+    functionStatusNode.dataset.tone = status.available ? "neutral" : "amber";
+    functionStatusNode.textContent = `${fn.label}: ${status.text}`;
+    renderPatternPicker();
+  };
+
+  /** One button per stored pattern record; selecting one switches the drawn example. */
+  const renderPatternPicker = () => {
+    clearNode(patternPickerBody);
+    if (!patternFunctionActive()) return;
+    const catalogue = patternCatalogue(viewed.evidence?.available === true ? viewed.evidence : null);
+    if (!catalogue.length) {
+      patternPickerBody.append(el("span", { class: "chart-note", text: "No detected pattern is stored for this window." }));
+      return;
+    }
+    const highlighted = highlightedPattern(viewed.evidence, selectedPatternId);
+    for (const entry of catalogue) {
+      const pressed = highlighted && entry.id === highlighted.id;
+      patternPickerBody.append(el("button", {
+        type: "button",
+        class: "pattern-button",
+        "data-pattern-id": entry.id,
+        "aria-pressed": String(Boolean(pressed)),
+        title: `${entry.label} · ${entry.state} · recorded ${entry.knownAt ? formatUtc(entry.knownAt) : "UNKNOWN"}. Draws this detected shape only.`,
+        text: `${entry.label} · ${entry.state}${entry.isLatestState ? " · current" : ""}`,
+        onclick: () => selectPattern(entry.id),
+      }));
+    }
+  };
+
+  /** Switch the highlighted pattern. Presentation only: the record is the backend's. */
+  function selectPattern(patternId) {
+    const next = selectedPatternId === patternId ? null : patternId;
+    selectedPatternId = next;
+    const keep = captureChartView(handleRef.current);
+    renderEvidence();
+    restoreChartView(handleRef.current, keep);
+  }
+
+  function setSwingConnector(visible) {
+    swingConnectorVisible = visible === true;
+    const keep = captureChartView(handleRef.current);
+    renderEvidence();
+    restoreChartView(handleRef.current, keep);
+  }
+
+  /**
+   * Switch chart function. The chart's zoom and pan are captured and restored
+   * around the redraw, so moving between functions never jumps the view
+   * (blueprint §2).
+   */
+  async function selectChartView(functionId) {
+    const next = normalizeFunctionId(functionId);
+    if (next === activeChartFunction) return;
+    activeChartFunction = next;
+    const keep = captureChartView(handleRef.current);
+    renderEvidence();
+    applyViewedOverlays();
+    restoreChartView(handleRef.current, keep);
+    if (activeChartMode === DETAILED_MODE && loadPrefs().layers?.htfLevels === true) await refreshHigherLevels();
+  }
+
+  /** Switch between Simple and Detailed display. Same evidence, different amount shown. */
+  async function setChartMode(mode) {
+    const next = normalizeMode(mode);
+    if (next === activeChartMode) return;
+    activeChartMode = next;
+    const keep = captureChartView(handleRef.current);
+    renderEvidence();
+    applyViewedOverlays();
+    restoreChartView(handleRef.current, keep);
+    if (activeChartMode === DETAILED_MODE && loadPrefs().layers?.htfLevels === true) await refreshHigherLevels();
+  }
   /** One button per drawn evidence item; selecting it opens the same click-to-explain panel as a chart click. */
   const renderItemList = (model) => {
     clearNode(itemListBody);
@@ -707,18 +969,21 @@ function chartCard(initialDashboard) {
   /** Click a band label: explain that zone (bounds, origin, touches, last test, position vs price). */
   const selectZoneBand = (band) => {
     clearNode(explainBody);
+    explainNote.textContent = band.htf
+      ? `Higher-timeframe zone (${band.source_timeframe})`
+      : `Zone on the ${viewed.timeframe} chart`;
     const explanation = explainZoneBand(band, { timeframe: band.source_timeframe, close: band.viewed_close ?? band.latest_close ?? null });
     if (!explanation) {
       explainBody.append(el("p", { class: "evidence-explain-hint", text: "This zone has no complete stored bounds, so it cannot be explained." }));
       return;
     }
-    explainBody.append(el("div", { class: "evidence-explain-when", text: band.htf ? `Higher-timeframe zone (${band.source_timeframe})` : `Zone on the ${viewed.timeframe} chart` }));
     explainBody.append(explanationNode(explanation));
   };
   const showExplanationAt = (timeSeconds) => {
     if (!Number.isFinite(timeSeconds)) return;
     clearNode(explainBody);
     const when = formatUtc(new Date(timeSeconds * 1000).toISOString());
+    explainNote.textContent = `Candle opened ${when}`;
     if (!viewed.model) {
       explainBody.append(el("p", { class: "evidence-explain-hint", text: `No chart evidence is loaded for this view (${when}).` }));
       return;
@@ -727,7 +992,6 @@ function chartCard(initialDashboard) {
     const explained = items
       .map((item) => explainEvidence(item, { timeframe: viewed.timeframe, qualification: dashboard?.qualification || null }))
       .filter(Boolean);
-    explainBody.append(el("div", { class: "evidence-explain-when", text: `Candle opened ${when}` }));
     if (!explained.length) {
       explainBody.append(el("p", { class: "evidence-explain-hint", text: "Nothing BRAIN recorded at this candle for the layers you have switched on." }));
       return;
@@ -753,7 +1017,10 @@ function chartCard(initialDashboard) {
   };
 
   // Timeframe switcher: which stored candles to LOOK AT. View only — the
-  // engine hierarchy below the chart never reads this selection.
+  // engine hierarchy below the chart never reads this selection. The daily
+  // control is a separate element: the four hierarchy timeframes are stored
+  // engine timeframes, the daily candles only exist when the operator stored
+  // them, and the backend's own empty state covers the case where none exist.
   const switcher = el("div", { class: "chart-timeframe-switch", role: "group", "aria-label": "Chart timeframe (view only)" });
   const switchButtons = new Map();
   for (const entry of switcherEntries(engineTimeframe)) {
@@ -769,12 +1036,77 @@ function chartCard(initialDashboard) {
     switchButtons.set(entry.id, button);
     switcher.append(button);
   }
-  toolbar.append(switcher);
+  const dailyButton = el("button", {
+    class: "tf-button tf-button--daily",
+    type: "button",
+    "data-view-timeframe": CHART_DAILY_TIMEFRAME.id,
+    "aria-pressed": String(viewed.timeframe === CHART_DAILY_TIMEFRAME.id),
+    "aria-label": `View ${CHART_DAILY_TIMEFRAME.label} chart (view only)`,
+    title: "View only — reads stored daily candles when this deployment stores them; otherwise the chart stays honestly empty",
+    text: CHART_DAILY_TIMEFRAME.label,
+    onclick: () => { void showTimeframe(CHART_DAILY_TIMEFRAME.id); },
+  });
+  // The timeframe controls belong to the chart, but the approved layout places
+  // them in the trading bar at the top of the dashboard; the layout mounts this
+  // container there.
+  const timeframeControls = el("div", { class: "chart-timeframe-controls" }, [
+    el("span", { class: "control-caption", text: "TIMEFRAME" }),
+    switcher,
+    dailyButton,
+  ]);
+
+  // --- Chart-function selection (approved design) ---------------------------
+  for (const fn of CHART_FUNCTIONS) {
+    const button = el("button", {
+      class: "chart-function-button",
+      type: "button",
+      "data-function": fn.id,
+      "aria-pressed": String(fn.id === activeChartFunction),
+      "aria-label": `${fn.label} chart function`,
+      title: fn.hint,
+      text: fn.short,
+      onclick: () => { void selectChartView(fn.id); },
+    });
+    functionButtons.set(fn.id, button);
+    functionSwitch.append(button);
+  }
+  for (const mode of CHART_MODES) {
+    const button = el("button", {
+      class: "chart-mode-button",
+      type: "button",
+      "data-mode": mode.id,
+      "aria-pressed": String(mode.id === activeChartMode),
+      "aria-label": `${mode.label} display mode`,
+      title: mode.hint,
+      text: mode.label,
+      onclick: () => { void setChartMode(mode.id); },
+    });
+    modeButtons.set(mode.id, button);
+    modeSwitch.append(button);
+  }
+  patternPicker.append(el("span", { class: "control-caption", text: "DETECTED PATTERN" }), patternPickerBody);
+  toolbar.append(
+    el("div", { class: "chart-control-row" }, [
+      el("span", { class: "control-caption", text: "CHART FUNCTION" }),
+      functionSwitch,
+      el("span", { class: "control-caption", text: "MODE" }),
+      modeSwitch,
+      swingConnectorButton,
+    ]),
+    functionStatusNode,
+    patternPicker,
+  );
   toolbar.append(el("span", { class: "chart-toolbar-sep", "aria-hidden": "true" }));
 
   // Layer toggles. Each button either flips a layer (persisted with its legacy
-  // overlay keys together) or a legacy overlay key directly (Liquidity).
+  // overlay keys together) or a legacy overlay key directly (Liquidity). They
+  // apply in Detailed mode, where more than one layer may be on at once.
   const layerButtons = new Map();
+  const legacyLayers = el("details", { class: "chart-layer-details" }, [
+    el("summary", { text: "Evidence layers (Detailed mode)" }),
+    el("div", { class: "chart-layer-body" }),
+  ]);
+  const legacyLayerBody = legacyLayers.children[1];
   for (const toggle of CHART_LAYER_TOGGLES) {
     const attributes = {
       class: "overlay-toggle layer-toggle",
@@ -789,8 +1121,13 @@ function chartCard(initialDashboard) {
     // Custom properties need setProperty (Object.assign on CSSStyleDeclaration ignores them).
     if (typeof button.style?.setProperty === "function") button.style.setProperty("--swatch", toggle.color);
     layerButtons.set(toggle.id, button);
-    toolbar.append(button);
+    legacyLayerBody.append(button);
   }
+  legacyLayerBody.append(el("p", {
+    class: "chart-layer-note",
+    text: "Simple mode draws the selected function alone. In Detailed mode these layers add the extra stored evidence, and every event stays clickable.",
+  }));
+  toolbar.append(legacyLayers);
   const refreshLayerButtons = () => {
     const prefs = loadPrefs();
     for (const toggle of CHART_LAYER_TOGGLES) {
@@ -959,9 +1296,13 @@ function chartCard(initialDashboard) {
   async function showTimeframe(timeframe, { force = false, keepView = null } = {}) {
     if ((!force && timeframe === viewed.timeframe) || viewed.cancelled) return;
     const generation = ++viewed.generation;
+    // A timeframe switch and a same-timeframe refresh both keep what the user is looking at:
+    // a refresh restores the same instants, a switch restores the same width and place.
+    const logicalView = keepView ? null : captureLogicalView(handleRef.current);
     const label = viewedTimeframeLabel(timeframe);
     viewed.timeframe = timeframe;
     for (const [id, button] of switchButtons) button.setAttribute("aria-pressed", String(id === timeframe));
+    dailyButton.setAttribute("aria-pressed", String(timeframe === CHART_DAILY_TIMEFRAME.id));
     headingTitle.textContent = `${symbol} · ${label} chart`;
     headingMeta.textContent = chartHeadingMeta(timeframe, engineTimeframe);
     host.setAttribute("aria-label", `${symbol} ${label} candlestick chart (view only)`);
@@ -980,6 +1321,7 @@ function chartCard(initialDashboard) {
     viewed.htfBands = [];
     viewed.htfStatus = null;
     clearNode(explainBody).append(el("p", { class: "evidence-explain-hint", text: CHART_EXPLAIN_HINT }));
+    explainNote.textContent = "";
     evidenceMeta.textContent = "";
     clearNode(itemListBody);
     itemListSummary.textContent = "Evidence items on this chart";
@@ -1065,7 +1407,8 @@ function chartCard(initialDashboard) {
     if (!handle || generation !== viewed.generation || viewed.cancelled) return;
     viewed.candleRows = fetchedRows;
     setCandles(handle, fetchedRows);
-    restoreChartView(handle, keepView);
+    if (keepView) restoreChartView(handle, keepView);
+    else restoreLogicalView(handle, logicalView);
     startForming(timeframe, fetchedRows);
     attachHistory(handle, candlesPayload, timeframe, generation);
 
@@ -1161,8 +1504,8 @@ function chartCard(initialDashboard) {
   }, [
     el("div", { class: "card-head" }, [
       el("div", {}, [headingTitle, headingMeta]),
-      toolbar,
     ]),
+    toolbar,
     formingStatus,
     confirmedStatus,
     ohlcLine,
@@ -1170,13 +1513,13 @@ function chartCard(initialDashboard) {
     evidenceMeta,
     itemList,
     markerKey,
-    explainPanel,
     viewNote,
     historyNoteEl,
   ]);
 
   refreshLayerButtons();
   updateLiquidityToggle();
+  paintFunctionStatus();
   if (!validCandles.length) {
     showChartOverlay(chartEmpty(
       "Candle data unavailable",
@@ -1188,6 +1531,11 @@ function chartCard(initialDashboard) {
 
   return {
     node: card,
+    // Mounted by the layout: the timeframe controls sit in the trading bar at
+    // the top of the dashboard, and the explanation panel sits in the Current
+    // Setup column beside the trading status it must never replace.
+    timeframeControls,
+    explainPanel,
     update,
     canUpdate,
     mount() {
@@ -1202,7 +1550,7 @@ function chartCard(initialDashboard) {
       void attachEngineHistory(handle, engineTimeframe, viewed.generation);
       applyViewedOverlays();
       renderEvidence();
-      if (loadPrefs().layers?.htfLevels === true) void refreshHigherLevels();
+      if (activeChartMode === DETAILED_MODE && loadPrefs().layers?.htfLevels === true) void refreshHigherLevels();
     },
     destroy() {
       stopForming();
@@ -2371,13 +2719,13 @@ function paperEmptyCard(forward) {
   ]);
 }
 
-/** Paper observations, recent decisions and measured performance, grouped as one ledger. */
+/** Paper observations and recent decisions: everything the ledger recorded, as records. */
 export function paperSection(dashboard, forward) {
   const model = paperObservationsViewModel(forward);
   const empty = model.available === true && model.paperPlans === 0;
   return el("section", { class: "paper-section", "aria-label": "Paper trading results" }, [
     el("div", { class: "section-head" }, [
-      el("h2", { text: "Paper trading" }),
+      el("h2", { text: "Paper trades" }),
       el("p", { class: "muted", text: "Observations and plans on stored candles. No real orders are placed; these are records, not performance claims." }),
     ]),
     empty
@@ -2385,8 +2733,22 @@ export function paperSection(dashboard, forward) {
       : el("div", { class: "paper-grid" }, [
           paperObservationsCard(forward),
           recentDecisionsCard(forward),
-          performanceCard(forward, dashboard?.meta || {}),
         ]),
+  ]);
+}
+
+/** Measured performance over the recorded ledger: only what the backend already reported. */
+export function performanceSection(dashboard, forward) {
+  const model = paperObservationsViewModel(forward);
+  const empty = model.available === true && model.paperPlans === 0;
+  return el("section", { class: "paper-section performance-section", "aria-label": "Recorded performance" }, [
+    el("div", { class: "section-head" }, [
+      el("h2", { text: "Performance" }),
+      el("p", { class: "muted", text: "Measured counts over the recorded ledger. Proposed-level OHLC observations only — never realised P&L, and never a profitability claim." }),
+    ]),
+    empty
+      ? paperEmptyCard(forward)
+      : el("div", { class: "paper-grid" }, [performanceCard(forward, dashboard?.meta || {})]),
   ]);
 }
 
@@ -2401,6 +2763,209 @@ function diagnosticsSection(dashboard, forward) {
       systemDetailsCard(dashboard, forward),
     ]),
   ]);
+}
+
+// ---------------------------------------------------------------------------
+// Approved dashboard layout (V2): one trading bar, one chart with the Current
+// Setup panel beside it, four compact summary cards, and three bottom tabs
+// (Paper Trades / Performance / Diagnostics). Everything below only ARRANGES
+// backend facts and existing cards; no value is calculated here.
+// ---------------------------------------------------------------------------
+
+/**
+ * Give a summary slot the shared card shell class, whatever built its body. The
+ * plan card keeps its own richer rows; the shell only makes the four cards look
+ * like one row of equals.
+ */
+function summaryShell(node) {
+  const classes = new Set(String(node.className || "").split(/\s+/).filter(Boolean));
+  classes.add("summary-card");
+  node.className = [...classes].join(" ");
+  return node;
+}
+
+/** Caption + value row used by the summary cards. */
+function summaryFact(label, value, tone = null) {
+  return el("div", { class: "summary-fact", dataset: tone ? { tone } : {} }, [
+    el("span", { class: "summary-fact-label", text: label }),
+    el("span", { class: "summary-fact-value", text: String(value) }),
+  ]);
+}
+
+/** One compact summary card: kicker, title, body rows, and an honest footer. */
+function summaryCard({ kicker, title, tone = "neutral", facts = [], body = [], footer = null }) {
+  return el("section", { class: "card summary-card", dataset: { tone }, "aria-label": `${kicker}: ${title}` }, [
+    el("div", { class: "summary-card-head" }, [
+      el("span", { class: "card-kicker", text: kicker }),
+      el("span", { class: "summary-card-title", text: title }),
+    ]),
+    facts.length ? el("div", { class: "summary-facts" }, facts) : null,
+    ...body,
+    footer ? el("p", { class: "summary-footer", text: footer }) : null,
+  ]);
+}
+
+/** Trading bar: instrument, chart timeframe controls, live price and data health. */
+function tradingBar({ dashboard, forward, live, updateStatusNode, timeframeControls }) {
+  const meta = dashboard?.meta || {};
+  const symbol = meta.symbol || "UNKNOWN";
+  const timeframe = meta.timeframe ? String(meta.timeframe).toUpperCase() : "UNKNOWN";
+  const asOf = meta.as_of ? formatUtc(meta.as_of) : "UNKNOWN";
+  const health = systemHealthViewModel(dashboard, forward);
+  const runner = runnerDetailsViewModel(forward);
+  const freshness = dashboard?.freshness || {};
+  const latest = dashboard?.market?.latest_closed_candle || null;
+  const latestClose = latest && !isMissing(latest.close) ? displayRounded(latest.close, 2).display : "UNKNOWN";
+  return el("section", { class: "dash-commandbar", "aria-label": "Trading bar" }, [
+    el("div", { class: "commandbar-identity" }, [
+      el("span", { class: "commandbar-symbol", text: symbol }),
+      el("span", { class: "mode-pill", text: "PAPER MODE" }),
+      el("span", { class: "commandbar-engine", text: `ENGINE ${timeframe}` }),
+    ]),
+    timeframeControls,
+    el("div", { class: "commandbar-quote" }, [live.node]),
+    el("div", { class: "commandbar-health" }, [
+      el("span", { class: "commandbar-health-pill", dataset: { tone: health.tone }, role: "status", text: health.label }),
+      el("span", {
+        class: "commandbar-health-detail",
+        text: `Last confirmed close ${latestClose} · ${freshness.status || "UNKNOWN"} · runner ${runner.state} · ${runner.pending}`,
+      }),
+      updateStatusNode,
+    ]),
+    el("div", { class: "commandbar-asof", text: `Analysed as of ${asOf} · stored closed candles only` }),
+  ]);
+}
+
+/** Market bias rows for the Current Setup panel, straight from the market-state block. */
+function marketBiasCard(dashboard) {
+  const state = dashboard?.market_state;
+  if (!state || state.available !== true) {
+    return summaryCard({
+      kicker: "Market bias",
+      title: "Unavailable",
+      tone: "amber",
+      body: [el("p", { class: "summary-empty", text: backendNoticeText(state?.reason, "Market-state facts unavailable from the backend.") })],
+      footer: "Bias is descriptive; it never changes a setup or a plan.",
+    });
+  }
+  return summaryCard({
+    kicker: "Market bias",
+    title: `${directionLabel(state.trend?.direction)} · ${trendReasonText(state.trend?.reason)}`,
+    tone: state.trend?.direction === "bullish" ? "green" : state.trend?.direction === "bearish" ? "red" : "neutral",
+    facts: [
+      summaryFact("Trend", trendSummaryText(state.trend)),
+      summaryFact("Volatility", volatilitySummaryText(state.volatility)),
+      summaryFact("Volume", volumeSummaryText(state.volume)),
+      summaryFact("Range", rangeSummaryText(state.range)),
+    ],
+    footer: "Descriptive structure facts at this close; they never place an order.",
+  });
+}
+
+/** Nearest stored levels, in the compact card form. Same source as the band layer. */
+function nearestLevelsCard(dashboard) {
+  const zb = dashboard?.overlays?.zone_bands;
+  const close = lastConfirmedClose(dashboard?.market?.candles);
+  const bands = levelCatalogue(relocateBands(Array.isArray(zb?.bands) ? zb.bands : [], close)).slice(0, 4);
+  const tf = String(zb?.timeframe || dashboard?.meta?.timeframe || "").toUpperCase();
+  const hidden = Number.isFinite(zb?.hidden_count) ? zb.hidden_count : 0;
+  const merged = Number.isFinite(zb?.merged_count) ? zb.merged_count : 0;
+  return summaryCard({
+    kicker: `Nearest levels${tf ? ` · ${tf}` : ""}`,
+    title: bands.length ? `Closest ${bands.length} stored band(s)` : "No stored bands",
+    tone: bands.length ? "neutral" : "amber",
+    facts: bands.map((band) => summaryFact(
+      band.role === "support" ? "Support" : band.role === "resistance" ? "Resistance" : "Price inside",
+      `${displayRounded(band.low, 2).display} – ${displayRounded(band.high, 2).display} · ${band.touchCount ?? "?"} touch${band.touchCount === 1 ? "" : "es"}${band.faded ? " · older, faded" : ""}`,
+      band.role === "support" ? "green" : band.role === "resistance" ? "red" : "amber",
+    )),
+    body: bands.length ? [] : [el("p", { class: "summary-empty", text: zb?.reason === "no_zones" ? "No support or resistance zones are stored at this instant." : "No zone bands to show for this view." })],
+    footer: `${hidden} further zone(s) hidden · ${merged} merged for display. Bounds and touches are the detector's own; nothing is invented or moved.`,
+  });
+}
+
+/** The paper ledger summary: recorded counts only, never a performance claim. */
+function paperLedgerCard(forward) {
+  const model = paperTrackerViewModel(forward?.paper_tracker);
+  if (!model.available) {
+    return summaryCard({
+      kicker: "Paper ledger",
+      title: "Unavailable",
+      tone: "amber",
+      body: [el("p", { class: "summary-empty", text: "The tracker payload did not load, so recorded plans stay UNKNOWN rather than guessed." })],
+      footer: "Open the Paper Trades tab for the ledger source.",
+    });
+  }
+  const latest = model.latestAssessment;
+  return summaryCard({
+    kicker: "Paper ledger",
+    title: model.unresolvedCount === null ? "Counts unavailable" : model.unresolvedCount > 0 ? `${model.unresolvedCount} unresolved` : "All settled",
+    tone: model.unresolvedCount > 0 ? "amber" : "neutral",
+    facts: [
+      summaryFact("Recorded plans", model.recordedCount ?? "UNKNOWN"),
+      summaryFact("Resolved", model.recordedCount !== null && model.unresolvedCount !== null ? model.recordedCount - model.unresolvedCount : "UNKNOWN"),
+      summaryFact("Unresolved", model.unresolvedCount ?? "UNKNOWN"),
+      summaryFact("Latest assessment", latest ? `${latest.setupState || "UNKNOWN"} · ${latest.asOf ? formatUtc(latest.asOf) : "UNKNOWN"}` : "UNKNOWN"),
+    ],
+    footer: "Ledger facts and proposed-level observations only — not realised P&L, and not a performance claim.",
+  });
+}
+
+/** Execution row: what the journal action can do, and what it explicitly cannot. */
+function executionRow(dashboard) {
+  const availability = decisionAvailability(dashboard);
+  const latest = dashboard?.journal?.latest_decision || null;
+  const summary = confirmationSummary(dashboard);
+  const bits = [
+    summary.setupId ? `setup ${shortId(summary.setupId)}` : "no selected setup",
+    summary.setupState || null,
+    summary.direction ? directionLabel(summary.direction) : null,
+    summary.planState ? `plan ${planStateLabel(summary.planState)}` : "no plan",
+  ].filter(Boolean);
+  return el("div", { class: "setup-execution", "aria-label": "Execution" }, [
+    el("div", { class: "setup-row-label", text: "Execution" }),
+    el("div", { class: "setup-row-value", text: "Disabled by design — no orders, no account, no credentials." }),
+    el("div", { class: "setup-row-detail", text: bits.join(" · ") }),
+    latest
+      ? el("div", { class: "setup-row-detail", text: `Last recorded decision: ${decisionText(latest.decision)} at ${latest.recorded_at ? formatUtc(latest.recorded_at) : "UNKNOWN"}` })
+      : el("div", { class: "setup-row-detail", text: availability?.enabled ? "A journal decision can be recorded for this proposal." : disabledReasonText(availability?.reason) }),
+  ]);
+}
+
+/** A single tab button; selecting it shows its panel and hides the others. */
+function tabButton({ id, label, selected, onSelect }) {
+  return el("button", {
+    type: "button",
+    class: "dash-tab",
+    role: "tab",
+    id: `dash-tab-${id}`,
+    "data-tab-target": id,
+    "aria-selected": String(selected),
+    "aria-controls": `dash-panel-${id}`,
+    text: label,
+    onclick: () => onSelect(id),
+  });
+}
+
+/** Bottom tabs: Paper Trades, Performance, Diagnostics. All panels stay mounted. */
+function dashboardTabs({ selected, onSelect }) {
+  return el("div", { class: "dash-tabs", role: "tablist", "aria-label": "Dashboard sections" }, [
+    tabButton({ id: "paper", label: "Paper Trades", selected: selected === "paper", onSelect }),
+    tabButton({ id: "performance", label: "Performance", selected: selected === "performance", onSelect }),
+    tabButton({ id: "diagnostics", label: "Diagnostics", selected: selected === "diagnostics", onSelect }),
+  ]);
+}
+
+function tabPanel({ id, selected, children, label }) {
+  return el("section", {
+    class: `dash-tab-panel dash-tab-panel--${id}`,
+    id: `dash-panel-${id}`,
+    role: "tabpanel",
+    "aria-labelledby": `dash-tab-${id}`,
+    "data-tab": id,
+    "aria-label": label,
+    hidden: selected !== id,
+  }, children);
 }
 
 /** Failure state for the decision request: says what happened and offers a retry when one can help. */
@@ -2424,6 +2989,34 @@ let currentAsOf = null;
 let updateStatus = { tone: "pending", label: "CHECKING", detail: "Checking for newly stored closed candles…" };
 let updateStatusNode = null;
 let visibilityListener = null;
+/** Bottom-tab selection (Paper Trades by default). Session state, like the chart function. */
+let activeDashboardTab = "paper";
+
+/** Depth-first walk over an element tree; works with any node exposing `children`. */
+function walkNodes(root, visit) {
+  const stack = [...(root?.children || [])];
+  while (stack.length) {
+    const node = stack.pop();
+    visit(node);
+    if (node?.children?.length) stack.push(...node.children);
+  }
+}
+
+/**
+ * Show one bottom tab panel and hide the others. Every panel stays mounted, so
+ * nothing is re-requested when a tab is selected and no evidence disappears
+ * from the page; only visibility changes.
+ */
+function applyTabSelection(view, tab) {
+  const wanted = ["paper", "performance", "diagnostics"].includes(tab) ? tab : "paper";
+  activeDashboardTab = wanted;
+  walkNodes(view, (node) => {
+    const target = node.getAttribute?.("data-tab-target");
+    if (target) node.setAttribute("aria-selected", String(target === wanted));
+    const panel = node.getAttribute?.("data-tab");
+    if (panel) node.hidden = panel !== wanted;
+  });
+}
 
 function utcClock(ms = Date.now()) {
   return new Date(ms).toISOString().slice(11, 19);
@@ -2598,32 +3191,63 @@ export async function renderDashboard(view, { refresh = false } = {}) {
   // children are cleared, so the chart keeps its handle and its canvas.
   const trackerCard = paperTrackerCard(forward);
   trackerCardNode = trackerCard;
+  const selectedTab = activeDashboardTab;
+  const setTab = (tab) => {
+    activeDashboardTab = tab;
+    applyTabSelection(view, tab);
+  };
   const children = [
-    el("section", { class: "dash-live-strip", "aria-label": "Live price and automatic update status" }, [
-      live.node,
+    // Trading bar: instrument, chart timeframe controls, live price, data health.
+    tradingBar({
+      dashboard,
+      forward,
+      live,
       updateStatusNode,
-    ]),
-    decisionHero(dashboard, forward),
-    // Prominent, persistent Active/Recent paper-trade tracker: recorded plans
-    // and outcomes from the ledger, kept visible even when the newest
-    // assessment says "No trade".
-    trackerCard,
+      timeframeControls: chart.timeframeControls,
+    }),
+    // Main area: the chart on the left, the Current Setup panel on the right.
     el("div", { class: "dash-main" }, [
       el("div", { class: "dash-chart" }, [chart.node]),
-      el("aside", { class: "dash-context", "aria-label": "Multi-timeframe and zone context" }, [
+      el("aside", { class: "dash-context", "aria-label": "Current setup" }, [
+        // Setup status, then confirmation, then what BRAIN is waiting for or
+        // rejecting. The selected-evidence explanation is mounted between them
+        // so it can never replace the trading status (blueprint §4).
+        decisionHero(dashboard, forward),
         compactHierarchyStrip(dashboard),
-        nearbyZonesCard(dashboard),
+        chart.explainPanel,
+        executionRow(dashboard),
+        waitingCard(dashboard, forward),
       ]),
     ]),
-    el("div", { class: "dash-row" }, [
-      waitingCard(dashboard, forward),
-      planCard(dashboard),
-      marketNowCard(dashboard),
+    // Four compact summary cards.
+    el("div", { class: "tertiary-grid dash-summary-grid", "aria-label": "Summary cards" }, [
+      summaryShell(marketBiasCard(dashboard)),
+      summaryShell(nearestLevelsCard(dashboard)),
+      summaryShell(planCard(dashboard)),
+      summaryShell(paperLedgerCard(forward)),
     ]),
-    paperSection(dashboard, forward),
-    diagnosticsSection(dashboard, forward),
+    // Bottom tabs: Paper Trades, Performance, Diagnostics.
+    dashboardTabs({ selected: selectedTab, onSelect: setTab }),
+    tabPanel({ id: "paper", selected: selectedTab, label: "Paper trades", children: [
+      // Prominent, persistent Active/Recent paper-trade tracker: recorded plans
+      // and outcomes from the ledger, kept visible even when the newest
+      // assessment says "No trade".
+      trackerCard,
+      paperSection(dashboard, forward),
+    ] }),
+    tabPanel({ id: "performance", selected: selectedTab, label: "Performance", children: [
+      performanceSection(dashboard, forward),
+    ] }),
+    tabPanel({ id: "diagnostics", selected: selectedTab, label: "Diagnostics", children: [
+      multiTimeframeCard(dashboard),
+      botWatchingCard(dashboard),
+      explanationCard(dashboard),
+      marketNowCard(dashboard),
+      systemDetailsCard(dashboard, forward),
+    ] }),
   ];
   clearNode(view).append(...children);
+  applyTabSelection(view, selectedTab);
   // The chart mounts after it is attached, as before; a reused chart is already mounted.
   if (!reusedChart) chart.mount();
   restorePageState(view, preserved);
@@ -2642,6 +3266,13 @@ export function disposeDashboard() {
   renderGeneration += 1;
   if (activeChart) activeChart.destroy();
   activeChart = null;
+  // Chart-function and tab selections belong to the dashboard view: leaving the
+  // page drops them so the next visit opens on the calm defaults.
+  activeChartFunction = DEFAULT_CHART_FUNCTION;
+  activeChartMode = DEFAULT_CHART_MODE;
+  selectedPatternId = null;
+  swingConnectorVisible = false;
+  activeDashboardTab = "paper";
   updater?.stop();
   updater = null;
   trackerRefresher?.stop();

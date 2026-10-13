@@ -18,22 +18,27 @@
 <body>
   <div id="app" class="app-shell">
     <header class="topbar" id="topbar">
-      <a class="topbar-brand" href="#/dashboard" aria-label="Trading Assistant dashboard">
+      <a class="topbar-brand" href="#/dashboard" aria-label="BRAIN trading assistant dashboard">
         <span class="brand-mark" aria-hidden="true"></span>
-        <span class="brand-name">Trading Assistant</span>
+        <span class="brand-text">
+          <span class="brand-name">BRAIN</span>
+          <span class="brand-sub">Trading Assistant</span>
+        </span>
       </a>
-      <div class="topbar-instrument" aria-label="Market and mode">
+      <div class="topbar-instrument" aria-label="Market, timeframe and mode">
+        <span class="topbar-caption">MARKET</span>
         <span class="topbar-symbol" id="topbar-symbol">UNKNOWN</span>
+        <span class="topbar-caption">ENGINE</span>
         <span class="topbar-timeframe" id="topbar-timeframe">UNKNOWN</span>
-        <span class="mode-pill">PAPER MODE</span>
+        <span class="mode-pill" title="Paper observation only: no orders, no account, no exchange credentials.">PAPER MODE</span>
       </div>
       <div class="topbar-meta">
         <div class="topbar-candle">
-          <span class="topbar-caption">LAST COMPLETED CANDLE</span>
+          <span class="topbar-caption">LAST CONFIRMED CANDLE</span>
           <time class="topbar-candle-time mono" id="topbar-candle-time">UNKNOWN</time>
         </div>
         <div class="topbar-close">
-          <span class="topbar-caption">CLOSE</span>
+          <span class="topbar-caption">CONFIRMED CLOSE</span>
           <span class="topbar-price mono" id="topbar-price">UNKNOWN</span>
         </div>
         <span class="system-pill" id="topbar-status" data-tone="neutral" role="status">STATUS LOADING</span>
