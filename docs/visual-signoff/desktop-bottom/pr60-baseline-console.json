@@ -1,0 +1,7 @@
+{
+  "commit": "092389b155f0f5201eb67c7fdf1d7e42e5c9e6cb",
+  "width": 1440,
+  "consoleErrors": [
+    "Refused to apply inline style because it violates the following Content Security Policy directive: \"style-src 'self'\". Either the 'unsafe-inline' keyword, a hash ('sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='), or a nonce ('nonce-...') is required to enable inline execution.\n"
+  ]
+}

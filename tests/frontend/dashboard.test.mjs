@@ -1146,7 +1146,7 @@ test("the paper trade tracker is prominent, persistent, and ledger-driven", asyn
     const hero = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("hero-card"))[0];
     const chart = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("dash-main"))[0];
     assert.ok(hero && chart, "the decision and the chart still render");
-    assert.ok(view.children.indexOf(chart) < view.children.indexOf(paperPanel), "the chart area sits above the tabs");
+    assert.ok(view.children.indexOf(chart) < view.children.indexOf(byClass(view, "dash-bottom")[0]), "the chart area sits above the tabs");
     // The recorded plan shows every ledger fact, unresolved included.
     assert.match(tracker.textContent, /Paper trade tracker/);
     assert.match(tracker.textContent, /83,916\.01/);
@@ -1615,4 +1615,57 @@ test("the pattern picker switches the drawn pattern and never shows a confidence
     );
     assert.match(byClass(view, "chart-function-status")[0].textContent, /1 drawn/, "exactly the selected pattern is drawn");
   });
+});
+
+test("desktop keeps Performance beside left tabs and restores narrow tab behaviour on resize", async () => {
+  let resize;
+  let removed = false;
+  const media = {
+    matches: true,
+    addEventListener(type, listener) { assert.equal(type, "change"); resize = listener; },
+    removeEventListener(type, listener) { assert.equal(type, "change"); assert.equal(listener, resize); removed = true; },
+  };
+  await withDashboard(evidenceDashboard(), forwardPayload(), async ({ view, chartState, fetchCounts }) => {
+    window.matchMedia = query => { assert.equal(query, "(min-width: 1181px)"); return media; };
+    await renderDashboard(view);
+    const bottom = byClass(view, "dash-bottom")[0];
+    const panels = findNodes(bottom, node => node.getAttribute?.("data-tab"));
+    const panel = id => panels.find(node => node.getAttribute("data-tab") === id);
+    const tabs = findNodes(bottom, node => node.getAttribute?.("data-tab-target"));
+    const tab = id => tabs.find(node => node.getAttribute("data-tab-target") === id);
+    const calls = fetchTotal(fetchCounts, "/api/dashboard");
+    const chart = chartState.charts[0];
+    assert.equal(panel("paper").hidden, false);
+    assert.equal(panel("performance").hidden, false);
+    assert.equal(panel("performance").getAttribute("role"), "region");
+    assert.equal(panel("performance").getAttribute("aria-labelledby"), null);
+    assert.equal(tab("performance").hidden, true);
+    press(tab("diagnostics"));
+    assert.equal(panel("paper").hidden, true);
+    assert.equal(panel("diagnostics").hidden, false);
+    assert.equal(panel("performance").hidden, false, "Diagnostics never hides desktop Performance");
+    assert.equal(byClass(panel("performance"), "metric-tile--headline").filter(tile => tile.textContent.includes("Not available yet")).length, 2);
+    media.matches = false;
+    resize();
+    assert.equal(tab("performance").hidden, false);
+    assert.equal(panel("performance").hidden, true);
+    assert.equal(panel("performance").getAttribute("role"), "tabpanel");
+    assert.equal(panel("performance").getAttribute("aria-labelledby"), "dash-tab-performance");
+    press(tab("performance"));
+    assert.equal(panel("performance").hidden, false);
+    assert.equal(panel("diagnostics").hidden, true);
+    media.matches = true;
+    resize();
+    assert.equal(panel("paper").hidden, false, "mobile Performance selection defaults the desktop left pane to Paper Trades");
+    assert.equal(panel("performance").hidden, false);
+    assert.equal(tab("paper").getAttribute("aria-selected"), "true");
+    media.matches = false;
+    resize();
+    assert.equal(panel("paper").hidden, true);
+    assert.equal(panel("performance").hidden, false, "narrow Performance selection survives desktop resize");
+    assert.equal(chartState.charts.length, 1);
+    assert.equal(chartState.charts[0], chart);
+    assert.equal(fetchTotal(fetchCounts, "/api/dashboard"), calls);
+  });
+  assert.equal(removed, true, "responsive listener is removed on dashboard disposal");
 });

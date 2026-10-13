@@ -2794,8 +2794,9 @@ export function performanceSection(dashboard, forward) {
 
 // ---------------------------------------------------------------------------
 // Approved dashboard layout (V2): one trading bar, one chart with the Current
-// Setup panel beside it, four compact summary cards, and three bottom tabs
-// (Paper Trades / Performance / Diagnostics). Everything below only ARRANGES
+// Setup panel beside it, four compact summary cards, and a responsive bottom
+// section (left tabs + right Performance on desktop; three tabs on narrow screens).
+// Everything below only ARRANGES
 // backend facts and existing cards; no value is calculated here.
 // ---------------------------------------------------------------------------
 
@@ -3179,7 +3180,7 @@ function tabButton({ id, label, selected, onSelect }) {
   });
 }
 
-/** Bottom tabs: Paper Trades, Performance, Diagnostics. All panels stay mounted. */
+/** Narrow: three tabs. Desktop hides the Performance tab, not its panel. */
 function dashboardTabs({ selected, onSelect }) {
   return el("div", { class: "dash-tabs", role: "tablist", "aria-label": "Dashboard sections" }, [
     tabButton({ id: "paper", label: "Paper Trades", selected: selected === "paper", onSelect }),
@@ -3223,6 +3224,8 @@ let updateStatusNode = null;
 let visibilityListener = null;
 /** Bottom-tab selection (Paper Trades by default). Session state, like the chart function. */
 let activeDashboardTab = "paper";
+let bottomLayoutMedia = null;
+let bottomLayoutListener = null;
 
 /** Depth-first walk over an element tree; works with any node exposing `children`. */
 function walkNodes(root, visit) {
@@ -3235,18 +3238,28 @@ function walkNodes(root, visit) {
 }
 
 /**
- * Show one bottom tab panel and hide the others. Every panel stays mounted, so
- * nothing is re-requested when a tab is selected and no evidence disappears
- * from the page; only visibility changes.
+ * Narrow screens keep three tabs; desktop keeps Performance visible beside
+ * the Paper Trades / Diagnostics tabs. Nodes and backend data stay mounted.
  */
 function applyTabSelection(view, tab) {
   const wanted = ["paper", "performance", "diagnostics"].includes(tab) ? tab : "paper";
   activeDashboardTab = wanted;
+  const desktop = bottomLayoutMedia?.matches === true;
+  const selected = desktop && wanted === "performance" ? "paper" : wanted;
   walkNodes(view, (node) => {
     const target = node.getAttribute?.("data-tab-target");
-    if (target) node.setAttribute("aria-selected", String(target === wanted));
+    if (target) {
+      node.hidden = desktop && target === "performance";
+      node.setAttribute("aria-selected", String(target === selected));
+    }
     const panel = node.getAttribute?.("data-tab");
-    if (panel) node.hidden = panel !== wanted;
+    if (panel) {
+      const persistent = desktop && panel === "performance";
+      node.hidden = !persistent && panel !== selected;
+      node.setAttribute("role", persistent ? "region" : "tabpanel");
+      if (persistent) node.removeAttribute("aria-labelledby");
+      else node.setAttribute("aria-labelledby", `dash-tab-${panel}`);
+    }
   });
 }
 
@@ -3423,6 +3436,11 @@ export async function renderDashboard(view, { refresh = false } = {}) {
   // children are cleared, so the chart keeps its handle and its canvas.
   const trackerCard = paperTrackerCard(forward);
   trackerCardNode = trackerCard;
+  if (!bottomLayoutMedia && window.matchMedia) {
+    bottomLayoutMedia = window.matchMedia("(min-width: 1181px)");
+    bottomLayoutListener = () => applyTabSelection(view, activeDashboardTab);
+    bottomLayoutMedia.addEventListener("change", bottomLayoutListener);
+  }
   const selectedTab = activeDashboardTab;
   const setTab = (tab) => {
     activeDashboardTab = tab;
@@ -3459,31 +3477,33 @@ export async function renderDashboard(view, { refresh = false } = {}) {
       settledPaperTradesCard(forward, setTab),
       runnerHealthCard(dashboard, forward, setTab),
     ]),
-    // Bottom tabs: Paper Trades, Performance, Diagnostics.
-    dashboardTabs({ selected: selectedTab, onSelect: setTab }),
-    tabPanel({ id: "paper", selected: selectedTab, label: "Paper trades", children: [
-      // Prominent, persistent Active/Recent paper-trade tracker: recorded plans
-      // and outcomes from the ledger, kept visible even when the newest
-      // assessment says "No trade".
-      trackerCard,
-      paperLedgerTable(forward),
-      paperSection(dashboard, forward),
-    ] }),
-    tabPanel({ id: "performance", selected: selectedTab, label: "Performance", children: [
-      performanceSection(dashboard, forward),
-    ] }),
-    tabPanel({ id: "diagnostics", selected: selectedTab, label: "Diagnostics", children: [
-      compactHierarchyStrip(dashboard),
-      planCard(dashboard),
-      waitingCard(dashboard, forward),
-      multiTimeframeCard(dashboard),
-      botWatchingCard(dashboard),
-      explanationCard(dashboard),
-      marketNowCard(dashboard),
-      marketBiasCard(dashboard),
-      nearbyZonesCard(dashboard),
-      systemDetailsCard(dashboard, forward),
-    ] }),
+    // Desktop: left tabs + persistent right Performance; narrow: three tabs.
+    el("div", { class: "dash-bottom", "aria-label": "Paper trading and diagnostics" }, [
+      dashboardTabs({ selected: selectedTab, onSelect: setTab }),
+      tabPanel({ id: "paper", selected: selectedTab, label: "Paper trades", children: [
+        // Prominent, persistent Active/Recent paper-trade tracker: recorded plans
+        // and outcomes from the ledger, kept visible even when the newest
+        // assessment says "No trade".
+        trackerCard,
+        paperLedgerTable(forward),
+        paperSection(dashboard, forward),
+      ] }),
+      tabPanel({ id: "performance", selected: selectedTab, label: "Performance", children: [
+        performanceSection(dashboard, forward),
+      ] }),
+      tabPanel({ id: "diagnostics", selected: selectedTab, label: "Diagnostics", children: [
+        compactHierarchyStrip(dashboard),
+        planCard(dashboard),
+        waitingCard(dashboard, forward),
+        multiTimeframeCard(dashboard),
+        botWatchingCard(dashboard),
+        explanationCard(dashboard),
+        marketNowCard(dashboard),
+        marketBiasCard(dashboard),
+        nearbyZonesCard(dashboard),
+        systemDetailsCard(dashboard, forward),
+      ] }),
+    ]),
   ];
   clearNode(view).append(...children);
   applyTabSelection(view, selectedTab);
@@ -3512,6 +3532,9 @@ export function disposeDashboard() {
   selectedPatternId = null;
   swingConnectorVisible = false;
   activeDashboardTab = "paper";
+  bottomLayoutMedia?.removeEventListener("change", bottomLayoutListener);
+  bottomLayoutMedia = null;
+  bottomLayoutListener = null;
   updater?.stop();
   updater = null;
   trackerRefresher?.stop();
