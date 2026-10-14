@@ -427,10 +427,27 @@ export function levelCatalogue(bands) {
       high: band.band_high,
       center: band.center,
       touchCount: optionalNumber(band.touch_count),
+      // Separate instants that tested the level, versus the swing evidences counted above.
+      distinctTestTimestamps: optionalNumber(band.distinct_test_timestamps),
+      sharedCandleTests: optionalNumber(band.shared_candle_tests),
+      // Every contributing detector zone, so a merged band's aggregate basis stays inspectable.
+      mergedZoneCount: optionalNumber(band.merged_zone_count),
+      memberZones: Array.isArray(band.member_zones)
+        ? band.member_zones.filter((member) => member && typeof member === "object")
+        : [],
       timeframe: band.source_timeframe || null,
       faded: band.faded === true,
       isolated: band.isolated === true,
-      mergedZoneCount: optionalNumber(band.merged_zone_count),
+      firstSeen: band.first_seen || null,
+      lastTested: band.last_tested || null,
+      ageCandles: optionalNumber(band.age_candles),
+      // Distance to the nearest edge, against this chart's close when it has one.
+      distanceFromClose: optionalNumber(band.distance_from_close),
+      distancePctFromClose: optionalNumber(band.distance_pct_from_close),
+      viewedDistance: optionalNumber(band.viewed_distance),
+      viewedClose: band.viewed_close ?? null,
+      sourceClose: band.source_close ?? band.latest_close ?? null,
+      linkedEvents: band.linked_events && typeof band.linked_events === "object" ? band.linked_events : null,
     }));
 }
 
@@ -460,9 +477,23 @@ export function functionStatus({ functionId, evidence, model = null, plan = null
     if (bands.length) {
       const hidden = Number.isFinite(Number(extra?.hiddenCount)) ? Number(extra.hiddenCount) : 0;
       const merged = Number.isFinite(Number(extra?.mergedCount)) ? Number(extra.mergedCount) : 0;
+      // Bands the backend presented but this chart left unpainted, so the total is the real one.
+      const capHidden = Number.isFinite(Number(extra?.capHidden)) ? Number(extra.capHidden) : 0;
+      const higherHidden = Number.isFinite(Number(extra?.higherTimeframeHidden))
+        ? Number(extra.higherTimeframeHidden)
+        : 0;
+      const total = hidden + capHidden;
+      const parts = [`${bands.length} band(s) shown nearest price first`];
+      parts.push(
+        total > 0
+          ? `${total} further band(s) not drawn${capHidden > 0 ? ` (${capHidden} beyond this chart's nearest-band cap)` : ""}`
+          : "no further stored band was left out",
+      );
+      if (higherHidden > 0) parts.push(`${higherHidden} higher-timeframe band(s) also not drawn`);
+      parts.push(`${merged} merged for display`);
       return {
         available: true,
-        text: `${bands.length} band(s) shown nearest price first · ${hidden} further band(s) hidden · ${merged} merged for display.`,
+        text: `${parts.join(" · ")}.`,
         detail: null,
       };
     }

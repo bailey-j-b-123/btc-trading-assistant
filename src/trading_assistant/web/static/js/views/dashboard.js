@@ -552,8 +552,42 @@ const CHART_LAYER_TOGGLES = Object.freeze([
   { id: "equalLevels", label: "Liquidity", overlay: "equalLevels", color: OVERLAY_COLORS.equalLevels, hint: "Equal highs and lows. Only on the engine timeframe.", legacy: true },
 ]);
 
-/** Next higher timeframe whose stored structure may be shown on this chart. */
+/**
+ * The fallback higher-timeframe ladder, used only when the dashboard payload does not carry this
+ * deployment's own supported timeframes (an older server, or a page loaded from cache).
+ */
 const HIGHER_TIMEFRAME = Object.freeze({ "5m": "15m", "15m": "1h", "1h": "4h" });
+
+/** Minutes per timeframe token, so the ladder can be ordered without a table. */
+const TIMEFRAME_UNIT_MINUTES = Object.freeze({ m: 1, h: 60, d: 1440, w: 10080 });
+
+/** One timeframe's length in minutes, or null when the token is not a timeframe. */
+export function timeframeMinutesOf(timeframe) {
+  const match = /^([1-9][0-9]*)([mhdw])$/.exec(String(timeframe || ""));
+  if (!match) return null;
+  return Number(match[1]) * TIMEFRAME_UNIT_MINUTES[match[2]];
+}
+
+/**
+ * The next higher timeframe whose stored structure may be shown on this chart.
+ *
+ * It is read from the deployment's own `supported_timeframes`, so a chart offers "1D above 4H"
+ * only when this deployment really supports and stores 1d candles. Nothing is synthesised: with
+ * no supported timeframe above the one being viewed, the layer says there is none rather than
+ * borrowing a lower timeframe's levels.
+ */
+export function nextHigherTimeframe(viewedTimeframe, supportedTimeframes = null) {
+  const current = timeframeMinutesOf(viewedTimeframe);
+  if (current === null) return null;
+  const candidates = (Array.isArray(supportedTimeframes) ? supportedTimeframes : [])
+    .map((timeframe) => ({ timeframe, minutes: timeframeMinutesOf(timeframe) }))
+    .filter((entry) => entry.minutes !== null && entry.minutes > current)
+    .sort((left, right) => left.minutes - right.minutes);
+  if (candidates.length) return candidates[0].timeframe;
+  // No declared support list: fall back to the fixed ladder, which never invents a timeframe.
+  const fallback = HIGHER_TIMEFRAME[viewedTimeframe];
+  return fallback || null;
+}
 /** Swing connector line colours, matching the structure marker tones. */
 const STRUCTURE_HIGH_COLOR = "#2fbf7f";
 const STRUCTURE_LOW_COLOR = "#e0565b";
@@ -683,6 +717,8 @@ function chartCard(initialDashboard) {
     stages: null,
     htfBands: [],
     htfStatus: null,
+    // How many stored bands this chart painted, and how many it did not (see applyViewedOverlays).
+    bandAccounting: null,
   };
   let emptyNode = null;
 
@@ -788,12 +824,31 @@ function chartCard(initialDashboard) {
     const viewedClose = lastConfirmedClose(viewed.candleRows);
     // Calm default: at most the nearest band per side plus one containing price, per timeframe. The
     // rest are still stored and listed in the nearby-zones card; they are simply not painted on candles.
-    const viewedBands = overlayPrefs.zones === true && Array.isArray(viewed.overlays?.zone_bands?.bands)
-      ? capBandsForDisplay(relocateBands(viewed.overlays.zone_bands.bands, viewedClose)).shown
-      : [];
-    const higherBands = overlayPrefs.zones === true && effectivePrefs.layers?.htfLevels === true
-      ? capBandsForDisplay(relocateBands(viewed.htfBands || [], viewedClose)).shown
-      : [];
+    const viewedCap = overlayPrefs.zones === true && Array.isArray(viewed.overlays?.zone_bands?.bands)
+      ? capBandsForDisplay(relocateBands(viewed.overlays.zone_bands.bands, viewedClose))
+      : null;
+    const htfCap = overlayPrefs.zones === true && effectivePrefs.layers?.htfLevels === true
+      ? capBandsForDisplay(relocateBands(viewed.htfBands || [], viewedClose))
+      : null;
+    const viewedBands = viewedCap ? viewedCap.shown : [];
+    const higherBands = htfCap ? htfCap.shown : [];
+    // Every band this chart decided not to paint is accounted for here: the backend's own
+    // nearest-per-side selection first, then this chart's readability cap. The status line, the
+    // nearby-zones card and the function panel all report the same totals.
+    const backendHidden = viewed.overlays?.zone_bands?.hidden_count;
+    const capHidden = (viewedCap ? viewedCap.hidden : 0) + (htfCap ? htfCap.hidden : 0);
+    const capHiddenBySide = (viewedCap ? viewedCap.hiddenBySide : { above_price: 0, below_price: 0, price_inside: 0 });
+    const higherTimeframeHidden = htfCap ? htfCap.hidden : 0;
+    viewed.bandAccounting = {
+      drawn: viewedBands.length + higherBands.length,
+      backendHidden: Number.isFinite(backendHidden) ? backendHidden : null,
+      capHidden,
+      capHiddenBySide,
+      higherTimeframeHidden,
+      totalStored: Number.isFinite(viewed.overlays?.zone_bands?.total_stored)
+        ? viewed.overlays.zone_bands.total_stored
+        : null,
+    };
     // Breakouts & Retests: the band the sequence happened at, from the stored
     // breakout's own bounds. Painted by the existing zone painter, so it is
     // shaded, positioned and labelled like every other stored band.
@@ -801,8 +856,9 @@ function chartCard(initialDashboard) {
     // The S/R summary card and the function status read exactly the bands that were painted.
     viewed.paintedBands = [...viewedBands, ...higherBands, ...(sequenceBand ? [sequenceBand] : [])];
     setZoneBands(handleRef.current, viewed.paintedBands, { onSelect: selectZoneBand });
-    // The status line and the panel both read the bands of this selection, so they
-    // are painted after the bands are known.
+    // The status line, the panel and the evidence meta line all read the bands of
+    // this selection, so they are all refreshed after the bands are known.
+    updateEvidenceMeta();
     paintFunctionStatus();
     paintFunctionPanel();
   };
@@ -855,7 +911,22 @@ function chartCard(initialDashboard) {
       : viewed.model;
     setEvidence(handle, drawnModel);
     paintPatternAnnotation();
-    const counts = viewed.model.hiddenFuture
+    updateEvidenceMeta();
+    paintFunctionStatus();
+    paintFunctionPanel();
+    paintBreakoutAnnotations();
+    renderItemList(viewed.model);
+  };
+
+  /**
+   * The line under the chart. It is recomposed whenever the evidence model OR the
+   * painted bands change: the overlays arrive from a later request than the evidence,
+   * and a line that still said "0 drawn" after bands appeared would report two
+   * different totals on the same screen.
+   */
+  const updateEvidenceMeta = () => {
+    const layers = selectionLayers();
+    const counts = viewed.model?.hiddenFuture
       ? ` · ${viewed.model.hiddenFuture} item(s) not yet known at this instant are hidden`
       : "";
     const htf = activeChartMode === DETAILED_MODE && layers.htfLevels === true && viewed.htfStatus
@@ -863,14 +934,20 @@ function chartCard(initialDashboard) {
       : "";
     const zb = viewed.overlays?.zone_bands;
     const overlayPrefs = selectionOverlayPrefs();
+    const account = viewed.bandAccounting;
     const zoneText = overlayPrefs.zones === true && zb && zb.reason !== "no_zones"
-      ? ` · S/R bands: ${zb.bands?.length ?? 0} shown, ${zb.hidden_count ?? 0} hidden, ${zb.merged_count ?? 0} merged`
+      ? ` · S/R bands: ${account ? account.drawn : zb.bands?.length ?? 0} drawn`
+        + `, ${(zb.hidden_count ?? 0) + (account?.capHidden ?? 0)} stored band(s) not drawn`
+        + `, ${zb.merged_count ?? 0} merged`
       : "";
-    evidenceMeta.textContent = `${evidenceMetaText(viewed.evidence, viewed.timeframe)} ${evidenceCountText(viewed.model)}${counts}${htf}${zoneText}`;
-    paintFunctionStatus();
-    paintFunctionPanel();
-    paintBreakoutAnnotations();
-    renderItemList(viewed.model);
+    // Before the first evidence model exists there is no count to state, and the
+    // sentence for "nothing drawn" would be a claim about a view that has not loaded.
+    const evidenceCounts = viewed.model ? evidenceCountText(viewed.model) : "";
+    evidenceMeta.textContent = [
+      evidenceMetaText(viewed.evidence, viewed.timeframe),
+      `${evidenceCounts}${counts}${htf}${zoneText}`,
+    ].filter(Boolean).join(" ");
+
   };
 
   /**
@@ -944,6 +1021,11 @@ function chartCard(initialDashboard) {
         hiddenCount: viewed.overlays?.zone_bands?.hidden_count ?? null,
         mergedCount: viewed.overlays?.zone_bands?.merged_count ?? null,
         reason: viewed.overlays?.zone_bands?.reason ?? null,
+        // The bands this chart itself left unpainted, so the status can state the real total.
+        capHidden: viewed.bandAccounting?.capHidden ?? 0,
+        capHiddenBySide: viewed.bandAccounting?.capHiddenBySide ?? null,
+        higherTimeframeHidden: viewed.bandAccounting?.higherTimeframeHidden ?? 0,
+        totalStored: viewed.overlays?.zone_bands?.total_stored ?? null,
       },
     });
     functionStatusNode.dataset.tone = status.available ? "neutral" : "amber";
@@ -1219,6 +1301,7 @@ function chartCard(initialDashboard) {
       bands: Array.isArray(viewed.paintedBands) ? viewed.paintedBands : [],
       hidden: Number.isFinite(zb.hidden_count) ? zb.hidden_count : null,
       merged: Number.isFinite(zb.merged_count) ? zb.merged_count : null,
+      accounting: viewed.bandAccounting || null,
       reason: zb.reason || null,
       plan: hasValidTradePlan(dashboard) ? dashboard.plan : null,
       planState: dashboard?.planning?.state_detail || null,
@@ -1612,7 +1695,9 @@ function chartCard(initialDashboard) {
   /** Higher-timeframe zones: fetched only when the layer is on, cached per view, never mixed into the viewed timeframe's levels. */
   async function refreshHigherLevels() {
     const generation = viewed.generation;
-    const target = HIGHER_TIMEFRAME[viewed.timeframe];
+    // The ladder comes from the deployment's own supported timeframes (payload meta), so 1D is
+    // offered above 4H exactly when this server supports 1d — never assumed.
+    const target = nextHigherTimeframe(viewed.timeframe, dashboard?.meta?.supported_timeframes);
     if (loadPrefs().layers?.htfLevels !== true) {
       viewed.htfBands = [];
       viewed.htfStatus = null;
@@ -3103,14 +3188,34 @@ function decisionHero(dashboard, forward) {
   ]);
 }
 
+/**
+ * The test figure for one zone row: distinct instants that tested the level, and the swing
+ * evidence behind them when the two differ. A summed evidence count is never printed as if every
+ * count were a separate test.
+ */
+function zoneRowTests(band) {
+  const distinct = Number.isFinite(band?.distinct_test_timestamps) ? band.distinct_test_timestamps : null;
+  const evidences = Number.isFinite(band?.touch_count) ? band.touch_count : null;
+  if (distinct === null && evidences === null) return "tests unknown";
+  const tests = distinct === null ? evidences : distinct;
+  const plural = tests === 1 ? "" : "s";
+  if (distinct !== null && evidences !== null && evidences > distinct) {
+    return `${tests} test${plural} · ${evidences} swing evidences`;
+  }
+  return `${tests} test${plural}`;
+}
+
 function zoneRow(band) {
   const above = band.position === "above_price";
   const below = band.position === "below_price";
   const role = above ? "Resistance" : below ? "Support" : "Price inside";
   const tone = above ? "red" : below ? "green" : "amber";
   const tf = band.source_timeframe ? String(band.source_timeframe).toUpperCase() : "";
-  const touches = Number.isFinite(band.touch_count) ? `${band.touch_count} touch${band.touch_count === 1 ? "" : "es"}` : "touches unknown";
-  const meta = [tf && `${tf} zone`, touches, band.faded ? "older, faded" : null].filter(Boolean).join(" · ");
+  const touches = zoneRowTests(band);
+  const linked = band.linked_events && band.linked_events.linked === true
+    ? `${band.linked_events.event_count} stored event(s) referenced it`
+    : null;
+  const meta = [tf && `${tf} zone`, touches, linked, band.faded ? "older, faded" : null].filter(Boolean).join(" · ");
   return el("li", { class: "zone-row", dataset: { tone } }, [
     el("div", { class: "zone-row-head" }, [
       el("strong", { class: "zone-role", text: role }),
@@ -3134,17 +3239,25 @@ function nearbyZonesCard(dashboard) {
   const tf = String(zb?.timeframe || dashboard?.meta?.timeframe || "").toUpperCase();
   const hidden = Number.isFinite(zb?.hidden_count) ? zb.hidden_count : 0;
   const merged = Number.isFinite(zb?.merged_count) ? zb.merged_count : 0;
+  const stored = Number.isFinite(zb?.total_stored) ? zb.total_stored : null;
+  // The card lists the bands the backend presented; the count below says how many of the stored
+  // zones it did not present.
+  const presented = Number.isFinite(zb?.presented_count) ? zb.presented_count : bands.length;
   return el("section", { class: "card context-card", "aria-label": "Nearby support and resistance" }, [
     el("div", { class: "card-kicker", text: `Nearby zones${tf ? ` · ${tf}` : ""}` }),
     bands.length === 0
       ? el("p", {
           class: "muted",
-          text: zb?.reason === "no_zones" ? "No support or resistance zones are stored at this instant." : "No zone bands to show.",
+          text: zb?.reason === "no_zones"
+            ? stored === 0
+              ? "No support or resistance zones are stored at this instant."
+              : `No zone band is drawable at this instant (${stored ?? "some"} stored zone(s) unavailable).`
+            : "No zone bands to show.",
         })
       : el("ul", { class: "zone-list" }, bands.map(zoneRow)),
     el("p", {
       class: "hint",
-      text: `${hidden} further zone(s) hidden · ${merged} merged for display. Zones are context; they do not change decisions.`,
+      text: `${presented} of ${stored ?? presented} stored zone(s) presented${hidden > 0 ? `, ${hidden} beyond the nearest-band selection` : ""} · ${merged} merged for display. Zones are context; they do not change decisions.`,
     }),
   ]);
 }

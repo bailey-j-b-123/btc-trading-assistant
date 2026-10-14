@@ -1160,6 +1160,48 @@ const ZONE_STYLE = {
   reference: { fill: "rgba(122, 156, 196, 0.16)", edge: "#8fb4d9", short: "Z" },
 };
 
+//: A band taller than this share of the pane is drawn as a light wash, not a curtain: its exact
+//: edges stay where the detector put them, but candles underneath stay readable. The threshold is
+//: a readability rule, not a statement about the zone.
+const ZONE_TALL_BAND_PANE_SHARE = 0.35;
+//: Floor for the wash, so even a band filling the pane keeps a visible tint.
+const ZONE_TALL_BAND_MIN_FILL = 0.3;
+
+/**
+ * The same colour with its alpha scaled down. Used only for very tall bands, so the exact
+ * edges still define where the shading starts and ends. Unparsable input is returned unchanged.
+ */
+export function scaleFillAlpha(fill, scale) {
+  if (typeof fill !== "string" || !Number.isFinite(scale) || scale >= 1) return fill;
+  const match = /^rgba\(\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([\d.]+)\s*\)$/.exec(fill.trim());
+  if (!match) return fill;
+  const alpha = Math.max(0, Number(match[4]) * Math.max(ZONE_TALL_BAND_MIN_FILL, scale));
+  return `rgba(${match[1]}, ${match[2]}, ${match[3]}, ${Math.round(alpha * 1000) / 1000})`;
+}
+
+/**
+ * The test figure a band's label shows, and the evidence behind it.
+ *
+ * `distinct_test_timestamps` is how many separate instants actually tested the level.
+ * `touch_count` counts the confirmed swing extremes, and one candle can contribute two of them
+ * (a swing high and a swing low). The distinct figure is what the label reads as "tests"; the
+ * evidence count is stated separately whenever the two disagree, so a summed number is never
+ * presented as if every count were a separate test.
+ */
+export function bandTestLabel(band) {
+  const distinct = finiteNumber(band?.distinct_test_timestamps);
+  const evidences = finiteNumber(band?.touch_count);
+  const tests = distinct ?? evidences;
+  const testsText = tests === null ? "?" : String(tests);
+  const shared = tests !== null && evidences !== null ? Math.max(0, evidences - tests) : null;
+  const detail = shared
+    ? `${tests} distinct test instant${tests === 1 ? "" : "s"} from ${evidences} swing evidences (${shared} candle${shared === 1 ? "" : "s"} gave both a swing high and a swing low)`
+    : tests !== null
+      ? `${tests} distinct test instant${tests === 1 ? "" : "s"} from ${evidences ?? tests} swing evidences`
+      : "the number of tests is unknown";
+  return { testsText, tests, evidences, shared, detail };
+}
+
 function createZoneLayer(handle) {
   const container = handle.container;
   if (typeof document === "undefined" || !container || handle.zoneLayer || typeof container.appendChild !== "function") return;
@@ -1300,16 +1342,26 @@ export function renderZoneBands(handle) {
     }
     const clampedTop = Math.max(0, top);
     const clampedBottom = Math.min(height || bottom, bottom);
-    const node = document.createElement("div");
-    node.className = `zone-band zone-band--${band.position || "price_inside"}${band.tone === "reference" ? " zone-band--reference" : ""}${band.htf ? " zone-band--htf" : ""}${band.faded ? " zone-band--faded" : ""}`;
-    node.setAttribute?.("aria-hidden", "true");
-    node.style.top = `${clampedTop}px`;
     // A stored band keeps its own thickness; a band that is a single stored
     // level is given a minimum so it still reads as a zone, not a hairline.
     const minHeight = Number.isFinite(Number(band.minHeightPx)) ? Math.max(2, Math.trunc(Number(band.minHeightPx))) : 2;
-    node.style.height = `${Math.max(minHeight, clampedBottom - clampedTop)}px`;
-    node.style.setProperty("--zone-fill", style.fill);
+    const paintedHeight = Math.max(minHeight, clampedBottom - clampedTop);
+    const paneHeight = height || clampedBottom;
+    const paneShare = paneHeight > 0 ? paintedHeight / paneHeight : 0;
+    const tall = paneShare > ZONE_TALL_BAND_PANE_SHARE;
+    const node = document.createElement("div");
+    node.className = `zone-band zone-band--${band.position || "price_inside"}${band.tone === "reference" ? " zone-band--reference" : ""}${band.htf ? " zone-band--htf" : ""}${band.faded ? " zone-band--faded" : ""}${tall ? " zone-band--tall" : ""}`;
+    node.setAttribute?.("aria-hidden", "true");
+    node.style.top = `${clampedTop}px`;
+    node.style.height = `${paintedHeight}px`;
+    // A band that fills a large part of the pane is drawn as a light wash so the candles
+    // underneath stay readable. The bounds are unchanged: the same edges, the same price.
+    const fill = tall
+      ? scaleFillAlpha(style.fill, ZONE_TALL_BAND_PANE_SHARE / paneShare)
+      : style.fill;
+    node.style.setProperty("--zone-fill", fill);
     node.style.setProperty("--zone-edge", style.edge);
+    node.style.setProperty("--zone-pane-share", String(Math.round(paneShare * 1000) / 1000));
     layer.appendChild(node);
     labels.push({ band, style, y: clampedTop + 2 });
   }
@@ -1326,10 +1378,13 @@ export function renderZoneBands(handle) {
     label.style.top = `${y}px`;
     label.style.setProperty("--zone-edge", style.edge);
     const tf = band.source_timeframe ? String(band.source_timeframe).toUpperCase() : "";
-    label.textContent = band.label || `${style.short}${tf ? ` ${tf}` : ""} · ${band.touch_count ?? "?"}×`;
+    const tests = bandTestLabel(band);
+    label.textContent = band.label || `${style.short}${tf ? ` ${tf}` : ""} · ${tests.testsText}×`;
+    // The visible label is short; the exact basis stays on the control itself.
+    label.title = tests.detail;
     label.setAttribute("aria-label", band.label
-      ? `${band.label} ${band.band_low} to ${band.band_high}, ${tf || "viewed timeframe"}. Open explanation.`
-      : `${band.display_role || band.position} zone ${band.band_low} to ${band.band_high}, ${tf || "viewed timeframe"}, ${band.touch_count ?? "unknown"} touches. Open explanation.`);
+      ? `${band.label} ${band.band_low} to ${band.band_high}, ${tf || "viewed timeframe"}, ${tests.detail}. Open explanation.`
+      : `${band.display_role || band.position} zone ${band.band_low} to ${band.band_high}, ${tf || "viewed timeframe"}, ${tests.detail}. Open explanation.`);
     label.addEventListener("click", (event) => {
       event.stopPropagation();
       onSelect?.(band);

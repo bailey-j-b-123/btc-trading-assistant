@@ -1414,6 +1414,11 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   border-bottom: 1px solid var(--zone-edge);
 }
 .zone-band--faded { opacity: 0.45; }
+/* A band wide enough to cover most of the price pane is painted as a light wash (its fill is
+   scaled down in chart.js) so the candles underneath stay readable. Its exact edges are kept and
+   drawn a touch heavier, because the edges are the stored price, not decoration.
+   Support & Resistance scoped: this rule is only ever applied to a zone band. */
+.zone-band--tall { border-top-width: 2px; border-bottom-width: 2px; }
 .zone-band-label { position: absolute; right: 6px; pointer-events: auto; cursor: pointer; font-size: 11.5px; line-height: 1.2; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); background: rgba(7, 11, 22, 0.88); border: 1px solid var(--zone-edge); border-radius: 999px; padding: 2px 8px; max-width: 60%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .zone-band-label:focus-visible { outline: 2px solid var(--zone-edge); outline-offset: 2px; }
 .zone-band-offview { position: absolute; left: 8px; bottom: 8px; font-size: 11px; color: var(--text-muted); background: rgba(7, 11, 22, 0.88); padding: 2px 6px; border-radius: 6px; pointer-events: none; }

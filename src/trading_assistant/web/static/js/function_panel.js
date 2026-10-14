@@ -114,7 +114,8 @@ function roleLabel(role) {
 function roleTone(role) {
   if (role === "support") return "green";
   if (role === "resistance") return "red";
-  return "blue";
+  // A zone containing price is the amber band on the chart, and its legend row is amber.
+  return "amber";
 }
 
 function stateTone(state) {
@@ -135,10 +136,45 @@ function nearestBands(bands) {
   };
 }
 
-/** Support / Resistance: colour legend, nearest stored bands, hidden counts. */
-function supportResistanceModel({ bands, hidden = null, merged = null, reason = null }) {
+/**
+ * The test figure for a band, stated so a summed evidence count is never read as distinct tests.
+ *
+ * `24 tests` is only said when 24 separate instants tested the level. When a candle contributed
+ * both a swing high and a swing low (which the detector's own source list shows as a repeated
+ * instant), the row says `22 tests · 24 swing evidences` instead.
+ */
+function bandTestText(band) {
+  const distinct = band.distinctTestTimestamps;
+  const evidences = band.touchCount;
+  if (distinct === null && evidences === null) return "tests unknown";
+  const tests = distinct === null ? evidences : distinct;
+  const plural = tests === 1 ? "" : "s";
+  if (evidences !== null && distinct !== null && evidences > distinct) {
+    return `${tests} test${plural} · ${evidences} swing evidences`;
+  }
+  return `${tests} test${plural}`;
+}
+
+/** One factual line about the stored events that used this zone as their own reference. */
+function linkedEventText(linkage) {
+  if (!linkage || typeof linkage !== "object") return null;
+  if (linkage.event_count === null || linkage.counts === null) return null;
+  if (!linkage.linked) return "no recorded event used this zone";
+  const counts = linkage.counts || {};
+  const parts = [
+    counts.breakout ? `${counts.breakout} breakout${counts.breakout === 1 ? "" : "s"}` : null,
+    counts.failed_breakout ? `${counts.failed_breakout} failed breakout${counts.failed_breakout === 1 ? "" : "s"}` : null,
+    counts.sweep ? `${counts.sweep} sweep${counts.sweep === 1 ? "" : "s"}` : null,
+    counts.retest ? `${counts.retest} retest${counts.retest === 1 ? "" : "s"}` : null,
+  ].filter(Boolean);
+  return parts.length ? `referenced by ${parts.join(" · ")}` : "referenced by a stored event";
+}
+
+/** Support / Resistance: colour legend, nearest stored bands, honest hidden and test counts. */
+function supportResistanceModel({ bands, hidden = null, merged = null, reason = null, accounting = null }) {
   const levels = nearestBands(bands);
   if (reason === "no_zones" || !levels.all.length) {
+    const stored = Number.isFinite(accounting?.totalStored) ? Number(accounting.totalStored) : null;
     return {
       heading: "Support & Resistance",
       chip: null,
@@ -147,22 +183,32 @@ function supportResistanceModel({ bands, hidden = null, merged = null, reason = 
       facts: [],
       list: [],
       note: reason === "no_zones"
-        ? "No support or resistance zones are stored for this timeframe at this instant."
+        ? stored === 0
+          ? "No support or resistance zones are stored for this timeframe at this instant."
+          : `No zone band is drawable for this timeframe: ${stored ?? "some"} stored zone(s) were unavailable. Nothing is drawn in their place.`
         : "No zone bands are available for this view.",
     };
   }
+  // Total not drawn = the backend's own nearest-per-side selection + this chart's readability cap.
+  const backendHidden = Number.isFinite(hidden) ? hidden : null;
+  const capHidden = Number.isFinite(accounting?.capHidden) ? Number(accounting.capHidden) : 0;
+  const totalHidden = backendHidden === null ? null : backendHidden + capHidden;
   return {
     heading: "Support & Resistance",
     chip: null,
     tone: "blue",
+    // One row per thing this screen actually draws. The amber band is a stored zone
+    // containing the close, and the blue dashed lines are the detected range's own high
+    // and low — no midpoint is drawn anywhere, so none is claimed here.
     legend: [
       { label: "Resistance", tone: "red", meaning: "Stored bands above the current close, where selling pressure has historically stopped price." },
-      { label: "Range mid", tone: "blue", meaning: "Midpoint of a detected range: a decision zone, not a prediction." },
+      { label: "Price inside", tone: "amber", meaning: "A stored zone that contains the current close: the level price is testing now, not a prediction." },
       { label: "Support", tone: "green", meaning: "Stored bands below the current close, where buying pressure has historically stopped price." },
+      { label: "Range", tone: "blue", meaning: "The detected range's own high and low, dashed: the boundaries the detector stored, not a forecast." },
     ],
     facts: [
       { label: "Bands drawn", value: String(levels.nearest.length), tone: "blue" },
-      { label: "Further bands hidden", value: hidden === null ? UNKNOWN : String(hidden) },
+      { label: "Further bands not drawn", value: totalHidden === null ? UNKNOWN : String(totalHidden) },
       { label: "Merged for display", value: merged === null ? UNKNOWN : String(merged) },
     ],
     list: levels.nearest.map((band) => ({
@@ -170,13 +216,14 @@ function supportResistanceModel({ bands, hidden = null, merged = null, reason = 
       value: `${price(band.low)} – ${price(band.high)}`,
       meta: [
         band.timeframe ? `${String(band.timeframe).toUpperCase()} zone` : null,
-        band.touchCount === null ? "touches unknown" : `${band.touchCount} touch${band.touchCount === 1 ? "" : "es"}`,
+        bandTestText(band),
         band.faded ? "older, faded" : null,
         band.mergedZoneCount && band.mergedZoneCount > 1 ? `${band.mergedZoneCount} merged` : null,
+        linkedEventText(band.linkedEvents),
       ].filter(Boolean).join(" · "),
       tone: roleTone(band.role),
     })),
-    note: "Only the nearest active zones are drawn. Price bounds and touch counts are the detector's own; nothing is invented, moved or re-labelled.",
+    note: "Only the nearest active zones are drawn; the count above says how many were not. Bounds and test counts are the detector's own, and a test count counts separate instants, never summed swing evidences.",
   };
 }
 
@@ -510,6 +557,7 @@ export function functionPanelModel({
   hidden = null,
   merged = null,
   reason = null,
+  accounting = null,
   plan = null,
   planState = null,
   planReason = null,
@@ -520,7 +568,7 @@ export function functionPanelModel({
   const fn = chartFunctionById(normalizeFunctionId(functionId)) || null;
   if (!fn) return null;
   if (fn.id === "support_resistance") {
-    return { id: fn.id, ...supportResistanceModel({ bands, hidden, merged, reason }) };
+    return { id: fn.id, ...supportResistanceModel({ bands, hidden, merged, reason, accounting }) };
   }
   if (fn.id === "swings") return { id: fn.id, ...swingsModel({ evidence, bands, marketState }) };
   if (fn.id === "patterns") return { id: fn.id, ...patternsModel({ evidence, selectedPatternId, bands }) };

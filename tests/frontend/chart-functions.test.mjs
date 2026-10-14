@@ -403,7 +403,23 @@ test("support/resistance reports the same counts the backend presented", () => {
     extra: { bands: levelCatalogue([{ id: "b1", band_low: "1", band_high: "2" }]), hiddenCount: 4, mergedCount: 2 },
   });
   assert.equal(status.available, true);
-  assert.match(status.text, /1 band\(s\) shown nearest price first · 4 further band\(s\) hidden · 2 merged for display/);
+  assert.match(status.text, /1 band\(s\) shown nearest price first · 4 further band\(s\) not drawn · 2 merged for display/);
+  // Bands the chart capped itself are added to the total, so nothing is dropped silently.
+  const capped = functionStatus({
+    functionId: "support_resistance",
+    extra: {
+      bands: levelCatalogue([{ id: "b1", band_low: "1", band_high: "2" }]),
+      hiddenCount: 1,
+      mergedCount: 0,
+      capHidden: 2,
+    },
+  });
+  assert.match(capped.text, /3 further band\(s\) not drawn \(2 beyond this chart's nearest-band cap\)/);
+  const nothingHidden = functionStatus({
+    functionId: "support_resistance",
+    extra: { bands: levelCatalogue([{ id: "b1", band_low: "1", band_high: "2" }]), hiddenCount: 0, mergedCount: 0 },
+  });
+  assert.match(nothingHidden.text, /no further stored band was left out/);
   const none = functionStatus({ functionId: "support_resistance", extra: { bands: [], reason: "no_zones" } });
   assert.equal(none.available, false);
   assert.match(none.text, /No support or resistance zones are stored/);
