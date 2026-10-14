@@ -181,6 +181,57 @@ test("renderZoneBands is a pure read: it does not change the stored band state",
   assert.equal(JSON.stringify(handle.zoneBandsState.bands), before);
 });
 
+// --- truthful test counts and fill restraint -----------------------------------------
+
+test("a label reports distinct test instants, never a summed evidence count", () => {
+  const handle = makeHandle();
+  // 24 confirmed swing evidences, but only 22 instants actually tested the level.
+  setZoneBands(handle, [band({ touch_count: 24, distinct_test_timestamps: 22, shared_candle_tests: 2 })]);
+  const [label] = labelNodes(handle);
+  assert.equal(label.textContent, "S 1H · 22×", "the label reads as separate tests, not as 24");
+  assert.match(label.attributes["aria-label"], /22 distinct test instants from 24 swing evidences/);
+});
+
+test("a band whose counts agree still states its basis", () => {
+  const handle = makeHandle();
+  setZoneBands(handle, [band({ touch_count: 3, distinct_test_timestamps: 3, shared_candle_tests: 0 })]);
+  const [label] = labelNodes(handle);
+  assert.equal(label.textContent, "S 1H · 3×");
+  assert.match(label.attributes["aria-label"], /3 distinct test instants from 3 swing evidences/);
+});
+
+test("a band with no test counts falls back to the evidence count, never to zero", () => {
+  const handle = makeHandle();
+  setZoneBands(handle, [band({ touch_count: 5, distinct_test_timestamps: null })]);
+  const [label] = labelNodes(handle);
+  assert.equal(label.textContent, "S 1H · 5×");
+  const unknown = makeHandle();
+  setZoneBands(unknown, [band({ touch_count: null, distinct_test_timestamps: null })]);
+  assert.equal(labelNodes(unknown)[0].textContent, "S 1H · ?×");
+});
+
+test("a band covering most of the pane is drawn as a light wash with the same edges", () => {
+  const handle = makeHandle(400);
+  // Price 110 at the top, 10px per unit: 40..105 is 650px of a 400px pane.
+  setZoneBands(handle, [band({ band_low: "40", band_high: "105" })]);
+  const [node] = bandNodes(handle);
+  // high 105 -> y 50 ; low 40 -> y 700, so the band runs from 50px to the pane floor.
+  assert.equal(node.style.top, "50px", "the edge stays exactly where the stored price puts it");
+  assert.match(node.className, /zone-band--tall/);
+  const alpha = Number(/rgba\([^)]*,\s*([\d.]+)\)/.exec(node.style["--zone-fill"])[1]);
+  assert.ok(alpha < 0.06, `a tall band's fill is fainter than the base 0.06, got ${alpha}`);
+  assert.ok(alpha >= 0.018, "the wash stays visible");
+  assert.ok(Number(node.style["--zone-pane-share"]) > 0.35);
+});
+
+test("a band that fits the pane keeps the full-strength fill", () => {
+  const handle = makeHandle(400);
+  setZoneBands(handle, [band({ band_low: "100", band_high: "101" })]);
+  const [node] = bandNodes(handle);
+  assert.doesNotMatch(node.className, /zone-band--tall/);
+  assert.equal(node.style["--zone-fill"], "rgba(46, 196, 182, 0.06)");
+});
+
 test("CSS keeps candles clickable under the bands: only labels take pointer events", () => {
   const css = readFileSync(new URL("../../src/trading_assistant/web/static/styles.css", import.meta.url), "utf8");
   const bandRule = css.match(/\.zone-band\s*\{[^}]*\}/)?.[0] ?? "";

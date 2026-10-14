@@ -2725,23 +2725,30 @@ the current boundary — no scores, no predictions:
   renders it verbatim as a collapsible card; it can only repeat backend
   facts (see Step 9).
 
-### Freshness, SYSTEM OK, and runner states (exact)
+### Freshness and runner liveness
 
 Data freshness (`src/trading_assistant/web/freshness.py`) compares the latest
 stored candle open against the expected latest closed boundary from the
 server clock: CURRENT (stored equals expected), STALE (stored stops early,
 with a staleness count), HISTORICAL (the requested instant is old),
-UNKNOWN (no stored candles). The header pill shows SYSTEM OK only when all
+UNKNOWN (no stored candles). The header pill is green only when all
 of these hold: dashboard freshness CURRENT, market window complete, forward
 `data_health` CURRENT, zero pending catch-up boundaries, and a runner
-heartbeat with status STARTED, PROCESSED, or IDLE and no recorded error.
-Anything else — never-run, stale data, a recorded runner error, a missing
-payload, a single pending boundary — is SYSTEM WARNING.
+heartbeat with status STARTED, PROCESSED, or IDLE, no recorded error, and a
+server-owned `runner_liveness` confirmation. Otherwise it names the failing
+condition, including stale/unconfirmed heartbeat or inconsistent clock.
 
 Only the newest heartbeat row feeds the runner conjunct: a stale error in the
-trail clears as soon as the next pass records a healthy row. Heartbeat age is
-displayed, never decisive — so a silently dead runner reads OK until its next
-boundary lands unprocessed (at most one candle interval of blind window).
+trail clears as soon as the next pass records a healthy row. Every future
+timestamp is unconfirmed, even a microsecond ahead. Stale means the server
+cannot confirm recent activity; it is not proof that the process died.
+The reader uses a documented 360-second monitoring floor, widened by three
+times the median positive gap from at most 12 recent heartbeats once three
+gaps exist. This is observed evidence, not the reader's polling configuration.
+An explicit `TRADING_ASSISTANT_RUNNER_LIVENESS_TOLERANCE_SECONDS` overrides
+the inferred tolerance for slow processing; no live setting is changed by this
+code. The response carries the tolerance and its source. See
+`docs/runner-health.md` for the full contract and limitations.
 
 The System-details card distinguishes three runner presences: `unavailable`
 (no forward status payload — every runner field UNKNOWN), `never run`

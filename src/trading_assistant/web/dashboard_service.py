@@ -61,6 +61,7 @@ from trading_assistant.setup_qualification.provenance import (
 from trading_assistant.setup_qualification.service import bounded_replay_start
 from trading_assistant.trade_planning.models import PlanState, TradePlanResult
 from trading_assistant.trade_planning.planner import plan_trade
+from trading_assistant.web.chart_evidence import project_event
 from trading_assistant.web.zone_presentation import present_zones
 from trading_assistant.web.freshness import FreshnessReport, evaluate_freshness
 from trading_assistant.web.signal_provenance import (
@@ -314,6 +315,10 @@ class DashboardService:
                 "timeframe": resolved_timeframe,
                 "as_of": to_jsonable(resolved_as_of),
                 "generated_at": to_jsonable(now),
+                # The timeframes this deployment actually supports. The chart's
+                # higher-timeframe ladder is read from here, so "1d above 4h" only
+                # appears when this deployment really stores 1d candles.
+                "supported_timeframes": list(self.state.settings.supported_timeframes),
             },
             "market_state": market_state,
             "scenario": scenario,
@@ -1370,10 +1375,19 @@ class DashboardService:
                     "band_low": reference["band_low"],
                     "band_high": reference["band_high"],
                 }
+        zone_timeframe = snapshot.timeframe if snapshot is not None else None
+        # Zone bands and the stored events are read from the SAME source frame, so
+        # a link can only ever point at an event that was knowable with the zones
+        # on screen.
+        events = (
+            zone_link_events(frame.patterns, timeframe=zone_timeframe)
+            if zone_timeframe is not None
+            else None
+        )
         return {
             "equal_levels": equal_levels,
             "zones": to_jsonable(structure.levels.zones),
-            "zone_bands": _zone_bands(structure.levels, snapshot.timeframe if snapshot is not None else None),
+            "zone_bands": _zone_bands(structure.levels, zone_timeframe, events=events),
             "range": to_jsonable(structure.detected_range),
             "swings": to_jsonable(structure.confirmed_swings),
             "setup_reference": setup_reference,
@@ -1667,19 +1681,54 @@ def _max_bars_for(family: SetupFamily, parameters: QualificationParameters) -> i
     return parameters.range_max_bars
 
 
-def _zone_bands(levels, timeframe):
-    """Display bands for one timeframe's zones. Presentation only; zones are unchanged."""
+def _zone_bands(levels, timeframe, *, events=None):
+    """Display bands for one timeframe's zones. Presentation only; zones are unchanged.
+
+    ``events`` are already-projected stored events (see :func:`zone_link_events`).
+    When they are supplied, each band also carries the read-only facts of the
+    events whose own stored reference IS that zone; when they are not, the band
+    says the linkage was not evaluated rather than claiming nothing referenced it.
+    """
 
     if timeframe is None:
         return {"timeframe": None, "bands": [], "merged_count": 0, "hidden_count": 0,
-                "total_stored": len(levels.zones), "rules": {}, "reason": "no_timeframe"}
+                "presented_count": 0, "total_stored": len(levels.zones), "rules": {},
+                "reason": "no_timeframe"}
     close = levels.zones[0].latest_close if levels.zones else None
     return present_zones(
         to_jsonable(levels.zones),
         timeframe=timeframe,
         as_of=levels.as_of,
         latest_close=to_jsonable(close) if close is not None else None,
+        events=events,
     )
+
+
+#: The stored pattern-liquidity event groups a zone band may be linked to.
+ZONE_LINK_EVENT_GROUPS = (
+    ("breakout", "breakouts"),
+    ("failed_breakout", "failed_breakouts"),
+    ("sweep", "sweeps"),
+    ("retest", "retests"),
+)
+
+
+def zone_link_events(patterns, *, timeframe: str) -> list[dict[str, object]]:
+    """Project the stored events of one pattern snapshot for zone linking.
+
+    Read-only and bounded: exactly the events the snapshot already recorded are
+    projected, and the same projection the chart evidence payload uses, so a
+    linked event reports the identical stored fields wherever it is read.
+    """
+
+    from trading_assistant.market_structure.candles import interval_for_timeframe
+
+    interval = interval_for_timeframe(timeframe)
+    projected: list[dict[str, object]] = []
+    for kind, attribute in ZONE_LINK_EVENT_GROUPS:
+        for event in getattr(patterns, attribute, ()) or ():
+            projected.append(project_event(event, kind, interval))
+    return projected
 
 
 def structure_for_previous_frame(frames):

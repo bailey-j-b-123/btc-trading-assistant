@@ -24,6 +24,7 @@ import {
   patternCatalogue,
   swingCatalogue,
   swingConnectors,
+  chronologicalSwingConnectors,
   swingEmphasis,
 } from "../../src/trading_assistant/web/static/js/chart_functions.js";
 import { LAYER_DEFS, DEFAULT_LAYERS } from "../../src/trading_assistant/web/static/js/evidence.js";
@@ -344,6 +345,26 @@ test("swing connectors use the stored swing prices, split by kind", () => {
   assert.deepEqual(majors.get("low").map((point) => point.value), [60100]);
 });
 
+test("chronological swing connectors return all confirmed swings in timestamp order", () => {
+  const chrono = chronologicalSwingConnectors(EVIDENCE);
+  assert.equal(chrono.length, 4);
+  assert.deepEqual(chrono.map((p) => p.time), [
+    Math.floor(ms(4) / 1000),
+    Math.floor(ms(9) / 1000),
+    Math.floor(ms(15) / 1000),
+    Math.floor(ms(21) / 1000),
+  ], "must be in strict ascending time order");
+  assert.deepEqual(chrono.map((p) => p.value), [62000, 60100, 61400, 58900]);
+  assert.deepEqual(chrono.map((p) => p.kind), ["high", "low", "high", "low"]);
+  // Test format: "chronological" option via swingConnectors
+  const viaFormat = swingConnectors(EVIDENCE, {}, { format: "chronological" });
+  assert.deepEqual(viaFormat, chrono);
+  // Major only
+  const majorsOnly = chronologicalSwingConnectors(EVIDENCE, { zones: EVIDENCE.zones }, { majorOnly: true });
+  assert.equal(majorsOnly.length, 2);
+  assert.deepEqual(majorsOnly.map((p) => p.value), [62000, 60100]);
+});
+
 // ---------------------------------------------------------------------------
 // Breakouts / retests and levels
 // ---------------------------------------------------------------------------
@@ -403,7 +424,23 @@ test("support/resistance reports the same counts the backend presented", () => {
     extra: { bands: levelCatalogue([{ id: "b1", band_low: "1", band_high: "2" }]), hiddenCount: 4, mergedCount: 2 },
   });
   assert.equal(status.available, true);
-  assert.match(status.text, /1 band\(s\) shown nearest price first · 4 further band\(s\) hidden · 2 merged for display/);
+  assert.match(status.text, /1 band\(s\) shown nearest price first · 4 further band\(s\) not drawn · 2 merged for display/);
+  // Bands the chart capped itself are added to the total, so nothing is dropped silently.
+  const capped = functionStatus({
+    functionId: "support_resistance",
+    extra: {
+      bands: levelCatalogue([{ id: "b1", band_low: "1", band_high: "2" }]),
+      hiddenCount: 1,
+      mergedCount: 0,
+      capHidden: 2,
+    },
+  });
+  assert.match(capped.text, /3 further band\(s\) not drawn \(2 beyond this chart's nearest-band cap\)/);
+  const nothingHidden = functionStatus({
+    functionId: "support_resistance",
+    extra: { bands: levelCatalogue([{ id: "b1", band_low: "1", band_high: "2" }]), hiddenCount: 0, mergedCount: 0 },
+  });
+  assert.match(nothingHidden.text, /no further stored band was left out/);
   const none = functionStatus({ functionId: "support_resistance", extra: { bands: [], reason: "no_zones" } });
   assert.equal(none.available, false);
   assert.match(none.text, /No support or resistance zones are stored/);
