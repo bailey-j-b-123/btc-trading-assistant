@@ -1,6 +1,6 @@
 # BRAIN integration & repair log — DO NOT MERGE
 
-## Resume here (state at `dc6fabe`, 2026-10-14)
+## Resume here (repairs at `dc6fabe`; this block added by the documentation-only commit `1cb3885`, 2026-10-14)
 
 - Branch `arena/178a68a2-btc-trading-assistant`; repair PR: **#70 `BRAIN INTEGRATION & FIXES — DO NOT
   MERGE`** (draft, never to be merged by this session). Audit feed: PR #68 on
