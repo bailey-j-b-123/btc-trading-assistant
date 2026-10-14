@@ -298,40 +298,43 @@ export function breakoutStages({ evidence, candles } = {}) {
       : num(item.time_ms) !== null && num(item.time_ms) >= (num(anchor.time_ms) ?? Infinity)
   ));
   const firstRetest = mine[0] || null;
-  const retestSeconds = firstRetest ? toSeconds(num(firstRetest.time_ms)) : null;
+  // Keep the existing status priority, but bind every outcome fact and jump
+  // target to the record that actually established it, not the earlier touch.
+  const outcomeRetest = mine.find((item) => item.state === "held")
+    || mine.find((item) => item.state === "failed") || null;
+  const selectedRetest = outcomeRetest || firstRetest;
+  const observedRetest = mine.find((item) => item.state === "observed") || null;
+  const retestSeconds = selectedRetest ? toSeconds(num(selectedRetest.time_ms)) : null;
   const retestEntry = retestSeconds === null ? null : loaded.get(retestSeconds) || null;
   const retestPrice = retestEntry ? num(bullish ? retestEntry.row[3] : retestEntry.row[2]) : (bullish ? bandLow : bandHigh);
-  const heldCount = mine.filter((item) => item.state === "held").length;
-  const failedCount = mine.filter((item) => item.state === "failed").length;
-  const observedCount = mine.filter((item) => item.state !== "held" && item.state !== "failed").length;
+  const retestState = selectedRetest?.state;
 
-  const retestStage = firstRetest
+  const retestStage = selectedRetest
     ? finish(STAGE_DEFS[1],
-      heldCount > 0 ? STAGE_STATUS.held : failedCount > 0 ? STAGE_STATUS.failed : STAGE_STATUS.awaitingConfirmation,
-      [
-        mine.length === 1
-          ? "The stored retest of this breakout"
-          : `${mine.length} retest records are stored for this breakout`,
-        heldCount > 0 ? `and ${heldCount === mine.length ? "all" : `${heldCount} of ${mine.length}`} held the band` : null,
-        failedCount > 0 && heldCount === 0 ? `and ${failedCount} failed it` : null,
-        observedCount > 0 && heldCount === 0 && failedCount === 0 ? "and none is confirmed yet" : null,
-      ].filter(Boolean).join(" "),
+      retestState === "held" ? STAGE_STATUS.held : retestState === "failed" ? STAGE_STATUS.failed : STAGE_STATUS.awaitingConfirmation,
+      outcomeRetest
+        ? `The backend recorded this retest as ${retestState}; ${mine.length} stored lifecycle record(s), not independent tests.`
+        : "The stored retest of this breakout has not been confirmed yet.",
       {
-        summary: heldCount > 0
+        summary: retestState === "held"
           ? "Price came back to the band and the retest held."
-          : failedCount > 0
+          : retestState === "failed"
             ? "Price came back to the band and the retest failed."
             : "Price came back to the band; the backend has not confirmed it.",
         recorded: true,
         timeSeconds: retestSeconds,
-        timeText: msText(num(firstRetest.time_ms)),
+        timeText: msText(num(selectedRetest.time_ms)),
+        knownAt: selectedRetest.known_at || null,
+        observedKnownAt: observedRetest?.known_at || null,
         price: retestPrice,
         barIndex: retestEntry ? retestEntry.index : -1,
         onLoadedCandles: Boolean(retestEntry),
         meta: [
-          msText(num(firstRetest.time_ms)),
-          num(firstRetest.distance_from_band) !== null ? `${priceText(firstRetest.distance_from_band)} from the band` : null,
-          num(firstRetest.elapsed_candles) !== null ? `${num(firstRetest.elapsed_candles)} candle(s) after the breakout` : null,
+          `${outcomeRetest ? "outcome" : "observation"} candle ${msText(num(selectedRetest.time_ms))}`,
+          selectedRetest.known_at ? `${outcomeRetest ? "outcome" : "observation"} known ${formatUtc(selectedRetest.known_at)}` : null,
+          observedRetest ? `first observed candle ${msText(num(observedRetest.time_ms))} · known ${formatUtc(observedRetest.known_at)}` : null,
+          num(selectedRetest.distance_from_band) !== null ? `${priceText(selectedRetest.distance_from_band)} from the band` : null,
+          num(selectedRetest.elapsed_candles) !== null ? `${num(selectedRetest.elapsed_candles)} candle(s) after the breakout` : null,
         ].filter(Boolean).join(" · "),
       })
     : finish(STAGE_DEFS[1], STAGE_STATUS.awaitingConfirmation,

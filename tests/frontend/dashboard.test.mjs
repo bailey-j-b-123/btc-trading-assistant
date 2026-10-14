@@ -9,6 +9,7 @@ import {
   renderDashboard,
   systemHealthViewModel,
   verdictViewModel,
+  zoneEventNote,
 } from "../../src/trading_assistant/web/static/js/views/dashboard.js";
 import { TRACKER_REFRESH_INTERVAL_MS } from "../../src/trading_assistant/web/static/js/paper-tracker.js";
 
@@ -329,6 +330,7 @@ function forwardPayload(timestamp = "2026-10-06T12:00:00Z") {
         expected_latest_closed_candle_open: timestamp,
         missing_candle_count: 0,
       },
+      runner_liveness: { state: "CONFIRMED_ALIVE", alive_confirmed: true, age_seconds: 0, tolerance_seconds: 360 },
       runner: {
         status: "IDLE",
         recorded_at: timestamp,
@@ -1370,6 +1372,8 @@ function evidenceDashboard() {
           band_high: "61600",
           center: "61550",
           touch_count: 2,
+          distinct_test_timestamps: 2,
+          shared_candle_tests: 0,
           faded: false,
           isolated: false,
           source_timeframe: "1h",
@@ -1499,15 +1503,22 @@ test("the five chart functions are switchable and Simple mode draws one at a tim
 
     press(buttons[0]); // Support / Resistance
     await drainMicrotasks();
-    assert.match(status.textContent, /^Support \/ Resistance: 1 band\(s\) shown nearest price first · 3 further band\(s\) hidden/);
+    assert.match(status.textContent, /^Support \/ Resistance: 1 band\(s\) shown nearest price first · 3 further band\(s\) not drawn/);
     // The panel beside the chart explains the selected function from the stored,
     // presented bands: bounds and touch counts come straight from the detector.
     const panel = byClass(view, "chart-function-panel")[0];
     assert.equal(panel.dataset.function, "support_resistance");
     assert.match(panel.textContent, /Support & Resistance/);
     assert.match(panel.textContent, /Support61,500\.00 – 61,600\.00/);
-    assert.match(panel.textContent, /2 touches/);
-    assert.match(panel.textContent, /Only the nearest active zones are drawn\./);
+    // The panel states separate tests, and says what it did not draw.
+    assert.match(panel.textContent, /2 tests/);
+    assert.match(panel.textContent, /Only the nearest active zones are drawn; the count above says how many were not\./);
+    assert.match(panel.textContent, /Further bands not drawn3/);
+    // The line under the chart reports the same tally as the status line: the bands
+    // arrive with a later request than the evidence, and a stale "0 drawn" there
+    // would put two different totals on one screen.
+    const meta = byClass(view, "chart-evidence-meta")[0];
+    assert.match(meta.textContent, /S\/R bands: 1 drawn, 3 stored band\(s\) not drawn, 0 merged/);
 
     press(buttons[3]); // Breakouts / Retests
     await drainMicrotasks();
@@ -1563,10 +1574,12 @@ test("the bottom tabs switch panels without rebuilding the chart or refetching t
     assert.match(diagnostics.textContent, /Bot is watching/);
     assert.ok(diagnostics.textContent.includes("System details") || byClass(diagnostics, "system-details").length, "system details stay reachable");
     // The full presented band list lives here, with the detector's own bounds and
-    // touch counts, so nothing that used to be on the page has been dropped.
+    // test counts, so nothing that used to be on the page has been dropped.
     assert.match(diagnostics.textContent, /Nearby zones/);
     assert.match(diagnostics.textContent, /61,500\.00 – 61,600\.00/);
-    assert.match(diagnostics.textContent, /2 touches/);
+    assert.match(diagnostics.textContent, /2 tests/);
+    // A band the chart did not draw is accounted for on the card, by position, not dropped.
+    assert.match(diagnostics.textContent, /1 of 4 stored zone\(s\) presented, 3 beyond the nearest-band selection/);
     assert.equal(chartState.charts.length, 1, "no new chart instance is created");
     assert.equal(chartState.charts[0], chart, "the chart is reused, so zoom and pan survive");
     assert.equal(chart.removed, false, "switching tabs never disposes the chart");
@@ -1671,4 +1684,261 @@ test("desktop keeps Performance beside left tabs and restores narrow tab behavio
     assert.equal(fetchTotal(fetchCounts, "/api/dashboard"), calls);
   });
   assert.equal(removed, true, "responsive listener is removed on dashboard disposal");
+});
+
+// ---------------------------------------------------------------------------
+// Chart Patterns — approved pattern-focused screen
+// ---------------------------------------------------------------------------
+
+const P_HOUR = 3_600_000;
+const P_LAST = 1791288000000;
+const P_COUNT = 200;
+const pTime = (index) => P_LAST - (P_COUNT - 1 - index) * P_HOUR;
+const pIso = (index) => new Date(pTime(index)).toISOString().replace(".000Z", "Z");
+
+/** 200 stored candles and two stored patterns: one on screen, one far in history. */
+function patternScreenDashboard() {
+  const dashboard = evidenceDashboard();
+  const candles = [];
+  for (let index = 0; index < P_COUNT; index += 1) {
+    let low = 61_800;
+    let high = 62_300;
+    if (index === 150 || index === 20) low = 61_500;
+    if (index === 172 || index === 44) low = 61_520;
+    if (index === 160 || index === 32) high = 62_400;
+    candles.push([pTime(index), "62000", String(high), String(low), "62100", "10"]);
+  }
+  dashboard.market = { ...dashboard.market, candles };
+  const record = (id, state, first, peak, second, anchor, latest) => ({
+    id,
+    pattern_id: `${id}-group`,
+    type: "double_bottom",
+    label: "DB",
+    side: "bottom",
+    state,
+    is_latest_state: latest,
+    known_at: pIso(anchor),
+    anchor_time: pIso(anchor),
+    anchor_time_ms: pTime(anchor),
+    neckline: "62400",
+    invalidation_level: "61500",
+    components: [
+      { kind: "low", time_ms: pTime(first), time: pIso(first), price: "61500" },
+      { kind: "high", time_ms: pTime(peak), time: pIso(peak), price: "62400" },
+      { kind: "low", time_ms: pTime(second), time: pIso(second), price: "61520" },
+    ],
+  });
+  dashboard.chart_evidence = {
+    ...dashboard.chart_evidence,
+    counts: { ...dashboard.chart_evidence.counts, patterns: 2 },
+    patterns: [
+      record("pattern:db:history", "formed", 20, 32, 44, 50, true),
+      record("pattern:db:recent", "confirmed", 150, 160, 172, 180, true),
+    ],
+  };
+  return dashboard;
+}
+
+/** Give the mock chart a real visible logical range, so zoom can be measured. */
+function measurableZoom(chartState) {
+  const state = { range: null, sets: [] };
+  const create = chartState.library.createChart;
+  chartState.library.createChart = (...args) => {
+    const chart = create(...args);
+    chart.timeScale = () => ({
+      getVisibleLogicalRange: () => (state.range ? { ...state.range } : null),
+      setVisibleLogicalRange: (next) => { state.range = { from: next.from, to: next.to }; state.sets.push(state.range); },
+      subscribeVisibleLogicalRangeChange() {},
+      unsubscribeVisibleLogicalRangeChange() {},
+      timeToCoordinate: () => null,
+      logicalToCoordinate: () => null,
+      coordinateToLogical: () => null,
+      height: () => 0,
+      width: () => 0,
+    });
+    return chart;
+  };
+  return state;
+}
+
+const span = (range) => range.to - range.from;
+
+test("Chart Patterns cards show stored records only, with the confidence not calculated", async () => {
+  await withDashboard(patternScreenDashboard(), forwardPayload(), async ({ view }) => {
+    await renderDashboard(view);
+    press(findNodes(view, (node) => node.getAttribute?.("data-function") === "patterns")[0]);
+    await drainMicrotasks();
+    const detection = byClass(view, "pd-card--detection")[0];
+    assert.match(detection.textContent, /Pattern Detection/);
+    assert.match(detection.textContent, /Double Bottom/);
+    assert.match(detection.textContent, /Confirmed/, "the newest current state, in the backend's own word");
+    assert.match(detection.textContent, /ConfidenceNot calculated/);
+    assert.doesNotMatch(detection.textContent, /\d+(\.\d+)?\s?%/, "no percentage anywhere on the card");
+    const others = byClass(view, "pd-other-button");
+    assert.deepEqual(others.map((node) => node.getAttribute("data-select-pattern")), ["pattern:db:history"], "only the other stored record");
+    assert.doesNotMatch(byClass(view, "pattern-panel")[0].textContent, /Bull Flag|Descending Triangle/);
+    const levels = byClass(view, "pd-level");
+    assert.deepEqual(levels.map((row) => row.dataset.level), ["neckline", "support", "resistance"]);
+    assert.match(levels[0].textContent, /62,400\.00/);
+    assert.match(levels[1].textContent, /61,500\.00/);
+    assert.match(levels[2].textContent, /Unavailable/, "no target is derived");
+    // The function switches sit in the header on this screen only.
+    assert.equal(byClass(view, "chart-header-controls")[0].children.length, 1);
+    assert.match(byClass(view, "pattern-chart-head")[0].textContent, /BTC\/USDT · 1H · BINANCE/);
+  });
+});
+
+test("selecting another detected pattern updates the cards and keeps the operator's zoom", async () => {
+  await withDashboard(patternScreenDashboard(), forwardPayload(), async ({ view, chartState }) => {
+    const zoom = measurableZoom(chartState);
+    await renderDashboard(view);
+    const opened = { ...zoom.range };
+    assert.equal(span(opened), 122, "the first-load window");
+    // The operator zooms in.
+    zoom.range = { from: 140.5, to: 190.5 };
+    press(findNodes(view, (node) => node.getAttribute?.("data-function") === "patterns")[0]);
+    await drainMicrotasks();
+    assert.deepEqual(zoom.range, { from: 140.5, to: 190.5 }, "the selected pattern is on screen: the window does not move");
+
+    press(byClass(view, "pd-other-button")[0]); // the pattern far in history
+    await drainMicrotasks();
+    assert.match(byClass(view, "pd-card--detection")[0].textContent, /Formed/, "the cards follow the selection");
+    assert.equal(span(zoom.range), 50, "the zoom (candles on screen) is unchanged");
+    assert.ok(zoom.range.from <= 32 && zoom.range.to >= 32, "the window moved to the stored pattern");
+    const choices = findNodes(byClass(view, "chart-pattern-picker")[0], (node) => node.getAttribute?.("data-pattern-id"));
+    assert.deepEqual(
+      choices.filter((node) => node.getAttribute("aria-pressed") === "true").map((node) => node.getAttribute("data-pattern-id")),
+      ["pattern:db:history"],
+      "the picker agrees",
+    );
+
+    const before = { ...zoom.range };
+    press(findNodes(view, (node) => node.getAttribute?.("data-function") === "breakouts")[0]);
+    await drainMicrotasks();
+    assert.equal(span(zoom.range), span(before), "a function switch keeps the zoom");
+    press(findNodes(view, (node) => node.getAttribute?.("data-function") === "patterns")[0]);
+    await drainMicrotasks();
+    assert.equal(span(zoom.range), span(before), "coming back keeps the zoom");
+  });
+});
+
+test("Breakouts & Retests is unaffected by the Chart Patterns screen", async () => {
+  await withDashboard(patternScreenDashboard(), forwardPayload(), async ({ view }) => {
+    await renderDashboard(view);
+    const fn = (id) => findNodes(view, (node) => node.getAttribute?.("data-function") === id)[0];
+    press(fn("breakouts"));
+    await drainMicrotasks();
+    const status = () => byClass(view, "chart-function-status")[0].textContent;
+    const panelText = () => byClass(view, "chart-function-panel")[0].textContent;
+    const first = { status: status(), panel: panelText(), header: byClass(view, "chart-header-controls")[0].children.length };
+    assert.equal(first.header, 0, "outside Chart Patterns the switches stay in the chart toolbar");
+    assert.equal(byClass(view, "pattern-panel").length, 0);
+    press(fn("patterns"));
+    await drainMicrotasks();
+    press(fn("breakouts"));
+    await drainMicrotasks();
+    assert.equal(status(), first.status);
+    assert.equal(panelText(), first.panel);
+    assert.equal(byClass(view, "chart-header-controls")[0].children.length, 0, "the switches went back to the toolbar");
+    assert.equal(byClass(byClass(view, "chart-control-home")[0], "chart-control-row").length, 1);
+  });
+});
+
+test("a timeframe with no stored candles empties the Chart Patterns cards and OHLC line", async () => {
+  await withDashboard(patternScreenDashboard(), forwardPayload(), async ({ view }) => {
+    await renderDashboard(view);
+    press(findNodes(view, (node) => node.getAttribute?.("data-function") === "patterns")[0]);
+    await drainMicrotasks();
+    assert.match(byClass(view, "pd-card--detection")[0].textContent, /Double Bottom/);
+    // The fixture server answers the 4H candle request with a non-4H payload, so
+    // the 4H chart is honestly unavailable.
+    press(findNodes(view, (node) => node.getAttribute?.("data-timeframe") === "4h")[0]);
+    await drainMicrotasks();
+    const head = byClass(view, "pattern-chart-head")[0].textContent;
+    assert.match(head, /BTC\/USDT · 4H · BINANCE/);
+    assert.match(head, /No stored candle/, "no 1H prices under the 4H label");
+    assert.doesNotMatch(byClass(view, "pattern-panel")[0].textContent, /Double Bottom|62,400/, "no 1H pattern under the 4H label");
+    assert.match(byClass(view, "pd-card--others")[0].textContent, /No other patterns recorded/);
+    assert.ok(byClass(view, "pd-level").every((row) => /Unavailable/.test(row.textContent)));
+  });
+});
+
+// BRAIN-AUDIT-0001: neither side of the rendering/accounting merge may be lost.
+test("integrated patterns survive S/R refresh with all three accounting surfaces in sync", async () => {
+  const dashboard = patternScreenDashboard();
+  const originalDecision = structuredClone({ plan: dashboard.plan, qualification: dashboard.qualification });
+  await withDashboard(dashboard, forwardPayload(), async ({ view, chartState }) => {
+    await renderDashboard(view);
+    const select = async (id) => {
+      press(findNodes(view, node => node.getAttribute?.("data-function") === id)[0]);
+      await drainMicrotasks();
+    };
+    await select("patterns");
+    assert.match(byClass(view, "pd-card--detection")[0].textContent, /Double Bottom/);
+    const chart = chartState.charts[0];
+    await select("support_resistance");
+    // A new response removes the previous band and supplies two on the same side:
+    // one is drawable, one is hidden by the client cap, plus five hidden by the API.
+    const first = dashboard.overlays.zone_bands.bands[0];
+    dashboard.overlays.zone_bands = {
+      ...dashboard.overlays.zone_bands,
+      bands: [first, { ...first, id: "farther", band_low: "61000", band_high: "61100", center: "61050" }],
+      hidden_count: 5,
+      total_stored: 7,
+    };
+    view.querySelectorAll = selector => {
+      assert.equal(selector, "details");
+      return findNodes(view, node => node.tagName === "DETAILS");
+    };
+    window.scrollTo = () => {};
+    await renderDashboard(view, { refresh: true });
+    await drainMicrotasks();
+    assert.match(byClass(view, "chart-function-status")[0].textContent, /1 band\(s\) shown.*6 further band\(s\) not drawn/);
+    assert.match(byClass(view, "chart-evidence-meta")[0].textContent, /S\/R bands: 1 drawn, 6 stored band\(s\) not drawn/);
+    assert.match(byClass(view, "chart-function-panel")[0].textContent, /Bands drawn1Further bands not drawn6/);
+    await select("patterns");
+    assert.match(byClass(view, "pd-card--detection")[0].textContent, /Double Bottom/);
+    press(byClass(view, "pd-other-button")[0]);
+    await drainMicrotasks();
+    assert.match(byClass(view, "pd-card--detection")[0].textContent, /Formed/);
+    assert.equal(chartState.charts[0], chart, "one chart instance, not a replacement");
+    assert.deepEqual({ plan: dashboard.plan, qualification: dashboard.qualification }, originalDecision);
+  });
+});
+
+// --- the zone row's stored-event note -------------------------------------------------
+//
+// Exact identity and a smaller contained reference are different facts. The note must never say
+// "referenced it" for a band the stored events did not use as their own band, and it must not read
+// as an absolute "nothing happened here" while a stored event's band sits inside the displayed one.
+
+test("a zone row reports exact stored links in its own words", () => {
+  const note = zoneEventNote({
+    linked: true, event_count: 3,
+    counts: { breakout: 2, retest: 1, sweep: 0, failed_breakout: 0 },
+    contained_count: 1,
+  });
+  assert.equal(note, "3 stored event(s) referenced it");
+});
+
+test("a zone row with only smaller recorded bands inside it says exactly that", () => {
+  const note = zoneEventNote({
+    linked: false, event_count: 0,
+    counts: { breakout: 0, retest: 0, sweep: 0, failed_breakout: 0 },
+    contained_count: 2,
+    contained_counts: { breakout: 0, retest: 2, sweep: 0, failed_breakout: 0 },
+  });
+  assert.equal(note, "2 stored event(s) inside it with smaller recorded bounds");
+  assert.doesNotMatch(note, /referenced it/);
+});
+
+test("a zone row with no stored event at all adds no note, and an unchecked view adds none either", () => {
+  assert.equal(zoneEventNote({
+    linked: false, event_count: 0, counts: { breakout: 0, retest: 0, sweep: 0, failed_breakout: 0 },
+    contained_count: 0,
+  }), null);
+  assert.equal(zoneEventNote(null), null);
+  assert.equal(zoneEventNote(undefined), null);
+  // A view that never checked (null counts) must not be rendered as a claim either.
+  assert.equal(zoneEventNote({ linked: false, event_count: null, counts: null }), null);
 });

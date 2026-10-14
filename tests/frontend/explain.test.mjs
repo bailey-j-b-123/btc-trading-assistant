@@ -225,9 +225,10 @@ test("a band that contains the close is explained as inside, never as resistance
   assert.match(explanation.note, /labelled this zone "resistance" because its centre sits on that side of the close/);
 });
 
-test("the explanation states touches, origin, last test and that influence is not claimed", () => {
+test("the explanation states tests, origin, last test and that influence is not claimed", () => {
   const explanation = explainZoneBand(baseBand, { timeframe: "1h" });
-  assert.match(body(explanation, 3), /3 swing touches \(2 highs, 1 lows\)/);
+  // Three swing evidences on three separate instants: the sentence says both numbers.
+  assert.match(body(explanation, 3), /3 tests \(3 swing evidences on 3 separate instants; 2 highs, 1 lows\)/);
   assert.match(body(explanation, 1), /Built by clustering 3 confirmed swing extremes/);
   assert.match(body(explanation, 2), /Last tested 2026-10-10 15:00 UTC \(2 candles ago\)/);
   assert.equal(explanation.influenced, false);
@@ -238,12 +239,95 @@ test("the explanation states touches, origin, last test and that influence is no
 test("a single-swing band says it has not been tested by a second swing", () => {
   const explanation = explainZoneBand({ ...baseBand, touch_count: 1, isolated: true, swing_high_count: 1, swing_low_count: 0 }, { timeframe: "1h" });
   assert.equal(explanation.status, "Single swing");
-  assert.match(body(explanation, 3), /Only 1 swing touch: it has not yet been tested by a second swing/);
+  assert.match(body(explanation, 3), /Only 1 test: it has not yet been tested by a second swing/);
+});
+
+test("a candle that gave two swing evidences is never reported as two separate tests", () => {
+  const band = {
+    ...baseBand,
+    touch_count: 24,
+    distinct_test_timestamps: 22,
+    shared_candle_tests: 2,
+    swing_high_count: 15,
+    swing_low_count: 9,
+  };
+  const explanation = explainZoneBand(band, { timeframe: "1h" });
+  assert.match(body(explanation, 3), /22 tests \(24 swing evidences on 22 separate instants \(2 candles gave both a swing high and a swing low\); 15 highs, 9 lows\)/);
+  assert.equal(explanation.rows.find((row) => row.label === "Tests").value, "22");
+  assert.equal(explanation.rows.find((row) => row.label === "Swing evidences").value, "24");
+});
+
+test("the explanation states which recorded events used the band, and never more than that", () => {
+  const linked = explainZoneBand({
+    ...baseBand,
+    linked_events: { linked: true, event_count: 3, counts: { breakout: 2, failed_breakout: 0, sweep: 0, retest: 1 } },
+  }, { timeframe: "1h" });
+  assert.match(body(linked, 3), /Used as the reference level of 2 breakouts, 1 retest on this timeframe/);
+  assert.match(body(linked, 3), /no hold, flip or retest is claimed here/);
+  assert.equal(linked.rows.find((row) => row.label === "Recorded events referencing this zone").value, "2 breakout · 1 retest");
+
+  const none = explainZoneBand({
+    ...baseBand,
+    linked_events: { linked: false, event_count: 0, counts: { breakout: 0, failed_breakout: 0, sweep: 0, retest: 0 } },
+  }, { timeframe: "1h" });
+  assert.match(body(none, 3), /No stored breakout, sweep or retest used this zone as its own reference level/);
+
+  // A view where the check could not run says so, rather than claiming nothing referenced it.
+  const unchecked = explainZoneBand({
+    ...baseBand,
+    linked_events: { linked: false, event_count: null, counts: null },
+  }, { timeframe: "1h" });
+  assert.doesNotMatch(body(unchecked, 3), /No stored breakout/);
+  assert.equal(unchecked.rows.find((row) => row.label === "Recorded events referencing this zone").value, "not checked on this view");
+});
+
+test("a smaller earlier recorded band inside the zone is stated as contained, never as identity", () => {
+  // The evolved-zone case: the displayed band grew after the event was recorded, so the event's
+  // own band is no longer identical — but it is inside, and the operator must not read "nothing".
+  const contained = explainZoneBand({
+    ...baseBand,
+    linked_events: {
+      linked: false, event_count: 0,
+      counts: { breakout: 0, failed_breakout: 0, sweep: 0, retest: 0 },
+      contained_count: 3,
+      contained_counts: { breakout: 1, failed_breakout: 0, sweep: 0, retest: 2 },
+    },
+  }, { timeframe: "1h" });
+  assert.doesNotMatch(body(contained, 3), /No stored breakout, sweep or retest used this zone as its own reference level/);
+  assert.match(body(contained, 3), /No stored event's own recorded band is this exact zone/);
+  assert.match(body(contained, 3), /1 breakout, 2 retests hold a smaller, earlier reference inside this band's price area/);
+  assert.match(body(contained, 3), /not identity with this band/);
+  assert.equal(contained.rows.find((row) => row.label === "Recorded events referencing this zone").value, "3 inside it (different recorded bounds)");
+
+  // A band with neither fact still says exactly that.
+  const neither = explainZoneBand({
+    ...baseBand,
+    linked_events: {
+      linked: false, event_count: 0,
+      counts: { breakout: 0, failed_breakout: 0, sweep: 0, retest: 0 },
+      contained_count: 0, contained_counts: { breakout: 0, failed_breakout: 0, sweep: 0, retest: 0 },
+    },
+  }, { timeframe: "1h" });
+  assert.match(body(neither, 3), /No stored breakout, sweep or retest used this zone as its own reference level/);
+
+  // Both classes at once: identity is stated first, and the contained ones are added, not hidden.
+  const both = explainZoneBand({
+    ...baseBand,
+    linked_events: {
+      linked: true, event_count: 1,
+      counts: { breakout: 1, failed_breakout: 0, sweep: 0, retest: 0 },
+      contained_count: 2,
+      contained_counts: { breakout: 0, failed_breakout: 0, sweep: 0, retest: 2 },
+    },
+  }, { timeframe: "1h" });
+  assert.match(body(both, 3), /Used as the reference level of 1 breakout on this timeframe/);
+  assert.match(body(both, 3), /2 further stored event\(s\) hold a smaller, earlier reference inside this band's price area/);
+  assert.equal(both.rows.find((row) => row.label === "Recorded events referencing this zone").value, "1 breakout");
 });
 
 test("a merged display band reports how many detector zones it combines", () => {
   const explanation = explainZoneBand({ ...baseBand, merged_zone_count: 3, source_timeframe: "4h" }, { timeframe: "4h" });
-  assert.match(body(explanation, 3), /Merged from 3 overlapping detector zones for display; touches are summed/);
+  assert.match(body(explanation, 3), /Merged from 3 overlapping detector zones for display; the test and evidence counts are the sum of those zones' own stored numbers/);
   assert.match(explanation.timeframe, /4H/);
 });
 

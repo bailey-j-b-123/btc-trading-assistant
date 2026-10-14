@@ -1,0 +1,246 @@
+F841 Local variable `confirmation` is assigned to but never used
+   --> src/trading_assistant/ai_explanation/renderer.py:458:9
+    |
+456 |                 f"reference band {band_low} to {band_high}."
+457 |             )
+458 |         confirmation = hierarchy["confirmation"]
+    |         ^^^^^^^^^^^^
+459 |         confirmation_tf = facts.text("ctx.multi_timeframe.confirmation.timeframe")
+460 |         confirmation_state = facts.text("ctx.multi_timeframe.confirmation.state")
+    |
+help: Remove assignment to unused variable `confirmation`
+    |
+457 |             )
+    -         confirmation = hierarchy["confirmation"]
+458 +         hierarchy["confirmation"]
+459 |         confirmation_tf = facts.text("ctx.multi_timeframe.confirmation.timeframe")
+    |
+note: This is an unsafe fix and may change runtime behavior
+
+F841 Local variable `execution` is assigned to but never used
+   --> src/trading_assistant/ai_explanation/renderer.py:468:9
+    |
+466 |             f"({confirmation_reason})."
+467 |         )
+468 |         execution = hierarchy["execution"]
+    |         ^^^^^^^^^
+469 |         execution_tf = facts.text("ctx.multi_timeframe.execution.timeframe")
+470 |         execution_state = facts.text("ctx.multi_timeframe.execution.state")
+    |
+help: Remove assignment to unused variable `execution`
+    |
+467 |         )
+    -         execution = hierarchy["execution"]
+468 +         hierarchy["execution"]
+469 |         execution_tf = facts.text("ctx.multi_timeframe.execution.timeframe")
+    |
+note: This is an unsafe fix and may change runtime behavior
+
+E741 Ambiguous variable name: `l`
+  --> tests/test_candle_shapes.py:22:20
+   |
+22 | def c(index, o, h, l, close, *, tf_interval=INTERVAL):
+   |                    ^
+23 |     return Candle(
+24 |         exchange=EXCHANGE,
+   |
+
+F401 [*] `datetime.timedelta` imported but unused
+  --> tests/test_forward_outage_recovery.py:39:22
+   |
+37 | import time
+38 | from dataclasses import dataclass
+39 | from datetime import timedelta
+   |                      ^^^^^^^^^
+40 | from decimal import Decimal as D
+   |
+help: Remove unused import: `datetime.timedelta`
+   |
+38 | from dataclasses import dataclass
+   - from datetime import timedelta
+39 | from decimal import Decimal as D
+   |
+
+F401 [*] `datetime.datetime` imported but unused
+  --> tests/test_forward_phase3.py:19:22
+   |
+18 | from dataclasses import replace
+19 | from datetime import datetime
+   |                      ^^^^^^^^
+20 | from decimal import Decimal as D
+21 | from types import SimpleNamespace
+   |
+help: Remove unused import: `datetime.datetime`
+   |
+18 | from dataclasses import replace
+   - from datetime import datetime
+19 | from decimal import Decimal as D
+   |
+
+F401 [*] `forward_fixtures.EPOCH` imported but unused
+  --> tests/test_forward_phase3.py:26:5
+   |
+25 | from forward_fixtures import (
+26 |     EPOCH,
+   |     ^^^^^
+27 |     INTERVAL,
+28 |     QUALIFYING_BOUNDARY,
+   |
+help: Remove unused import: `forward_fixtures.EPOCH`
+   |
+25 | from forward_fixtures import (
+   -     EPOCH,
+26 |     INTERVAL,
+   |
+
+F401 [*] `trading_assistant.market_data.types.Candle` imported but unused
+  --> tests/test_forward_phase3.py:55:49
+   |
+53 | )
+54 | from trading_assistant.journaling.types import OutcomeStatus
+55 | from trading_assistant.market_data.types import Candle
+   |                                                 ^^^^^^
+56 | from trading_assistant.trade_planning import PLANNING_RULES_VERSION
+   |
+help: Remove unused import: `trading_assistant.market_data.types.Candle`
+   |
+54 | from trading_assistant.journaling.types import OutcomeStatus
+   - from trading_assistant.market_data.types import Candle
+55 | from trading_assistant.trade_planning import PLANNING_RULES_VERSION
+   |
+
+F401 [*] `forward_fixtures.clock_at` imported but unused
+  --> tests/test_forward_runner_polling.py:20:51
+   |
+19 | import pytest
+20 | from forward_fixtures import QUALIFYING_BOUNDARY, clock_at, labelled_series, make_harness
+   |                                                   ^^^^^^^^
+21 |
+22 | from trading_assistant.forward_testing import ForwardRunner, RunnerSettings
+   |
+help: Remove unused import: `forward_fixtures.clock_at`
+   |
+19 | import pytest
+   - from forward_fixtures import QUALIFYING_BOUNDARY, clock_at, labelled_series, make_harness
+20 + from forward_fixtures import QUALIFYING_BOUNDARY, labelled_series, make_harness
+21 |
+   |
+
+E741 Ambiguous variable name: `l`
+  --> tests/test_outcome_resolution.py:53:37
+   |
+53 | def htf(index: int, o: str, h: str, l: str, c: str, *, timeframe: str = "1h") -> Candle:
+   |                                     ^
+54 |     step = HOUR if timeframe == "1h" else FIVE_MINUTES
+55 |     return Candle(
+   |
+
+F401 [*] `trading_assistant.pattern_liquidity.events.FailedBreakout` imported but unused
+  --> tests/test_reference_provenance.py:54:5
+   |
+52 | from trading_assistant.pattern_liquidity.events import (
+53 |     Breakout,
+54 |     FailedBreakout,
+   |     ^^^^^^^^^^^^^^
+55 |     Reference,
+56 |     Retest,
+   |
+help: Remove unused import
+   |
+53 |     Breakout,
+   -     FailedBreakout,
+54 |     Reference,
+   -     Retest,
+55 |     Sweep,
+   |
+
+F401 [*] `trading_assistant.pattern_liquidity.events.Retest` imported but unused
+  --> tests/test_reference_provenance.py:56:5
+   |
+54 |     FailedBreakout,
+55 |     Reference,
+56 |     Retest,
+   |     ^^^^^^
+57 |     Sweep,
+58 | )
+   |
+help: Remove unused import
+   |
+53 |     Breakout,
+   -     FailedBreakout,
+54 |     Reference,
+   -     Retest,
+55 |     Sweep,
+   |
+
+F401 [*] `trading_assistant.trade_planning.MINIMUM_R_MULTIPLE_FLOOR` imported but unused
+  --> tests/test_trade_planning.py:51:5
+   |
+49 | from trading_assistant.trade_planning import (
+50 |     BASE_RULES,
+51 |     MINIMUM_R_MULTIPLE_FLOOR,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+52 |     PlanningParameters,
+53 |     PlanState,
+   |
+help: Remove unused import: `trading_assistant.trade_planning.MINIMUM_R_MULTIPLE_FLOOR`
+   |
+50 |     BASE_RULES,
+   -     MINIMUM_R_MULTIPLE_FLOOR,
+51 |     PlanningParameters,
+   |
+
+F401 [*] `decimal.Decimal` imported but unused
+  --> tests/test_validation_summary_equivalence.py:13:21
+   |
+11 | from dataclasses import dataclass, replace
+12 | from datetime import datetime, timedelta
+13 | from decimal import Decimal
+   |                     ^^^^^^^
+14 |
+15 | import pytest
+   |
+help: Remove unused import: `decimal.Decimal`
+   |
+12 | from datetime import datetime, timedelta
+   - from decimal import Decimal
+13 |
+   |
+
+F401 [*] `pytest` imported but unused
+  --> tests/test_web_live_updates.py:11:8
+   |
+ 9 | from datetime import UTC, datetime
+10 |
+11 | import pytest
+   |        ^^^^^^
+12 | from fastapi.testclient import TestClient
+13 | from sqlalchemy import inspect
+   |
+help: Remove unused import: `pytest`
+   |
+10 |
+   - import pytest
+11 | from fastapi.testclient import TestClient
+   |
+
+F401 [*] `market_structure_fixtures.EXCHANGE` imported but unused
+  --> tests/web_fixtures.py:18:46
+   |
+16 | from alembic import command
+17 | from alembic.config import Config
+18 | from market_structure_fixtures import EPOCH, EXCHANGE, INTERVAL, SYMBOL, candle_at
+   |                                              ^^^^^^^^
+19 |
+20 | from trading_assistant.config import Settings
+   |
+help: Remove unused import: `market_structure_fixtures.EXCHANGE`
+   |
+17 | from alembic.config import Config
+   - from market_structure_fixtures import EPOCH, EXCHANGE, INTERVAL, SYMBOL, candle_at
+18 + from market_structure_fixtures import EPOCH, INTERVAL, SYMBOL, candle_at
+19 |
+   |
+
+Found 15 errors.
+[*] 11 fixable with `--fix` (2 unsafe fixes available with `--fix --unsafe-fixes`).

@@ -1,0 +1,138 @@
+TAP version 13
+# (node:4933) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/btc-trading-assistant/src/trading_assistant/web/static/js/breakout_stages.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/btc-trading-assistant/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: swing bias rejects unavailable, malformed and wrong-timeframe fallback evidence
+not ok 1 - swing bias rejects unavailable, malformed and wrong-timeframe fallback evidence
+  ---
+  duration_ms: 1.96077
+  type: 'test'
+  location: '/home/user/btc-trading-assistant/tests/frontend/function-panel.test.mjs:590:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    {"available":false,"timeframe":"15m"}
+    
+    'Bullish' !== null
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: ~
+  actual: 'Bullish'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/user/btc-trading-assistant/tests/frontend/function-panel.test.mjs:600:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# (node:4940) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/btc-trading-assistant/src/trading_assistant/web/static/js/chart.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/btc-trading-assistant/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: swing panel clears 1H bias on 15m candle failure
+not ok 2 - swing panel clears 1H bias on 15m candle failure
+  ---
+  duration_ms: 45.273596
+  type: 'test'
+  location: '/home/user/btc-trading-assistant/tests/frontend/timeframeswitch.test.mjs:1023:5'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /Current biasUNKNOWN/. Input:
+    
+    'Market StructureBullishLegendHHHigher high (stronger high)HLHigher low (stronger low)LHLower high (weaker high)LLLower low (weaker low)FactsLast stored swingUNKNOWNCurrent biasBullish · higher highs and higher lowsKey level (support)none stored below priceNext resistancenone stored above priceOnly confirmed swings are marked, at the candle that confirmed them. A swing counts as referenced when a stored zone or pattern is built on it — that is emphasis, not a strength score.'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: 'Market StructureBullishLegendHHHigher high (stronger high)HLHigher low (stronger low)LHLower high (weaker high)LLLower low (weaker low)FactsLast stored swingUNKNOWNCurrent biasBullish · higher highs and higher lowsKey level (support)none stored below priceNext resistancenone stored above priceOnly confirmed swings are marked, at the candle that confirmed them. A swing counts as referenced when a stored zone or pattern is built on it — that is emphasis, not a strength score.'
+  operator: 'match'
+  stack: |-
+    file:///home/user/btc-trading-assistant/tests/frontend/timeframeswitch.test.mjs:1040:16
+    async withDashboard (file:///home/user/btc-trading-assistant/tests/frontend/timeframeswitch.test.mjs:391:5)
+    async TestContext.<anonymous> (file:///home/user/btc-trading-assistant/tests/frontend/timeframeswitch.test.mjs:1028:7)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: swing panel clears 1H bias on 15m candle empty
+not ok 3 - swing panel clears 1H bias on 15m candle empty
+  ---
+  duration_ms: 11.875215
+  type: 'test'
+  location: '/home/user/btc-trading-assistant/tests/frontend/timeframeswitch.test.mjs:1023:5'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /Current biasUNKNOWN/. Input:
+    
+    'Market StructureBullishLegendHHHigher high (stronger high)HLHigher low (stronger low)LHLower high (weaker high)LLLower low (weaker low)FactsLast stored swingUNKNOWNCurrent biasBullish · higher highs and higher lowsKey level (support)none stored below priceNext resistancenone stored above priceOnly confirmed swings are marked, at the candle that confirmed them. A swing counts as referenced when a stored zone or pattern is built on it — that is emphasis, not a strength score.'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: 'Market StructureBullishLegendHHHigher high (stronger high)HLHigher low (stronger low)LHLower high (weaker high)LLLower low (weaker low)FactsLast stored swingUNKNOWNCurrent biasBullish · higher highs and higher lowsKey level (support)none stored below priceNext resistancenone stored above priceOnly confirmed swings are marked, at the candle that confirmed them. A swing counts as referenced when a stored zone or pattern is built on it — that is emphasis, not a strength score.'
+  operator: 'match'
+  stack: |-
+    file:///home/user/btc-trading-assistant/tests/frontend/timeframeswitch.test.mjs:1040:16
+    async withDashboard (file:///home/user/btc-trading-assistant/tests/frontend/timeframeswitch.test.mjs:391:5)
+    async TestContext.<anonymous> (file:///home/user/btc-trading-assistant/tests/frontend/timeframeswitch.test.mjs:1028:7)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: swing panel clears 1H bias on 4h candle failure
+not ok 4 - swing panel clears 1H bias on 4h candle failure
+  ---
+  duration_ms: 18.414381
+  type: 'test'
+  location: '/home/user/btc-trading-assistant/tests/frontend/timeframeswitch.test.mjs:1023:5'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /Current biasUNKNOWN/. Input:
+    
+    'Market StructureBullishLegendHHHigher high (stronger high)HLHigher low (stronger low)LHLower high (weaker high)LLLower low (weaker low)FactsLast stored swingUNKNOWNCurrent biasBullish · higher highs and higher lowsKey level (support)none stored below priceNext resistancenone stored above priceOnly confirmed swings are marked, at the candle that confirmed them. A swing counts as referenced when a stored zone or pattern is built on it — that is emphasis, not a strength score.'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: 'Market StructureBullishLegendHHHigher high (stronger high)HLHigher low (stronger low)LHLower high (weaker high)LLLower low (weaker low)FactsLast stored swingUNKNOWNCurrent biasBullish · higher highs and higher lowsKey level (support)none stored below priceNext resistancenone stored above priceOnly confirmed swings are marked, at the candle that confirmed them. A swing counts as referenced when a stored zone or pattern is built on it — that is emphasis, not a strength score.'
+  operator: 'match'
+  stack: |-
+    file:///home/user/btc-trading-assistant/tests/frontend/timeframeswitch.test.mjs:1040:16
+    async withDashboard (file:///home/user/btc-trading-assistant/tests/frontend/timeframeswitch.test.mjs:391:5)
+    async TestContext.<anonymous> (file:///home/user/btc-trading-assistant/tests/frontend/timeframeswitch.test.mjs:1028:7)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: swing panel clears 1H bias on 4h candle empty
+not ok 5 - swing panel clears 1H bias on 4h candle empty
+  ---
+  duration_ms: 10.881253
+  type: 'test'
+  location: '/home/user/btc-trading-assistant/tests/frontend/timeframeswitch.test.mjs:1023:5'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /Current biasUNKNOWN/. Input:
+    
+    'Market StructureBullishLegendHHHigher high (stronger high)HLHigher low (stronger low)LHLower high (weaker high)LLLower low (weaker low)FactsLast stored swingUNKNOWNCurrent biasBullish · higher highs and higher lowsKey level (support)none stored below priceNext resistancenone stored above priceOnly confirmed swings are marked, at the candle that confirmed them. A swing counts as referenced when a stored zone or pattern is built on it — that is emphasis, not a strength score.'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: 'Market StructureBullishLegendHHHigher high (stronger high)HLHigher low (stronger low)LHLower high (weaker high)LLLower low (weaker low)FactsLast stored swingUNKNOWNCurrent biasBullish · higher highs and higher lowsKey level (support)none stored below priceNext resistancenone stored above priceOnly confirmed swings are marked, at the candle that confirmed them. A swing counts as referenced when a stored zone or pattern is built on it — that is emphasis, not a strength score.'
+  operator: 'match'
+  stack: |-
+    file:///home/user/btc-trading-assistant/tests/frontend/timeframeswitch.test.mjs:1040:16
+    async withDashboard (file:///home/user/btc-trading-assistant/tests/frontend/timeframeswitch.test.mjs:391:5)
+    async TestContext.<anonymous> (file:///home/user/btc-trading-assistant/tests/frontend/timeframeswitch.test.mjs:1028:7)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 0
+# fail 5
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 253.22564

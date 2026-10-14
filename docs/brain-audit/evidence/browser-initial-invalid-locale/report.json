@@ -1,0 +1,673 @@
+{
+  "url": "http://127.0.0.1:8138/",
+  "browser": "HeadlessChrome/153.0.8010.0",
+  "provenance": "SYNTHETIC 600-candle seed; NOT market history or approved visual reference",
+  "views": [
+    {
+      "width": 1536,
+      "height": 864,
+      "function": "support_resistance",
+      "scrollWidth": 1536,
+      "status": "Support / Resistance: 2 band(s) shown nearest price first · 0 further band(s) hidden · 0 merged for display.",
+      "panel": "Support & Resistance\nLEGEND\nResistance\nStored bands above the current close, where selling pressure has historically stopped price.\nRange mid\nMidpoint of a detected range: a decision zone, not a prediction.\nSupport\nStored bands below the current close, where buying pressure has historically stopped price.\nFACTS\nBands drawn\n2\nFurther bands hidden\n0\nMerged for display\n0\nSTORED RECORDS\nSupport\n85,622.90 – 86,652.80\n1H zone · 11 touches · older, faded\nPrice inside\n87,141.60 – 88,640.30\n1H zone · 24 touches\n\nOnly the nearest active zones are drawn. Price bounds and touch counts are the detector's own; nothing is invented, moved or re-labelled.",
+      "canvasCount": 7
+    },
+    {
+      "width": 1536,
+      "height": 864,
+      "function": "swings",
+      "scrollWidth": 1536,
+      "status": "Swing Highs / Lows: 57 stored confirmed swing(s) · 57 drawn in the loaded window.",
+      "panel": "Market Structure\nBULLISH\nLEGEND\nHH\nHigher high (stronger high)\nHL\nHigher low (stronger low)\nLH\nLower high (weaker high)\nLL\nLower low (weaker low)\nFACTS\nLast stored swing\nHH · 88,640.30\nCurrent bias\nBullish · higher highs and higher lows\nKey level (support)\nnone stored below price\nNext resistance\nnone stored above price\nSTORED RECORDS\nHH · 88,640.30\n2026-10-14 05:00 UTC\nreferenced by a stored zone or pattern\nHL · 88,368.10\n2026-10-13 22:00 UTC\nreferenced by a stored zone or pattern\nHH · 88,512.00\n2026-10-13 19:00 UTC\nreferenced by a stored zone or pattern\nHL · 88,312.10\n2026-10-13 16:00 UTC\nreferenced by a stored zone or pattern\nHH · 88,404.40\n2026-10-13 12:00 UTC\nreferenced by a stored zone or pattern\nHL · 88,215.30\n2026-10-13 10:00 UTC\nreferenced by a stored zone or pattern\n\nOnly confirmed swings are marked, at the candle that confirmed them. A swing counts as referenced when a stored zone or pattern is built on it — that is emphasis, not a strength score.",
+      "canvasCount": 7
+    },
+    {
+      "width": 1536,
+      "height": 864,
+      "function": "patterns",
+      "scrollWidth": 1536,
+      "status": "Chart Patterns: 4 stored pattern state(s) · 1 drawn.",
+      "panel": "Chart Patterns\nINVALIDATED\nDouble top\nINVALIDATED\nFACTS\nState\ninvalidated\nKnown at\n2026-09-29 04:00 UTC\nNeckline\n82,461.00\nInvalidation level\n84,484.40\nDetected points\n3\nDETECTED GEOMETRY\nMatching extremes differ by\n0.30%\nPattern depth\n2.15%\nSpan\n68 candles\nKEY LEVELS\nNeckline\n82,461.00\nSTORED RECORDS\nDouble top\nformed\nearlier state · known 2026-09-28 23:00 UTC\nDouble bottom\nconfirmed\ncurrent state · known 2026-09-28 18:00 UTC\nDouble bottom\nformed\nearlier state · known 2026-09-27 10:00 UTC\n\nThe shape drawn is the detector's own geometry. The detector stores geometry, not a confidence score, so no confidence percentage is shown.",
+      "canvasCount": 7
+    },
+    {
+      "width": 1536,
+      "height": 864,
+      "function": "breakouts",
+      "scrollWidth": 1536,
+      "status": "Breakouts / Retests: 2 breakout(s) · 0 failed · 0 sweep(s) · 4 retest(s) · 1 Breakout: Completed · 2 Retest: Held · 3 Continuation: In Progress.",
+      "panel": "Breakout Logic\nBULLISH SEQUENCE\nREFERENCE BAND\nBroken resistance band\n84,229.90\n1\nBreakout\nPrice closed through the stored resistance band.\nCompleted\n2\nRetest\nPrice came back to the band and the retest held.\nHeld\n3\nContinuation\nNothing recorded yet — the move on from the retest is still being watched.\nIn Progress\nKEY IDEA\n\nThe broken band is now support. The move on from the retest is what is being watched.\n\nFrame all three steps\n\nNo step is marked complete without a stored record.",
+      "canvasCount": 7
+    },
+    {
+      "width": 1536,
+      "height": 864,
+      "function": "trade_plan",
+      "scrollWidth": 1536,
+      "status": "Trade Plan: No actionable plan right now — BRAIN has not built one from a qualified setup.",
+      "panel": "Trade Plan\n\nNo actionable plan right now: the engine has not built one from a qualified setup.",
+      "canvasCount": 7
+    },
+    {
+      "width": 1536,
+      "height": 864,
+      "accessibility": {
+        "passes": 24,
+        "incomplete": [
+          {
+            "id": "aria-prohibited-attr",
+            "nodes": 6
+          },
+          {
+            "id": "color-contrast",
+            "nodes": 16
+          }
+        ],
+        "violations": [
+          {
+            "id": "color-contrast",
+            "impact": "serious",
+            "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+            "help": "Elements must meet minimum color contrast ratio thresholds",
+            "nodes": [
+              {
+                "target": [
+                  ".live-badge"
+                ],
+                "html": "<span class=\"live-badge\" data-status=\"UNAVAILABLE\">UNAVAILABLE</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.46 (foreground color: #e0565b, background color: #342e49, font size: 8.3pt (11px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".commandbar-asof"
+                ],
+                "html": "<div class=\"commandbar-asof\">Analysed as of 2026-10-14 08:00 UTC · stored closed candles only</div>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.62 (foreground color: #65708e, background color: #0f1729, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".cfp-note"
+                ],
+                "html": "<p class=\"cfp-note\">No actionable plan right now: the engine has not built one from a qualified setup.</p>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".setup-row[data-tone=\"green\"] > .setup-row-body > .setup-row-label"
+                ],
+                "html": "<span class=\"setup-row-label\">Market bias</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".setup-row[data-tone=\"neutral\"]:nth-child(2) > .setup-row-body > .setup-row-label"
+                ],
+                "html": "<span class=\"setup-row-label\">Setup status</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".setup-row[data-tone=\"amber\"] > .setup-row-body > .setup-row-label"
+                ],
+                "html": "<span class=\"setup-row-label\">Confirmation</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".setup-row[data-tone=\"neutral\"]:nth-child(4) > .setup-row-body > .setup-row-label"
+                ],
+                "html": "<span class=\"setup-row-label\">Execution</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  "button[aria-label=\"Active setups: 0\"] > .stat-body > .stat-label"
+                ],
+                "html": "<span class=\"stat-label\">Active setups</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  "button[aria-label=\"Qualified plans: 0\"] > .stat-body > .stat-label"
+                ],
+                "html": "<span class=\"stat-label\">Qualified plans</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  "button[aria-label=\"Settled paper trades: 0\"] > .stat-body > .stat-label"
+                ],
+                "html": "<span class=\"stat-label\">Settled paper trades</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".stat-card.stat-card-link.summary-card:nth-child(4) > .stat-body > .stat-label"
+                ],
+                "html": "<span class=\"stat-label\">Runner health</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              }
+            ]
+          }
+        ]
+      },
+      "pageErrors": [
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix"
+      ],
+      "httpErrors": [],
+      "externalRequestsBlocked": []
+    },
+    {
+      "width": 1440,
+      "height": 900,
+      "function": "support_resistance",
+      "scrollWidth": 1440,
+      "status": "Support / Resistance: 2 band(s) shown nearest price first · 0 further band(s) hidden · 0 merged for display.",
+      "panel": "Support & Resistance\nLEGEND\nResistance\nStored bands above the current close, where selling pressure has historically stopped price.\nRange mid\nMidpoint of a detected range: a decision zone, not a prediction.\nSupport\nStored bands below the current close, where buying pressure has historically stopped price.\nFACTS\nBands drawn\n2\nFurther bands hidden\n0\nMerged for display\n0\nSTORED RECORDS\nSupport\n85,622.90 – 86,652.80\n1H zone · 11 touches · older, faded\nPrice inside\n87,141.60 – 88,640.30\n1H zone · 24 touches\n\nOnly the nearest active zones are drawn. Price bounds and touch counts are the detector's own; nothing is invented, moved or re-labelled.",
+      "canvasCount": 7
+    },
+    {
+      "width": 1440,
+      "height": 900,
+      "function": "swings",
+      "scrollWidth": 1440,
+      "status": "Swing Highs / Lows: 57 stored confirmed swing(s) · 57 drawn in the loaded window.",
+      "panel": "Market Structure\nBULLISH\nLEGEND\nHH\nHigher high (stronger high)\nHL\nHigher low (stronger low)\nLH\nLower high (weaker high)\nLL\nLower low (weaker low)\nFACTS\nLast stored swing\nHH · 88,640.30\nCurrent bias\nBullish · higher highs and higher lows\nKey level (support)\nnone stored below price\nNext resistance\nnone stored above price\nSTORED RECORDS\nHH · 88,640.30\n2026-10-14 05:00 UTC\nreferenced by a stored zone or pattern\nHL · 88,368.10\n2026-10-13 22:00 UTC\nreferenced by a stored zone or pattern\nHH · 88,512.00\n2026-10-13 19:00 UTC\nreferenced by a stored zone or pattern\nHL · 88,312.10\n2026-10-13 16:00 UTC\nreferenced by a stored zone or pattern\nHH · 88,404.40\n2026-10-13 12:00 UTC\nreferenced by a stored zone or pattern\nHL · 88,215.30\n2026-10-13 10:00 UTC\nreferenced by a stored zone or pattern\n\nOnly confirmed swings are marked, at the candle that confirmed them. A swing counts as referenced when a stored zone or pattern is built on it — that is emphasis, not a strength score.",
+      "canvasCount": 7
+    },
+    {
+      "width": 1440,
+      "height": 900,
+      "function": "patterns",
+      "scrollWidth": 1440,
+      "status": "Chart Patterns: 4 stored pattern state(s) · 1 drawn.",
+      "panel": "Chart Patterns\nINVALIDATED\nDouble top\nINVALIDATED\nFACTS\nState\ninvalidated\nKnown at\n2026-09-29 04:00 UTC\nNeckline\n82,461.00\nInvalidation level\n84,484.40\nDetected points\n3\nDETECTED GEOMETRY\nMatching extremes differ by\n0.30%\nPattern depth\n2.15%\nSpan\n68 candles\nKEY LEVELS\nNeckline\n82,461.00\nSTORED RECORDS\nDouble top\nformed\nearlier state · known 2026-09-28 23:00 UTC\nDouble bottom\nconfirmed\ncurrent state · known 2026-09-28 18:00 UTC\nDouble bottom\nformed\nearlier state · known 2026-09-27 10:00 UTC\n\nThe shape drawn is the detector's own geometry. The detector stores geometry, not a confidence score, so no confidence percentage is shown.",
+      "canvasCount": 7
+    },
+    {
+      "width": 1440,
+      "height": 900,
+      "function": "breakouts",
+      "scrollWidth": 1440,
+      "status": "Breakouts / Retests: 2 breakout(s) · 0 failed · 0 sweep(s) · 4 retest(s) · 1 Breakout: Completed · 2 Retest: Held · 3 Continuation: In Progress.",
+      "panel": "Breakout Logic\nBULLISH SEQUENCE\nREFERENCE BAND\nBroken resistance band\n84,229.90\n1\nBreakout\nPrice closed through the stored resistance band.\nCompleted\n2\nRetest\nPrice came back to the band and the retest held.\nHeld\n3\nContinuation\nNothing recorded yet — the move on from the retest is still being watched.\nIn Progress\nKEY IDEA\n\nThe broken band is now support. The move on from the retest is what is being watched.\n\nFrame all three steps\n\nNo step is marked complete without a stored record.",
+      "canvasCount": 7
+    },
+    {
+      "width": 1440,
+      "height": 900,
+      "function": "trade_plan",
+      "scrollWidth": 1440,
+      "status": "Trade Plan: No actionable plan right now — BRAIN has not built one from a qualified setup.",
+      "panel": "Trade Plan\n\nNo actionable plan right now: the engine has not built one from a qualified setup.",
+      "canvasCount": 7
+    },
+    {
+      "width": 1440,
+      "height": 900,
+      "accessibility": {
+        "passes": 24,
+        "incomplete": [
+          {
+            "id": "aria-prohibited-attr",
+            "nodes": 6
+          },
+          {
+            "id": "color-contrast",
+            "nodes": 16
+          }
+        ],
+        "violations": [
+          {
+            "id": "color-contrast",
+            "impact": "serious",
+            "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+            "help": "Elements must meet minimum color contrast ratio thresholds",
+            "nodes": [
+              {
+                "target": [
+                  ".live-badge"
+                ],
+                "html": "<span class=\"live-badge\" data-status=\"UNAVAILABLE\">UNAVAILABLE</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.46 (foreground color: #e0565b, background color: #342e49, font size: 8.3pt (11px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".commandbar-asof"
+                ],
+                "html": "<div class=\"commandbar-asof\">Analysed as of 2026-10-14 08:00 UTC · stored closed candles only</div>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.62 (foreground color: #65708e, background color: #0f1729, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".cfp-note"
+                ],
+                "html": "<p class=\"cfp-note\">No actionable plan right now: the engine has not built one from a qualified setup.</p>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".setup-row[data-tone=\"green\"] > .setup-row-body > .setup-row-label"
+                ],
+                "html": "<span class=\"setup-row-label\">Market bias</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".setup-row[data-tone=\"neutral\"]:nth-child(2) > .setup-row-body > .setup-row-label"
+                ],
+                "html": "<span class=\"setup-row-label\">Setup status</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".setup-row[data-tone=\"amber\"] > .setup-row-body > .setup-row-label"
+                ],
+                "html": "<span class=\"setup-row-label\">Confirmation</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".setup-row[data-tone=\"neutral\"]:nth-child(4) > .setup-row-body > .setup-row-label"
+                ],
+                "html": "<span class=\"setup-row-label\">Execution</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  "button[aria-label=\"Active setups: 0\"] > .stat-body > .stat-label"
+                ],
+                "html": "<span class=\"stat-label\">Active setups</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  "button[aria-label=\"Qualified plans: 0\"] > .stat-body > .stat-label"
+                ],
+                "html": "<span class=\"stat-label\">Qualified plans</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  "button[aria-label=\"Settled paper trades: 0\"] > .stat-body > .stat-label"
+                ],
+                "html": "<span class=\"stat-label\">Settled paper trades</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".stat-card.stat-card-link.summary-card:nth-child(4) > .stat-body > .stat-label"
+                ],
+                "html": "<span class=\"stat-label\">Runner health</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              }
+            ]
+          }
+        ]
+      },
+      "pageErrors": [
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix"
+      ],
+      "httpErrors": [],
+      "externalRequestsBlocked": []
+    },
+    {
+      "width": 1920,
+      "height": 1080,
+      "function": "support_resistance",
+      "scrollWidth": 1920,
+      "status": "Support / Resistance: 2 band(s) shown nearest price first · 0 further band(s) hidden · 0 merged for display.",
+      "panel": "Support & Resistance\nLEGEND\nResistance\nStored bands above the current close, where selling pressure has historically stopped price.\nRange mid\nMidpoint of a detected range: a decision zone, not a prediction.\nSupport\nStored bands below the current close, where buying pressure has historically stopped price.\nFACTS\nBands drawn\n2\nFurther bands hidden\n0\nMerged for display\n0\nSTORED RECORDS\nSupport\n85,622.90 – 86,652.80\n1H zone · 11 touches · older, faded\nPrice inside\n87,141.60 – 88,640.30\n1H zone · 24 touches\n\nOnly the nearest active zones are drawn. Price bounds and touch counts are the detector's own; nothing is invented, moved or re-labelled.",
+      "canvasCount": 7
+    },
+    {
+      "width": 1920,
+      "height": 1080,
+      "function": "swings",
+      "scrollWidth": 1920,
+      "status": "Swing Highs / Lows: 57 stored confirmed swing(s) · 57 drawn in the loaded window.",
+      "panel": "Market Structure\nBULLISH\nLEGEND\nHH\nHigher high (stronger high)\nHL\nHigher low (stronger low)\nLH\nLower high (weaker high)\nLL\nLower low (weaker low)\nFACTS\nLast stored swing\nHH · 88,640.30\nCurrent bias\nBullish · higher highs and higher lows\nKey level (support)\nnone stored below price\nNext resistance\nnone stored above price\nSTORED RECORDS\nHH · 88,640.30\n2026-10-14 05:00 UTC\nreferenced by a stored zone or pattern\nHL · 88,368.10\n2026-10-13 22:00 UTC\nreferenced by a stored zone or pattern\nHH · 88,512.00\n2026-10-13 19:00 UTC\nreferenced by a stored zone or pattern\nHL · 88,312.10\n2026-10-13 16:00 UTC\nreferenced by a stored zone or pattern\nHH · 88,404.40\n2026-10-13 12:00 UTC\nreferenced by a stored zone or pattern\nHL · 88,215.30\n2026-10-13 10:00 UTC\nreferenced by a stored zone or pattern\n\nOnly confirmed swings are marked, at the candle that confirmed them. A swing counts as referenced when a stored zone or pattern is built on it — that is emphasis, not a strength score.",
+      "canvasCount": 7
+    },
+    {
+      "width": 1920,
+      "height": 1080,
+      "function": "patterns",
+      "scrollWidth": 1920,
+      "status": "Chart Patterns: 4 stored pattern state(s) · 1 drawn.",
+      "panel": "Chart Patterns\nINVALIDATED\nDouble top\nINVALIDATED\nFACTS\nState\ninvalidated\nKnown at\n2026-09-29 04:00 UTC\nNeckline\n82,461.00\nInvalidation level\n84,484.40\nDetected points\n3\nDETECTED GEOMETRY\nMatching extremes differ by\n0.30%\nPattern depth\n2.15%\nSpan\n68 candles\nKEY LEVELS\nNeckline\n82,461.00\nSTORED RECORDS\nDouble top\nformed\nearlier state · known 2026-09-28 23:00 UTC\nDouble bottom\nconfirmed\ncurrent state · known 2026-09-28 18:00 UTC\nDouble bottom\nformed\nearlier state · known 2026-09-27 10:00 UTC\n\nThe shape drawn is the detector's own geometry. The detector stores geometry, not a confidence score, so no confidence percentage is shown.",
+      "canvasCount": 7
+    },
+    {
+      "width": 1920,
+      "height": 1080,
+      "function": "breakouts",
+      "scrollWidth": 1920,
+      "status": "Breakouts / Retests: 2 breakout(s) · 0 failed · 0 sweep(s) · 4 retest(s) · 1 Breakout: Completed · 2 Retest: Held · 3 Continuation: In Progress.",
+      "panel": "Breakout Logic\nBULLISH SEQUENCE\nREFERENCE BAND\nBroken resistance band\n84,229.90\n1\nBreakout\nPrice closed through the stored resistance band.\nCompleted\n2\nRetest\nPrice came back to the band and the retest held.\nHeld\n3\nContinuation\nNothing recorded yet — the move on from the retest is still being watched.\nIn Progress\nKEY IDEA\n\nThe broken band is now support. The move on from the retest is what is being watched.\n\nFrame all three steps\n\nNo step is marked complete without a stored record.",
+      "canvasCount": 7
+    },
+    {
+      "width": 1920,
+      "height": 1080,
+      "function": "trade_plan",
+      "scrollWidth": 1920,
+      "status": "Trade Plan: No actionable plan right now — BRAIN has not built one from a qualified setup.",
+      "panel": "Trade Plan\n\nNo actionable plan right now: the engine has not built one from a qualified setup.",
+      "canvasCount": 7
+    },
+    {
+      "width": 1920,
+      "height": 1080,
+      "accessibility": {
+        "passes": 24,
+        "incomplete": [
+          {
+            "id": "aria-prohibited-attr",
+            "nodes": 6
+          },
+          {
+            "id": "color-contrast",
+            "nodes": 16
+          }
+        ],
+        "violations": [
+          {
+            "id": "color-contrast",
+            "impact": "serious",
+            "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+            "help": "Elements must meet minimum color contrast ratio thresholds",
+            "nodes": [
+              {
+                "target": [
+                  ".live-badge"
+                ],
+                "html": "<span class=\"live-badge\" data-status=\"UNAVAILABLE\">UNAVAILABLE</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.46 (foreground color: #e0565b, background color: #342e49, font size: 8.3pt (11px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".commandbar-asof"
+                ],
+                "html": "<div class=\"commandbar-asof\">Analysed as of 2026-10-14 08:00 UTC · stored closed candles only</div>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.62 (foreground color: #65708e, background color: #0f1729, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".cfp-note"
+                ],
+                "html": "<p class=\"cfp-note\">No actionable plan right now: the engine has not built one from a qualified setup.</p>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".setup-row[data-tone=\"green\"] > .setup-row-body > .setup-row-label"
+                ],
+                "html": "<span class=\"setup-row-label\">Market bias</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".setup-row[data-tone=\"neutral\"]:nth-child(2) > .setup-row-body > .setup-row-label"
+                ],
+                "html": "<span class=\"setup-row-label\">Setup status</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".setup-row[data-tone=\"amber\"] > .setup-row-body > .setup-row-label"
+                ],
+                "html": "<span class=\"setup-row-label\">Confirmation</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".setup-row[data-tone=\"neutral\"]:nth-child(4) > .setup-row-body > .setup-row-label"
+                ],
+                "html": "<span class=\"setup-row-label\">Execution</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  "button[aria-label=\"Active setups: 0\"] > .stat-body > .stat-label"
+                ],
+                "html": "<span class=\"stat-label\">Active setups</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  "button[aria-label=\"Qualified plans: 0\"] > .stat-body > .stat-label"
+                ],
+                "html": "<span class=\"stat-label\">Qualified plans</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  "button[aria-label=\"Settled paper trades: 0\"] > .stat-body > .stat-label"
+                ],
+                "html": "<span class=\"stat-label\">Settled paper trades</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".stat-card.stat-card-link.summary-card:nth-child(4) > .stat-body > .stat-label"
+                ],
+                "html": "<span class=\"stat-label\">Runner health</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              }
+            ]
+          }
+        ]
+      },
+      "pageErrors": [
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix"
+      ],
+      "httpErrors": [],
+      "externalRequestsBlocked": []
+    },
+    {
+      "width": 390,
+      "height": 844,
+      "function": "support_resistance",
+      "scrollWidth": 390,
+      "status": "Support / Resistance: 2 band(s) shown nearest price first · 0 further band(s) hidden · 0 merged for display.",
+      "panel": "Support & Resistance\nLEGEND\nResistance\nStored bands above the current close, where selling pressure has historically stopped price.\nRange mid\nMidpoint of a detected range: a decision zone, not a prediction.\nSupport\nStored bands below the current close, where buying pressure has historically stopped price.\nFACTS\nBands drawn\n2\nFurther bands hidden\n0\nMerged for display\n0\nSTORED RECORDS\nSupport\n85,622.90 – 86,652.80\n1H zone · 11 touches · older, faded\nPrice inside\n87,141.60 – 88,640.30\n1H zone · 24 touches\n\nOnly the nearest active zones are drawn. Price bounds and touch counts are the detector's own; nothing is invented, moved or re-labelled.",
+      "canvasCount": 7
+    },
+    {
+      "width": 390,
+      "height": 844,
+      "function": "swings",
+      "scrollWidth": 390,
+      "status": "Swing Highs / Lows: 57 stored confirmed swing(s) · 57 drawn in the loaded window.",
+      "panel": "Market Structure\nBULLISH\nLEGEND\nHH\nHigher high (stronger high)\nHL\nHigher low (stronger low)\nLH\nLower high (weaker high)\nLL\nLower low (weaker low)\nFACTS\nLast stored swing\nHH · 88,640.30\nCurrent bias\nBullish · higher highs and higher lows\nKey level (support)\nnone stored below price\nNext resistance\nnone stored above price\nSTORED RECORDS\nHH · 88,640.30\n2026-10-14 05:00 UTC\nreferenced by a stored zone or pattern\nHL · 88,368.10\n2026-10-13 22:00 UTC\nreferenced by a stored zone or pattern\nHH · 88,512.00\n2026-10-13 19:00 UTC\nreferenced by a stored zone or pattern\nHL · 88,312.10\n2026-10-13 16:00 UTC\nreferenced by a stored zone or pattern\nHH · 88,404.40\n2026-10-13 12:00 UTC\nreferenced by a stored zone or pattern\nHL · 88,215.30\n2026-10-13 10:00 UTC\nreferenced by a stored zone or pattern\n\nOnly confirmed swings are marked, at the candle that confirmed them. A swing counts as referenced when a stored zone or pattern is built on it — that is emphasis, not a strength score.",
+      "canvasCount": 7
+    },
+    {
+      "width": 390,
+      "height": 844,
+      "function": "patterns",
+      "scrollWidth": 390,
+      "status": "Chart Patterns: 4 stored pattern state(s) · 1 drawn.",
+      "panel": "Chart Patterns\nINVALIDATED\nDouble top\nINVALIDATED\nFACTS\nState\ninvalidated\nKnown at\n2026-09-29 04:00 UTC\nNeckline\n82,461.00\nInvalidation level\n84,484.40\nDetected points\n3\nDETECTED GEOMETRY\nMatching extremes differ by\n0.30%\nPattern depth\n2.15%\nSpan\n68 candles\nKEY LEVELS\nNeckline\n82,461.00\nSTORED RECORDS\nDouble top\nformed\nearlier state · known 2026-09-28 23:00 UTC\nDouble bottom\nconfirmed\ncurrent state · known 2026-09-28 18:00 UTC\nDouble bottom\nformed\nearlier state · known 2026-09-27 10:00 UTC\n\nThe shape drawn is the detector's own geometry. The detector stores geometry, not a confidence score, so no confidence percentage is shown.",
+      "canvasCount": 7
+    },
+    {
+      "width": 390,
+      "height": 844,
+      "function": "breakouts",
+      "scrollWidth": 390,
+      "status": "Breakouts / Retests: 2 breakout(s) · 0 failed · 0 sweep(s) · 4 retest(s) · 1 Breakout: Completed · 2 Retest: Held · 3 Continuation: In Progress.",
+      "panel": "Breakout Logic\nBULLISH SEQUENCE\nREFERENCE BAND\nBroken resistance band\n84,229.90\n1\nBreakout\nPrice closed through the stored resistance band.\nCompleted\n2\nRetest\nPrice came back to the band and the retest held.\nHeld\n3\nContinuation\nNothing recorded yet — the move on from the retest is still being watched.\nIn Progress\nKEY IDEA\n\nThe broken band is now support. The move on from the retest is what is being watched.\n\nFrame all three steps\n\nNo step is marked complete without a stored record.",
+      "canvasCount": 7
+    },
+    {
+      "width": 390,
+      "height": 844,
+      "function": "trade_plan",
+      "scrollWidth": 390,
+      "status": "Trade Plan: No actionable plan right now — BRAIN has not built one from a qualified setup.",
+      "panel": "Trade Plan\n\nNo actionable plan right now: the engine has not built one from a qualified setup.",
+      "canvasCount": 7
+    },
+    {
+      "width": 390,
+      "height": 844,
+      "accessibility": {
+        "passes": 24,
+        "incomplete": [
+          {
+            "id": "aria-prohibited-attr",
+            "nodes": 4
+          },
+          {
+            "id": "color-contrast",
+            "nodes": 16
+          }
+        ],
+        "violations": [
+          {
+            "id": "color-contrast",
+            "impact": "serious",
+            "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+            "help": "Elements must meet minimum color contrast ratio thresholds",
+            "nodes": [
+              {
+                "target": [
+                  ".live-badge"
+                ],
+                "html": "<span class=\"live-badge\" data-status=\"UNAVAILABLE\">UNAVAILABLE</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.46 (foreground color: #e0565b, background color: #342e49, font size: 8.3pt (11px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".commandbar-asof"
+                ],
+                "html": "<div class=\"commandbar-asof\">Analysed as of 2026-10-14 08:00 UTC · stored closed candles only</div>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.62 (foreground color: #65708e, background color: #0f1729, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".cfp-note"
+                ],
+                "html": "<p class=\"cfp-note\">No actionable plan right now: the engine has not built one from a qualified setup.</p>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".setup-row[data-tone=\"green\"] > .setup-row-body > .setup-row-label"
+                ],
+                "html": "<span class=\"setup-row-label\">Market bias</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".setup-row[data-tone=\"neutral\"]:nth-child(2) > .setup-row-body > .setup-row-label"
+                ],
+                "html": "<span class=\"setup-row-label\">Setup status</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".setup-row[data-tone=\"amber\"] > .setup-row-body > .setup-row-label"
+                ],
+                "html": "<span class=\"setup-row-label\">Confirmation</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".setup-row[data-tone=\"neutral\"]:nth-child(4) > .setup-row-body > .setup-row-label"
+                ],
+                "html": "<span class=\"setup-row-label\">Execution</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  "button[aria-label=\"Active setups: 0\"] > .stat-body > .stat-label"
+                ],
+                "html": "<span class=\"stat-label\">Active setups</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  "button[aria-label=\"Qualified plans: 0\"] > .stat-body > .stat-label"
+                ],
+                "html": "<span class=\"stat-label\">Qualified plans</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  "button[aria-label=\"Settled paper trades: 0\"] > .stat-body > .stat-label"
+                ],
+                "html": "<span class=\"stat-label\">Settled paper trades</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              },
+              {
+                "target": [
+                  ".stat-card.stat-card-link.summary-card:nth-child(4) > .stat-body > .stat-label"
+                ],
+                "html": "<span class=\"stat-label\">Runner health</span>",
+                "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.12 (foreground color: #7480a0, background color: #142039, font size: 7.5pt (10px), font weight: bold). Expected contrast ratio of 4.5:1"
+              }
+            ]
+          }
+        ]
+      },
+      "pageErrors": [
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix",
+        "Invalid language tag: en-US@posix"
+      ],
+      "httpErrors": [],
+      "externalRequestsBlocked": []
+    }
+  ]
+}

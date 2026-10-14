@@ -1,0 +1,116 @@
+# BRAIN-AUDIT-0005 / 0006 repair — evidence log
+# captured: 2026-10-14T09:55:39Z
+# branch:  arena/0d6ba3f7-btc-trading-assistant
+# base:    87efd45f63c2da8768dc671d68525b8647ca3733 (merge of origin/arena/0090b00d = PR #69 head)
+
+##################################################################
+# 1. Reproduction, repaired code, against the stored synthetic demo database
+#    (same DB the live preview serves: /tmp/brain-audit-sr.sqlite3, seeded by
+#     alembic upgrade head + scripts/seed_sr_demo.py — SYNTHETIC demonstration data)
+COMMAND: TRADING_ASSISTANT_DATABASE_URL=sqlite:////tmp/brain-audit-sr.sqlite3 PYTHONPATH=src .venv/bin/python docs/brain-audit/probes/zone-linkage-evidence.py
+
+
+######## 4h as_of=2026-10-14T00:00:00+00:00 ########
+current stored zones: 5
+current zone bounds: [('87180.3', '88340.1'), ('85958.6', '87052.5'), ('88363.8', '89574.0'), ('90227.9', '91022.4'), ('85158.0', '85158.0')]
+A. projected events consumed by the linkage:
+   breakout         projected= 15 carrying reference_type= 15
+   failed_breakout  projected=  3 carrying reference_type=  3
+   sweep            projected=  0 carrying reference_type=  0
+   retest           projected= 30 carrying reference_type= 30
+B. raw detector objects by reference type:
+   breakout         n= 15 {'swing_high': 8, 'zone': 5, 'range_high': 2}
+   failed_breakout  n=  3 {'zone': 1, 'swing_high': 2}
+   sweep            n=  0 {}
+   retest           n= 30 {'swing_high': 16, 'zone': 10, 'range_high': 4}
+C. presented bands and their linkage:
+   band 90227.9-91022.4 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('90227.9', '91022.4')]
+   band 88363.8-89574.0 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('88363.8', '89574.0')]
+   band 87180.3-88340.1 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('87180.3', '88340.1')]
+   band 85958.6-87052.5 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('85958.6', '87052.5')]
+   band 85158.0-85158.0 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('85158.0', '85158.0')]
+   -> bands with linked events: 0 of 5
+
+######## 4h as_of=2026-08-26T08:00:00+00:00 ########
+current stored zones: 3
+current zone bounds: [('87570.2', '87677.9'), ('85958.6', '86543.0'), ('85158.0', '85158.0')]
+A. projected events consumed by the linkage:
+   breakout         projected=  6 carrying reference_type=  6
+   failed_breakout  projected=  2 carrying reference_type=  2
+   sweep            projected=  0 carrying reference_type=  0
+   retest           projected=  8 carrying reference_type=  8
+B. raw detector objects by reference type:
+   breakout         n=  6 {'swing_high': 3, 'zone': 3}
+   failed_breakout  n=  2 {'zone': 1, 'swing_high': 1}
+   sweep            n=  0 {}
+   retest           n=  8 {'swing_high': 4, 'zone': 4}
+C. presented bands and their linkage:
+   band 87570.2-87677.9 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('87570.2', '87677.9')]
+   band 85958.6-86543.0 linked=True events=1 counts={'breakout': 1, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('85958.6', '86543.0')]
+   band 85158.0-85158.0 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('85158.0', '85158.0')]
+   -> bands with linked events: 1 of 3
+
+######## 1h as_of=2026-10-14T00:00:00+00:00 ########
+current stored zones: 1
+current zone bounds: [('87062.8', '88142.2')]
+A. projected events consumed by the linkage:
+   breakout         projected=  0 carrying reference_type=  0
+   failed_breakout  projected=  0 carrying reference_type=  0
+   sweep            projected=  0 carrying reference_type=  0
+   retest           projected=  0 carrying reference_type=  0
+B. raw detector objects by reference type:
+   breakout         n=  0 {}
+   failed_breakout  n=  0 {}
+   sweep            n=  0 {}
+   retest           n=  0 {}
+C. presented bands and their linkage:
+   band 87062.8-88142.2 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('87062.8', '88142.2')]
+   -> bands with linked events: 0 of 1
+
+##################################################################
+# 2. Regression suites
+COMMAND: PYTHONPATH=src .venv/bin/python -m pytest tests/test_zone_evidence.py -q
+...........................                                              [100%]
+27 passed in 0.78s
+
+COMMAND: PYTHONPATH=src .venv/bin/python -m pytest tests/test_zone_event_links_stored.py -q
+.....                                                                    [100%]
+5 passed in 2.35s
+
+COMMAND: PYTHONPATH=src .venv/bin/python -m pytest tests/test_decision_output_regression.py -q
+..                                                                       [100%]
+2 passed in 20.88s
+
+COMMAND: npm test
+# tests 486
+# pass 486
+# fail 0
+
+COMMAND: .venv/bin/ruff check --isolated --select E4,E7,E9,F src tests   (audit baseline scope)
+Found 15 errors.
+[*] 11 fixable with `--fix` (2 unsafe fixes available with `--fix --unsafe-fixes`).
+
+COMMAND: PYTHONPATH=src .venv/bin/python -m pytest -q   (full Python suite)
+=========================== short test summary info ============================
+XFAIL tests/test_decision_invariance.py::test_a_shallow_stored_start_does_not_change_live_setups_at_a_later_boundary - Known defect: a shorter stored history misses live setups whose reference level formed before the stored start. The 131-close depth gate does not cover reference age, and the reference-provenance gate bounds what such a record may *plan*, not what it can see — so under-reporting near the stored start persists. See docs/decision-invariance.md and docs/reference-provenance.md. Remove this marker when the defect is fixed.
+1271 passed, 1 xfailed, 1 warning in 209.41s (0:03:29)
+
+##################################################################
+# 3. Composition of the repaired linkage as SERVED OVER HTTP by the repaired app
+#    (preview server on 0.0.0.0:8123, same stored synthetic demo database)
+COMMAND: curl -sS -o /tmp/dash-repaired.json 'http://127.0.0.1:8123/api/dashboard?symbol=BTC/USDT&timeframe=4h'
+  served: 200, 205556 bytes
+
+band bounds            exact links        contained references
+     90227.9 – 91022.4     0 {}                      0 {}
+     88363.8 – 89574.0     0 {}                      3 {'breakout': 1, 'retest': 2}
+     87180.3 – 88340.1     0 {}                      3 {'breakout': 1, 'retest': 2}
+     85958.6 – 87052.5     0 {}                     10 {'breakout': 3, 'failed_breakout': 1, 'retest': 6}
+     85158.0 – 85158.0     0 {}                      0 {}
+
+unique contained event ids: 16 Counter({'retest': 10, 'breakout': 5, 'failed_breakout': 1})
+duplicates across bands: 0
+breakouts: total=15 carrying reference_type=15 zone-referenced=5
+failed_breakouts: total=3 carrying reference_type=3 zone-referenced=1
+retests: total=30 carrying reference_type=30 zone-referenced=10
+zone-referenced events reaching the linkage: 16 of 16 | zone-referenced events missed: []

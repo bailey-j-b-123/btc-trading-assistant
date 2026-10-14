@@ -1,0 +1,57 @@
+
+######## 4h as_of=2026-10-14T00:00:00+00:00 ########
+current stored zones: 5
+current zone bounds: [('87180.3', '88340.1'), ('85958.6', '87052.5'), ('88363.8', '89574.0'), ('90227.9', '91022.4'), ('85158.0', '85158.0')]
+A. projected events consumed by the linkage:
+   breakout         projected= 15 carrying reference_type= 15
+   failed_breakout  projected=  3 carrying reference_type=  3
+   sweep            projected=  0 carrying reference_type=  0
+   retest           projected= 30 carrying reference_type=  0
+B. raw detector objects by reference type:
+   breakout         n= 15 {'swing_high': 8, 'zone': 5, 'range_high': 2}
+   failed_breakout  n=  3 {'zone': 1, 'swing_high': 2}
+   sweep            n=  0 {}
+   retest           n= 30 {'swing_high': 16, 'zone': 10, 'range_high': 4}
+C. presented bands and their linkage:
+   band 90227.9-91022.4 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('90227.9', '91022.4')]
+   band 88363.8-89574.0 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('88363.8', '89574.0')]
+   band 87180.3-88340.1 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('87180.3', '88340.1')]
+   band 85958.6-87052.5 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('85958.6', '87052.5')]
+   band 85158.0-85158.0 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('85158.0', '85158.0')]
+   -> bands with linked events: 0 of 5
+
+######## 4h as_of=2026-08-26T08:00:00+00:00 ########
+current stored zones: 3
+current zone bounds: [('87570.2', '87677.9'), ('85958.6', '86543.0'), ('85158.0', '85158.0')]
+A. projected events consumed by the linkage:
+   breakout         projected=  6 carrying reference_type=  6
+   failed_breakout  projected=  2 carrying reference_type=  2
+   sweep            projected=  0 carrying reference_type=  0
+   retest           projected=  8 carrying reference_type=  0
+B. raw detector objects by reference type:
+   breakout         n=  6 {'swing_high': 3, 'zone': 3}
+   failed_breakout  n=  2 {'zone': 1, 'swing_high': 1}
+   sweep            n=  0 {}
+   retest           n=  8 {'swing_high': 4, 'zone': 4}
+C. presented bands and their linkage:
+   band 87570.2-87677.9 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('87570.2', '87677.9')]
+   band 85958.6-86543.0 linked=True events=1 counts={'breakout': 1, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('85958.6', '86543.0')]
+   band 85158.0-85158.0 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('85158.0', '85158.0')]
+   -> bands with linked events: 1 of 3
+
+######## 1h as_of=2026-10-14T00:00:00+00:00 ########
+current stored zones: 1
+current zone bounds: [('87062.8', '88142.2')]
+A. projected events consumed by the linkage:
+   breakout         projected=  0 carrying reference_type=  0
+   failed_breakout  projected=  0 carrying reference_type=  0
+   sweep            projected=  0 carrying reference_type=  0
+   retest           projected=  0 carrying reference_type=  0
+B. raw detector objects by reference type:
+   breakout         n=  0 {}
+   failed_breakout  n=  0 {}
+   sweep            n=  0 {}
+   retest           n=  0 {}
+C. presented bands and their linkage:
+   band 87062.8-88142.2 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('87062.8', '88142.2')]
+   -> bands with linked events: 0 of 1

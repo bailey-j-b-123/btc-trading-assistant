@@ -398,6 +398,83 @@ function zonePositionSentence(band, close) {
   return "Price position relative to this band is unknown.";
 }
 
+/** A finite number, or null when the value is absent or unparseable (never zero). */
+function numberOrNull(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+/**
+ * What stored events used this zone as their own reference level.
+ *
+ * Read-only facts from the stored records: which events, how many of each kind, and where price
+ * sat relative to the band when each one was recorded. It never claims a role change, a hold or a
+ * flip — those would need the events' own outcomes, which are stated elsewhere.
+ *
+ * Two classes stay separate: an exact match (the event's own recorded band IS this band) and a
+ * contained reference (a smaller, earlier recorded band inside this band's price area). The second
+ * is never reported as identity, and it stops the stricter identity rule from reading as an
+ * absolute "nothing happened here" when stored events really do sit inside the band.
+ */
+function containedCount(linkage) {
+  return Number.isFinite(linkage?.contained_count) ? linkage.contained_count : 0;
+}
+
+const EVENT_KIND_LABELS = [
+  ["breakout", "breakout", "breakouts"],
+  ["failed_breakout", "failed breakout", "failed breakouts"],
+  ["sweep", "sweep", "sweeps"],
+  ["retest", "retest", "retests"],
+];
+
+function eventKindParts(counts) {
+  return EVENT_KIND_LABELS
+    .map(([key, singular, plural]) => (counts?.[key] ? `${counts[key]} ${counts[key] === 1 ? singular : plural}` : null))
+    .filter(Boolean);
+}
+
+function linkedEventSentence(band) {
+  const linkage = band?.linked_events;
+  if (!linkage || typeof linkage !== "object") return "";
+  if (linkage.event_count === null || linkage.counts === null) return "";
+  const contained = containedCount(linkage);
+  if (linkage.linked !== true) {
+    if (contained > 0) {
+      const parts = eventKindParts(linkage.contained_counts);
+      const listed = parts.length ? parts.join(", ") : `${contained} stored event(s)`;
+      return ` No stored event's own recorded band is this exact zone; ${listed} hold a smaller, earlier reference inside this band's price area, each keeping its own bounds and instant. That is an observation of earlier bounds, not identity with this band.`;
+    }
+    return " No stored breakout, sweep or retest used this zone as its own reference level.";
+  }
+  const parts = eventKindParts(linkage.counts);
+  const exact = ` Used as the reference level of ${parts.join(", ")} on this timeframe; the recorded direction and state of each one are stated on that event, and no hold, flip or retest is claimed here.`;
+  if (contained > 0) {
+    return `${exact} ${contained} further stored event(s) hold a smaller, earlier reference inside this band's price area, with their own bounds and instants listed on those events.`;
+  }
+  return exact;
+}
+
+/** The linked-event row's value: the stored facts, or an explicit statement that there were none. */
+function linkedRows(band) {
+  const linkage = band?.linked_events;
+  if (!linkage || typeof linkage !== "object" || linkage.event_count === null || linkage.counts === null) {
+    return "not checked on this view";
+  }
+  const contained = containedCount(linkage);
+  if (linkage.linked !== true) {
+    return contained > 0 ? `${contained} inside it (different recorded bounds)` : "none recorded";
+  }
+  const counts = linkage.counts || {};
+  const parts = [
+    counts.breakout ? `${counts.breakout} breakout` : null,
+    counts.failed_breakout ? `${counts.failed_breakout} failed` : null,
+    counts.sweep ? `${counts.sweep} sweep` : null,
+    counts.retest ? `${counts.retest} retest` : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : `${linkage.event_count} stored event(s)`;
+}
+
 /** Explains the detector label when it disagrees with where the band actually sits. */
 function detectorLabelNote(band) {
   const raw = Array.isArray(band.raw_roles) ? band.raw_roles.find((role) => role && role !== "at_price") : null;
@@ -428,12 +505,24 @@ export function explainZoneBand(band, { close = band?.viewed_close ?? band?.late
   const bounds = `${displayRounded(band.band_low, 2).display} – ${displayRounded(band.band_high, 2).display}`;
   const swingCount = Array.isArray(band.source_swing_timestamps) ? band.source_swing_timestamps.length : 0;
   const age = Number.isFinite(band.age_candles) ? ` (${band.age_candles} candle${band.age_candles === 1 ? "" : "s"} ago)` : "";
-  const touches = band.isolated
-    ? `Only ${band.touch_count} swing touch: it has not yet been tested by a second swing.`
-    : `${band.touch_count} swing touches (${band.swing_high_count} highs, ${band.swing_low_count} lows).`;
+  // Distinct instants versus the swing evidences behind them. One candle can be both a swing high
+  // and a swing low of its own window, so the evidence count is never printed as a count of tests.
+  const evidences = band.touch_count === null || band.touch_count === undefined ? null : band.touch_count;
+  const distinct = numberOrNull(band.distinct_test_timestamps);
+  const tests = distinct === null ? evidences : distinct;
+  const shared = distinct !== null && evidences !== null ? Math.max(0, evidences - distinct) : 0;
+  const evidenceText = shared
+    ? `${evidences} swing evidences on ${tests} separate instants (${shared} candle${shared === 1 ? "" : "s"} gave both a swing high and a swing low)`
+    : `${evidences ?? tests} swing evidences on ${tests ?? "an unknown number of"} separate instants`;
+  const touches = tests === null
+    ? "The detector's stored test count is unavailable for this band."
+    : band.isolated
+      ? `Only ${tests} test${tests === 1 ? "" : "s"}: it has not yet been tested by a second swing. ${evidenceText}.`
+      : `${tests} test${tests === 1 ? "" : "s"} (${evidenceText}; ${band.swing_high_count} highs, ${band.swing_low_count} lows).`;
   const merged = band.merged_zone_count > 1
-    ? ` Merged from ${band.merged_zone_count} overlapping detector zones for display; touches are summed.`
+    ? ` Merged from ${band.merged_zone_count} overlapping detector zones for display; the test and evidence counts are the sum of those zones' own stored numbers.`
     : "";
+  const linked = linkedEventSentence(band);
   const faded = band.faded ? " Last tested long ago, so it is drawn faded." : "";
   const basisNote = band.position_changed
     ? ` Its position on the ${tfLabel || "source"} chart was ${band.source_position === "above_price" ? "above" : band.source_position === "below_price" ? "below" : "inside"} the ${tfLabel || "source"} close ${price(band.source_close)}; on this chart it is shown against the viewed close ${price(close)}. The source evidence is kept, and the display follows the viewed chart.`
@@ -450,7 +539,7 @@ export function explainZoneBand(band, { close = band?.viewed_close ?? band?.late
     what: `${kindWord} band ${bounds} on the ${tfLabel || "viewed"} chart. ${zonePositionSentence(band, close)}${basisNote}`,
     why: `Built by clustering ${swingCount} confirmed swing extreme${swingCount === 1 ? "" : "s"} whose prices sit within the detector's tolerance. The band runs from the lowest to the highest of those swings.`,
     when: `First seen ${utcText(band.first_seen)}. Last tested ${utcText(band.last_tested)}${age}. Source swings are drawn only from their confirmation time onward.`,
-    state: `${touches}${merged}${faded}`,
+    state: `${touches}${merged}${linked}${faded}`,
     influence: {
       used: false,
       unknown: true,
@@ -459,9 +548,23 @@ export function explainZoneBand(band, { close = band?.viewed_close ?? band?.late
     rows: [
       { label: "Bounds", value: bounds },
       { label: "Position", value: band.position === "price_inside" ? "price inside" : band.position === "above_price" ? "above price" : "below price" },
-      { label: "Touches", value: String(band.touch_count) },
+      { label: "Tests", value: tests === null ? "unknown" : String(tests) },
+      { label: "Swing evidences", value: evidences === null ? "unknown" : String(evidences) },
       { label: "Last tested", value: utcText(band.last_tested) },
       { label: "Source timeframe", value: tfLabel || "unknown" },
+      { label: "First seen", value: utcText(band.first_seen) },
+      {
+        label: "Distance from this close",
+        value: numberOrNull(band.viewed_distance) !== null
+          ? price(band.viewed_distance)
+          : numberOrNull(band.distance_from_close) !== null
+            ? price(band.distance_from_close)
+            : "unknown",
+      },
+      {
+        label: "Recorded events referencing this zone",
+        value: linkedRows(band),
+      },
     ],
     note: note || "Display only. Showing this band does not change any zone, setup, plan or paper observation.",
   });

@@ -97,6 +97,7 @@ const EVIDENCE = {
 
 const MARKET_STATE = {
   available: true,
+  timeframe: "1h",
   trend: { direction: "bullish", reason: "higher_highs_and_higher_lows" },
 };
 
@@ -125,19 +126,103 @@ test("the support/resistance panel lists the stored bands with their own bounds 
     merged: 2,
   });
   assert.equal(model.heading, "Support & Resistance");
-  assert.deepEqual(model.legend.map((row) => row.label), ["Resistance", "Range mid", "Support"]);
+  // The legend lists exactly what the screen draws: the three band tones (red above
+  // price, amber containing price, green below) and the dashed range boundaries. A
+  // "range midpoint" is drawn nowhere, so it is not claimed here.
+  assert.deepEqual(model.legend.map((row) => row.label), ["Resistance", "Price inside", "Support", "Range"]);
+  assert.deepEqual(model.legend.map((row) => row.tone), ["red", "amber", "green", "blue"]);
   assert.deepEqual(model.facts.map((row) => row.value), ["2", "4", "2"]);
   assert.equal(model.list[0].title, "Support");
   assert.equal(model.list[0].value, "61,900.00 – 62,000.00");
-  assert.match(model.list[0].meta, /1H zone · 3 touches · 2 merged/);
-  assert.equal(model.list[1].meta, "touches unknown", "an absent touch count is never shown as zero");
-  assert.match(model.note, /nothing is invented, moved or re-labelled/);
+  assert.match(model.list[0].meta, /1H zone · 3 tests · 2 merged/);
+  assert.equal(model.list[1].meta, "tests unknown", "an absent test count is never shown as zero");
+  assert.match(model.note, /never summed swing evidences/);
+});
+
+test("the panel separates distinct tests from summed swing evidences", () => {
+  // One candle that is both a swing high and a swing low of its own window gives two evidences
+  // on one instant: the row must not present 24 as if 24 separate tests had happened.
+  const model = functionPanelModel({
+    functionId: "support_resistance",
+    bands: [{ id: "b", band_low: "1", band_high: "2", display_role: "support", touch_count: 24, distinct_test_timestamps: 22 }],
+  });
+  assert.match(model.list[0].meta, /22 tests · 24 swing evidences/);
+  // With no distinct figure at all the evidence count stands alone, still labelled as such.
+  const single = functionPanelModel({
+    functionId: "support_resistance",
+    bands: [{ id: "b", band_low: "1", band_high: "2", display_role: "support", touch_count: 3 }],
+  });
+  assert.match(single.list[0].meta, /3 tests/);
+});
+
+test("a band referenced by stored events says exactly which events, and one that was not says that", () => {
+  const linked = functionPanelModel({
+    functionId: "support_resistance",
+    bands: [{
+      id: "b", band_low: "1", band_high: "2", display_role: "resistance", touch_count: 2,
+      linked_events: { linked: true, event_count: 3, counts: { breakout: 2, retest: 1, sweep: 0, failed_breakout: 0 } },
+    }],
+  });
+  assert.match(linked.list[0].meta, /referenced by 2 breakouts · 1 retest/);
+  const unlinked = functionPanelModel({
+    functionId: "support_resistance",
+    bands: [{
+      id: "b", band_low: "1", band_high: "2", display_role: "support", touch_count: 2,
+      linked_events: { linked: false, event_count: 0, counts: { breakout: 0, retest: 0, sweep: 0, failed_breakout: 0 } },
+    }],
+  });
+  assert.match(unlinked.list[0].meta, /no recorded event used this zone/);
+  // Not evaluated is never reported as "nothing referenced it".
+  const unchecked = functionPanelModel({
+    functionId: "support_resistance",
+    bands: [{
+      id: "b", band_low: "1", band_high: "2", display_role: "support", touch_count: 2,
+      linked_events: { linked: false, event_count: null, counts: null },
+    }],
+  });
+  assert.doesNotMatch(unchecked.list[0].meta, /no recorded event used this zone/);
+});
+
+test("a band holding only smaller earlier recorded bands says that, never \"no recorded event\"", () => {
+  // The evolved-zone case in the panel's one-line summary: not identity, but definitely not nothing.
+  const contained = functionPanelModel({
+    functionId: "support_resistance",
+    bands: [{
+      id: "b", band_low: "1", band_high: "2", display_role: "support", touch_count: 2,
+      linked_events: {
+        linked: false, event_count: 0,
+        counts: { breakout: 0, retest: 0, sweep: 0, failed_breakout: 0 },
+        contained_count: 2,
+        contained_counts: { breakout: 0, retest: 2, sweep: 0, failed_breakout: 0 },
+      },
+    }],
+  });
+  assert.match(contained.list[0].meta, /2 stored event\(s\) inside it, with smaller recorded bounds/);
+  assert.doesNotMatch(contained.list[0].meta, /no recorded event used this zone/);
+
+  // Identity present: the summary still reports the exact links, unchanged.
+  const linked = functionPanelModel({
+    functionId: "support_resistance",
+    bands: [{
+      id: "b", band_low: "1", band_high: "2", display_role: "resistance", touch_count: 2,
+      linked_events: {
+        linked: true, event_count: 1,
+        counts: { breakout: 1, retest: 0, sweep: 0, failed_breakout: 0 },
+        contained_count: 1,
+        contained_counts: { breakout: 0, retest: 1, sweep: 0, failed_breakout: 0 },
+      },
+    }],
+  });
+  assert.match(linked.list[0].meta, /referenced by 1 breakout/);
 });
 
 test("the support/resistance panel has an honest empty state", () => {
-  const none = functionPanelModel({ functionId: "support_resistance", bands: [], reason: "no_zones" });
+  const none = functionPanelModel({ functionId: "support_resistance", bands: [], reason: "no_zones", accounting: { totalStored: 0 } });
   assert.equal(none.list.length, 0);
   assert.match(none.note, /No support or resistance zones are stored/);
+  // Stored zones that could not be drawn are reported as unavailable, never as "none stored".
+  const undrawable = functionPanelModel({ functionId: "support_resistance", bands: [], reason: "no_zones", accounting: { totalStored: 3 } });
+  assert.match(undrawable.note, /3 stored zone\(s\) were unavailable/);
   const unknown = functionPanelModel({ functionId: "support_resistance", bands: [] });
   assert.match(unknown.note, /No zone bands are available/);
 });
@@ -177,6 +262,55 @@ test("the swings panel says nothing rather than guessing when there is no eviden
   const model = functionPanelModel({ functionId: "swings", evidence: { available: false, reason: "no window" }, bands: [] });
   assert.equal(model.facts[0].value, "UNKNOWN");
   assert.deepEqual(model.list, []);
+});
+
+test("the swings panel prefers viewed timeframe trend from evidence over engine marketState", () => {
+  const evidenceWith15mTrend = {
+    ...EVIDENCE,
+    trend: {
+      direction: "bearish",
+      reason: "lower_highs_and_lower_lows",
+      sufficient: true,
+      higher_highs: false,
+      higher_lows: false,
+      lower_highs: true,
+      lower_lows: true,
+    },
+  };
+  // marketState has 1h bullish trend, but evidence has 15m bearish trend
+  const model = functionPanelModel({
+    functionId: "swings",
+    evidence: evidenceWith15mTrend,
+    bands: BANDS,
+    marketState: MARKET_STATE,
+  });
+  assert.equal(model.chip, "Bearish", "panel chip must reflect viewed timeframe trend");
+  assert.match(model.facts[1].value, /^Bearish · lower highs and lower lows/);
+  assert.equal(model.facts[1].tone, "red");
+});
+
+test("the swings panel falls back only to an explicitly matching available engine timeframe", () => {
+  const evidenceWithoutTrend = { ...EVIDENCE, trend: null };
+  const model = functionPanelModel({
+    functionId: "swings",
+    evidence: evidenceWithoutTrend,
+    bands: BANDS,
+    marketState: MARKET_STATE,
+  });
+  assert.equal(model.chip, "Bullish", "falls back to marketState when evidence has no trend");
+  assert.match(model.facts[1].value, /^Bullish · /);
+});
+
+test("the swings panel displays UNKNOWN bias when neither evidence nor marketState has a trend", () => {
+  const model = functionPanelModel({
+    functionId: "swings",
+    evidence: { ...EVIDENCE, trend: null },
+    bands: BANDS,
+    marketState: null,
+  });
+  assert.equal(model.chip, null);
+  assert.equal(model.facts[1].value, "UNKNOWN");
+  assert.equal(model.facts[1].tone, "neutral");
 });
 
 // ---------------------------------------------------------------------------
@@ -484,4 +618,21 @@ test("an unknown or missing chart function falls back to the calm default panel"
   assert.equal(functionPanelModel({ functionId: "made_up" }).id, "trade_plan");
   assert.equal(functionPanelModel({}).id, "trade_plan");
   assert.equal(functionPanelModel().id, "trade_plan");
+});
+
+// BRAIN-AUDIT-0003: a missing chart trend is not permission to borrow another timeframe.
+test("swing bias rejects unavailable, malformed and wrong-timeframe fallback evidence", () => {
+  const engine = { ...MARKET_STATE, timeframe: "1h" };
+  for (const evidence of [
+    { available: false, timeframe: "15m" },
+    { available: false, timeframe: "1h", trend: engine.trend },
+    { available: true, timeframe: "4h", trend: null },
+    { available: true, timeframe: "15m", trend: { direction: "invented" } },
+    { available: true, trend: null },
+  ]) {
+    const model = functionPanelModel({ functionId: "swings", evidence, marketState: engine });
+    assert.equal(model.chip, null, JSON.stringify(evidence));
+    assert.equal(model.facts[1].value, "UNKNOWN");
+    assert.equal(model.facts[1].tone, "neutral");
+  }
 });

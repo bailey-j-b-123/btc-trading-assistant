@@ -47,6 +47,7 @@ from sqlalchemy.engine import Engine
 from trading_assistant.ai_explanation import ExplanationService
 from trading_assistant.ai_explanation.parameters import EXPLANATION_RULES_VERSION
 from trading_assistant.config import Settings, get_settings
+from trading_assistant.forward_testing.runner_health import DEFAULT_POLICY, assess_runner_health
 from trading_assistant.database.engine import is_memory_database, is_sqlite_lock_error
 from trading_assistant.forward_testing.errors import (
     ForwardConflict,
@@ -328,9 +329,11 @@ class ForwardTestService:
         latest_cycle = self.ledger.latest_cycle(
             exchange=exchange, symbol=resolved_symbol, timeframe=resolved_timeframe
         )
-        heartbeat = self.ledger.latest_heartbeat(
-            exchange=exchange, symbol=resolved_symbol, timeframe=resolved_timeframe
+        heartbeat_trail = self.ledger.recent_heartbeats(
+            exchange=exchange, symbol=resolved_symbol, timeframe=resolved_timeframe,
+            limit=DEFAULT_POLICY.sample_size,
         )
+        heartbeat = heartbeat_trail[0] if heartbeat_trail else None
         counts = self.ledger.counts(
             exchange=exchange, symbol=resolved_symbol, timeframe=resolved_timeframe
         )
@@ -402,6 +405,10 @@ class ForwardTestService:
             "timeframe": resolved_timeframe,
             "as_of": target_boundary,
             "now": instant,
+            "runner_liveness": assess_runner_health(
+                heartbeat, now=instant, recent_heartbeats=heartbeat_trail,
+                tolerance_seconds=self.settings.runner_liveness_tolerance_seconds,
+            ),
             "market_data": {
                 "latest_closed_candle_open": (
                     None if latest_stored is None else latest_stored

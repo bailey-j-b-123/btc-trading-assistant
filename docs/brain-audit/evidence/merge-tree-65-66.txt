@@ -1,0 +1,12 @@
+2257d871be00a81097238c29299dcaf3a81a3450
+100644 cd5b390be1618a36b5ee97ef6eaf7faca7126696 1	src/trading_assistant/web/static/js/views/dashboard.js
+100644 67a0be531922b48dd3bef8c4b3ea327cdba1d76c 2	src/trading_assistant/web/static/js/views/dashboard.js
+100644 8279936ee41767f9e902d7c3e17b59bab07df7d9 3	src/trading_assistant/web/static/js/views/dashboard.js
+
+Auto-merging src/trading_assistant/web/static/js/chart.js
+Auto-merging src/trading_assistant/web/static/js/chart_functions.js
+Auto-merging src/trading_assistant/web/static/js/function_panel.js
+Auto-merging src/trading_assistant/web/static/js/views/dashboard.js
+CONFLICT (content): Merge conflict in src/trading_assistant/web/static/js/views/dashboard.js
+Auto-merging src/trading_assistant/web/static/styles.css
+Auto-merging tests/frontend/dashboard.test.mjs

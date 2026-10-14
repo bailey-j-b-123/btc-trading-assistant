@@ -1,0 +1,37 @@
+BRAIN AUDIT — session 2 (independent auditor) baseline and integration runs
+Date: 2026-10-14 UTC. All commands run in this sandbox, offline, no exchange access,
+no orders, no production database. Python 3.11.2, Node v22.22.3, npm 10.9.8.
+
+Environment note: a fresh `.venv` was created and populated with
+`pip install -e '.[dev]' ruff`, then the editable project install was removed
+(`pip uninstall -y trading-assistant`) so that each git worktree imports its OWN
+`src/` through pytest's `pythonpath = ["src"]` instead of the clone's meta-finder.
+
+---------------------------------------------------------------------------
+1. BASELINE — common development base (PR #62 head)
+   commit a0f1fafd7ed6841eaec14809c03b7556ff0949c4
+   command: .venv/bin/python -m pytest -q
+   result:  1182 passed, 1 xfailed, 1 warning in 211.33s (0:03:31)   [exit 0]
+
+   XFAIL tests/test_decision_invariance.py::test_a_shallow_stored_start_does_not_change_live_setups_at_a_later_boundary
+   (pre-existing documented defect, untouched, marker preserved)
+
+   command: npm test
+   result:  1..425 / # tests 425 / # pass 425 / # fail 0 / duration_ms 17887
+
+---------------------------------------------------------------------------
+2. PR #69 integration head   arena/0090b00d-btc-trading-assistant
+   commit 09f5ee2113b3cf35015e4d0058f45fa212cbe529
+   detached worktree /home/user/audit-wt/pr69 (imports verified to resolve to
+   that worktree's src/, including web/zone_evidence.py)
+
+   command: .venv/bin/python -m pytest -q
+   result:  1254 passed, 1 xfailed, 1 warning in 204.67s (0:03:24)   [exit 0]
+
+   command: npm test
+   result:  1..481 / # tests 481 / # pass 481 / # fail 0 / duration_ms 18536
+
+   Delta vs baseline: +72 Python tests, +56 Node tests, same single xfail.
+   Both new-suite counts match the PR's own claims, but passing CI is not
+   acceptance: see findings BRAIN-AUDIT-0005 and BRAIN-AUDIT-0006, which the
+   combined 1254-test suite does not detect.

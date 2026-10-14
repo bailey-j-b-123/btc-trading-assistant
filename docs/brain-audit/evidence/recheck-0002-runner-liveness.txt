@@ -1,0 +1,57 @@
+# BRAIN-AUDIT-0002 recheck: runner liveness
+## UI (real production systemHealthViewModel) — base vs integrated head
+# base:
+{"case":"recent control","age":5,"recorded":"2026-10-14T08:00:00Z","healthy":true,"label":"DATA CURRENT · RUNNER IDLE","tone":"green","primary":null,"issues":[]}
+{"case":"seven days stale","age":604800,"recorded":"2026-10-07T08:00:00Z","healthy":true,"label":"DATA CURRENT · RUNNER IDLE","tone":"green","primary":null,"issues":[]}
+{"case":"missing heartbeat","age":null,"recorded":null,"healthy":true,"label":"DATA CURRENT · RUNNER IDLE","tone":"green","primary":null,"issues":[]}
+{"case":"future heartbeat","age":-3600,"recorded":"2026-10-14T09:00:00Z","healthy":true,"label":"DATA CURRENT · RUNNER IDLE","tone":"green","primary":null,"issues":[]}
+# integrated 09f5ee2 (payload has NO server verdict -> must never be green):
+{"case":"recent control","age":5,"recorded":"2026-10-14T08:00:00Z","healthy":false,"label":"FORWARD RUNNER · LIVENESS UNKNOWN","tone":"amber","primary":{"severity":1,"component":"Forward runner","condition":"Liveness unknown","detail":"The server has not confirmed runner liveness."},"issues":[{"severity":1,"component":"Forward runner","condition":"Liveness unknown","detail":"The server has not confirmed runner liveness."}]}
+{"case":"seven days stale","age":604800,"recorded":"2026-10-07T08:00:00Z","healthy":false,"label":"FORWARD RUNNER · LIVENESS UNKNOWN","tone":"amber","primary":{"severity":1,"component":"Forward runner","condition":"Liveness unknown","detail":"The server has not confirmed runner liveness."},"issues":[{"severity":1,"component":"Forward runner","condition":"Liveness unknown","detail":"The server has not confirmed runner liveness."}]}
+{"case":"missing heartbeat","age":null,"recorded":null,"healthy":false,"label":"FORWARD RUNNER · LIVENESS UNKNOWN","tone":"amber","primary":{"severity":1,"component":"Forward runner","condition":"Liveness unknown","detail":"The server has not confirmed runner liveness."},"issues":[{"severity":1,"component":"Forward runner","condition":"Liveness unknown","detail":"The server has not confirmed runner liveness."}]}
+{"case":"future heartbeat","age":-3600,"recorded":"2026-10-14T09:00:00Z","healthy":false,"label":"FORWARD RUNNER · LIVENESS UNKNOWN","tone":"amber","primary":{"severity":1,"component":"Forward runner","condition":"Liveness unknown","detail":"The server has not confirmed runner liveness."},"issues":[{"severity":1,"component":"Forward runner","condition":"Liveness unknown","detail":"The server has not confirmed runner liveness."}]}
+## adversarial UI cases (docs/brain-audit/probes/runner-liveness-probe.mjs)
+# base:
+{"case":"proven alive","healthy":true,"tone":"green","label":"DATA CURRENT · RUNNER IDLE"}
+{"case":"proven alive but age over tolerance","healthy":true,"tone":"green","label":"DATA CURRENT · RUNNER IDLE"}
+{"case":"claims alive, flag false","healthy":true,"tone":"green","label":"DATA CURRENT · RUNNER IDLE"}
+{"case":"claims alive, no numbers","healthy":true,"tone":"green","label":"DATA CURRENT · RUNNER IDLE"}
+{"case":"stale unconfirmed","healthy":true,"tone":"green","label":"DATA CURRENT · RUNNER IDLE"}
+{"case":"clock inconsistent","healthy":true,"tone":"green","label":"DATA CURRENT · RUNNER IDLE"}
+{"case":"failed","healthy":true,"tone":"green","label":"DATA CURRENT · RUNNER IDLE"}
+{"case":"stopped","healthy":true,"tone":"green","label":"DATA CURRENT · RUNNER IDLE"}
+{"case":"no liveness object (legacy payload)","healthy":true,"tone":"green","label":"DATA CURRENT · RUNNER IDLE"}
+{"case":"bogus state","healthy":true,"tone":"green","label":"DATA CURRENT · RUNNER IDLE"}
+# integrated 09f5ee2:
+{"case":"proven alive","healthy":true,"tone":"green","label":"DATA CURRENT · RUNNER IDLE"}
+{"case":"proven alive but age over tolerance","healthy":false,"tone":"amber","label":"FORWARD RUNNER · LIVENESS UNKNOWN"}
+{"case":"claims alive, flag false","healthy":false,"tone":"amber","label":"FORWARD RUNNER · LIVENESS UNKNOWN"}
+{"case":"claims alive, no numbers","healthy":false,"tone":"amber","label":"FORWARD RUNNER · LIVENESS UNKNOWN"}
+{"case":"stale unconfirmed","healthy":false,"tone":"amber","label":"FORWARD RUNNER · HEARTBEAT STALE — UNCONFIRMED"}
+{"case":"clock inconsistent","healthy":false,"tone":"amber","label":"FORWARD RUNNER · HEARTBEAT IN THE FUTURE"}
+{"case":"failed","healthy":false,"tone":"amber","label":"FORWARD RUNNER · PROCESSING FAILURE"}
+{"case":"stopped","healthy":false,"tone":"amber","label":"FORWARD RUNNER · RUNNER STOPPED"}
+{"case":"no liveness object (legacy payload)","healthy":false,"tone":"amber","label":"FORWARD RUNNER · LIVENESS UNKNOWN"}
+{"case":"bogus state","healthy":false,"tone":"amber","label":"FORWARD RUNNER · LIVENESS UNKNOWN"}
+## backend policy matrix (docs/brain-audit/probes/runner-health-backend-probe.py)
+recent                               state=CONFIRMED_ALIVE    alive=True  age=30.0 tol=360 src=policy_floor       cadence=60.0 (observed_heartbeats)
+just under floor                     state=CONFIRMED_ALIVE    alive=True  age=359.0 tol=360 src=policy_floor       cadence=60.0 (observed_heartbeats)
+just over floor                      state=STALE_UNCONFIRMED  alive=False age=361.0 tol=360 src=policy_floor       cadence=None (unconfirmed)
+long stale                           state=STALE_UNCONFIRMED  alive=False age=604800.0 tol=360 src=policy_floor       cadence=None (unconfirmed)
+future                               state=CLOCK_INCONSISTENT alive=False age=-3600.0 tol=360 src=policy_floor       cadence=None (unconfirmed)
+error                                state=FAILED             alive=False age=30.0 tol=360 src=policy_floor       cadence=None (unconfirmed)
+error status                         state=FAILED             alive=False age=30.0 tol=360 src=policy_floor       cadence=None (unconfirmed)
+stopped                              state=STOPPED            alive=False age=30.0 tol=360 src=policy_floor       cadence=None (unconfirmed)
+odd status                           state=UNCONFIRMED        alive=False age=30.0 tol=360 src=policy_floor       cadence=None (unconfirmed)
+never run                            state=NEVER_RUN          alive=False age=None tol=360 src=policy_floor       cadence=None (unconfirmed)
+slow cadence trusted (10 min gaps)   state=CONFIRMED_ALIVE    alive=True  age=400.0 tol=1800.0 src=observed_heartbeats cadence=600.0 (observed_heartbeats)
+
+operator override:
+  CONFIRMED_ALIVE operator_setting
+  refused: 0 -> ValueError
+  refused: -1 -> ValueError
+  refused: 86401 -> ValueError
+  refused: True -> ValueError
+  refused: 1.5 -> ValueError
+  refused: '600' -> ValueError
+  refused naive recorded_at -> TypeError

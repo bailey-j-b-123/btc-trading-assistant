@@ -1,0 +1,47 @@
+=== 4h: zone-referenced events (raw objects) ===
+    breakout  object bounds: low='86543.0' high='86543.0'
+    breakout  object bounds: low='86076.2' high='86543.0'
+    breakout  object bounds: low='85958.6' high='86543.0'
+    breakout  object bounds: low='87369.0' high='88340.1'
+    breakout  object bounds: low='88363.8' high='89027.9'
+    retest    object bounds: low='86543.0' high='86543.0'
+    retest    object bounds: low='86543.0' high='86543.0'
+    retest    object bounds: low='86076.2' high='86543.0'
+    retest    object bounds: low='86076.2' high='86543.0'
+    retest    object bounds: low='85958.6' high='86543.0'
+    retest    object bounds: low='85958.6' high='86543.0'
+    retest    object bounds: low='87369.0' high='88340.1'
+    retest    object bounds: low='87369.0' high='88340.1'
+    retest    object bounds: low='88363.8' high='89027.9'
+    retest    object bounds: low='88363.8' high='89027.9'
+    projected payload zone-referenced events: 6
+      kind=breakout  band_low='86543.0' band_high='86543.0' known_at='2026-08-18T16:00:00Z'
+      kind=breakout  band_low='86076.2' band_high='86543.0' known_at='2026-08-21T04:00:00Z'
+      kind=breakout  band_low='85958.6' band_high='86543.0' known_at='2026-08-26T08:00:00Z'
+      kind=breakout  band_low='87369.0' band_high='88340.1' known_at='2026-08-29T20:00:00Z'
+      kind=breakout  band_low='88363.8' band_high='89027.9' known_at='2026-09-03T04:00:00Z'
+      kind=failed_breakout band_low='86543.0' band_high='86543.0' known_at='2026-08-20T08:00:00Z'
+=== 4h: presented bands and their member bounds ===
+    band '90227.9'-'91022.4' linked=False count=0
+        member id='4h:90227.9:91022.4' low='90227.9' high='91022.4'
+    band '88363.8'-'89574.0' linked=False count=0
+        member id='4h:88363.8:89574.0' low='88363.8' high='89574.0'
+    band '87180.3'-'88340.1' linked=False count=0
+        member id='4h:87180.3:88340.1' low='87180.3' high='88340.1'
+    band '85958.6'-'87052.5' linked=False count=0
+        member id='4h:85958.6:87052.5' low='85958.6' high='87052.5'
+    band '85158.0'-'85158.0' linked=False count=0
+        member id='4h:85158.0:85158.0' low='85158.0' high='85158.0'
+=== 4h: direct key comparison ===
+    event key=('86543.0', '86543.0') present_in_presented_member_keys=False
+    event key=('86076.2', '86543.0') present_in_presented_member_keys=False
+    event key=('85958.6', '86543.0') present_in_presented_member_keys=False
+    event key=('87369.0', '88340.1') present_in_presented_member_keys=False
+    event key=('88363.8', '89027.9') present_in_presented_member_keys=False
+    event key=('86543.0', '86543.0') present_in_presented_member_keys=False
+    presented member keys (5):
+        ('85158.0', '85158.0')
+        ('85958.6', '87052.5')
+        ('87180.3', '88340.1')
+        ('88363.8', '89574.0')
+        ('90227.9', '91022.4')

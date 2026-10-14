@@ -23,13 +23,22 @@
 import {
   chartFunctionById,
   eventCatalogue,
-  highlightedPattern,
   levelCatalogue,
   normalizeFunctionId,
-  patternCatalogue,
   swingCatalogue,
 } from "./chart_functions.js";
 import { directionArrow, directionLabel, displayRounded, formatUtc, isMissing } from "./format.js";
+import {
+  chartPatternRecords,
+  chooseChartPattern,
+  patternExplanation,
+  patternIconPoints,
+  patternKeyLevels,
+  patternRecordFacts,
+  patternStateTitle,
+  patternTitle,
+  patternTone,
+} from "./pattern_view.js";
 import { trendReasonText } from "./plain.js";
 import { el } from "./util.js";
 
@@ -38,11 +47,13 @@ const MAX_LEVELS = 4;
 const MAX_SWINGS = 6;
 const MAX_EVENTS = 6;
 
+/** Sentence-case names for the legacy panel fields (title, list), unchanged. */
 const PATTERN_NAMES = Object.freeze({
   double_top: "Double top",
   double_bottom: "Double bottom",
   head_and_shoulders: "Head and shoulders",
   inverse_head_and_shoulders: "Inverse head and shoulders",
+  trading_range: "Trading range",
 });
 
 const EVENT_KINDS = Object.freeze({
@@ -103,7 +114,8 @@ function roleLabel(role) {
 function roleTone(role) {
   if (role === "support") return "green";
   if (role === "resistance") return "red";
-  return "blue";
+  // A zone containing price is the amber band on the chart, and its legend row is amber.
+  return "amber";
 }
 
 function stateTone(state) {
@@ -124,10 +136,55 @@ function nearestBands(bands) {
   };
 }
 
-/** Support / Resistance: colour legend, nearest stored bands, hidden counts. */
-function supportResistanceModel({ bands, hidden = null, merged = null, reason = null }) {
+/**
+ * The test figure for a band, stated so a summed evidence count is never read as distinct tests.
+ *
+ * `24 tests` is only said when 24 separate instants tested the level. When a candle contributed
+ * both a swing high and a swing low (which the detector's own source list shows as a repeated
+ * instant), the row says `22 tests · 24 swing evidences` instead.
+ */
+function bandTestText(band) {
+  const distinct = band.distinctTestTimestamps;
+  const evidences = band.touchCount;
+  if (distinct === null && evidences === null) return "tests unknown";
+  const tests = distinct === null ? evidences : distinct;
+  const plural = tests === 1 ? "" : "s";
+  if (evidences !== null && distinct !== null && evidences > distinct) {
+    return `${tests} test${plural} · ${evidences} swing evidences`;
+  }
+  return `${tests} test${plural}`;
+}
+
+/** One factual line about the stored events that used this zone as their own reference.
+ *
+ * An exact match (the event's own recorded band is this band) and a contained reference (a
+ * smaller, earlier recorded band inside this band's price area) are stated differently: only the
+ * first is identity, and the second keeps the line from reading as "nothing happened here".
+ */
+function linkedEventText(linkage) {
+  if (!linkage || typeof linkage !== "object") return null;
+  if (linkage.event_count === null || linkage.counts === null) return null;
+  const contained = Number.isFinite(linkage.contained_count) ? linkage.contained_count : 0;
+  if (!linkage.linked) {
+    return contained > 0
+      ? `${contained} stored event(s) inside it, with smaller recorded bounds`
+      : "no recorded event used this zone";
+  }
+  const counts = linkage.counts || {};
+  const parts = [
+    counts.breakout ? `${counts.breakout} breakout${counts.breakout === 1 ? "" : "s"}` : null,
+    counts.failed_breakout ? `${counts.failed_breakout} failed breakout${counts.failed_breakout === 1 ? "" : "s"}` : null,
+    counts.sweep ? `${counts.sweep} sweep${counts.sweep === 1 ? "" : "s"}` : null,
+    counts.retest ? `${counts.retest} retest${counts.retest === 1 ? "" : "s"}` : null,
+  ].filter(Boolean);
+  return parts.length ? `referenced by ${parts.join(" · ")}` : "referenced by a stored event";
+}
+
+/** Support / Resistance: colour legend, nearest stored bands, honest hidden and test counts. */
+function supportResistanceModel({ bands, hidden = null, merged = null, reason = null, accounting = null }) {
   const levels = nearestBands(bands);
   if (reason === "no_zones" || !levels.all.length) {
+    const stored = Number.isFinite(accounting?.totalStored) ? Number(accounting.totalStored) : null;
     return {
       heading: "Support & Resistance",
       chip: null,
@@ -136,22 +193,32 @@ function supportResistanceModel({ bands, hidden = null, merged = null, reason = 
       facts: [],
       list: [],
       note: reason === "no_zones"
-        ? "No support or resistance zones are stored for this timeframe at this instant."
+        ? stored === 0
+          ? "No support or resistance zones are stored for this timeframe at this instant."
+          : `No zone band is drawable for this timeframe: ${stored ?? "some"} stored zone(s) were unavailable. Nothing is drawn in their place.`
         : "No zone bands are available for this view.",
     };
   }
+  // Total not drawn = the backend's own nearest-per-side selection + this chart's readability cap.
+  const backendHidden = Number.isFinite(hidden) ? hidden : null;
+  const capHidden = Number.isFinite(accounting?.capHidden) ? Number(accounting.capHidden) : 0;
+  const totalHidden = backendHidden === null ? null : backendHidden + capHidden;
   return {
     heading: "Support & Resistance",
     chip: null,
     tone: "blue",
+    // One row per thing this screen actually draws. The amber band is a stored zone
+    // containing the close, and the blue dashed lines are the detected range's own high
+    // and low — no midpoint is drawn anywhere, so none is claimed here.
     legend: [
       { label: "Resistance", tone: "red", meaning: "Stored bands above the current close, where selling pressure has historically stopped price." },
-      { label: "Range mid", tone: "blue", meaning: "Midpoint of a detected range: a decision zone, not a prediction." },
+      { label: "Price inside", tone: "amber", meaning: "A stored zone that contains the current close: the level price is testing now, not a prediction." },
       { label: "Support", tone: "green", meaning: "Stored bands below the current close, where buying pressure has historically stopped price." },
+      { label: "Range", tone: "blue", meaning: "The detected range's own high and low, dashed: the boundaries the detector stored, not a forecast." },
     ],
     facts: [
       { label: "Bands drawn", value: String(levels.nearest.length), tone: "blue" },
-      { label: "Further bands hidden", value: hidden === null ? UNKNOWN : String(hidden) },
+      { label: "Further bands not drawn", value: totalHidden === null ? UNKNOWN : String(totalHidden) },
       { label: "Merged for display", value: merged === null ? UNKNOWN : String(merged) },
     ],
     list: levels.nearest.map((band) => ({
@@ -159,13 +226,14 @@ function supportResistanceModel({ bands, hidden = null, merged = null, reason = 
       value: `${price(band.low)} – ${price(band.high)}`,
       meta: [
         band.timeframe ? `${String(band.timeframe).toUpperCase()} zone` : null,
-        band.touchCount === null ? "touches unknown" : `${band.touchCount} touch${band.touchCount === 1 ? "" : "es"}`,
+        bandTestText(band),
         band.faded ? "older, faded" : null,
         band.mergedZoneCount && band.mergedZoneCount > 1 ? `${band.mergedZoneCount} merged` : null,
+        linkedEventText(band.linkedEvents),
       ].filter(Boolean).join(" · "),
       tone: roleTone(band.role),
     })),
-    note: "Only the nearest active zones are drawn. Price bounds and touch counts are the detector's own; nothing is invented, moved or re-labelled.",
+    note: "Only the nearest active zones are drawn; the count above says how many were not. Bounds and test counts are the detector's own, and a test count counts separate instants, never summed swing evidences.",
   };
 }
 
@@ -176,7 +244,16 @@ function swingsModel({ evidence, bands, marketState }) {
     patterns: Array.isArray(evidence?.patterns) ? evidence.patterns : [],
   });
   const levels = nearestBands(bands);
-  const trend = marketState?.available === true ? marketState.trend || null : null;
+  const validTrend = (value) => value && typeof value === "object"
+    && ["bullish", "bearish", "neutral"].includes(value.direction);
+  // Legacy same-frame fallback requires explicit identity and available evidence.
+  // An unavailable chart must never inherit the engine's bias under another label.
+  const sameFrame = typeof evidence?.timeframe === "string" && evidence.timeframe.length > 0
+    && evidence.timeframe === marketState?.timeframe;
+  const trend = evidence?.available !== true ? null
+    : validTrend(evidence.trend) ? evidence.trend
+      : sameFrame && marketState?.available === true && validTrend(marketState.trend)
+        ? marketState.trend : null;
   const latest = rows.reduce((newest, row) => (
     Number.isFinite(row.timeMs) && (!newest || row.timeMs > Number(newest.timeMs)) ? row : newest
   ), null);
@@ -228,12 +305,17 @@ function swingsModel({ evidence, bands, marketState }) {
   };
 }
 
-/** Chart Patterns: the selected shape, its stored geometry and the other states. */
+/**
+ * Chart Patterns: the selected record, its stored geometry and the other
+ * records. The records are the stored pattern records plus the range
+ * detector's active range (pattern_view.chartPatternRecords), in the
+ * documented default order; nothing else is listed.
+ */
 function patternsModel({ evidence, selectedPatternId, bands }) {
-  const catalogue = patternCatalogue(evidence?.available === true ? evidence : null);
-  const chosen = highlightedPattern(evidence, selectedPatternId);
+  const records = chartPatternRecords(evidence);
+  const raw = chooseChartPattern(records, selectedPatternId);
   const levels = nearestBands(bands);
-  if (!chosen) {
+  if (!raw) {
     return {
       heading: "Chart Patterns",
       chip: null,
@@ -241,50 +323,90 @@ function patternsModel({ evidence, selectedPatternId, bands }) {
       legend: [],
       facts: [],
       list: [],
+      // The approved three-card column keeps its shape when nothing is stored:
+      // each card states plainly that there is nothing to show.
+      detection: null,
+      others: [],
+      keyLevels: patternKeyLevels(null),
+      recordFacts: [],
       note: "No chart pattern is stored for this window at this instant.",
     };
   }
-  const raw = (Array.isArray(evidence?.patterns) ? evidence.patterns : [])
-    .find((pattern) => pattern?.id === chosen.id) || {};
+  const isRange = raw.type === "trading_range";
   const geometry = raw.geometry && typeof raw.geometry === "object" ? raw.geometry : null;
-  const facts = [
-    { label: "State", value: chosen.state || UNKNOWN, tone: stateTone(chosen.state) },
-    { label: "Known at", value: when(chosen.knownAt), tone: "neutral" },
-    { label: "Neckline", value: isMissing(chosen.neckline) ? "not stored" : price(chosen.neckline), tone: "blue" },
-    { label: "Invalidation level", value: isMissing(chosen.invalidation) ? "not stored" : price(chosen.invalidation), tone: "red" },
-    { label: "Detected points", value: String(chosen.componentCount), tone: "neutral" },
-  ];
+  const componentCount = Array.isArray(raw.components) ? raw.components.length : 0;
+  const facts = isRange
+    ? [
+        { label: "State", value: raw.state || UNKNOWN, tone: "blue" },
+        { label: "Known at", value: when(raw.known_at), tone: "neutral" },
+      ]
+    : [
+        { label: "State", value: raw.state || UNKNOWN, tone: stateTone(raw.state) },
+        { label: "Known at", value: when(raw.known_at), tone: "neutral" },
+        { label: "Neckline", value: isMissing(raw.neckline) ? "not stored" : price(raw.neckline), tone: "blue" },
+        { label: "Invalidation level", value: isMissing(raw.invalidation_level) ? "not stored" : price(raw.invalidation_level), tone: "red" },
+        { label: "Detected points", value: String(componentCount), tone: "neutral" },
+      ];
   const geometryRows = geometry ? [
     { label: "Matching extremes differ by", value: percentText(geometry.matching_extremes_difference_pct) },
     { label: "Pattern depth", value: percentText(geometry.depth_pct) },
+    { label: "Head prominence", value: percentText(geometry.head_prominence_pct) },
     { label: "Span", value: Number.isFinite(Number(geometry.span_candles)) ? `${Number(geometry.span_candles)} candles` : UNKNOWN },
   ].filter((row) => row.value !== null) : [];
+  const others = records.filter((record) => record.id !== raw.id);
+  const name = (record) => patternTitle(record.type, record.label);
+  const legacyName = (record) => PATTERN_NAMES[record.type] || record.label || "Pattern";
   return {
     heading: "Chart Patterns",
-    chip: chosen.state || null,
-    tone: stateTone(chosen.state),
+    chip: raw.state || null,
+    tone: stateTone(raw.state),
     title: {
-      label: PATTERN_NAMES[chosen.type] || chosen.label || "Pattern",
-      state: chosen.state || UNKNOWN,
-      tone: stateTone(chosen.state),
+      label: legacyName(raw),
+      state: raw.state || UNKNOWN,
+      tone: stateTone(raw.state),
     },
     legend: [],
     facts,
     geometry: geometryRows,
-    list: catalogue
-      .filter((entry) => entry.id !== chosen.id)
-      .slice(0, MAX_LEVELS)
-      .map((entry) => ({
-        title: PATTERN_NAMES[entry.type] || entry.label || "Pattern",
-        value: entry.state || UNKNOWN,
-        meta: `${entry.isLatestState ? "current state" : "earlier state"} · known ${when(entry.knownAt)}`,
-        tone: stateTone(entry.state),
-      })),
+    list: others.slice(0, MAX_LEVELS).map((record) => ({
+      title: legacyName(record),
+      value: record.state || UNKNOWN,
+      meta: `${record.is_latest_state === true ? "current state" : "earlier state"} · known ${when(record.known_at)}`,
+      tone: stateTone(record.state),
+    })),
     levels: [
-      { label: "Neckline", value: isMissing(chosen.neckline) ? "not stored" : price(chosen.neckline), tone: "blue" },
+      isRange ? null : { label: "Neckline", value: isMissing(raw.neckline) ? "not stored" : price(raw.neckline), tone: "blue" },
       levels.resistance ? { label: "Stored level above price", value: `${price(levels.resistance.low)} – ${price(levels.resistance.high)}`, tone: "red" } : null,
       levels.support ? { label: "Stored level below price", value: `${price(levels.support.low)} – ${price(levels.support.high)}`, tone: "green" } : null,
     ].filter(Boolean),
+    // --- The approved three-card column (Pattern Detection, Other Detected
+    // Patterns, Key Levels). Every value below is the record's own; the score
+    // slot states that nothing is calculated, because the backend calculates
+    // nothing of the kind.
+    detection: {
+      id: raw.id,
+      type: raw.type || null,
+      name: name(raw),
+      state: raw.state || null,
+      stateTitle: patternStateTitle(raw.state),
+      tone: patternTone(raw),
+      knownAt: raw.known_at || null,
+      source: isRange ? "range detector" : "pattern detector",
+      score: { calculated: false, text: "Not calculated" },
+      explanation: patternExplanation(raw),
+    },
+    others: others.map((record) => ({
+      id: record.id,
+      type: record.type || null,
+      name: name(record),
+      state: record.state || null,
+      stateTitle: patternStateTitle(record.state),
+      tone: patternTone(record),
+      current: record.is_latest_state === true,
+      knownAt: record.known_at || null,
+    })),
+    keyLevels: patternKeyLevels(raw),
+    recordFacts: patternRecordFacts(raw),
     note: "The shape drawn is the detector's own geometry. The detector stores geometry, not a confidence score, so no confidence percentage is shown.",
   };
 }
@@ -454,6 +576,7 @@ export function functionPanelModel({
   hidden = null,
   merged = null,
   reason = null,
+  accounting = null,
   plan = null,
   planState = null,
   planReason = null,
@@ -464,7 +587,7 @@ export function functionPanelModel({
   const fn = chartFunctionById(normalizeFunctionId(functionId)) || null;
   if (!fn) return null;
   if (fn.id === "support_resistance") {
-    return { id: fn.id, ...supportResistanceModel({ bands, hidden, merged, reason }) };
+    return { id: fn.id, ...supportResistanceModel({ bands, hidden, merged, reason, accounting }) };
   }
   if (fn.id === "swings") return { id: fn.id, ...swingsModel({ evidence, bands, marketState }) };
   if (fn.id === "patterns") return { id: fn.id, ...patternsModel({ evidence, selectedPatternId, bands }) };
@@ -514,8 +637,17 @@ function rowNode(row, className) {
 }
 
 /** The panel node. Plain DOM built from the model above. */
-export function functionPanel(model, { onSelectStage = null, onFrameStages = null } = {}) {
+export function functionPanel(model, {
+  onSelectStage = null,
+  onFrameStages = null,
+  onSelectPattern = null,
+  onFitPattern = null,
+  mode = "simple",
+} = {}) {
   if (!model) return el("aside", { class: "chart-function-panel", hidden: true });
+  if (model.id === "patterns" && "detection" in model) {
+    return patternPanel(model, { onSelectPattern, onFitPattern, mode });
+  }
   const body = [];
   if (model.title) {
     body.push(el("div", { class: "cfp-title" }, [
@@ -642,5 +774,214 @@ export function functionPanel(model, { onSelectStage = null, onFrameStages = nul
       model.chip ? el("span", { class: "cfp-chip", text: model.chip }) : null,
     ]),
     ...body,
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// Chart Patterns: the approved three-card column
+//
+//   1. Pattern Detection   — icon, name, lifecycle badge, the score slot
+//                            ("Not calculated"), a short explanation;
+//   2. Other Detected Patterns — one selectable row per other stored record;
+//   3. Key Levels          — Neckline, Support, Resistance from the record.
+//
+// Plain DOM built from patternsModel above; nothing here computes a value.
+// ---------------------------------------------------------------------------
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** An SVG node when the document can make one; a plain span otherwise (tests). */
+function svgNode(tag, attrs = {}, children = []) {
+  if (typeof document === "undefined" || typeof document.createElementNS !== "function") {
+    return el("span", { class: `svg-fallback svg-${tag}`, "aria-hidden": "true" });
+  }
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [key, value] of Object.entries(attrs)) {
+    if (value !== null && value !== undefined) node.setAttribute(key, String(value));
+  }
+  for (const child of children) if (child) node.appendChild(child);
+  return node;
+}
+
+/** A pictogram of the pattern TYPE (not of the record). */
+function patternIcon(type, className) {
+  const points = patternIconPoints(type);
+  return svgNode("svg", {
+    class: className,
+    viewBox: "0 0 100 60",
+    "aria-hidden": "true",
+    focusable: "false",
+  }, [
+    svgNode("polyline", {
+      points: points.map(([x, y]) => `${x},${y}`).join(" "),
+      fill: "none",
+      stroke: "currentColor",
+      "stroke-width": 5,
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+    }),
+  ]);
+}
+
+const CARD_ICONS = Object.freeze({
+  pulse: () => svgNode("svg", { class: "pd-head-icon", viewBox: "0 0 24 24", "aria-hidden": "true", focusable: "false" }, [
+    svgNode("polyline", {
+      points: "1,12 6,12 8.5,5 11.5,19 14.5,8 16.5,15 18,12 23,12",
+      fill: "none", stroke: "currentColor", "stroke-width": 1.8, "stroke-linecap": "round", "stroke-linejoin": "round",
+    }),
+  ]),
+  radar: () => svgNode("svg", { class: "pd-head-icon", viewBox: "0 0 24 24", "aria-hidden": "true", focusable: "false" }, [
+    svgNode("circle", { cx: 12, cy: 12, r: 8.5, fill: "none", stroke: "currentColor", "stroke-width": 1.8 }),
+    svgNode("circle", { cx: 12, cy: 12, r: 3.2, fill: "currentColor" }),
+  ]),
+  target: () => svgNode("svg", { class: "pd-head-icon", viewBox: "0 0 24 24", "aria-hidden": "true", focusable: "false" }, [
+    svgNode("circle", { cx: 12, cy: 12, r: 9, fill: "none", stroke: "currentColor", "stroke-width": 1.7 }),
+    svgNode("circle", { cx: 12, cy: 12, r: 5, fill: "none", stroke: "currentColor", "stroke-width": 1.7 }),
+    svgNode("circle", { cx: 12, cy: 12, r: 1.6, fill: "currentColor" }),
+  ]),
+});
+
+function cardHead(icon, title, extra = null) {
+  return el("div", { class: "pd-card-head" }, [
+    CARD_ICONS[icon](),
+    el("h3", { class: "pd-card-title", text: title }),
+    extra,
+  ]);
+}
+
+function detectionCard(model, { onFitPattern, mode }) {
+  const detection = model.detection;
+  const fit = detection && typeof onFitPattern === "function"
+    ? el("button", {
+        type: "button",
+        class: "pd-fit",
+        "data-fit-pattern": "true",
+        title: "Fit the whole selected pattern into the chart. This is the one control here that changes the zoom.",
+        text: "Fit to chart",
+        onclick: () => onFitPattern(),
+      })
+    : null;
+  if (!detection) {
+    return el("section", { class: "pd-card pd-card--detection", "aria-label": "Pattern detection", dataset: { empty: "true" } }, [
+      cardHead("pulse", "Pattern Detection"),
+      el("div", { class: "pd-body" }, [
+        el("p", { class: "pd-empty", text: model.note || "No chart pattern is stored for this window at this instant." }),
+      ]),
+    ]);
+  }
+  const body = [
+    el("div", { class: "pd-selected" }, [
+      el("div", { class: "pd-icon-tile", dataset: { tone: detection.tone } }, [patternIcon(detection.type, "pd-icon")]),
+      el("div", { class: "pd-selected-text" }, [
+        el("div", { class: "pd-name", text: detection.name }),
+        el("span", {
+          class: "pd-badge",
+          dataset: { tone: detection.tone, state: detection.state || "unknown" },
+          title: detection.knownAt ? `Lifecycle state recorded by the backend · known ${formatUtc(detection.knownAt)}` : "Lifecycle state recorded by the backend",
+          text: detection.stateTitle,
+        }),
+      ]),
+    ]),
+    // The score slot stays where the approved design puts it. The backend does
+    // not calculate a score, so the bar is empty and the value says so.
+    el("div", { class: "pd-score", dataset: { calculated: String(detection.score.calculated === true) } }, [
+      el("div", { class: "pd-score-row" }, [
+        el("span", { class: "pd-score-label", text: "Confidence" }),
+        el("span", { class: "pd-score-value", text: detection.score.text }),
+      ]),
+      el("div", {
+        class: "pd-score-track",
+        role: "img",
+        "aria-label": "Not calculated: the backend does not calculate a pattern score",
+        title: "The backend stores the pattern's geometry and lifecycle state only; it does not calculate a score.",
+      }),
+    ]),
+    el("div", { class: "pd-explain" }, [
+      el("div", { class: "pd-explain-title", text: "Explanation" }),
+      el("p", { class: "pd-explain-text", text: detection.explanation || "" }),
+    ]),
+  ];
+  if (mode === "detailed") {
+    // Detailed keeps the existing stored-record access: state, times, levels,
+    // the detector's own geometry and every stored point.
+    body.push(el("div", { class: "pd-record" }, [
+      el("div", { class: "pd-explain-title", text: "Stored record" }),
+      el("dl", { class: "pd-record-facts" }, [...(model.facts || []), ...(model.geometry || []), ...(model.recordFacts || [])]
+        .flatMap((fact) => [
+          el("dt", { text: fact.label }),
+          el("dd", { dataset: fact.tone ? { tone: fact.tone } : {}, text: fact.value }),
+        ])),
+    ]));
+  }
+  return el("section", { class: "pd-card pd-card--detection", "aria-label": "Pattern detection", dataset: { tone: detection.tone } }, [
+    cardHead("pulse", "Pattern Detection", fit),
+    el("div", { class: "pd-body" }, body),
+  ]);
+}
+
+function othersCard(model, { onSelectPattern, mode }) {
+  // Simple: one row per other pattern's CURRENT state. Detailed: every other
+  // stored state as well, each marked as the earlier state it is.
+  const rows = (model.others || []).filter((row) => mode === "detailed" || row.current);
+  const list = rows.length
+    ? el("ul", { class: "pd-others" }, rows.map((row) => {
+        const inner = [
+          patternIcon(row.type, "pd-row-icon"),
+          el("span", { class: "pd-row-name" }, [
+            el("span", { class: "pd-row-title", text: row.name }),
+            row.current ? null : el("span", { class: "pd-row-meta", text: "earlier state" }),
+          ]),
+          el("span", { class: "pd-badge pd-badge--small", dataset: { tone: row.tone, state: row.state || "unknown" }, text: row.stateTitle }),
+          el("span", { class: "pd-row-chevron", "aria-hidden": "true", text: "\u203a" }),
+        ];
+        const title = `${row.name} · ${row.stateTitle}${row.current ? "" : " (earlier state)"} · known ${row.knownAt ? formatUtc(row.knownAt) : UNKNOWN}. Select to draw this stored record.`;
+        return el("li", { class: "pd-other", dataset: { tone: row.tone } }, [
+          typeof onSelectPattern === "function"
+            ? el("button", {
+                type: "button",
+                class: "pd-other-button",
+                "data-select-pattern": row.id,
+                title,
+                "aria-label": `Show ${row.name}, ${row.stateTitle}`,
+                onclick: () => onSelectPattern(row.id),
+              }, inner)
+            : el("div", { class: "pd-other-button", title }, inner),
+        ]);
+      }))
+    : el("p", { class: "pd-empty", text: "No other patterns recorded" });
+  return el("section", { class: "pd-card pd-card--others", "aria-label": "Other detected patterns" }, [
+    cardHead("radar", "Other Detected Patterns"),
+    list,
+  ]);
+}
+
+function keyLevelsCard(model) {
+  return el("section", { class: "pd-card pd-card--levels", "aria-label": "Key levels" }, [
+    cardHead("target", "Key Levels"),
+    el("dl", { class: "pd-levels" }, (model.keyLevels || []).map((row) => el("div", {
+      class: "pd-level",
+      dataset: { level: row.key, available: String(row.available === true), tone: row.tone || "neutral" },
+      title: row.detail || "",
+    }, [
+      el("dt", { class: "pd-level-label" }, [
+        el("span", { text: row.label }),
+        " ",
+        el("span", { class: "pd-level-qualifier", text: row.qualifier }),
+      ]),
+      el("dd", { class: "pd-level-value", text: row.value }),
+    ]))),
+  ]);
+}
+
+/** The approved Chart Patterns column: three stacked cards. */
+export function patternPanel(model, { onSelectPattern = null, onFitPattern = null, mode = "simple" } = {}) {
+  return el("aside", {
+    class: "chart-function-panel pattern-panel",
+    "aria-label": "Chart pattern details",
+    dataset: { tone: model.tone || "neutral", function: "patterns", mode },
+  }, [
+    detectionCard(model, { onFitPattern, mode }),
+    othersCard(model, { onSelectPattern, mode }),
+    keyLevelsCard(model),
   ]);
 }

@@ -1,0 +1,14 @@
+=== 4h as_of=2026-10-14T00:00:00+00:00 ===
+    current zone bounds: [('87180.3', '88340.1'), ('85958.6', '87052.5'), ('88363.8', '89574.0'), ('90227.9', '91022.4'), ('85158.0', '85158.0')]
+    projected zone-referenced events: 6
+      breakout        '86543.0'-'86543.0' known_at=2026-08-18T16:00:00Z
+      breakout        '86076.2'-'86543.0' known_at=2026-08-21T04:00:00Z
+      breakout        '85958.6'-'86543.0' known_at=2026-08-26T08:00:00Z
+      breakout        '87369.0'-'88340.1' known_at=2026-08-29T20:00:00Z
+      breakout        '88363.8'-'89027.9' known_at=2026-09-03T04:00:00Z
+      failed_breakout '86543.0'-'86543.0' known_at=2026-08-20T08:00:00Z
+    band 90227.9-91022.4 linked=False count=0
+    band 88363.8-89574.0 linked=False count=0
+    band 87180.3-88340.1 linked=False count=0
+    band 85958.6-87052.5 linked=False count=0
+    band 85158.0-85158.0 linked=False count=0

@@ -9,6 +9,15 @@ and the live-evaluation source note are excluded because those features
 intentionally add them without changing trading decisions. Inputs
 are SYNTHETIC and deterministic. This proves equivalence to the earlier code on
 these inputs; it does not prove live correctness.
+
+Two deliberate, documented regenerations of ``dashboard_n500.json`` have happened
+since (each committed with the payload change that caused it, using the script
+above): once for the Support & Resistance zone-evidence presentation fields (commit
+a5c9013), and once for the BRAIN-AUDIT-0005/0006 repair, which added the reference
+type/id to retests and failed breakouts and the contained-reference evidence to band
+linkage. Both times ``decision_n1000.json`` stayed byte-identical — frames,
+snapshots and trade plans are unchanged — and the diff was audited path by path to
+confirm no pre-existing value changed.
 """
 
 from __future__ import annotations

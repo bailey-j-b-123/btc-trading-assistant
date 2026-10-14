@@ -1,0 +1,224 @@
+[
+  {
+    "width": 1536,
+    "function": "support_resistance",
+    "overflow": false,
+    "status": "Support / Resistance: 2 band(s) shown nearest price first · 0 further band(s) hidden · 0 merged for display."
+  },
+  {
+    "width": 1536,
+    "function": "swings",
+    "overflow": false,
+    "status": "Swing Highs / Lows: 57 stored confirmed swing(s) · 57 drawn in the loaded window."
+  },
+  {
+    "width": 1536,
+    "function": "patterns",
+    "overflow": false,
+    "status": "Chart Patterns: 4 stored pattern state(s) · 1 drawn."
+  },
+  {
+    "width": 1536,
+    "function": "breakouts",
+    "overflow": false,
+    "status": "Breakouts / Retests: 2 breakout(s) · 0 failed · 0 sweep(s) · 4 retest(s) · 1 Breakout: Completed · 2 Retest: Held · 3 Continuation: In Progress."
+  },
+  {
+    "width": 1536,
+    "function": "trade_plan",
+    "overflow": false,
+    "status": "Trade Plan: No actionable plan right now — BRAIN has not built one from a qualified setup."
+  },
+  {
+    "width": 1536,
+    "axe": [
+      {
+        "id": "color-contrast",
+        "nodes": 11
+      }
+    ],
+    "errors": [
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix"
+    ],
+    "http": []
+  },
+  {
+    "width": 1440,
+    "function": "support_resistance",
+    "overflow": false,
+    "status": "Support / Resistance: 2 band(s) shown nearest price first · 0 further band(s) hidden · 0 merged for display."
+  },
+  {
+    "width": 1440,
+    "function": "swings",
+    "overflow": false,
+    "status": "Swing Highs / Lows: 57 stored confirmed swing(s) · 57 drawn in the loaded window."
+  },
+  {
+    "width": 1440,
+    "function": "patterns",
+    "overflow": false,
+    "status": "Chart Patterns: 4 stored pattern state(s) · 1 drawn."
+  },
+  {
+    "width": 1440,
+    "function": "breakouts",
+    "overflow": false,
+    "status": "Breakouts / Retests: 2 breakout(s) · 0 failed · 0 sweep(s) · 4 retest(s) · 1 Breakout: Completed · 2 Retest: Held · 3 Continuation: In Progress."
+  },
+  {
+    "width": 1440,
+    "function": "trade_plan",
+    "overflow": false,
+    "status": "Trade Plan: No actionable plan right now — BRAIN has not built one from a qualified setup."
+  },
+  {
+    "width": 1440,
+    "axe": [
+      {
+        "id": "color-contrast",
+        "nodes": 11
+      }
+    ],
+    "errors": [
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix"
+    ],
+    "http": []
+  },
+  {
+    "width": 1920,
+    "function": "support_resistance",
+    "overflow": false,
+    "status": "Support / Resistance: 2 band(s) shown nearest price first · 0 further band(s) hidden · 0 merged for display."
+  },
+  {
+    "width": 1920,
+    "function": "swings",
+    "overflow": false,
+    "status": "Swing Highs / Lows: 57 stored confirmed swing(s) · 57 drawn in the loaded window."
+  },
+  {
+    "width": 1920,
+    "function": "patterns",
+    "overflow": false,
+    "status": "Chart Patterns: 4 stored pattern state(s) · 1 drawn."
+  },
+  {
+    "width": 1920,
+    "function": "breakouts",
+    "overflow": false,
+    "status": "Breakouts / Retests: 2 breakout(s) · 0 failed · 0 sweep(s) · 4 retest(s) · 1 Breakout: Completed · 2 Retest: Held · 3 Continuation: In Progress."
+  },
+  {
+    "width": 1920,
+    "function": "trade_plan",
+    "overflow": false,
+    "status": "Trade Plan: No actionable plan right now — BRAIN has not built one from a qualified setup."
+  },
+  {
+    "width": 1920,
+    "axe": [
+      {
+        "id": "color-contrast",
+        "nodes": 11
+      }
+    ],
+    "errors": [
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix"
+    ],
+    "http": []
+  },
+  {
+    "width": 390,
+    "function": "support_resistance",
+    "overflow": false,
+    "status": "Support / Resistance: 2 band(s) shown nearest price first · 0 further band(s) hidden · 0 merged for display."
+  },
+  {
+    "width": 390,
+    "function": "swings",
+    "overflow": false,
+    "status": "Swing Highs / Lows: 57 stored confirmed swing(s) · 57 drawn in the loaded window."
+  },
+  {
+    "width": 390,
+    "function": "patterns",
+    "overflow": false,
+    "status": "Chart Patterns: 4 stored pattern state(s) · 1 drawn."
+  },
+  {
+    "width": 390,
+    "function": "breakouts",
+    "overflow": false,
+    "status": "Breakouts / Retests: 2 breakout(s) · 0 failed · 0 sweep(s) · 4 retest(s) · 1 Breakout: Completed · 2 Retest: Held · 3 Continuation: In Progress."
+  },
+  {
+    "width": 390,
+    "function": "trade_plan",
+    "overflow": false,
+    "status": "Trade Plan: No actionable plan right now — BRAIN has not built one from a qualified setup."
+  },
+  {
+    "width": 390,
+    "axe": [
+      {
+        "id": "color-contrast",
+        "nodes": 11
+      }
+    ],
+    "errors": [
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix",
+      "Invalid language tag: en-US@posix"
+    ],
+    "http": []
+  }
+]

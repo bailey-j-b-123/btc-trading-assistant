@@ -220,8 +220,33 @@ export function patternCatalogue(evidence) {
 }
 
 /**
+ * Deterministic default order for stored pattern records (documented in
+ * docs/visual-signoff/patterns/REPORT.md). It ranks by lifecycle evidence and
+ * recency only — never by a "strength" or score, which the backend does not
+ * calculate:
+ *
+ *   1. current states (`is_latest_state`) before earlier states;
+ *   2. among those, a record that is still standing (formed / confirmed)
+ *      before one the detector has invalidated;
+ *   3. then the most recently known (`known_at`) first;
+ *   4. then the record id, descending, so equal times never flicker.
+ */
+export function patternDefaultRank(left, right) {
+  const latest = (entry) => (entry.isLatestState ? 0 : 1);
+  const standing = (entry) => (entry.state === "invalidated" ? 1 : 0);
+  if (latest(left) !== latest(right)) return latest(left) - latest(right);
+  if (standing(left) !== standing(right)) return standing(left) - standing(right);
+  const leftTime = Date.parse(left.knownAt || "") || 0;
+  const rightTime = Date.parse(right.knownAt || "") || 0;
+  if (leftTime !== rightTime) return rightTime - leftTime;
+  return String(right.id).localeCompare(String(left.id));
+}
+
+/**
  * The pattern to highlight: the operator's explicit choice when that exact
- * stored record exists in this window, otherwise the most recent current state.
+ * stored record exists in this window, otherwise the first record in the
+ * documented default order (patternDefaultRank): the most recent current state
+ * that has not been invalidated, else the most recent current state.
  */
 export function highlightedPattern(evidence, selectedId) {
   const catalogue = patternCatalogue(evidence);
@@ -229,7 +254,7 @@ export function highlightedPattern(evidence, selectedId) {
     const chosen = catalogue.find((entry) => entry.id === selectedId);
     if (chosen) return chosen;
   }
-  return catalogue.find((entry) => entry.isLatestState) || catalogue[0] || null;
+  return [...catalogue].sort(patternDefaultRank)[0] || null;
 }
 
 /**
@@ -341,7 +366,14 @@ export function swingCatalogue(evidence, { zones = [], patterns = [] } = {}) {
  * Swing connector points: one descending-by-time series per kind, using the
  * exact stored swing prices. Used only for the optional subtle connector line.
  */
-export function swingConnectors(evidence, { zones = [], patterns = [] } = {}, { majorOnly = false } = {}) {
+export function swingConnectors(
+  evidence,
+  { zones = [], patterns = [] } = {},
+  { majorOnly = false, format = "channels" } = {},
+) {
+  if (format === "chronological" || format === "zigzag") {
+    return chronologicalSwingConnectors(evidence, { zones, patterns }, { majorOnly });
+  }
   const swings = Array.isArray(evidence?.swings) ? evidence.swings : [];
   const points = new Map([["high", []], ["low", []]]);
   for (const swing of swings) {
@@ -353,6 +385,34 @@ export function swingConnectors(evidence, { zones = [], patterns = [] } = {}, { 
     points.get(swing.kind === "high" ? "high" : "low").push({ time, value });
   }
   return points;
+}
+
+/**
+ * Chronological swing connector points: one continuous sequence connecting
+ * confirmed swings in timestamp order (alternating highs and lows), representing
+ * structural market progression (zigzag).
+ */
+export function chronologicalSwingConnectors(
+  evidence,
+  { zones = [], patterns = [] } = {},
+  { majorOnly = false } = {},
+) {
+  const swings = Array.isArray(evidence?.swings) ? evidence.swings : [];
+  const valid = [];
+  for (const swing of swings) {
+    const time = toSeconds(swing.time_ms);
+    const value = Number(swing.price);
+    if (!Number.isFinite(time) || !Number.isFinite(value)) continue;
+    if (majorOnly && swingEmphasis(swing, { zones, patterns }) !== "major") continue;
+    valid.push({
+      time,
+      value,
+      kind: swing.kind,
+      label: swing.label || null,
+      timeMs: Number(swing.time_ms),
+    });
+  }
+  return valid.sort((left, right) => left.time - right.time);
 }
 
 /** Unified breakout/retest catalogue, newest first, with the backend's own state wording. */
@@ -402,10 +462,27 @@ export function levelCatalogue(bands) {
       high: band.band_high,
       center: band.center,
       touchCount: optionalNumber(band.touch_count),
+      // Separate instants that tested the level, versus the swing evidences counted above.
+      distinctTestTimestamps: optionalNumber(band.distinct_test_timestamps),
+      sharedCandleTests: optionalNumber(band.shared_candle_tests),
+      // Every contributing detector zone, so a merged band's aggregate basis stays inspectable.
+      mergedZoneCount: optionalNumber(band.merged_zone_count),
+      memberZones: Array.isArray(band.member_zones)
+        ? band.member_zones.filter((member) => member && typeof member === "object")
+        : [],
       timeframe: band.source_timeframe || null,
       faded: band.faded === true,
       isolated: band.isolated === true,
-      mergedZoneCount: optionalNumber(band.merged_zone_count),
+      firstSeen: band.first_seen || null,
+      lastTested: band.last_tested || null,
+      ageCandles: optionalNumber(band.age_candles),
+      // Distance to the nearest edge, against this chart's close when it has one.
+      distanceFromClose: optionalNumber(band.distance_from_close),
+      distancePctFromClose: optionalNumber(band.distance_pct_from_close),
+      viewedDistance: optionalNumber(band.viewed_distance),
+      viewedClose: band.viewed_close ?? null,
+      sourceClose: band.source_close ?? band.latest_close ?? null,
+      linkedEvents: band.linked_events && typeof band.linked_events === "object" ? band.linked_events : null,
     }));
 }
 
@@ -435,9 +512,23 @@ export function functionStatus({ functionId, evidence, model = null, plan = null
     if (bands.length) {
       const hidden = Number.isFinite(Number(extra?.hiddenCount)) ? Number(extra.hiddenCount) : 0;
       const merged = Number.isFinite(Number(extra?.mergedCount)) ? Number(extra.mergedCount) : 0;
+      // Bands the backend presented but this chart left unpainted, so the total is the real one.
+      const capHidden = Number.isFinite(Number(extra?.capHidden)) ? Number(extra.capHidden) : 0;
+      const higherHidden = Number.isFinite(Number(extra?.higherTimeframeHidden))
+        ? Number(extra.higherTimeframeHidden)
+        : 0;
+      const total = hidden + capHidden;
+      const parts = [`${bands.length} band(s) shown nearest price first`];
+      parts.push(
+        total > 0
+          ? `${total} further band(s) not drawn${capHidden > 0 ? ` (${capHidden} beyond this chart's nearest-band cap)` : ""}`
+          : "no further stored band was left out",
+      );
+      if (higherHidden > 0) parts.push(`${higherHidden} higher-timeframe band(s) also not drawn`);
+      parts.push(`${merged} merged for display`);
       return {
         available: true,
-        text: `${bands.length} band(s) shown nearest price first · ${hidden} further band(s) hidden · ${merged} merged for display.`,
+        text: `${parts.join(" · ")}.`,
         detail: null,
       };
     }
