@@ -88,3 +88,65 @@
 ### Responsive browser result correction
 - Locale-controlled reruns of mobile (390/768), desktop bottom (1440/1920) and Breakouts (four sizes) all exit 0. No assertion was modified. Browser locale is configured via `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8`; the host shell warns that it lacks this locale, but Chromium accepts it. Earlier invalid-locale failures remain recorded, not hidden.
 - BRAIN-AUDIT-0004 repair commit: **`98b7e190ebde1a0746cc6d10d33bfb8b2a4aa775`**.
+
+## Session `arena/178a68a2` — continuation (2026-10-14)
+
+Session-fixed branch for this session; repair PR #70 (draft, DO NOT MERGE) tracks it. Work resumes
+from the already-integrated tip `09f5ee2113b3cf35015e4d0058f45fa212cbe529` (PR #69) rather than
+re-integrating #62/#65/#66/#67 or rewriting the four repairs that already exist there: no feature
+branch, no audit branch and no `main` was touched, and no commit was duplicated.
+
+### Independent verification of the inherited state
+- Ancestry: #62 `a0f1faf`, #65 `ee6ab77`, #66 `a5c9013`, #67 `e223772` and the #53 dependency
+  `cd0df04` are all ancestors of this branch's tip (`git merge-base --is-ancestor`), so nothing was
+  cherry-picked or re-created, and no conflict markers remain in tracked source.
+- Agent 1's own probes re-run against this branch: BRAIN-AUDIT-0002 fails closed (amber/unconfirmed
+  for stale, missing, future and no-verdict input); BRAIN-AUDIT-0003 shows the viewed 15m bias
+  (Bearish) and UNKNOWN when 15m evidence is unavailable; BRAIN-AUDIT-0004 anchors Held to the
+  outcome candle 07:00 / known 08:00 while exposing the first observation 06:00 / known 07:00
+  separately.
+- **Decision invariance** — `tests/fixtures/decision_digests/dashboard_n500.json` was regenerated
+  during integration, so a matching digest could not show whether trade decisions changed. Both
+  revisions were instead dumped field by field (read-only worktree at #62 `a0f1faf` vs this head):
+  at boundaries 250/375/400/500 the replay frames, enumerated qualification snapshots and trade
+  plans are **identical — 0 added, 0 removed, 0 changed paths**. The dashboard payload has 0 removed
+  paths; the only changed value per boundary is one presentation string
+  (`.overlays.zone_bands.rules.merge`); every other difference is additive zone-evidence fields plus
+  `.meta.supported_timeframes[0..4]`. Evidence: `evidence/decision-invariance-178a68a2.txt`.
+- Suites on this head: frontend **481/481**; Python **1254 passed, 1 xfailed, 1 warning** (300.74 s,
+  the xfail being the documented shallow-history defect, marker untouched); browser suites
+  breakouts (4 sizes), patterns (5 sizes), mobile (390/768) and desktop bottom (1440/1920) all exit
+  0 against synthetic demo databases. Evidence: `evidence/session-178a68a2-suites.txt`.
+
+### REPAIR-CHECK-SR-002 — the S/R browser check could not verify a timeframe switch
+- Repairer-discovered and reproduced; **not independently verified**. Audit ID requested from
+  Agent 1 on #68 (same route as REPAIR-SR-001).
+- Reproduced: `support-resistance-check.mjs … --timeframe 1h --switch 4h` exits 1 at all four
+  viewports on the integrated head — but the application is correct. A probe drove the real
+  dashboard: within ~0.9 s of the click the chart paints three 4H bands labelled `R 4H · 3×`,
+  `IN 4H · 11×`, `S 4H · 7×` with the status line reporting 3 shown / 2 not drawn, while the API
+  stores those same 4H zones. Root cause is in the check, in three parts:
+  1. the post-switch read waited a fixed 900 ms after a control state that flips instantly, so it
+     read the previous timeframe's band once (stale `IN 1H · 37×`);
+  2. the band comparison ignored pane-edge clipping — the very case the check's own default-view
+     geometry assertion documents and allows — so any switched band reaching a pane edge failed;
+  3. the comparison passed **vacuously** when the switched view painted nothing, so the original
+     SR-001 defect (a non-engine timeframe dropping the backend's bands) was not detectable.
+- Repair, `scripts/browser-audit/support-resistance-check.mjs` only — **no application code changed**:
+  a deterministic wait for the app's own completion facts (the evidence line names the switched
+  timeframe's candle window AND the band layer holds exactly the bands the status line reports),
+  clipping-aware matching that mirrors the documented default-view rule, and a non-vacuous
+  requirement that the switched timeframe's stored bands are actually painted.
+- Negative control: removing the `zone_bands` passthrough from `views/dashboard.js` in the working
+  tree only (never committed; restored with `git checkout`) makes the repaired check fail at all
+  four viewports naming the missing bands. The same mutation passed vacuously before the repair.
+- After the repair the check exits 0 in three consecutive runs (32 s each). Evidence:
+  `evidence/sr-check-before.txt`, `evidence/sr-check-after.txt`, `evidence/sr-check-mutation.txt`,
+  `evidence/sr-switch-probe.txt`.
+- Status: **READY FOR AUDITOR RECHECK**.
+
+### Outstanding
+- REPAIR-SR-001 (non-engine `zone_bands` passthrough) is confirmed effective in a real browser by
+  the probe above; it still awaits its audit ID and independent recheck.
+- Nothing else outstanding on this branch at this checkpoint; the audit feed is rechecked at each
+  work checkpoint rather than by polling.

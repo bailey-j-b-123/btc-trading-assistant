@@ -537,17 +537,72 @@ try {
           { timeout: 180000, polling: 300 },
           switchTimeframe,
         );
-        await new Promise((resolveWait) => setTimeout(resolveWait, 900));
+        // The button state flips before the switched view exists: the app still has to fetch and
+        // apply THIS timeframe's candles, annotations and structure. A fixed sleep raced that work
+        // and could read the previous timeframe's bands, so wait for the app's own two facts
+        // instead — the evidence line names the switched timeframe's candle window, and the band
+        // layer holds exactly the bands the status line says it drew. Neither fact states the
+        // ANSWER (which zones, at which prices); they only say the view has finished switching.
+        let switchSettled = true;
+        let switchWaitError = null;
+        try {
+          await page.waitForFunction(
+            (upper) => {
+              const meta = document.querySelector(".chart-evidence-meta")?.textContent || "";
+              const status = document.querySelector(".chart-function-status")?.textContent || "";
+              // The evidence line reads "Evidence window: last 360 closed 4H candles (limit 500)".
+              const namesTimeframe = new RegExp(`closed\\s+${upper}\\s+candles`, "i").test(meta);
+              const shown = /(\d+) band\(s\) shown/.exec(status);
+              const layer = document.querySelector(".zone-band-layer");
+              const paintedCount = layer ? layer.querySelectorAll(".zone-band").length : 0;
+              // A status line that reports no drawn bands must agree with an empty layer.
+              const consistent = shown === null ? paintedCount === 0 : Number(shown[1]) === paintedCount;
+              return namesTimeframe && consistent;
+            },
+            { timeout: 120000, polling: 200 },
+            switchTimeframe.toUpperCase(),
+          );
+        } catch (error) {
+          switchSettled = false;
+          switchWaitError = String(error?.message || error).slice(0, 300);
+        }
         const second = await apiBands(switchTimeframe);
         const afterSwitch = await paintedBands();
         const rows = afterSwitch.bands.map((band) => ({
           low: Math.min(Number(band.topPrice), Number(band.bottomPrice)),
           high: Math.max(Number(band.topPrice), Number(band.bottomPrice)),
+          // A band reaching a pane edge is CLIPPED by the visible price range, exactly as the
+          // default-view geometry check above documents: its painted pixels then cover a subset of
+          // its stored bounds. Away from a pane edge the painted extent must still be the stored
+          // bounds, so the clipping allowance never hides a band that drifted.
+          clipped: band.top <= 0.5 || band.top + band.height >= (afterSwitch.paneHeight ?? 0) - 0.5,
         }));
-        const everyRowMatches = rows.every((row) => (second.bands || []).some((band) =>
-          Math.abs(band.low - row.low) <= (row.high - row.low) * 0.35 + 1e-9 &&
-          Math.abs(band.high - row.high) <= (row.high - row.low) * 0.35 + 1e-9));
-        viewportReport.afterSwitch = { api: second, painted: afterSwitch };
+        const everyRowMatches = rows.every((row) => {
+          const tolerance = Math.max((row.high - row.low) * 0.35, 1e-9);
+          const containing = (second.bands || []).filter((band) =>
+            row.low >= band.low - tolerance && row.high <= band.high + tolerance);
+          if (containing.length === 0) return false;
+          if (row.clipped) return true;
+          return containing.some((band) =>
+            Math.abs(band.low - row.low) <= tolerance && Math.abs(band.high - row.high) <= tolerance);
+        });
+        viewportReport.afterSwitch = { api: second, painted: afterSwitch, switchSettled, switchWaitError };
+        check(
+          checks,
+          `the switched ${switchTimeframe} view finished applying its own structure`,
+          switchSettled,
+          switchWaitError,
+        );
+        // The switched view must actually SHOW the switched timeframe's zones. Without this, every
+        // band assertion below passes vacuously on an empty layer — the exact failure mode where a
+        // non-engine timeframe silently borrows nothing and draws nothing while the API stores bands.
+        const switchedStored = Number(second.stored ?? second.presented ?? 0);
+        check(
+          checks,
+          `after switching to ${switchTimeframe} the chart paints that timeframe's stored bands`,
+          !(Number.isFinite(switchedStored) && switchedStored > 0) || rows.length > 0,
+          JSON.stringify({ stored: second.stored, presented: second.presented, painted: rows.length }),
+        );
         check(
           checks,
           `after switching to ${switchTimeframe} every painted band is that timeframe's own zone`,

@@ -1,0 +1,68 @@
+# Independent decision-invariance verification (session 178a68a2)
+
+tests/fixtures/decision_digests/dashboard_n500.json was regenerated during integration, so the
+tracked digest alone cannot show whether trade decisions changed. Both revisions were dumped
+field by field instead: the #62 baseline a0f1faf in a read-only worktree and the integrated head.
+
+## Decision sections (replay frames, enumerated qualification snapshots, trade plans)
+```
+  === boundary 250 ===
+    decision: baseline=30 paths, integrated=30 paths
+      added=0 removed=0 changed=0
+      added=77 removed=0 changed=1
+  === boundary 375 ===
+    decision: baseline=34 paths, integrated=34 paths
+      added=0 removed=0 changed=0
+      added=286 removed=0 changed=1
+  === boundary 400 ===
+    decision: baseline=30 paths, integrated=30 paths
+      added=0 removed=0 changed=0
+      added=146 removed=0 changed=1
+  === boundary 500 ===
+    decision: baseline=30 paths, integrated=30 paths
+      added=0 removed=0 changed=0
+      added=136 removed=0 changed=1
+```
+
+## Dashboard payload (full comparison)
+```
+  decision: baseline=30 paths, integrated=30 paths
+    added=0 removed=0 changed=0
+  dashboard: baseline=19504 paths, integrated=19581 paths
+    added=77 removed=0 changed=1
+    CHANGED (top prefixes): [('.overlays.zone_bands.rules', 1)]
+      .overlays.zone_bands.rules.merge: 'overlapping bands merged for display' -> 'overlapping bands merged for display; member zones stay listed'
+    ADDED (top prefixes): [('.overlays.zone_bands', 71), ('.meta', 5), ('.overlays.zone_bands.rules', 1)]
+
+=== boundary 375 ===
+  decision: baseline=34 paths, integrated=34 paths
+    added=0 removed=0 changed=0
+  dashboard: baseline=32937 paths, integrated=33223 paths
+    added=286 removed=0 changed=1
+    CHANGED (top prefixes): [('.overlays.zone_bands.rules', 1)]
+      .overlays.zone_bands.rules.merge: 'overlapping bands merged for display' -> 'overlapping bands merged for display; member zones stay listed'
+    ADDED (top prefixes): [('.overlays.zone_bands', 280), ('.meta', 5), ('.overlays.zone_bands.rules', 1)]
+
+=== boundary 400 ===
+  decision: baseline=30 paths, integrated=30 paths
+    added=0 removed=0 changed=0
+  dashboard: baseline=37513 paths, integrated=37659 paths
+    added=146 removed=0 changed=1
+    CHANGED (top prefixes): [('.overlays.zone_bands.rules', 1)]
+      .overlays.zone_bands.rules.merge: 'overlapping bands merged for display' -> 'overlapping bands merged for display; member zones stay listed'
+    ADDED (top prefixes): [('.overlays.zone_bands', 140), ('.meta', 5), ('.overlays.zone_bands.rules', 1)]
+
+=== boundary 500 ===
+  decision: baseline=30 paths, integrated=30 paths
+    added=0 removed=0 changed=0
+  dashboard: baseline=56028 paths, integrated=56164 paths
+    added=136 removed=0 changed=1
+    CHANGED (top prefixes): [('.overlays.zone_bands.rules', 1)]
+      .overlays.zone_bands.rules.merge: 'overlapping bands merged for display' -> 'overlapping bands merged for display; member zones stay listed'
+    ADDED (top prefixes): [('.overlays.zone_bands', 130), ('.meta', 5), ('.overlays.zone_bands.rules', 1)]
+```
+
+Every removed count is 0. The only changed value at every boundary is one presentation string
+('.overlays.zone_bands.rules.merge'); everything else is ADDITIVE zone-evidence fields
+(distance_from_close, distance_pct_from_close, distinct_test_timestamps, linked_events,
+shared_candle_tests, member_zones...) plus .meta.supported_timeframes[0..4].

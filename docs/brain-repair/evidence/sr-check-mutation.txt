@@ -1,0 +1,20 @@
+# Negative control — the repaired check must still fail on the real defect
+
+The SR-001 passthrough in src/.../views/dashboard.js was removed in the working tree only
+(never committed), reproducing 'a non-engine timeframe drops the backend zone bands'. The
+repaired check fails, naming the missing bands:
+```
+support-resistance check FAILED (4):
+ - 1536x864: after switching to 4h the chart paints that timeframe's stored bands
+ - 1440x900: after switching to 4h the chart paints that timeframe's stored bands
+ - 1920x1080: after switching to 4h the chart paints that timeframe's stored bands
+ - 390-mobile: after switching to 4h the chart paints that timeframe's stored bands
+```
+
+Before the non-vacuous assertion was added, the SAME mutation passed vacuously (0 painted
+bands, so every band assertion held trivially):
+```
+support-resistance check passed at 4 viewports; report: /home/user/btc-trading-assistant/.cache/verify/browser/sr-mutation/support-resistance-report.json
+mutation run, 1536x864 -> failures: 0 | painted bands: 0 | API stored: 5
+```
+The working tree was restored with 'git checkout' immediately; git status confirmed clean.
