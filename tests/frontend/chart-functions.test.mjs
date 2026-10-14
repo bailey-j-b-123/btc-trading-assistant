@@ -24,6 +24,7 @@ import {
   patternCatalogue,
   swingCatalogue,
   swingConnectors,
+  chronologicalSwingConnectors,
   swingEmphasis,
 } from "../../src/trading_assistant/web/static/js/chart_functions.js";
 import { LAYER_DEFS, DEFAULT_LAYERS } from "../../src/trading_assistant/web/static/js/evidence.js";
@@ -342,6 +343,26 @@ test("swing connectors use the stored swing prices, split by kind", () => {
   const majors = new Map(swingConnectors(EVIDENCE, { zones: EVIDENCE.zones }, { majorOnly: true }).entries());
   assert.deepEqual(majors.get("high").map((point) => point.value), [62000], "only the referenced highs in major-only mode");
   assert.deepEqual(majors.get("low").map((point) => point.value), [60100]);
+});
+
+test("chronological swing connectors return all confirmed swings in timestamp order", () => {
+  const chrono = chronologicalSwingConnectors(EVIDENCE);
+  assert.equal(chrono.length, 4);
+  assert.deepEqual(chrono.map((p) => p.time), [
+    Math.floor(ms(4) / 1000),
+    Math.floor(ms(9) / 1000),
+    Math.floor(ms(15) / 1000),
+    Math.floor(ms(21) / 1000),
+  ], "must be in strict ascending time order");
+  assert.deepEqual(chrono.map((p) => p.value), [62000, 60100, 61400, 58900]);
+  assert.deepEqual(chrono.map((p) => p.kind), ["high", "low", "high", "low"]);
+  // Test format: "chronological" option via swingConnectors
+  const viaFormat = swingConnectors(EVIDENCE, {}, { format: "chronological" });
+  assert.deepEqual(viaFormat, chrono);
+  // Major only
+  const majorsOnly = chronologicalSwingConnectors(EVIDENCE, { zones: EVIDENCE.zones }, { majorOnly: true });
+  assert.equal(majorsOnly.length, 2);
+  assert.deepEqual(majorsOnly.map((p) => p.value), [62000, 60100]);
 });
 
 // ---------------------------------------------------------------------------

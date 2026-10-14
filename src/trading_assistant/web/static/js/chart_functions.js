@@ -366,7 +366,14 @@ export function swingCatalogue(evidence, { zones = [], patterns = [] } = {}) {
  * Swing connector points: one descending-by-time series per kind, using the
  * exact stored swing prices. Used only for the optional subtle connector line.
  */
-export function swingConnectors(evidence, { zones = [], patterns = [] } = {}, { majorOnly = false } = {}) {
+export function swingConnectors(
+  evidence,
+  { zones = [], patterns = [] } = {},
+  { majorOnly = false, format = "channels" } = {},
+) {
+  if (format === "chronological" || format === "zigzag") {
+    return chronologicalSwingConnectors(evidence, { zones, patterns }, { majorOnly });
+  }
   const swings = Array.isArray(evidence?.swings) ? evidence.swings : [];
   const points = new Map([["high", []], ["low", []]]);
   for (const swing of swings) {
@@ -378,6 +385,34 @@ export function swingConnectors(evidence, { zones = [], patterns = [] } = {}, { 
     points.get(swing.kind === "high" ? "high" : "low").push({ time, value });
   }
   return points;
+}
+
+/**
+ * Chronological swing connector points: one continuous sequence connecting
+ * confirmed swings in timestamp order (alternating highs and lows), representing
+ * structural market progression (zigzag).
+ */
+export function chronologicalSwingConnectors(
+  evidence,
+  { zones = [], patterns = [] } = {},
+  { majorOnly = false } = {},
+) {
+  const swings = Array.isArray(evidence?.swings) ? evidence.swings : [];
+  const valid = [];
+  for (const swing of swings) {
+    const time = toSeconds(swing.time_ms);
+    const value = Number(swing.price);
+    if (!Number.isFinite(time) || !Number.isFinite(value)) continue;
+    if (majorOnly && swingEmphasis(swing, { zones, patterns }) !== "major") continue;
+    valid.push({
+      time,
+      value,
+      kind: swing.kind,
+      label: swing.label || null,
+      timeMs: Number(swing.time_ms),
+    });
+  }
+  return valid.sort((left, right) => left.time - right.time);
 }
 
 /** Unified breakout/retest catalogue, newest first, with the backend's own state wording. */
