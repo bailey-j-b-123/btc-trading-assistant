@@ -50,7 +50,7 @@ Public surface
     The eight family names.
 """
 
-from trading_assistant.chart_geometry.detector import detect_chart_geometry
+from trading_assistant.chart_geometry.detector import FAMILY_ORDER, detect_chart_geometry
 from trading_assistant.chart_geometry.families import (
     DEFINITION_BY_FAMILY,
     FAMILY_DEFINITIONS,
@@ -75,7 +75,14 @@ from trading_assistant.chart_geometry.parameters import (
     chart_geometry_fingerprint,
 )
 
+CHART_GEOMETRY_VERSION = CHART_GEOMETRY_RULES_VERSION
+CHART_GEOMETRY_FAMILY_COUNT = len(FAMILY_ORDER)
+CHART_GEOMETRY_FINGERPRINT = chart_geometry_fingerprint(ChartGeometryParameters())
+
 __all__ = [
+    "CHART_GEOMETRY_FAMILY_COUNT",
+    "CHART_GEOMETRY_FINGERPRINT",
+    "CHART_GEOMETRY_VERSION",
     "CHART_GEOMETRY_RULES_VERSION",
     "DEFINITION_BY_FAMILY",
     "FAMILY_DEFINITIONS",

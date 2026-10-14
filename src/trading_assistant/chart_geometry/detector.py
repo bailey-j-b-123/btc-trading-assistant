@@ -15,9 +15,12 @@ Anti-lookahead contract
 * A formation's ``formed_at`` is the latest confirmation instant of its
   components; only candles closing strictly after that instant can confirm or
   invalidate it.
-* Freezing: the geometry is computed once, from the earliest qualifying window. A
-  later window that merely extends an already-described formation of the same
-  family is suppressed instead of re-fitting the same formation's lines.
+* Freezing: every family has a fixed-size component window over confirmed swings,
+  and a confirmed swing never changes once Step 3 has reported it. A formation's
+  two boundary lines are therefore anchored on the same two real pivots forever:
+  later candles can add *new* formations (with new ids) but can never re-fit,
+  widen, shift, or extend an already-described one. The candidate set only grows
+  with the closed prefix, which the prefix-equivalence tests pin.
 * Terminal invalidation: once a formation id is invalidated it can never be
   confirmed, re-formed, or resurrected by later candles.
 
@@ -84,47 +87,6 @@ def _require_instrument(value: object, *, name: str) -> str:
     return value
 
 
-def freeze_superseded(
-    candidates: Iterable[CandidateFormation],
-) -> tuple[list[CandidateFormation], int]:
-    """Keep the earliest geometry of each family and count the superseded ones.
-
-    A candidate is superseded when an already-accepted candidate of the same
-    family has components that are an exact prefix of its components: that is the
-    same formation described over a longer window, and chart-geometry-v1 freezes
-    the geometry at first detection instead of re-fitting it. Distinct windows
-    that merely overlap are separate formations and are all kept.
-    """
-
-    ordered = sorted(
-        candidates,
-        key=lambda candidate: (
-            candidate.formed_at,
-            candidate.components[0].timestamp,
-            candidate.family.value,
-        ),
-    )
-    accepted: list[CandidateFormation] = []
-    superseded = 0
-    for candidate in ordered:
-        if any(_is_extension(existing, candidate) for existing in accepted):
-            superseded += 1
-            continue
-        accepted.append(candidate)
-    return accepted, superseded
-
-
-def _is_extension(accepted: CandidateFormation, candidate: CandidateFormation) -> bool:
-    if accepted.family is not candidate.family:
-        return False
-    if len(candidate.components) <= len(accepted.components):
-        return False
-    return all(
-        existing == new
-        for existing, new in zip(accepted.components, candidate.components)
-    )
-
-
 def detect_chart_geometry(
     candles: Iterable[Candle],
     *,
@@ -156,14 +118,14 @@ def detect_chart_geometry(
 
     provided = tuple(candles)
     validated = ordered_candles(provided, interval=interval)
-    for candle in validated:
+    for candle_index, candle in enumerate(validated):
         if (candle.exchange, candle.symbol, candle.timeframe) != (
             scoped_exchange,
             scoped_symbol,
             scoped_timeframe,
         ):
             raise ValueError(
-                "every candle must belong to the exchange, symbol, and timeframe "
+                f"candle {candle_index} must belong to the exchange, symbol, and timeframe "
                 "given to detect_chart_geometry"
             )
     closed = tuple(c for c in validated if c.timestamp + interval <= as_of_utc)
@@ -190,7 +152,18 @@ def detect_chart_geometry(
         cup_and_handle_candidates(swings, index=index, parameters=resolved, tally=tally)
     )
 
-    accepted, superseded = freeze_superseded(candidates)
+    # Detection order is fixed (converging families, flags, cup and handle) and
+    # every window is a fixed-size slice of the confirmed-swing sequence, so the
+    # accepted set is deterministic and grows monotonically with the closed
+    # prefix. No candidate is ever re-fitted by a later candle.
+    accepted = sorted(
+        candidates,
+        key=lambda candidate: (
+            candidate.formed_at,
+            candidate.components[0].timestamp,
+            candidate.family.value,
+        ),
+    )
     fingerprint = resolved.fingerprint()
     formations: list[ChartGeometryFormation] = []
     events: list[ChartGeometryEvent] = []
@@ -280,10 +253,8 @@ def detect_chart_geometry(
         required_candle_count=required_candles,
         insufficient_history=len(closed) < required_candles,
         confirmed_swing_count=len(swings),
-        unconfirmed_swing_count=swing_result.unconfirmed_count,
         candidate_window_count=tally.windows_evaluated,
         accepted_candidate_count=tally.accepted,
-        frozen_superseded_count=superseded,
         formation_count=len(formations),
         formed_only_count=sum(1 for f in formations if f.state == "formed"),
         gap_truncated_count=truncated_count,

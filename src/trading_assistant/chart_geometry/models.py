@@ -200,11 +200,12 @@ class ChartGeometryDiagnostics:
     excluded_future_candle_count: int
     required_candle_count: int
     insufficient_history: bool
+    #: Confirmed swings knowable at ``as_of``. Swings are only ever taken from the
+    #: closed prefix, so a swing that is not yet confirmed is not counted at all:
+    #: this package never evaluates a pivot it may not know.
     confirmed_swing_count: int
-    unconfirmed_swing_count: int
     candidate_window_count: int
     accepted_candidate_count: int
-    frozen_superseded_count: int
     formation_count: int
     formed_only_count: int
     #: Formations whose gap-free candle run ended before the end of the closed

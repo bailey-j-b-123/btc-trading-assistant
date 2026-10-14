@@ -24,9 +24,26 @@ from __future__ import annotations
 from decimal import Decimal as D
 
 from test_chart_geometry_fixtures import (
+    ASCENDING_PIVOTS,
+    ASCENDING_TAIL,
+    BEAR_FLAG_PIVOTS,
+    BEAR_FLAG_TAIL,
+    BULL_FLAG_PIVOTS,
+    BULL_FLAG_TAIL,
+    CUP_PIVOTS,
+    CUP_TAIL,
+    DESCENDING_PIVOTS,
+    DESCENDING_TAIL,
     EPOCH,
+    FALLING_PIVOTS,
+    FALLING_TAIL,
     INTERVAL,
+    RISING_PIVOTS,
+    RISING_TAIL,
     SWING_OFFSET,
+    SYMMETRICAL_APEX_TAIL,
+    SYMMETRICAL_CONFIRM_TAIL,
+    SYMMETRICAL_PIVOTS,
     close_time,
     detect,
     synthetic_series,
@@ -62,153 +79,6 @@ def only(snapshot, family: ChartGeometryFamily):
     formations = snapshot.formations_for(family)
     assert len(formations) == 1, [f.family.value for f in snapshot.formations]
     return formations[0]
-
-
-# --- Fixture definitions, with the arithmetic each test relies on ------------
-#
-# SWING_OFFSET = 0.10, so a pivot priced P contributes a swing high of P + 0.10
-# and a swing low of P - 0.10.
-
-# ascending_triangle: pivots (lead 100), high 110 @4, low 104 @8, high 110.1 @12,
-# low 108 @16.
-#   upper 110.10 @4 -> 110.20 @12 : slope 0.10/8 = 0.0125
-#                                   travel 0.10/110.15*100 = 0.09078529%  (flat)
-#   lower 103.90 @8 -> 107.90 @16 : slope 4.00/8 = 0.5
-#                                   travel 4/105.90*100 = 3.77714825%    (rising)
-#   gap @4 = 110.10 - (103.90 - 0.5*4) = 8.20
-#   gap @16 = (110.20 + 0.0125*4) - 107.90 = 2.35
-#   contraction = (8.20 - 2.35)/8.20*100 = 71.34146341%
-#   apex = (103.90 - 110.10 - 0.5*4)/(0.0125 - 0.5) = 16.82051282 candles after @4
-ASCENDING_PIVOTS = [100, 110, 104, "110.1", 108]
-ASCENDING_TAIL = [
-    ("108", "109.2", "108.0", "109.0"),  # index 17, inside both boundaries
-    ("109.0", "109.7", "109.0", "109.5"),  # index 18, confirms the last component
-    ("109.5", "110.0", "109.6", "109.8"),  # index 19, first eligible candle, inside
-    ("109.8", "111.7", "109.7", "111.5"),  # index 20, closes above the upper line
-]
-
-# descending_triangle: pivots (lead 110), low 100 @4, high 106 @8, low 99.9 @12,
-# high 102 @16.
-#   upper 106.10 @8 -> 102.10 @16 : slope -4/8 = -0.5
-#                                   travel -4/104.10*100 = -3.84245917% (falling)
-#   lower 99.90 @4 -> 99.80 @12   : slope -0.10/8 = -0.0125
-#                                   travel -0.10/99.85*100 = -0.10015023% (flat)
-#   gap @4 = (106.10 + 0.5*4) - 99.90 = 8.20 ; gap @16 = 102.10 - 99.75 = 2.35
-#   apex = (99.90 - 106.10 - (-0.0125 * -4))/(-0.5 + 0.0125) = 12.82051282 after @8
-DESCENDING_PIVOTS = [110, 100, 106, "99.9", 102]
-DESCENDING_TAIL = [
-    ("102", "102.05", "100.4", "100.5"),  # index 17
-    ("100.5", "100.6", "99.95", "100.0"),  # index 18
-    ("100.0", "100.1", "98.4", "98.5"),  # index 19, closes below the lower line
-]
-
-# symmetrical_triangle: pivots (lead 100), high 110 @4, low 100 @8, high 107 @12,
-# low 103 @16.
-#   upper 110.10 @4 -> 107.10 @12 : slope -3/8 = -0.375
-#                                   travel -3/108.60*100 = -2.76243094%
-#   lower 99.90 @8 -> 102.90 @16  : slope 3/8 = 0.375
-#                                   travel 3/101.40*100 = 2.95857988%
-#   gap @4 = 110.10 - (99.90 - 0.375*4) = 11.70 ; gap @16 = 105.60 - 102.90 = 2.70
-#   apex = (99.90 - 110.10 - 0.375*4)/(-0.375 - 0.375) = 15.6 candles after @4,
-#   i.e. at index 19.6: index 19 is still inside, index 20 is at/after the apex.
-SYMMETRICAL_PIVOTS = [100, 110, 100, 107, 103]
-SYMMETRICAL_CONFIRM_TAIL = [
-    ("103", "104.4", "103.2", "104.2"),  # index 17
-    ("104.2", "104.3", "103.7", "104.0"),  # index 18
-    ("104.0", "105.6", "103.9", "105.5"),  # index 19, closes above the upper line
-]
-SYMMETRICAL_APEX_TAIL = [
-    ("103", "104.4", "103.2", "104.2"),  # index 17
-    ("104.2", "104.3", "103.7", "104.0"),  # index 18
-    ("104.0", "104.4", "103.9", "104.2"),  # index 19, still inside (104.025..104.475)
-    ("104.2", "104.5", "104.0", "104.3"),  # index 20, past the apex: lines crossed
-    ("104.3", "108.0", "104.2", "107.5"),  # index 21, far above the upper line
-    ("107.5", "111.0", "107.4", "110.5"),  # index 22, further above again
-]
-
-# rising_wedge: pivots (lead 100), high 108 @4, low 102 @8, high 110 @12, low 106 @16.
-#   upper 108.10 @4 -> 110.10 @12 : slope 2/8 = 0.25
-#                                   travel 2/109.10*100 = 1.83318057%   (rising)
-#   lower 101.90 @8 -> 105.90 @16 : slope 4/8 = 0.5
-#                                   travel 4/103.90*100 = 3.84985563%   (rising)
-#   upper rises more slowly than the lower line, so the gap narrows:
-#   gap @4 = 108.10 - (101.90 - 0.5*4) = 8.20 ; gap @16 = 111.10 - 105.90 = 5.20
-#   apex = (101.90 - 108.10 - 0.5*4)/(0.25 - 0.5) = 32.8 candles after @4
-RISING_PIVOTS = [100, 108, 102, 110, 106]
-RISING_TAIL = [
-    ("106", "107.2", "106.0", "107.0"),  # index 17
-    ("107.0", "107.7", "106.8", "107.5"),  # index 18
-    ("107.5", "107.6", "106.4", "106.5"),  # index 19, closes below the lower line
-]
-
-# falling_wedge: pivots (lead 100), high 108 @4, low 102 @8, high 104 @12, low 100 @16.
-#   upper 108.10 @4 -> 104.10 @12 : slope -4/8 = -0.5
-#                                   travel -4/106.10*100 = -3.77002828% (falling)
-#   lower 101.90 @8 -> 99.90 @16  : slope -2/8 = -0.25
-#                                   travel -2/100.90*100 = -1.98216056% (falling)
-#   the upper line falls faster, so the gap narrows:
-#   gap @4 = 108.10 - (101.90 + 0.25*4) = 5.20 ; gap @16 = 102.10 - 99.90 = 2.20
-#   apex = (101.90 - 108.10 + 0.25*4)/(-0.5 + 0.25) = 20.8 candles after @4
-FALLING_PIVOTS = [100, 108, 102, 104, 100]
-FALLING_TAIL = [
-    ("100", "100.7", "100.0", "100.5"),  # index 17
-    ("100.5", "100.7", "100.1", "100.2"),  # index 18
-    ("100.2", "101.6", "100.1", "101.5"),  # index 19, closes above the upper line
-]
-
-# bull_flag: pivots (lead 104), low 100 @4, high 110 @8, low 106 @12, high 108 @16,
-# low 106.1 @20.
-#   pole 99.90 @4 -> 110.10 @8 : move 10.20, 10.20/99.90*100 = 10.21021021%, span 4
-#   body pivots 105.90 @12, 108.10 @16, 106.00 @20 all inside (99.90, 110.10]
-#   deepest body low 105.90 -> retrace (110.10-105.90)/10.20*100 = 41.17647059%
-#   upper 110.10 @8 -> 108.10 @16 : slope -0.25, travel -2/109.10*100 = -1.83318057%
-#   lower 105.90 @12 -> 106.00 @20: slope 0.0125, travel 0.10/105.95*100 = 0.09438414%
-#   body gaps @12/@16/@20 = 3.20 / 2.15 / 1.10 (non-expanding)
-BULL_FLAG_PIVOTS = [104, 100, 110, 106, 108, "106.1"]
-BULL_FLAG_TAIL = [
-    ("106.1", "106.6", "106.2", "106.4"),  # index 21
-    ("106.4", "106.6", "106.3", "106.5"),  # index 22, confirms the last component
-    ("106.5", "106.9", "106.4", "106.7"),  # index 23, closes above the upper line
-    ("106.7", "107.6", "106.6", "107.5"),  # index 24, further above
-]
-
-# bear_flag: pivots (lead 100), high 104 @4, low 94 @8, high 98 @12, low 96 @16,
-# high 97.9 @20.
-#   pole 104.10 @4 -> 93.90 @8 : move 10.20, 10.20/104.10*100 = 9.79827090%, span 4
-#   highest body high 98.10 -> retrace (98.10-93.90)/10.20*100 = 41.17647059%
-#   upper 98.10 @12 -> 98.00 @20 : slope -0.0125, travel -0.10/98.05*100 = -0.10198878%
-#   lower 93.90 @8 -> 95.90 @16  : slope 0.25, travel 2/94.90*100 = 2.10748156%
-#   body gaps @12/@16/@20 = 3.20 / 2.15 / 1.10 (non-expanding)
-BEAR_FLAG_PIVOTS = [100, 104, 94, 98, 96, "97.9"]
-BEAR_FLAG_TAIL = [
-    ("97.9", "97.95", "97.5", "97.6"),  # index 21
-    ("97.6", "97.9", "97.55", "97.7"),  # index 22, confirms the last component
-    ("97.7", "97.85", "97.6", "97.75"),  # index 23, still inside
-    ("97.75", "97.8", "96.4", "96.5"),  # index 24, closes below the lower line
-]
-
-# cup_and_handle: pivots (lead 100), left rim 110 @4, trough low 100 @8, interior
-# high 104 @12, trough low 100.5 @16, right rim 109.5 @20, handle low 106 @24,
-# handle high 108 @28, handle low 106.5 @32.
-#   rims 110.10 @4 and 109.60 @20 : difference 0.50/110.10*100 = 0.45413261%
-#   rim line slope -0.50/16 = -0.03125, travel -0.50/109.85*100 = -0.45516614%
-#   deepest trough low 99.90 @8, rim there = 110.10 - 0.03125*4 = 109.975
-#       depth 10.075, 10.075/109.975*100 = 9.16117299%
-#   trough base difference 0.50/99.90*100 = 0.50050050%
-#   interior prominence (104.10-100.40)/10.075*100 = 36.72456576%
-#   descent leg 4 candles, ascent leg 12 candles
-#   recovery (109.60-99.90)/(110.10-99.90)*100 = 95.09803922%
-#   handle lowest 105.90, handle retrace (109.60-105.90)/9.70*100 = 38.14432990%
-#   handle lower line 105.90 @24 -> 106.40 @32 : slope 0.0625,
-#       travel 0.50/106.15*100 = 0.47103156%
-#   handle gaps @24/@28/@32 = 3.575 / 3.20 / 2.825 (non-expanding)
-CUP_PIVOTS = [100, 110, 100, 104, "100.5", "109.5", 106, 108, "106.5"]
-CUP_TAIL = [
-    ("106.5", "107.2", "106.6", "107.0"),  # index 33
-    ("107.0", "107.7", "106.9", "107.5"),  # index 34, confirms the last component
-    ("107.5", "108.2", "107.4", "108.0"),  # index 35, first eligible candle, inside
-    ("108.0", "110.2", "107.9", "110.0"),  # index 36, closes above the rim line
-]
 
 
 # --- ascending_triangle ------------------------------------------------------
