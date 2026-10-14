@@ -1,5 +1,26 @@
 # BRAIN integration & repair log — DO NOT MERGE
 
+## Resume here (state at `dc6fabe`, 2026-10-14)
+
+- Branch `arena/178a68a2-btc-trading-assistant`; repair PR: **#70 `BRAIN INTEGRATION & FIXES — DO NOT
+  MERGE`** (draft, never to be merged by this session). Audit feed: PR #68 on
+  `origin/arena/d3f9aa87-btc-trading-assistant`, findings 0001-0006.
+- Repaired and pushed: BRAIN-AUDIT-0001 .. 0004 (inherited lineage), REPAIR-SR-001,
+  REPAIR-CHECK-SR-002, and now **BRAIN-AUDIT-0005 and 0006** — both ready for auditor recheck, with
+  evidence files listed in the entry below. Nothing is self-marked VERIFIED.
+- Suites on this head: `pytest` 1272 passed / 1 xfailed; `npm test` 485 / 485;
+  `support-resistance-check.mjs` exit 0 (3 runs); `zone-reference-check.mjs` exit 0 on the end-state
+  and positive-control databases, exit 1 under both negative controls.
+- Settings used for the browser work (`.cache` only, disposable): demo databases
+  `.cache/brain-repair/sr.sqlite3` (end state), `.cache/brain-repair/sr-linked.sqlite3` (truncated at
+  the positive-control instant), servers on :8125 (1h engine, for the S/R switch check), :8126
+  (4h engine) and :8127 (4h engine, positive-control DB). Rebuild a database with
+  `.cache/verify/make_sr_db.py <path> <days> <anchor> [--until ISO]`.
+- Next steps for a successor: (1) re-read PR #68 for new findings and treat them as the work queue —
+  do not re-fix 0001-0006; (2) the two "Outstanding" observations below need either an owner
+  decision or a separate auditable change; (3) keep every number in this log traceable to a command
+  in `evidence/`.
+
 ## Guardrails
 - Repair branch: `arena/0090b00d-btc-trading-assistant` (session-fixed; no other branches will be modified).
 - No merge into main, production deployment, real-money trading, production database changes, or strategy/risk/execution changes without owner approval.
