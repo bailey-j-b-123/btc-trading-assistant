@@ -176,7 +176,9 @@ function swingsModel({ evidence, bands, marketState }) {
     patterns: Array.isArray(evidence?.patterns) ? evidence.patterns : [],
   });
   const levels = nearestBands(bands);
-  const trend = marketState?.available === true ? marketState.trend || null : null;
+  const trend = (evidence?.trend && typeof evidence.trend === "object" && evidence.trend.direction)
+    ? evidence.trend
+    : (marketState?.available === true ? marketState.trend || null : null);
   const latest = rows.reduce((newest, row) => (
     Number.isFinite(row.timeMs) && (!newest || row.timeMs > Number(newest.timeMs)) ? row : newest
   ), null);
