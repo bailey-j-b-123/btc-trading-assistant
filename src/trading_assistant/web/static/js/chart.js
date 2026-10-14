@@ -10,14 +10,17 @@ const DOWN = "#e0565b";
 const GRID = "#1a2130";
 const TEXT = "#707b91";
 
+// Approved dashboard design: a trade plan reads blue entry, red stop / risk and
+// green targets / reward. These are display colours only — the plan's own levels
+// and the engine that produced them are untouched.
 export const OVERLAY_COLORS = {
   zones: "#5b9bd5",
   range: "#b58cf0",
   equalLevels: "#e8a33d",
-  entry: "#2fbf7f",
+  entry: "#5b9bd5",
   stop: "#e0565b",
   invalidation: "#e8a33d",
-  targets: "#5b9bd5",
+  targets: "#2fbf7f",
   swings: "#707b91",
   reference: "#8ea0bd",
 };
@@ -177,6 +180,9 @@ export function createPriceChart(container, { height } = {}) {
     zoneLayer: null,
     zoneBandsState: null,
     zoneUnsubscribers: [],
+    breakoutAnnoLayer: null,
+    breakoutAnnoState: null,
+    annoUnsubscribers: [],
     // Raw loaded rows (ascending). Older pages are merged into these, never replaced.
     loadedRows: [],
     historyUnsubscribe: null,
@@ -188,6 +194,7 @@ export function createPriceChart(container, { height } = {}) {
     const nextHeight = Number(container.clientHeight) || 0;
     if (width > 0 && nextHeight > 0) chart.resize(width, nextHeight);
     renderZoneBands(handle);
+    renderBreakoutAnnotations(handle);
   };
 
   if (typeof ResizeObserver === "function") {
@@ -215,6 +222,8 @@ export const DEFAULT_VISIBLE_CANDLES_NARROW = 60;
 
 /** Tablets get an intermediate window. Each tier is a presentation choice; the data window is unchanged. */
 export const DEFAULT_VISIBLE_CANDLES_TABLET = 90;
+/** Empty space kept to the right of the newest candle, on first load and when restoring a window. */
+export const DEFAULT_EDGE_MARGIN = 3;
 
 function defaultVisibleCandles() {
   const matches = (query) => typeof globalThis.matchMedia === "function" && globalThis.matchMedia(query).matches;
@@ -239,7 +248,7 @@ export function setCandles(handle, payload) {
     if (typeof timeScale.setVisibleLogicalRange === "function") {
       const last = candles.length - 1;
       const visible = defaultVisibleCandles();
-      timeScale.setVisibleLogicalRange({ from: Math.max(0, last - visible + 1), to: last + 3 });
+      timeScale.setVisibleLogicalRange({ from: Math.max(0, last - visible + 1), to: last + DEFAULT_EDGE_MARGIN });
     }
     handle.initialRangeApplied = true;
   }
@@ -313,6 +322,398 @@ export function restoreChartView(handle, captured) {
 }
 
 /**
+ * The visible index window, expressed the only way that survives a change of series length:
+ * the number of candles on screen (the zoom) and how far the right edge sits from the newest
+ * loaded candle (the place).
+ *
+ * A timeframe switch loads a different time base, so the same instants no longer mean the same
+ * candles, and the candle count changes too (a 1H view may hold 500 candles where the 5M view
+ * held 200). Absolute indices therefore cannot be carried across: they would leave the operator
+ * staring at ancient history after a switch. The width and the distance from the live edge can.
+ * Used only for timeframe changes; refreshes use captureChartView.
+ */
+export function captureLogicalView(handle) {
+  const timeScale = handle && !handle.destroyed && handle.chart && typeof handle.chart.timeScale === "function"
+    ? handle.chart.timeScale()
+    : null;
+  if (!timeScale || typeof timeScale.getVisibleLogicalRange !== "function") return null;
+  const bars = Number.isFinite(handle.barCount) ? handle.barCount : 0;
+  if (bars <= 0) return null;
+  const range = timeScale.getVisibleLogicalRange();
+  if (!range || !Number.isFinite(range.from) || !Number.isFinite(range.to) || range.to <= range.from) return null;
+  return {
+    width: range.to - range.from,
+    // Positive at the live edge (the usual case), larger when the window is panned into history.
+    edgeOffset: range.to - (bars - 1),
+  };
+}
+
+/**
+ * Put back a window captured by captureLogicalView on the series that is loaded now.
+ *
+ * The same zoom (candle count) and the same distance from the newest candle are restored, then
+ * clamped to what exists: the window never starts before the first candle and never runs more
+ * than a small margin past the newest one, exactly like the default view.
+ */
+export function restoreLogicalView(handle, captured) {
+  const timeScale = handle && !handle.destroyed && handle.chart && typeof handle.chart.timeScale === "function"
+    ? handle.chart.timeScale()
+    : null;
+  if (!captured || !timeScale || typeof timeScale.setVisibleLogicalRange !== "function") return;
+  const bars = Number.isFinite(handle.barCount) ? handle.barCount : 0;
+  if (bars <= 0) return;
+  const width = Math.min(Math.max(Number(captured.width) || 0, 1), bars);
+  const lastIndex = bars - 1;
+  const edgeOffset = Number.isFinite(Number(captured.edgeOffset)) ? Number(captured.edgeOffset) : 1;
+  const maxTo = lastIndex + DEFAULT_EDGE_MARGIN;
+  let to = Math.min(lastIndex + edgeOffset, maxTo);
+  let from = to - width;
+  if (from < 0) {
+    from = 0;
+    to = Math.min(width, maxTo);
+  }
+  timeScale.setVisibleLogicalRange({ from, to });
+}
+
+/**
+ * The visible-range API of a live chart, or null when there is nothing to move.
+ * Kept separate from the logical-view helpers above because those carry a view
+ * across a RELOAD; these move the view the operator is already looking at.
+ */
+function liveTimeScale(handle) {
+  return handle && !handle.destroyed && handle.chart && typeof handle.chart.timeScale === "function"
+    ? handle.chart.timeScale()
+    : null;
+}
+
+/** Empty candles kept either side of a framed span, so the last event is not on the edge. */
+export const FRAME_PAD_CANDLES = 6;
+
+/**
+ * Bring one bar into view, keeping the operator's current zoom.
+ *
+ * The number of candles on screen is read from the chart and put back around the
+ * requested bar, so jumping to a stored event never changes how far the operator
+ * is zoomed in — only where the window sits. Presentation only: no row,
+ * timeframe, layer or stored value is touched.
+ *
+ * @returns {{from: number, to: number}|null} the applied logical range.
+ */
+export function focusBarOnChart(handle, index) {
+  const timeScale = liveTimeScale(handle);
+  if (!timeScale || typeof timeScale.setVisibleLogicalRange !== "function") return null;
+  const bars = Number.isFinite(handle.barCount) ? handle.barCount : 0;
+  if (bars <= 0 || !Number.isFinite(index)) return null;
+  const current = typeof timeScale.getVisibleLogicalRange === "function"
+    ? timeScale.getVisibleLogicalRange()
+    : null;
+  const measured = current && Number.isFinite(current.from) && Number.isFinite(current.to) && current.to > current.from
+    ? current.to - current.from
+    : null;
+  const width = Math.min(Math.max(measured ?? defaultVisibleCandles(), 1), bars);
+  const maxTo = bars - 1 + DEFAULT_EDGE_MARGIN;
+  let from = Math.round(Number(index) - width / 2);
+  let to = from + width;
+  if (from < 0) {
+    from = 0;
+    to = Math.min(width, maxTo);
+  }
+  if (to > maxTo) {
+    to = maxTo;
+    from = Math.max(0, to - width);
+  }
+  const range = { from, to };
+  timeScale.setVisibleLogicalRange(range);
+  return range;
+}
+
+/**
+ * Frame a span of bars: the one control that DOES change the zoom, because
+ * fitting the stored events is exactly what was asked for. Used by the
+ * Breakouts & Retests "frame events" control, never automatically.
+ *
+ * @returns {{from: number, to: number}|null} the applied logical range.
+ */
+export function frameBarsOnChart(handle, fromIndex, toIndex, { pad = FRAME_PAD_CANDLES } = {}) {
+  const timeScale = liveTimeScale(handle);
+  if (!timeScale || typeof timeScale.setVisibleLogicalRange !== "function") return null;
+  const bars = Number.isFinite(handle.barCount) ? handle.barCount : 0;
+  if (bars <= 0 || !Number.isFinite(fromIndex) || !Number.isFinite(toIndex)) return null;
+  const low = Math.min(fromIndex, toIndex);
+  const high = Math.max(fromIndex, toIndex);
+  const margin = Number.isFinite(pad) ? Math.max(0, Math.trunc(pad)) : 0;
+  const maxTo = bars - 1 + DEFAULT_EDGE_MARGIN;
+  let from = Math.max(0, Math.trunc(low) - margin);
+  let to = Math.min(maxTo, Math.trunc(high) + margin);
+  if (to <= from) {
+    from = Math.max(0, Math.min(from, maxTo - 1));
+    to = Math.min(maxTo, from + 1);
+  }
+  const range = { from, to };
+  timeScale.setVisibleLogicalRange(range);
+  return range;
+}
+
+// ---------------------------------------------------------------------------
+// Breakout / Retest / Continuation callouts
+//
+// Three numbered callouts with an arrow to the candle each step belongs to.
+// They are drawn as DOM over the canvas, positioned from the chart's own
+// coordinates, exactly like the zone bands above: nothing here changes a
+// series, a candle or a stored value.
+// ---------------------------------------------------------------------------
+
+/**
+ * Where the callouts sit, following the approved layout:
+ *
+ *   1 Breakout     - above the breakout candle, arrow pointing down at it
+ *   2 Retest       - below and to the right of its candle, arrow back up at it
+ *   3 Continuation - above the later price action, arrow pointing down at it
+ *
+ * Each callout is placed against the candle its step belongs to, not in a fixed
+ * band across the top of the chart, so it stays visible with the candles it
+ * marks. Two callouts on the same side that would collide are stepped further
+ * from their candles until they clear each other.
+ */
+const ANNO_PLACE = Object.freeze({ above: "above", below: "below" });
+/** Clear space kept between a callout and the candle(ish) point it marks. */
+const ANNO_GAP = 26;
+/** How far to the right the retest callout is offset from its candle. */
+const ANNO_NUDGE_RIGHT = 92;
+/** Extra vertical step when two callouts on the same side would overlap. */
+const ANNO_STEP = 6;
+/** Gap between the arrowhead and the point it marks. */
+const ANNO_ARROW_GAP = 7;
+/** Keep every callout this far inside the pane so nothing is clipped. */
+const ANNO_EDGE_PAD = 6;
+
+/** Two boxes overlap when they share both a horizontal and a vertical span. */
+function annoOverlaps(a, b) {
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+}
+
+function createBreakoutAnnoLayer(handle) {
+  const container = handle.container;
+  if (typeof document === "undefined" || !container || handle.breakoutAnnoLayer || typeof container.appendChild !== "function") return;
+  if (typeof globalThis.getComputedStyle === "function" && globalThis.getComputedStyle(container).position === "static") {
+    container.style.position = "relative";
+  }
+  const layer = document.createElement("div");
+  layer.className = "breakout-anno-layer";
+  layer.setAttribute?.("aria-hidden", "true");
+  container.appendChild(layer);
+  handle.breakoutAnnoLayer = layer;
+  const timeScale = handle.chart?.timeScale?.();
+  const render = () => renderBreakoutAnnotations(handle);
+  if (timeScale && typeof timeScale.subscribeVisibleLogicalRangeChange === "function") {
+    timeScale.subscribeVisibleLogicalRangeChange(render);
+    handle.annoUnsubscribers.push(() => timeScale.unsubscribeVisibleLogicalRangeChange?.(render));
+  }
+  if (typeof handle.chart?.subscribeCrosshairMove === "function") {
+    handle.chart.subscribeCrosshairMove(render);
+    handle.annoUnsubscribers.push(() => handle.chart.unsubscribeCrosshairMove?.(render));
+  }
+}
+
+/**
+ * Draw the three numbered callouts. `stages` come from breakout_stages.js: each
+ * carries the exact candle (bar index and time) and price it belongs to, so a
+ * callout is drawn only on that candle and never snapped to a neighbour.
+ */
+export function setBreakoutAnnotations(handle, stages, { onSelect } = {}) {
+  if (!handle || handle.destroyed || !handle.container) return;
+  if (typeof handle.container.appendChild !== "function" || typeof document === "undefined") return;
+  createBreakoutAnnoLayer(handle);
+  handle.breakoutAnnoState = {
+    stages: (Array.isArray(stages) ? stages : []).filter((stage) => stage && typeof stage === "object"),
+    onSelect: typeof onSelect === "function" ? onSelect : null,
+  };
+  renderBreakoutAnnotations(handle);
+}
+
+/** Remove every callout and its listeners. Safe to call repeatedly. */
+export function clearBreakoutAnnotations(handle) {
+  if (!handle) return;
+  for (const unsubscribe of handle.annoUnsubscribers || []) {
+    try {
+      unsubscribe();
+    } catch {
+      // The chart may already be removed; nothing else to release.
+    }
+  }
+  handle.annoUnsubscribers = [];
+  handle.breakoutAnnoState = null;
+  if (handle.breakoutAnnoLayer) {
+    handle.breakoutAnnoLayer.remove?.();
+    handle.breakoutAnnoLayer = null;
+  }
+}
+
+/** Position every callout from the current coordinates. Pure reads; no data change. */
+export function renderBreakoutAnnotations(handle) {
+  if (!handle || handle.destroyed || !handle.breakoutAnnoLayer) return;
+  const { series, chart } = handle;
+  const timeScale = chart?.timeScale?.();
+  if (!series || typeof series.priceToCoordinate !== "function" || !timeScale) return;
+  if (typeof timeScale.timeToCoordinate !== "function") return;
+  const layer = handle.breakoutAnnoLayer;
+  const width = Number(handle.container?.clientWidth) || 0;
+  const height = Number(handle.container?.clientHeight) || 0;
+  const { stages, onSelect } = handle.breakoutAnnoState || { stages: [], onSelect: null };
+  layer.textContent = "";
+  const drawn = stages.filter((stage) => Number.isFinite(stage.barIndex) && stage.barIndex >= 0);
+  let offView = 0;
+  /** Boxes already placed, in layer coordinates, so the next callout can clear them. */
+  const placed = [];
+  drawn.forEach((stage) => {
+    const x = timeScale.timeToCoordinate(stage.timeSeconds);
+    const price = Number.isFinite(Number(stage.price)) ? Number(stage.price) : null;
+    const y = price === null ? null : series.priceToCoordinate(price);
+    if (x === null || x === undefined || y === null || y === undefined) {
+      offView += 1;
+      return;
+    }
+    if (x < 0 || x > width) {
+      offView += 1;
+      return;
+    }
+    const targetX = Math.min(Math.max(x, 2), Math.max(2, width - 2));
+    const targetY = Math.min(Math.max(y, 2), Math.max(2, height - 2));
+    // The retest callout sits to the right of its candle; the others sit over it.
+    const nudge = stage.nudge === "right" ? ANNO_NUDGE_RIGHT : 0;
+    const belowFirst = stage.place === ANNO_PLACE.below;
+
+    const badge = document.createElement("button");
+    badge.type = "button";
+    badge.className = "breakout-anno";
+    badge.dataset.stage = stage.key;
+    badge.dataset.tone = stage.tone || "neutral";
+    // An unrecorded step is drawn as an outline with a dashed leader line, so a
+    // pending continuation never looks like a confirmed one.
+    badge.dataset.recorded = String(stage.recorded === true);
+    badge.style.setProperty("--anno-tone", "var(--blue)");
+    badge.setAttribute?.("aria-label", `${stage.title}: ${stage.status}. ${stage.detail}`);
+    badge.title = `${stage.title} — ${stage.status}. ${stage.detail}`;
+    const numberBadge = document.createElement("span");
+    numberBadge.className = "breakout-anno-num";
+    numberBadge.textContent = String(stage.number);
+    badge.appendChild(numberBadge);
+    const title = document.createElement("span");
+    title.className = "breakout-anno-title";
+    title.textContent = stage.title;
+    badge.appendChild(title);
+    const status = document.createElement("span");
+    status.className = "breakout-anno-status";
+    status.textContent = stage.status;
+    badge.appendChild(status);
+    if (onSelect) badge.addEventListener("click", (event) => {
+      event.stopPropagation();
+      onSelect(stage);
+    });
+    // Hidden at the origin first: the real size is needed before it can be
+    // placed, and getting the size wrong is how a callout ends up clipped.
+    badge.style.left = "0px";
+    badge.style.top = "0px";
+    badge.style.visibility = "hidden";
+    layer.appendChild(badge);
+    const badgeW = badge.offsetWidth || 0;
+    const badgeH = badge.offsetHeight || 0;
+
+    const maxLeft = Math.max(ANNO_EDGE_PAD, width - badgeW - ANNO_EDGE_PAD);
+    const badgeX = Math.min(Math.max(targetX + nudge - badgeW / 2, ANNO_EDGE_PAD), maxLeft);
+    const restY = (side) => (side === ANNO_PLACE.below
+      ? targetY + ANNO_GAP
+      : targetY - ANNO_GAP - badgeH);
+
+    // Prefer the side the layout gives this step; if the callout cannot fit
+    // there without covering another one, use the other side.
+    const sides = belowFirst ? [ANNO_PLACE.below, ANNO_PLACE.above] : [ANNO_PLACE.above, ANNO_PLACE.below];
+    let side = sides[0];
+    let badgeY = restY(side);
+    let box = null;
+    for (const attemptSide of sides) {
+      let y = restY(attemptSide);
+      for (let guard = 0; guard < 24; guard += 1) {
+        const candidate = { left: badgeX, top: y, right: badgeX + badgeW, bottom: y + badgeH };
+        const hit = placed.find((other) => annoOverlaps(candidate, other));
+        if (!hit) break;
+        // Step further away from the candle the callout belongs to.
+        y = attemptSide === ANNO_PLACE.below
+          ? hit.bottom + ANNO_STEP
+          : hit.top - badgeH - ANNO_STEP;
+      }
+      const fits = y >= ANNO_EDGE_PAD && y + badgeH <= height - ANNO_EDGE_PAD;
+      if (fits) {
+        side = attemptSide;
+        badgeY = y;
+        box = { left: badgeX, top: y, right: badgeX + badgeW, bottom: y + badgeH };
+        break;
+      }
+    }
+    if (!box) {
+      // No clear space: sit it just inside the edge on the preferred side
+      // rather than dropping the callout.
+      side = sides[0];
+      badgeY = Math.min(Math.max(restY(side), ANNO_EDGE_PAD), Math.max(ANNO_EDGE_PAD, height - badgeH - ANNO_EDGE_PAD));
+      box = { left: badgeX, top: badgeY, right: badgeX + badgeW, bottom: badgeY + badgeH };
+    }
+    badge.style.left = `${badgeX}px`;
+    badge.style.top = `${badgeY}px`;
+    badge.style.visibility = "";
+    badge.dataset.place = side;
+    placed.push(box);
+
+    // The line starts on the edge of the callout facing its candle and ends
+    // just short of the candle itself, with the arrowhead on the end of it.
+    const startX = badgeX + badgeW / 2;
+    const startY = side === ANNO_PLACE.below ? badgeY : badgeY + badgeH;
+    const endY = side === ANNO_PLACE.below ? targetY + ANNO_ARROW_GAP : targetY - ANNO_ARROW_GAP;
+    const endX = targetX;
+    const length = Math.hypot(endX - startX, endY - startY);
+    if (length > 2) {
+      const angle = Math.atan2(endY - startY, endX - startX);
+      const line = document.createElement("div");
+      line.className = "breakout-anno-line";
+      line.style.left = `${startX}px`;
+      line.style.top = `${startY}px`;
+      line.style.width = `${length}px`;
+      line.style.transform = `rotate(${angle}rad)`;
+      if (stage.recorded !== true) line.dataset.pending = "true";
+      // The three callouts are blue by design; the status inside each one
+      // carries the tone of what the backend recorded.
+      line.style.setProperty("--anno-tone", "var(--blue)");
+      layer.appendChild(line);
+      const arrow = document.createElement("div");
+      arrow.className = "breakout-anno-arrow";
+      arrow.style.left = `${endX}px`;
+      arrow.style.top = `${endY}px`;
+      arrow.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
+      if (stage.recorded !== true) arrow.dataset.pending = "true";
+      arrow.style.setProperty("--anno-tone", "var(--blue)");
+      layer.appendChild(arrow);
+    }
+  });
+  if (offView) {
+    const note = document.createElement("div");
+    note.className = "breakout-anno-offview";
+    note.textContent = `${offView} callout${offView === 1 ? "" : "s"} outside the visible window`;
+    layer.appendChild(note);
+  }
+}
+
+/**
+ * Reposition both DOM overlays (zone bands and callouts) from the current
+ * coordinates. The chart library notifies its own subscribers when the operator
+ * pans or zooms, but not when the view is set programmatically — so a jump or a
+ * frame calls this directly instead of waiting for a notification that never
+ * comes.
+ */
+export function redrawOverlays(handle) {
+  renderZoneBands(handle);
+  renderBreakoutAnnotations(handle);
+}
+
+/**
  * Call onNearStart(range) when the visible range moves close to the oldest loaded candle.
  * Only one listener per chart: a later call replaces the earlier one.
  */
@@ -376,6 +777,10 @@ export function clearOverlays(handle) {
     handle.setupBand = null;
     renderZoneBands(handle);
   }
+  if (Array.isArray(handle.planAreas) && handle.planAreas.length) {
+    handle.planAreas = [];
+    renderZoneBands(handle);
+  }
   if (!Array.isArray(handle.priceLineHandles)) return;
   const lines = handle.priceLineHandles.splice(0);
   if (!handle.series || typeof handle.series.removePriceLine !== "function") return;
@@ -390,6 +795,9 @@ export function clearOverlays(handle) {
 }
 
 export function destroyPriceChart(handle) {
+  if (handle) {
+    clearBreakoutAnnotations(handle);
+  }
   if (!handle || handle.destroyed) return;
   clearOverlays(handle);
   clearEvidence(handle);
@@ -477,7 +885,12 @@ export function applyOverlays(handle, payload = {}) {
       band.low > 0 && band.high >= band.low
     ? { low: band.low, high: band.high }
     : null;
-  if (handle.setupBand) createZoneLayer(handle);
+  // Plan risk and reward areas: the region between entry and stop (what the plan
+  // risks) and between entry and the final target (what it targets). Shaded only
+  // from the plan's own levels — entry stays blue, risk red, reward green, in line
+  // with the approved design. No area is drawn when a level is missing.
+  handle.planAreas = prefs.planLevels !== false && plan ? planAreasFor(plan) : [];
+  if (handle.setupBand || handle.planAreas.length) createZoneLayer(handle);
   renderZoneBands(handle);
 
   if (prefs.swings === true) {
@@ -648,12 +1061,43 @@ export function addHigherTimeframeLines(handle, entries) {
 const ZONE_LABEL_MIN_GAP_PX = 16;
 /** The setup reference (backend reference bounds, display only): a neutral, unlabelled-by-role band. */
 const SETUP_BAND_STYLE = { fill: "rgba(143, 166, 255, 0.07)", edge: "#8fa6ff" };
+// Plan risk / reward shading. Same faintness convention as the bands above: the
+// fill marks the region, the price lines mark the exact levels.
+const PLAN_AREA_STYLE = {
+  risk: { fill: "rgba(224, 86, 91, 0.07)", edge: "#e0565b" },
+  reward: { fill: "rgba(47, 191, 127, 0.07)", edge: "#2fbf7f" },
+};
+
+/**
+ * The plan's own risk and reward regions, as {kind, low, high} rectangles.
+ *
+ * Risk is entry-to-stop and reward is entry-to-the-last-target, both measured
+ * from the levels the plan already carries. A region with a missing or equal
+ * bound is omitted rather than guessed, so a partial plan shades only what it
+ * really states. Display only: nothing here changes the plan.
+ */
+export function planAreasFor(plan) {
+  const entry = finiteNumber(plan?.entry?.value);
+  if (entry === null) return [];
+  const targets = Array.isArray(plan.targets) ? plan.targets : [];
+  const lastTarget = targets.length ? finiteNumber(targets[targets.length - 1]?.level?.value) : null;
+  const stop = finiteNumber(plan?.stop?.value);
+  const area = (kind, bound) => {
+    if (bound === null || bound === entry) return null;
+    return { kind, low: Math.min(entry, bound), high: Math.max(entry, bound) };
+  };
+  return [area("risk", stop), area("reward", lastTarget)].filter(Boolean);
+}
 // Fills are deliberately faint: candles must stay the focus (PR #38 follow-up). Edges are drawn at
 // reduced strength in CSS. Higher-timeframe bands use dashed edges and no fill (see styles.css).
 const ZONE_STYLE = {
   support: { fill: "rgba(46, 196, 182, 0.06)", edge: "#2ec4b6", short: "S" },
   resistance: { fill: "rgba(239, 83, 80, 0.06)", edge: "#ef5350", short: "R" },
   price_inside: { fill: "rgba(245, 166, 35, 0.08)", edge: "#f5a623", short: "IN" },
+  // The band the breakout sequence is read against: a neutral blue-grey wash
+  // rather than a directional colour. The step being described is the breakout,
+  // so the band it broke is a reference level, not a bullish or bearish zone.
+  reference: { fill: "rgba(122, 156, 196, 0.16)", edge: "#8fb4d9", short: "Z" },
 };
 
 function createZoneLayer(handle) {
@@ -724,6 +1168,26 @@ export function renderZoneBands(handle) {
   layer.textContent = "";
   let offView = 0;
   const labels = [];
+  // Plan risk / reward areas sit under the bands and their labels.
+  for (const area of Array.isArray(handle.planAreas) ? handle.planAreas : []) {
+    const style = PLAN_AREA_STYLE[area.kind];
+    if (!style) continue;
+    const yHigh = series.priceToCoordinate(area.high);
+    const yLow = series.priceToCoordinate(area.low);
+    if (yHigh === null || yLow === null || yHigh === undefined || yLow === undefined) continue;
+    const top = Math.min(yHigh, yLow);
+    const bottom = Math.max(yHigh, yLow);
+    if (bottom < 0 || top > height) continue;
+    const clampedTop = Math.max(0, top);
+    const node = document.createElement("div");
+    node.className = `plan-area plan-area--${area.kind}`;
+    node.setAttribute?.("aria-hidden", "true");
+    node.style.top = `${clampedTop}px`;
+    node.style.height = `${Math.max(2, Math.min(height || bottom, bottom) - clampedTop)}px`;
+    node.style.setProperty("--zone-fill", style.fill);
+    node.style.setProperty("--zone-edge", style.edge);
+    layer.appendChild(node);
+  }
   if (handle.setupBand) {
     const yHigh = series.priceToCoordinate(handle.setupBand.high);
     const yLow = series.priceToCoordinate(handle.setupBand.low);
@@ -753,7 +1217,14 @@ export function renderZoneBands(handle) {
   }
   for (const band of bands) {
     // Position is where the band sits relative to price; the style key is the display role.
-    const styleKey = band.position === "below_price" ? "support" : band.position === "above_price" ? "resistance" : "price_inside";
+    // `reference` is set by the caller for the band a sequence is read against.
+    const styleKey = band.tone === "reference"
+      ? "reference"
+      : band.position === "below_price"
+        ? "support"
+        : band.position === "above_price"
+          ? "resistance"
+          : "price_inside";
     const style = ZONE_STYLE[styleKey];
     const high = Number(band.band_high);
     const low = Number(band.band_low);
@@ -770,10 +1241,13 @@ export function renderZoneBands(handle) {
     const clampedTop = Math.max(0, top);
     const clampedBottom = Math.min(height || bottom, bottom);
     const node = document.createElement("div");
-    node.className = `zone-band zone-band--${band.position || "price_inside"}${band.htf ? " zone-band--htf" : ""}${band.faded ? " zone-band--faded" : ""}`;
+    node.className = `zone-band zone-band--${band.position || "price_inside"}${band.tone === "reference" ? " zone-band--reference" : ""}${band.htf ? " zone-band--htf" : ""}${band.faded ? " zone-band--faded" : ""}`;
     node.setAttribute?.("aria-hidden", "true");
     node.style.top = `${clampedTop}px`;
-    node.style.height = `${Math.max(2, clampedBottom - clampedTop)}px`;
+    // A stored band keeps its own thickness; a band that is a single stored
+    // level is given a minimum so it still reads as a zone, not a hairline.
+    const minHeight = Number.isFinite(Number(band.minHeightPx)) ? Math.max(2, Math.trunc(Number(band.minHeightPx))) : 2;
+    node.style.height = `${Math.max(minHeight, clampedBottom - clampedTop)}px`;
     node.style.setProperty("--zone-fill", style.fill);
     node.style.setProperty("--zone-edge", style.edge);
     layer.appendChild(node);
@@ -792,8 +1266,10 @@ export function renderZoneBands(handle) {
     label.style.top = `${y}px`;
     label.style.setProperty("--zone-edge", style.edge);
     const tf = band.source_timeframe ? String(band.source_timeframe).toUpperCase() : "";
-    label.textContent = `${style.short}${tf ? ` ${tf}` : ""} · ${band.touch_count ?? "?"}×`;
-    label.setAttribute("aria-label", `${band.display_role || band.position} zone ${band.band_low} to ${band.band_high}, ${tf || "viewed timeframe"}, ${band.touch_count ?? "unknown"} touches. Open explanation.`);
+    label.textContent = band.label || `${style.short}${tf ? ` ${tf}` : ""} · ${band.touch_count ?? "?"}×`;
+    label.setAttribute("aria-label", band.label
+      ? `${band.label} ${band.band_low} to ${band.band_high}, ${tf || "viewed timeframe"}. Open explanation.`
+      : `${band.display_role || band.position} zone ${band.band_low} to ${band.band_high}, ${tf || "viewed timeframe"}, ${band.touch_count ?? "unknown"} touches. Open explanation.`);
     label.addEventListener("click", (event) => {
       event.stopPropagation();
       onSelect?.(band);
