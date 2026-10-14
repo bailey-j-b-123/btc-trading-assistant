@@ -33,6 +33,7 @@ function headerDashboard() {
 function headerForward() {
   return {
     status: {
+      runner_liveness: { state: "CONFIRMED_ALIVE", alive_confirmed: true, age_seconds: 0, tolerance_seconds: 360 },
       market_data: { data_health: "CURRENT" },
       runner: { status: "IDLE", recorded_at: TIMESTAMP, pending_boundaries: 0, last_error: null },
       sample: { pending_catch_up_boundaries: 0 },
@@ -217,7 +218,7 @@ test("runner details distinguish unavailable, never-run, and reported", async ()
   assert.equal(errored.heartbeat, "UNKNOWN");
 });
 
-test("system verdict needs every health conjunct; age alone never warns", () => {
+test("system verdict needs every health conjunct and a server liveness confirmation", () => {
   const ok = systemHealthViewModel(headerDashboard(), headerForward());
   assert.equal(ok.healthy, true);
   assert.equal(ok.label, "DATA CURRENT · RUNNER IDLE");
@@ -256,11 +257,12 @@ test("system verdict needs every health conjunct; age alone never warns", () => 
 
   assert.equal(systemHealthViewModel(null, null).label, "DASHBOARD DATA · NOT LOADED");
 
-  // Heartbeat age is displayed, never decisive: an ancient heartbeat with
-  // otherwise perfect health still reads OK.
+  // Current candles do not rescue an unconfirmed stale runner.
   const ancient = headerForward();
   ancient.status.runner.heartbeat_age_seconds = 99999;
-  assert.equal(systemHealthViewModel(headerDashboard(), ancient).label, "DATA CURRENT · RUNNER IDLE");
+  ancient.status.runner_liveness = { state: "STALE_UNCONFIRMED", alive_confirmed: false, age_seconds: 99999, tolerance_seconds: 360 };
+  assert.equal(systemHealthViewModel(headerDashboard(), ancient).healthy, false);
+  assert.match(systemHealthViewModel(headerDashboard(), ancient).label, /HEARTBEAT STALE/);
 
   // Recovery clears: a healthy newest row reads OK whatever came before
   // (the backend test pins that the newest row is what the backend sends).

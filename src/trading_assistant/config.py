@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     #: repairing it.
     sqlite_busy_timeout_ms: int = Field(default=5_000, ge=0, le=60_000)
     log_level: str = "INFO"
+    # Reader-side monitoring tolerance, not the trading runner's polling cadence.
+    runner_liveness_tolerance_seconds: int | None = Field(default=None, ge=1, le=86_400)
 
     # Fixed public market-data provider. A legacy exchange override is accepted
     # only when it says "binance"; unsupported venues fail validation rather

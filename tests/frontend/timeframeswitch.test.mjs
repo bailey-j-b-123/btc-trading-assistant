@@ -258,6 +258,7 @@ function forwardFixture() {
         expected_latest_closed_candle_open: AS_OF,
         missing_candle_count: 0,
       },
+      runner_liveness: { state: "CONFIRMED_ALIVE", alive_confirmed: true, age_seconds: 0, tolerance_seconds: 360 },
       runner: { status: "IDLE", recorded_at: AS_OF, latest_cycle_as_of: AS_OF, pending_boundaries: 0, last_error: null },
       sample: { paper_plans: 0, pending_catch_up_boundaries: 0 },
       current_state: { available: true, as_of: AS_OF, setup_state_counts: {}, plan_state_counts: {} },
