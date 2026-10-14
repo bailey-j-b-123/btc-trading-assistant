@@ -212,3 +212,132 @@ def test_presentation_does_not_mutate_input_zones():
     snapshot = repr(original)
     present(original, close="60000")
     assert repr(original) == snapshot
+
+
+# --- truthful test counts (one instant can carry two swing evidences) --------------
+
+def test_test_count_is_separate_from_the_swing_evidence_count():
+    # The stored source list repeats an instant when one candle was both a swing high and a swing
+    # low: 3 evidences on 2 instants. The band reports both, and never calls the sum "tests".
+    band = zone(61000, 61100, touches=3, highs=2, lows=1)
+    band["source_swing_timestamps"] = [
+        "2026-10-10T10:00:00Z",
+        "2026-10-10T10:00:00Z",
+        "2026-10-10T11:00:00Z",
+    ]
+    result = present([band], close="60000")
+    shown = result["bands"][0]
+    assert shown["touch_count"] == 3
+    assert shown["distinct_test_timestamps"] == 2
+    assert shown["shared_candle_tests"] == 1
+    assert shown["source_swing_count"] == 3
+
+
+def test_a_repeated_instant_inside_one_zone_is_not_a_cross_zone_duplicate():
+    band = zone(61000, 61100, touches=2)
+    band["source_swing_timestamps"] = ["2026-10-10T10:00:00Z", "2026-10-10T10:00:00Z"]
+    result = present([band], close="60000")
+    # One stored zone can never contribute the same swing twice, so the cross-zone figure is 0
+    # while the within-zone shared-instant figure is 1.
+    assert result["bands"][0]["shared_timestamps_across_member_zones"] == 0
+    assert result["bands"][0]["shared_candle_tests"] == 1
+
+
+def test_merged_bands_keep_every_member_zone_visible_with_its_own_numbers():
+    result = present(
+        [zone(61000, 61500, touches=2, highs=2, lows=0), zone(61400, 61900, touches=3, highs=1, lows=2)],
+        close="60000",
+    )
+    merged = result["bands"][0]
+    assert merged["merged_zone_count"] == 2
+    assert [member["band_low"] for member in merged["member_zones"]] == ["61000", "61400"]
+    assert [member["touch_count"] for member in merged["member_zones"]] == [2, 3]
+    assert merged["touch_count"] == 5
+    assert merged["touch_count_basis"] == "sum_of_member_zones"
+    # The same instant in two different zones is reported rather than silently summed.
+    assert merged["shared_timestamps_across_member_zones"] in (0, 1)
+
+
+def test_two_zones_sharing_a_stored_instant_report_it_as_cross_zone():
+    first = zone(61000, 61500, touches=1, highs=0, lows=1)
+    second = zone(61400, 61900, touches=1, highs=1, lows=0)
+    shared = "2026-10-10T12:00:00Z"
+    first["source_swing_timestamps"] = [shared]
+    second["source_swing_timestamps"] = [shared]
+    merged = present([first, second], close="60000")["bands"][0]
+    assert merged["shared_timestamps_across_member_zones"] == 1
+    assert merged["distinct_test_timestamps"] == 1, "the same instant tested both zones"
+
+
+# --- malformed stored rows are refused, never guessed at or thrown ------------------
+
+def test_non_finite_bounds_are_skipped_and_counted():
+    nan_band = zone(61000, 61100)
+    nan_band["band_low"] = "NaN"
+    infinite_band = zone(62000, 62100)
+    infinite_band["band_high"] = "Infinity"
+    result = present([nan_band, infinite_band, zone(63000, 63100)], close="60000")
+    assert result["skipped_invalid"] == 2
+    assert result["valid_zone_count"] == 1
+    assert [band["band_low"] for band in result["bands"]] == ["63000"]
+
+
+def test_an_unusable_test_count_falls_back_to_the_stored_swing_list():
+    band = zone(61000, 61100)
+    band["touch_count"] = "not-a-number"
+    band["source_swing_timestamps"] = ["2026-10-10T10:00:00Z", "2026-10-10T11:00:00Z"]
+    shown = present([band], close="60000")["bands"][0]
+    assert shown["touch_count"] == 2
+    assert shown["touch_count_basis"] == "source_swing_timestamps"
+    assert shown["distinct_test_timestamps"] == 2
+
+
+def test_a_negative_test_count_is_refused_and_falls_back():
+    band = zone(61000, 61100)
+    band["touch_count"] = -4
+    band["source_swing_timestamps"] = ["2026-10-10T10:00:00Z"]
+    shown = present([band], close="60000")["bands"][0]
+    assert shown["touch_count"] == 1
+    assert shown["isolated"] is True
+
+
+def test_a_row_that_is_not_a_zone_is_skipped_without_crashing():
+    result = present([None, "zone", 42, zone(61000, 61100)], close="60000")
+    assert result["skipped_invalid"] == 3
+    assert len(result["bands"]) == 1
+
+
+def test_an_unknown_test_count_is_never_shown_as_zero():
+    band = zone(61000, 61100)
+    band["touch_count"] = None
+    band["source_swing_timestamps"] = []
+    shown = present([band], close="60000")["bands"][0]
+    assert shown["touch_count"] is None
+    assert shown["touch_count_basis"] == "unknown"
+    assert shown["isolated"] is False, "an unknown count is not 'isolated'"
+
+
+# --- selection accounting ----------------------------------------------------------
+
+def test_presentation_reports_what_it_presented_and_what_it_withheld():
+    above = [zone(61000 + index * 500, 61050 + index * 500) for index in range(4)]
+    below = [zone(59000 - index * 500, 59050 - index * 500) for index in range(3)]
+    result = present(above + below, close="60000")
+    # Every stored zone became a drawable band; only the nearest per side were selected.
+    assert result["presented_count"] == 7
+    assert len(result["bands"]) == 4
+    assert result["hidden_count"] == result["presented_count"] - len(result["bands"]) == 3
+    assert result["hidden_above"] == 2
+    assert result["hidden_below"] == 1
+    assert result["hidden_inside"] == 0
+    assert result["total_stored"] == 7
+
+
+def test_distance_is_reported_against_the_close_the_view_is_classified_by():
+    result = present([zone(61000, 61100), zone(58000, 58100)], close="60000")
+    resistance = next(band for band in result["bands"] if band["position"] == "above_price")
+    support = next(band for band in result["bands"] if band["position"] == "below_price")
+    assert resistance["distance_from_close"] == "1000"
+    assert support["distance_from_close"] == "1900"
+    inside = present([zone(59900, 60100)], close="60000")["bands"][0]
+    assert inside["distance_from_close"] == "0"

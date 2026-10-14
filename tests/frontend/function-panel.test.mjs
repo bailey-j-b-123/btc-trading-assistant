@@ -125,19 +125,70 @@ test("the support/resistance panel lists the stored bands with their own bounds 
     merged: 2,
   });
   assert.equal(model.heading, "Support & Resistance");
-  assert.deepEqual(model.legend.map((row) => row.label), ["Resistance", "Range mid", "Support"]);
+  // The legend lists exactly what the screen draws: the three band tones (red above
+  // price, amber containing price, green below) and the dashed range boundaries. A
+  // "range midpoint" is drawn nowhere, so it is not claimed here.
+  assert.deepEqual(model.legend.map((row) => row.label), ["Resistance", "Price inside", "Support", "Range"]);
+  assert.deepEqual(model.legend.map((row) => row.tone), ["red", "amber", "green", "blue"]);
   assert.deepEqual(model.facts.map((row) => row.value), ["2", "4", "2"]);
   assert.equal(model.list[0].title, "Support");
   assert.equal(model.list[0].value, "61,900.00 – 62,000.00");
-  assert.match(model.list[0].meta, /1H zone · 3 touches · 2 merged/);
-  assert.equal(model.list[1].meta, "touches unknown", "an absent touch count is never shown as zero");
-  assert.match(model.note, /nothing is invented, moved or re-labelled/);
+  assert.match(model.list[0].meta, /1H zone · 3 tests · 2 merged/);
+  assert.equal(model.list[1].meta, "tests unknown", "an absent test count is never shown as zero");
+  assert.match(model.note, /never summed swing evidences/);
+});
+
+test("the panel separates distinct tests from summed swing evidences", () => {
+  // One candle that is both a swing high and a swing low of its own window gives two evidences
+  // on one instant: the row must not present 24 as if 24 separate tests had happened.
+  const model = functionPanelModel({
+    functionId: "support_resistance",
+    bands: [{ id: "b", band_low: "1", band_high: "2", display_role: "support", touch_count: 24, distinct_test_timestamps: 22 }],
+  });
+  assert.match(model.list[0].meta, /22 tests · 24 swing evidences/);
+  // With no distinct figure at all the evidence count stands alone, still labelled as such.
+  const single = functionPanelModel({
+    functionId: "support_resistance",
+    bands: [{ id: "b", band_low: "1", band_high: "2", display_role: "support", touch_count: 3 }],
+  });
+  assert.match(single.list[0].meta, /3 tests/);
+});
+
+test("a band referenced by stored events says exactly which events, and one that was not says that", () => {
+  const linked = functionPanelModel({
+    functionId: "support_resistance",
+    bands: [{
+      id: "b", band_low: "1", band_high: "2", display_role: "resistance", touch_count: 2,
+      linked_events: { linked: true, event_count: 3, counts: { breakout: 2, retest: 1, sweep: 0, failed_breakout: 0 } },
+    }],
+  });
+  assert.match(linked.list[0].meta, /referenced by 2 breakouts · 1 retest/);
+  const unlinked = functionPanelModel({
+    functionId: "support_resistance",
+    bands: [{
+      id: "b", band_low: "1", band_high: "2", display_role: "support", touch_count: 2,
+      linked_events: { linked: false, event_count: 0, counts: { breakout: 0, retest: 0, sweep: 0, failed_breakout: 0 } },
+    }],
+  });
+  assert.match(unlinked.list[0].meta, /no recorded event used this zone/);
+  // Not evaluated is never reported as "nothing referenced it".
+  const unchecked = functionPanelModel({
+    functionId: "support_resistance",
+    bands: [{
+      id: "b", band_low: "1", band_high: "2", display_role: "support", touch_count: 2,
+      linked_events: { linked: false, event_count: null, counts: null },
+    }],
+  });
+  assert.doesNotMatch(unchecked.list[0].meta, /no recorded event used this zone/);
 });
 
 test("the support/resistance panel has an honest empty state", () => {
-  const none = functionPanelModel({ functionId: "support_resistance", bands: [], reason: "no_zones" });
+  const none = functionPanelModel({ functionId: "support_resistance", bands: [], reason: "no_zones", accounting: { totalStored: 0 } });
   assert.equal(none.list.length, 0);
   assert.match(none.note, /No support or resistance zones are stored/);
+  // Stored zones that could not be drawn are reported as unavailable, never as "none stored".
+  const undrawable = functionPanelModel({ functionId: "support_resistance", bands: [], reason: "no_zones", accounting: { totalStored: 3 } });
+  assert.match(undrawable.note, /3 stored zone\(s\) were unavailable/);
   const unknown = functionPanelModel({ functionId: "support_resistance", bands: [] });
   assert.match(unknown.note, /No zone bands are available/);
 });

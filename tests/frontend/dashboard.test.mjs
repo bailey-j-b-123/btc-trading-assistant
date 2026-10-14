@@ -1370,6 +1370,8 @@ function evidenceDashboard() {
           band_high: "61600",
           center: "61550",
           touch_count: 2,
+          distinct_test_timestamps: 2,
+          shared_candle_tests: 0,
           faded: false,
           isolated: false,
           source_timeframe: "1h",
@@ -1499,15 +1501,22 @@ test("the five chart functions are switchable and Simple mode draws one at a tim
 
     press(buttons[0]); // Support / Resistance
     await drainMicrotasks();
-    assert.match(status.textContent, /^Support \/ Resistance: 1 band\(s\) shown nearest price first · 3 further band\(s\) hidden/);
+    assert.match(status.textContent, /^Support \/ Resistance: 1 band\(s\) shown nearest price first · 3 further band\(s\) not drawn/);
     // The panel beside the chart explains the selected function from the stored,
     // presented bands: bounds and touch counts come straight from the detector.
     const panel = byClass(view, "chart-function-panel")[0];
     assert.equal(panel.dataset.function, "support_resistance");
     assert.match(panel.textContent, /Support & Resistance/);
     assert.match(panel.textContent, /Support61,500\.00 – 61,600\.00/);
-    assert.match(panel.textContent, /2 touches/);
-    assert.match(panel.textContent, /Only the nearest active zones are drawn\./);
+    // The panel states separate tests, and says what it did not draw.
+    assert.match(panel.textContent, /2 tests/);
+    assert.match(panel.textContent, /Only the nearest active zones are drawn; the count above says how many were not\./);
+    assert.match(panel.textContent, /Further bands not drawn3/);
+    // The line under the chart reports the same tally as the status line: the bands
+    // arrive with a later request than the evidence, and a stale "0 drawn" there
+    // would put two different totals on one screen.
+    const meta = byClass(view, "chart-evidence-meta")[0];
+    assert.match(meta.textContent, /S\/R bands: 1 drawn, 3 stored band\(s\) not drawn, 0 merged/);
 
     press(buttons[3]); // Breakouts / Retests
     await drainMicrotasks();
@@ -1563,10 +1572,12 @@ test("the bottom tabs switch panels without rebuilding the chart or refetching t
     assert.match(diagnostics.textContent, /Bot is watching/);
     assert.ok(diagnostics.textContent.includes("System details") || byClass(diagnostics, "system-details").length, "system details stay reachable");
     // The full presented band list lives here, with the detector's own bounds and
-    // touch counts, so nothing that used to be on the page has been dropped.
+    // test counts, so nothing that used to be on the page has been dropped.
     assert.match(diagnostics.textContent, /Nearby zones/);
     assert.match(diagnostics.textContent, /61,500\.00 – 61,600\.00/);
-    assert.match(diagnostics.textContent, /2 touches/);
+    assert.match(diagnostics.textContent, /2 tests/);
+    // A band the chart did not draw is accounted for on the card, by position, not dropped.
+    assert.match(diagnostics.textContent, /1 of 4 stored zone\(s\) presented, 3 beyond the nearest-band selection/);
     assert.equal(chartState.charts.length, 1, "no new chart instance is created");
     assert.equal(chartState.charts[0], chart, "the chart is reused, so zoom and pan survive");
     assert.equal(chart.removed, false, "switching tabs never disposes the chart");
