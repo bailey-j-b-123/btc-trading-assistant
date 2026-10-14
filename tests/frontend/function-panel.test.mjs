@@ -179,6 +179,55 @@ test("the swings panel says nothing rather than guessing when there is no eviden
   assert.deepEqual(model.list, []);
 });
 
+test("the swings panel prefers viewed timeframe trend from evidence over engine marketState", () => {
+  const evidenceWith15mTrend = {
+    ...EVIDENCE,
+    trend: {
+      direction: "bearish",
+      reason: "lower_highs_and_lower_lows",
+      sufficient: true,
+      higher_highs: false,
+      higher_lows: false,
+      lower_highs: true,
+      lower_lows: true,
+    },
+  };
+  // marketState has 1h bullish trend, but evidence has 15m bearish trend
+  const model = functionPanelModel({
+    functionId: "swings",
+    evidence: evidenceWith15mTrend,
+    bands: BANDS,
+    marketState: MARKET_STATE,
+  });
+  assert.equal(model.chip, "Bearish", "panel chip must reflect viewed timeframe trend");
+  assert.match(model.facts[1].value, /^Bearish · lower highs and lower lows/);
+  assert.equal(model.facts[1].tone, "red");
+});
+
+test("the swings panel falls back to marketState trend when evidence has no trend", () => {
+  const evidenceWithoutTrend = { ...EVIDENCE, trend: null };
+  const model = functionPanelModel({
+    functionId: "swings",
+    evidence: evidenceWithoutTrend,
+    bands: BANDS,
+    marketState: MARKET_STATE,
+  });
+  assert.equal(model.chip, "Bullish", "falls back to marketState when evidence has no trend");
+  assert.match(model.facts[1].value, /^Bullish · /);
+});
+
+test("the swings panel displays UNKNOWN bias when neither evidence nor marketState has a trend", () => {
+  const model = functionPanelModel({
+    functionId: "swings",
+    evidence: { ...EVIDENCE, trend: null },
+    bands: BANDS,
+    marketState: null,
+  });
+  assert.equal(model.chip, null);
+  assert.equal(model.facts[1].value, "UNKNOWN");
+  assert.equal(model.facts[1].tone, "neutral");
+});
+
 // ---------------------------------------------------------------------------
 // Patterns
 // ---------------------------------------------------------------------------
