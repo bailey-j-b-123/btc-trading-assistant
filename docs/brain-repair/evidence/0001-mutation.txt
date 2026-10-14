@@ -1,0 +1,38 @@
+TAP version 13
+# (node:4625) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/btc-trading-assistant/.cache/brain-repair/0001-mutation/src/trading_assistant/web/static/js/views/dashboard.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/btc-trading-assistant/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: integrated patterns survive S/R refresh with all three accounting surfaces in sync
+not ok 1 - integrated patterns survive S/R refresh with all three accounting surfaces in sync
+  ---
+  duration_ms: 67.760314
+  type: 'test'
+  location: '/home/user/btc-trading-assistant/.cache/brain-repair/0001-mutation/tests/frontend/dashboard.test.mjs:1865:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /S\/R bands: 1 drawn, 6 stored band\(s\) not drawn/. Input:
+    
+    'Evidence window: last UNKNOWN closed 1H candles (limit UNKNOWN) · 1 later item(s) excluded. Display only: the chart does not change qualification, plans or observations. No evidence drawn for the enabled layers at this candle window. · S/R bands: 1 drawn, 5 stored band(s) not drawn, 0 merged'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: 'Evidence window: last UNKNOWN closed 1H candles (limit UNKNOWN) · 1 later item(s) excluded. Display only: the chart does not change qualification, plans or observations. No evidence drawn for the enabled layers at this candle window. · S/R bands: 1 drawn, 5 stored band(s) not drawn, 0 merged'
+  operator: 'match'
+  stack: |-
+    file:///home/user/btc-trading-assistant/.cache/brain-repair/0001-mutation/tests/frontend/dashboard.test.mjs:1895:12
+    async withDashboard (file:///home/user/btc-trading-assistant/.cache/brain-repair/0001-mutation/tests/frontend/dashboard.test.mjs:544:5)
+    async TestContext.<anonymous> (file:///home/user/btc-trading-assistant/.cache/brain-repair/0001-mutation/tests/frontend/dashboard.test.mjs:1868:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 174.950706

@@ -1,0 +1,4533 @@
+{
+  "url": "http://127.0.0.1:8124",
+  "generatedAt": "2026-10-14T06:32:24.517Z",
+  "viewports": [
+    {
+      "label": "1536x864",
+      "width": 1536,
+      "height": 864,
+      "checks": [
+        {
+          "name": "stored patterns",
+          "patterns": [
+            {
+              "id": "d4a892bd0388a99ed8b4f4544dd726a14e9e368e348fcfb2da5682bbfea3d257",
+              "patternId": "db6fbc5c992382124f4883f53235f8b90d4c56e829d9f77e0982204503ec2a61",
+              "type": "double_top",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-25T16:00:00Z",
+              "anchorTime": "2026-09-25T13:00:00Z",
+              "neckline": "83992.50000000",
+              "invalidation": "85280.5",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-23T17:00:00Z",
+                  "seconds": 1790182800,
+                  "price": 85120.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-24T17:00:00Z",
+                  "seconds": 1790269200,
+                  "price": 83992.5
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                }
+              ]
+            },
+            {
+              "id": "a14b6288b13f6da826200d7d949bdc28061d7dcd54d0948fd9f3958185b7a915",
+              "patternId": "db6fbc5c992382124f4883f53235f8b90d4c56e829d9f77e0982204503ec2a61",
+              "type": "double_top",
+              "side": "top",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-09-26T02:00:00Z",
+              "anchorTime": "2026-09-26T01:00:00Z",
+              "neckline": "83992.50000000",
+              "invalidation": "85280.5",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-23T17:00:00Z",
+                  "seconds": 1790182800,
+                  "price": 85120.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-24T17:00:00Z",
+                  "seconds": 1790269200,
+                  "price": 83992.5
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                }
+              ]
+            },
+            {
+              "id": "486762cfe8e448f434fc47e36ed4caeb8e18fe6cf802cda5e5e3edb8bff98444",
+              "patternId": "f00674da910a10210f9be2e4dcb4a9fd3a9d41bb7ffb1aa94723a0667085112f",
+              "type": "double_top",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-27T12:00:00Z",
+              "anchorTime": "2026-09-27T09:00:00Z",
+              "neckline": "82911.90000000",
+              "invalidation": "85325.5",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T10:00:00Z",
+                  "seconds": 1790416800,
+                  "price": 82911.9
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-27T09:00:00Z",
+                  "seconds": 1790499600,
+                  "price": 85325.5
+                }
+              ]
+            },
+            {
+              "id": "fd99bb32c87d5695b7f0c8738978baf8848476a72796685fe21b9ed7d0c061ef",
+              "patternId": "476599fde23e5451f1a61d1649156680622ac6b6d1617c01ca8b3f9e841d89e2",
+              "type": "inverse_head_and_shoulders",
+              "side": "bottom",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-28T07:00:00Z",
+              "anchorTime": "2026-09-28T04:00:00Z",
+              "neckline": "85303.00000000",
+              "invalidation": "82911.9",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-09-24T17:00:00Z",
+                  "seconds": 1790269200,
+                  "price": 83992.5
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T10:00:00Z",
+                  "seconds": 1790416800,
+                  "price": 82911.9
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-27T09:00:00Z",
+                  "seconds": 1790499600,
+                  "price": 85325.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-28T04:00:00Z",
+                  "seconds": 1790568000,
+                  "price": 83986.5
+                }
+              ]
+            },
+            {
+              "id": "b051693c60fae9fa596fa014ed74b1ecff6102f0d0d75d1b4a6b60b87b8a7db3",
+              "patternId": "f00674da910a10210f9be2e4dcb4a9fd3a9d41bb7ffb1aa94723a0667085112f",
+              "type": "double_top",
+              "side": "top",
+              "state": "invalidated",
+              "isLatest": true,
+              "knownAt": "2026-09-28T21:00:00Z",
+              "anchorTime": "2026-09-28T20:00:00Z",
+              "neckline": "82911.90000000",
+              "invalidation": "85325.5",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T10:00:00Z",
+                  "seconds": 1790416800,
+                  "price": 82911.9
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-27T09:00:00Z",
+                  "seconds": 1790499600,
+                  "price": 85325.5
+                }
+              ]
+            },
+            {
+              "id": "d600c0b418b4a2f9c2b5c517595809f4783baba4fe97ff0f0675c04ee641feda",
+              "patternId": "476599fde23e5451f1a61d1649156680622ac6b6d1617c01ca8b3f9e841d89e2",
+              "type": "inverse_head_and_shoulders",
+              "side": "bottom",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-09-28T21:00:00Z",
+              "anchorTime": "2026-09-28T20:00:00Z",
+              "neckline": "85303.00000000",
+              "invalidation": "82911.9",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-09-24T17:00:00Z",
+                  "seconds": 1790269200,
+                  "price": 83992.5
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T10:00:00Z",
+                  "seconds": 1790416800,
+                  "price": 82911.9
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-27T09:00:00Z",
+                  "seconds": 1790499600,
+                  "price": 85325.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-28T04:00:00Z",
+                  "seconds": 1790568000,
+                  "price": 83986.5
+                }
+              ]
+            },
+            {
+              "id": "9553baf2d062d68e2c63536de72f1aebcf87629f2f3709f5c74a2084ed29c743",
+              "patternId": "511f9b335b468bdea1c60ba671a047b02d7c4a5d72cfca4d88d6d5b81b60f230",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-10-03T00:00:00Z",
+              "anchorTime": "2026-10-02T21:00:00Z",
+              "neckline": "88481.30000000",
+              "invalidation": "86043.1",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-10-01T00:00:00Z",
+                  "seconds": 1790812800,
+                  "price": 86043.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-01T23:00:00Z",
+                  "seconds": 1790895600,
+                  "price": 88481.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-02T21:00:00Z",
+                  "seconds": 1790974800,
+                  "price": 86105.1
+                }
+              ]
+            },
+            {
+              "id": "b4441e2835eae97b70fa0728635817f7f9c3239fa9c0e3d3d5dcb60f9ec86c7f",
+              "patternId": "6fc4e1261a28eab6c44806272967c968f98b8ddb7e96b81bfcea3fa40f6647a0",
+              "type": "head_and_shoulders",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-10-03T20:00:00Z",
+              "anchorTime": "2026-10-03T17:00:00Z",
+              "neckline": "86074.10000000",
+              "invalidation": "88481.3",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-30T05:00:00Z",
+                  "seconds": 1790744400,
+                  "price": 87471.6
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-01T00:00:00Z",
+                  "seconds": 1790812800,
+                  "price": 86043.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-01T23:00:00Z",
+                  "seconds": 1790895600,
+                  "price": 88481.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-02T21:00:00Z",
+                  "seconds": 1790974800,
+                  "price": 86105.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-03T17:00:00Z",
+                  "seconds": 1791046800,
+                  "price": 87474
+                }
+              ]
+            },
+            {
+              "id": "43e893c13e4570a1989b7fd7fe2dd0be480f11a58b44cb852443bac007d21145",
+              "patternId": "6fc4e1261a28eab6c44806272967c968f98b8ddb7e96b81bfcea3fa40f6647a0",
+              "type": "head_and_shoulders",
+              "side": "top",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-10-04T11:00:00Z",
+              "anchorTime": "2026-10-04T10:00:00Z",
+              "neckline": "86074.10000000",
+              "invalidation": "88481.3",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-30T05:00:00Z",
+                  "seconds": 1790744400,
+                  "price": 87471.6
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-01T00:00:00Z",
+                  "seconds": 1790812800,
+                  "price": 86043.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-01T23:00:00Z",
+                  "seconds": 1790895600,
+                  "price": 88481.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-02T21:00:00Z",
+                  "seconds": 1790974800,
+                  "price": 86105.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-03T17:00:00Z",
+                  "seconds": 1791046800,
+                  "price": 87474
+                }
+              ]
+            },
+            {
+              "id": "056a0fbcbfdc5bc49db7edff7142c8a31117547faff8d39484c180d9d7eafa49",
+              "patternId": "511f9b335b468bdea1c60ba671a047b02d7c4a5d72cfca4d88d6d5b81b60f230",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "invalidated",
+              "isLatest": true,
+              "knownAt": "2026-10-04T12:00:00Z",
+              "anchorTime": "2026-10-04T11:00:00Z",
+              "neckline": "88481.30000000",
+              "invalidation": "86043.1",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-10-01T00:00:00Z",
+                  "seconds": 1790812800,
+                  "price": 86043.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-01T23:00:00Z",
+                  "seconds": 1790895600,
+                  "price": 88481.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-02T21:00:00Z",
+                  "seconds": 1790974800,
+                  "price": 86105.1
+                }
+              ]
+            },
+            {
+              "id": "3f36f3ec689560da265a1bde6361b014866349c771fa78ca38b55204b8c26e64",
+              "patternId": "386cc7c244b9b5c1688302ca8110c71e6e739f8eed199c94384c8c2bda83aea6",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-10-11T06:00:00Z",
+              "anchorTime": "2026-10-11T03:00:00Z",
+              "neckline": "84085.30000000",
+              "invalidation": "82945.4",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-10-10T02:00:00Z",
+                  "seconds": 1791597600,
+                  "price": 82945.4
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-10T15:00:00Z",
+                  "seconds": 1791644400,
+                  "price": 84085.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-11T03:00:00Z",
+                  "seconds": 1791687600,
+                  "price": 82994.9
+                }
+              ]
+            },
+            {
+              "id": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+              "patternId": "386cc7c244b9b5c1688302ca8110c71e6e739f8eed199c94384c8c2bda83aea6",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-10-11T15:00:00Z",
+              "anchorTime": "2026-10-11T14:00:00Z",
+              "neckline": "84085.30000000",
+              "invalidation": "82945.4",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-10-10T02:00:00Z",
+                  "seconds": 1791597600,
+                  "price": 82945.4
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-10T15:00:00Z",
+                  "seconds": 1791644400,
+                  "price": 84085.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-11T03:00:00Z",
+                  "seconds": 1791687600,
+                  "price": 82994.9
+                }
+              ]
+            },
+            {
+              "id": "a9d775c9cf4b47014547278b6dcaa9d674af1eb163042ba10aa84db0abc5bbc4",
+              "patternId": "410481370944a71e0d959ba5e566b2a3c2ac84a9081bb63c9ef49485253a7b5a",
+              "type": "double_top",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-10-12T21:00:00Z",
+              "anchorTime": "2026-10-12T18:00:00Z",
+              "neckline": "84159.00000000",
+              "invalidation": "85280.7",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-10-12T02:00:00Z",
+                  "seconds": 1791770400,
+                  "price": 85269.4
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-12T11:00:00Z",
+                  "seconds": 1791802800,
+                  "price": 84159
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-12T18:00:00Z",
+                  "seconds": 1791828000,
+                  "price": 85280.7
+                }
+              ]
+            },
+            {
+              "id": "270b7f6d236289fd02bc9a0009ca47b1985ce648dcbb9b35039c9e4617fbd2f5",
+              "patternId": "410481370944a71e0d959ba5e566b2a3c2ac84a9081bb63c9ef49485253a7b5a",
+              "type": "double_top",
+              "side": "top",
+              "state": "invalidated",
+              "isLatest": true,
+              "knownAt": "2026-10-13T10:00:00Z",
+              "anchorTime": "2026-10-13T09:00:00Z",
+              "neckline": "84159.00000000",
+              "invalidation": "85280.7",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-10-12T02:00:00Z",
+                  "seconds": 1791770400,
+                  "price": 85269.4
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-12T11:00:00Z",
+                  "seconds": 1791802800,
+                  "price": 84159
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-12T18:00:00Z",
+                  "seconds": 1791828000,
+                  "price": 85280.7
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "stored range",
+          "range": null
+        },
+        {
+          "name": "zoom preserved opening Chart Patterns",
+          "before": {
+            "from": 380,
+            "to": 502
+          },
+          "after": {
+            "from": 380,
+            "to": 502
+          }
+        },
+        {
+          "name": "default selection",
+          "expected": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+          "detection": {
+            "name": "Double Bottom",
+            "badge": "Confirmed",
+            "badgeTone": "green",
+            "score": "Not calculated",
+            "scoreTrackChildren": 0,
+            "explanation": "Price formed two distinct lows at a similar level (82,945.40 and 82,994.90) and closed above the 84,085.30 neckline (2026-10-11 15:00 UTC): the detector's confirmation."
+          },
+          "layer": {
+            "id": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+            "state": "confirmed",
+            "tone": "green",
+            "width": 1002,
+            "height": 681
+          }
+        },
+        {
+          "name": "zoom preserved selecting a pattern",
+          "before": {
+            "from": 380,
+            "to": 502
+          },
+          "after": {
+            "from": 380,
+            "to": 502
+          }
+        },
+        {
+          "name": "annotation anchors",
+          "pattern": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+          "state": "confirmed",
+          "anchors": [
+            {
+              "label": "Bottom 1",
+              "time": "2026-10-10T02:00:00.000Z",
+              "price": 82945.4,
+              "labelCentreX": 166.2,
+              "candleX": 166,
+              "heldAtPaneEdge": false
+            },
+            {
+              "label": "Bottom 2",
+              "time": "2026-10-11T03:00:00.000Z",
+              "price": 82994.9,
+              "labelCentreX": 369.8,
+              "candleX": 369.7,
+              "heldAtPaneEdge": false
+            }
+          ],
+          "neckline": {
+            "stored": "84085.30000000",
+            "drawnY": 348.6919231360482,
+            "priceScaleY": 348.6919231360482,
+            "x": [
+              133.41463414634143,
+              459.2682926829268
+            ]
+          },
+          "confirmation": {
+            "anchorTime": "2026-10-11T14:00:00Z",
+            "connector": {
+              "x1": 339.98243902439026,
+              "y1": 302.6919231360482,
+              "x2": 367.98243902439026,
+              "y2": 346.6919231360482,
+              "length": 52.2
+            },
+            "candleX": 459.2682926829268
+          },
+          "arcs": 2,
+          "oversizedFillPct": 0.5,
+          "title": {
+            "cls": "pattern-anno-title",
+            "text": "Double Bottom - Confirmed",
+            "tone": "green",
+            "time": null,
+            "price": null,
+            "centreX": 299.84375,
+            "atEdge": false,
+            "top": 262.6875,
+            "bottom": 302.328125,
+            "inside": true,
+            "fontSize": "19px",
+            "colour": "rgb(42, 209, 157)",
+            "border": "rgb(42, 209, 157)"
+          },
+          "titleCoversCandles": 0
+        },
+        {
+          "name": "cards",
+          "detection": {
+            "name": "Double Bottom",
+            "badge": "Confirmed",
+            "badgeTone": "green",
+            "score": "Not calculated",
+            "scoreTrackChildren": 0,
+            "explanation": "Price formed two distinct lows at a similar level (82,945.40 and 82,994.90) and closed above the 84,085.30 neckline (2026-10-11 15:00 UTC): the detector's confirmation."
+          },
+          "others": [
+            {
+              "id": "43e893c13e4570a1989b7fd7fe2dd0be480f11a58b44cb852443bac007d21145",
+              "text": "Head and Shoulders Confirmed ›"
+            },
+            {
+              "id": "d600c0b418b4a2f9c2b5c517595809f4783baba4fe97ff0f0675c04ee641feda",
+              "text": "Inverse Head and Shoulders Confirmed ›"
+            },
+            {
+              "id": "a14b6288b13f6da826200d7d949bdc28061d7dcd54d0948fd9f3958185b7a915",
+              "text": "Double Top Confirmed ›"
+            },
+            {
+              "id": "270b7f6d236289fd02bc9a0009ca47b1985ce648dcbb9b35039c9e4617fbd2f5",
+              "text": "Double Top Invalidated ›"
+            },
+            {
+              "id": "056a0fbcbfdc5bc49db7edff7142c8a31117547faff8d39484c180d9d7eafa49",
+              "text": "Double Bottom Invalidated ›"
+            },
+            {
+              "id": "b051693c60fae9fa596fa014ed74b1ecff6102f0d0d75d1b4a6b60b87b8a7db3",
+              "text": "Double Top Invalidated ›"
+            }
+          ],
+          "othersEmpty": null,
+          "levels": [
+            {
+              "key": "neckline",
+              "available": "true",
+              "text": "Neckline (Breakout) 84,085.30"
+            },
+            {
+              "key": "support",
+              "available": "true",
+              "text": "Support (Bottoms) 82,945.40"
+            },
+            {
+              "key": "resistance",
+              "available": "false",
+              "text": "Resistance (Target) Unavailable"
+            }
+          ]
+        },
+        {
+          "name": "layout",
+          "header": {
+            "left": 0,
+            "top": 0,
+            "right": 1536,
+            "bottom": 80,
+            "width": 1536,
+            "height": 80
+          },
+          "headerOverlapPx": 0,
+          "chartPanel": {
+            "left": 11,
+            "right": 1103,
+            "top": 101,
+            "bottom": 859
+          },
+          "chartWidthPct": 71.1,
+          "rightColumn": {
+            "left": 1118,
+            "top": 108,
+            "right": 1525,
+            "bottom": 859,
+            "width": 407,
+            "height": 751
+          },
+          "rightWidthPct": 26.5,
+          "gutter": 15,
+          "topAligned": 7,
+          "cards": [
+            {
+              "cls": "pd-card pd-card--detection",
+              "top": 108,
+              "bottom": 458,
+              "height": 350
+            },
+            {
+              "cls": "pd-card pd-card--others",
+              "top": 471,
+              "bottom": 652,
+              "height": 181
+            },
+            {
+              "cls": "pd-card pd-card--levels",
+              "top": 665,
+              "bottom": 859,
+              "height": 194
+            }
+          ],
+          "timeframeBg": "rgb(11, 79, 196)",
+          "chartHeadText": "BTC/USDT · 1H · BINANCEO86,114.1H86,197.9L86,046C86,152.4+38.30 (+0.04%)",
+          "pageScrollWidth": 1536
+        },
+        {
+          "name": "labels inside the chart and no clipped text",
+          "clipped": [],
+          "overflowing": [
+            "pd-row-title"
+          ]
+        },
+        {
+          "name": "volume pane",
+          "label": "Volume1.39K",
+          "separator": {
+            "left": 12,
+            "top": 692,
+            "right": 1014,
+            "bottom": 693,
+            "width": 1002,
+            "height": 1
+          },
+          "readable": true,
+          "coloured": 52995
+        },
+        {
+          "name": "every listed record selectable",
+          "count": 6,
+          "selections": [
+            {
+              "id": "43e893c13e4570a1989b7fd7fe2dd0be480f11a58b44cb852443bac007d21145",
+              "type": "head_and_shoulders",
+              "state": "confirmed",
+              "layer": {
+                "id": "43e893c13e4570a1989b7fd7fe2dd0be480f11a58b44cb852443bac007d21145",
+                "state": "confirmed",
+                "tone": "red",
+                "width": 1002,
+                "height": 681
+              },
+              "detection": "Head and Shoulders",
+              "badge": "Confirmed",
+              "title": "Head and Shoulders - Confirmed",
+              "arcs": 3,
+              "levels": [
+                "Neckline (Breakdown) 86,074.10",
+                "Support (Target) Unavailable",
+                "Resistance (Head) 88,481.30"
+              ],
+              "secondary": [],
+              "oversizedFillPct": 1,
+              "zoomBefore": {
+                "from": 380,
+                "to": 502
+              },
+              "zoomAfter": {
+                "from": 150,
+                "to": 272
+              },
+              "titleCoversCandles": 0,
+              "neckline": {
+                "stored": "86074.10000000",
+                "drawnY": 387.2766350474283,
+                "priceScaleY": 387.2766350474283
+              }
+            },
+            {
+              "id": "d600c0b418b4a2f9c2b5c517595809f4783baba4fe97ff0f0675c04ee641feda",
+              "type": "inverse_head_and_shoulders",
+              "state": "confirmed",
+              "layer": {
+                "id": "d600c0b418b4a2f9c2b5c517595809f4783baba4fe97ff0f0675c04ee641feda",
+                "state": "confirmed",
+                "tone": "green",
+                "width": 1002,
+                "height": 681
+              },
+              "detection": "Inverse Head and Shoulders",
+              "badge": "Confirmed",
+              "title": "Inverse Head and Shoulders - Confirmed",
+              "arcs": 3,
+              "levels": [
+                "Neckline (Breakout) 85,303.00",
+                "Support (Head) 82,911.90",
+                "Resistance (Target) Unavailable"
+              ],
+              "secondary": [],
+              "oversizedFillPct": 1,
+              "zoomBefore": {
+                "from": 150,
+                "to": 272
+              },
+              "zoomAfter": {
+                "from": 117,
+                "to": 239
+              },
+              "titleCoversCandles": 0,
+              "neckline": {
+                "stored": "85303.00000000",
+                "drawnY": 208.00001808972462,
+                "priceScaleY": 208.00001808972462
+              }
+            },
+            {
+              "id": "a14b6288b13f6da826200d7d949bdc28061d7dcd54d0948fd9f3958185b7a915",
+              "type": "double_top",
+              "state": "confirmed",
+              "layer": {
+                "id": "a14b6288b13f6da826200d7d949bdc28061d7dcd54d0948fd9f3958185b7a915",
+                "state": "confirmed",
+                "tone": "red",
+                "width": 1002,
+                "height": 681
+              },
+              "detection": "Double Top",
+              "badge": "Confirmed",
+              "title": "Double Top - Confirmed",
+              "arcs": 2,
+              "levels": [
+                "Neckline (Breakdown) 83,992.50",
+                "Support (Target) Unavailable",
+                "Resistance (Tops) 85,280.50"
+              ],
+              "secondary": [],
+              "oversizedFillPct": 1.3,
+              "zoomBefore": {
+                "from": 117,
+                "to": 239
+              },
+              "zoomAfter": {
+                "from": 71,
+                "to": 193
+              },
+              "titleCoversCandles": 0,
+              "neckline": {
+                "stored": "83992.50000000",
+                "drawnY": 325.2976052471016,
+                "priceScaleY": 325.2976052471016
+              }
+            },
+            {
+              "id": "270b7f6d236289fd02bc9a0009ca47b1985ce648dcbb9b35039c9e4617fbd2f5",
+              "type": "double_top",
+              "state": "invalidated",
+              "layer": {
+                "id": "270b7f6d236289fd02bc9a0009ca47b1985ce648dcbb9b35039c9e4617fbd2f5",
+                "state": "invalidated",
+                "tone": "neutral",
+                "width": 1002,
+                "height": 681
+              },
+              "detection": "Double Top",
+              "badge": "Invalidated",
+              "title": "Double Top - Invalidated",
+              "arcs": 2,
+              "levels": [
+                "Neckline (Breakdown) 84,159.00",
+                "Support (Target) Unavailable",
+                "Resistance (Tops) 85,280.70"
+              ],
+              "secondary": [
+                {
+                  "id": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+                  "text": "Double Bottom"
+                }
+              ],
+              "oversizedFillPct": 0.1,
+              "zoomBefore": {
+                "from": 71,
+                "to": 193
+              },
+              "zoomAfter": {
+                "from": 480,
+                "to": 602
+              },
+              "titleCoversCandles": 0,
+              "neckline": {
+                "stored": "84159.00000000",
+                "drawnY": 340.08584780937673,
+                "priceScaleY": 340.08584780937673
+              }
+            },
+            {
+              "id": "056a0fbcbfdc5bc49db7edff7142c8a31117547faff8d39484c180d9d7eafa49",
+              "type": "double_bottom",
+              "state": "invalidated",
+              "layer": {
+                "id": "056a0fbcbfdc5bc49db7edff7142c8a31117547faff8d39484c180d9d7eafa49",
+                "state": "invalidated",
+                "tone": "neutral",
+                "width": 1002,
+                "height": 681
+              },
+              "detection": "Double Bottom",
+              "badge": "Invalidated",
+              "title": "Double Bottom - Invalidated",
+              "arcs": 2,
+              "levels": [
+                "Neckline (Breakout) 88,481.30",
+                "Support (Bottoms) 86,043.10",
+                "Resistance (Target) Unavailable"
+              ],
+              "secondary": [],
+              "oversizedFillPct": 1.6,
+              "zoomBefore": {
+                "from": 480,
+                "to": 602
+              },
+              "zoomAfter": {
+                "from": 244,
+                "to": 366
+              },
+              "titleCoversCandles": 0,
+              "neckline": {
+                "stored": "88481.30000000",
+                "drawnY": 102,
+                "priceScaleY": 102
+              }
+            },
+            {
+              "id": "b051693c60fae9fa596fa014ed74b1ecff6102f0d0d75d1b4a6b60b87b8a7db3",
+              "type": "double_top",
+              "state": "invalidated",
+              "layer": {
+                "id": "b051693c60fae9fa596fa014ed74b1ecff6102f0d0d75d1b4a6b60b87b8a7db3",
+                "state": "invalidated",
+                "tone": "neutral",
+                "width": 1002,
+                "height": 681
+              },
+              "detection": "Double Top",
+              "badge": "Invalidated",
+              "title": "Double Top - Invalidated",
+              "arcs": 2,
+              "levels": [
+                "Neckline (Breakdown) 82,911.90",
+                "Support (Target) Unavailable",
+                "Resistance (Tops) 85,325.50"
+              ],
+              "secondary": [],
+              "oversizedFillPct": 1.2,
+              "zoomBefore": {
+                "from": 244,
+                "to": 366
+              },
+              "zoomAfter": {
+                "from": 112,
+                "to": 234
+              },
+              "titleCoversCandles": 0,
+              "neckline": {
+                "stored": "82911.90000000",
+                "drawnY": 481.8,
+                "priceScaleY": 481.8
+              }
+            }
+          ]
+        },
+        {
+          "name": "manual choice and zoom survive a function switch",
+          "chosen": "43e893c13e4570a1989b7fd7fe2dd0be480f11a58b44cb852443bac007d21145",
+          "layer": {
+            "id": "43e893c13e4570a1989b7fd7fe2dd0be480f11a58b44cb852443bac007d21145",
+            "state": "confirmed",
+            "tone": "red",
+            "width": 1002,
+            "height": 681
+          },
+          "zoomBefore": {
+            "from": 250,
+            "to": 372
+          },
+          "zoomAfter": {
+            "from": 250,
+            "to": 372
+          }
+        },
+        {
+          "name": "resize redraws at the same candles",
+          "resizedAnchors": [
+            {
+              "label": "Bottom 1",
+              "labelCentreX": 341.8,
+              "candleX": 341.7
+            },
+            {
+              "label": "Bottom 2",
+              "labelCentreX": 545.5,
+              "candleX": 545.3
+            }
+          ]
+        },
+        {
+          "name": "detailed mode",
+          "toolbarVisible": true,
+          "layerDetailsVisible": true,
+          "recordFacts": 15,
+          "annotation": true
+        },
+        {
+          "name": "timeframe change clears the old annotation",
+          "oneHour": {
+            "id": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+            "state": "confirmed",
+            "tone": "green",
+            "width": 1002,
+            "height": 681
+          },
+          "fourHour": null,
+          "fourHourDetection": {
+            "name": null,
+            "badge": null,
+            "badgeTone": null,
+            "score": null,
+            "scoreTrackChildren": null,
+            "explanation": null
+          },
+          "labels": []
+        },
+        {
+          "name": "breakouts unaffected",
+          "topbarVisible": true,
+          "headerControlsChildren": 0,
+          "callouts": [
+            "breakout",
+            "retest",
+            "continuation"
+          ],
+          "patternLayer": false,
+          "volumeLabel": false,
+          "summaryCard": true,
+          "zoomBefore": {
+            "from": 355,
+            "to": 477
+          },
+          "zoomAfter": {
+            "from": 355,
+            "to": 477
+          }
+        }
+      ],
+      "pageErrors": [],
+      "consoleErrors": [
+        "Refused to apply inline style because it violates the following Content Security Policy directive: \"style-src 'self'\". Either the 'unsafe-inline' keyword, a hash ('sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='), or a nonce ('nonce-...') is required to enable inline execution.\n",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_RESET",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_RESET",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED"
+      ],
+      "unexpectedConsoleErrors": []
+    },
+    {
+      "label": "1672x941",
+      "width": 1672,
+      "height": 941,
+      "checks": [
+        {
+          "name": "stored patterns",
+          "patterns": [
+            {
+              "id": "d4a892bd0388a99ed8b4f4544dd726a14e9e368e348fcfb2da5682bbfea3d257",
+              "patternId": "db6fbc5c992382124f4883f53235f8b90d4c56e829d9f77e0982204503ec2a61",
+              "type": "double_top",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-25T16:00:00Z",
+              "anchorTime": "2026-09-25T13:00:00Z",
+              "neckline": "83992.50000000",
+              "invalidation": "85280.5",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-23T17:00:00Z",
+                  "seconds": 1790182800,
+                  "price": 85120.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-24T17:00:00Z",
+                  "seconds": 1790269200,
+                  "price": 83992.5
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                }
+              ]
+            },
+            {
+              "id": "a14b6288b13f6da826200d7d949bdc28061d7dcd54d0948fd9f3958185b7a915",
+              "patternId": "db6fbc5c992382124f4883f53235f8b90d4c56e829d9f77e0982204503ec2a61",
+              "type": "double_top",
+              "side": "top",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-09-26T02:00:00Z",
+              "anchorTime": "2026-09-26T01:00:00Z",
+              "neckline": "83992.50000000",
+              "invalidation": "85280.5",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-23T17:00:00Z",
+                  "seconds": 1790182800,
+                  "price": 85120.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-24T17:00:00Z",
+                  "seconds": 1790269200,
+                  "price": 83992.5
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                }
+              ]
+            },
+            {
+              "id": "486762cfe8e448f434fc47e36ed4caeb8e18fe6cf802cda5e5e3edb8bff98444",
+              "patternId": "f00674da910a10210f9be2e4dcb4a9fd3a9d41bb7ffb1aa94723a0667085112f",
+              "type": "double_top",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-27T12:00:00Z",
+              "anchorTime": "2026-09-27T09:00:00Z",
+              "neckline": "82911.90000000",
+              "invalidation": "85325.5",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T10:00:00Z",
+                  "seconds": 1790416800,
+                  "price": 82911.9
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-27T09:00:00Z",
+                  "seconds": 1790499600,
+                  "price": 85325.5
+                }
+              ]
+            },
+            {
+              "id": "fd99bb32c87d5695b7f0c8738978baf8848476a72796685fe21b9ed7d0c061ef",
+              "patternId": "476599fde23e5451f1a61d1649156680622ac6b6d1617c01ca8b3f9e841d89e2",
+              "type": "inverse_head_and_shoulders",
+              "side": "bottom",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-28T07:00:00Z",
+              "anchorTime": "2026-09-28T04:00:00Z",
+              "neckline": "85303.00000000",
+              "invalidation": "82911.9",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-09-24T17:00:00Z",
+                  "seconds": 1790269200,
+                  "price": 83992.5
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T10:00:00Z",
+                  "seconds": 1790416800,
+                  "price": 82911.9
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-27T09:00:00Z",
+                  "seconds": 1790499600,
+                  "price": 85325.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-28T04:00:00Z",
+                  "seconds": 1790568000,
+                  "price": 83986.5
+                }
+              ]
+            },
+            {
+              "id": "b051693c60fae9fa596fa014ed74b1ecff6102f0d0d75d1b4a6b60b87b8a7db3",
+              "patternId": "f00674da910a10210f9be2e4dcb4a9fd3a9d41bb7ffb1aa94723a0667085112f",
+              "type": "double_top",
+              "side": "top",
+              "state": "invalidated",
+              "isLatest": true,
+              "knownAt": "2026-09-28T21:00:00Z",
+              "anchorTime": "2026-09-28T20:00:00Z",
+              "neckline": "82911.90000000",
+              "invalidation": "85325.5",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T10:00:00Z",
+                  "seconds": 1790416800,
+                  "price": 82911.9
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-27T09:00:00Z",
+                  "seconds": 1790499600,
+                  "price": 85325.5
+                }
+              ]
+            },
+            {
+              "id": "d600c0b418b4a2f9c2b5c517595809f4783baba4fe97ff0f0675c04ee641feda",
+              "patternId": "476599fde23e5451f1a61d1649156680622ac6b6d1617c01ca8b3f9e841d89e2",
+              "type": "inverse_head_and_shoulders",
+              "side": "bottom",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-09-28T21:00:00Z",
+              "anchorTime": "2026-09-28T20:00:00Z",
+              "neckline": "85303.00000000",
+              "invalidation": "82911.9",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-09-24T17:00:00Z",
+                  "seconds": 1790269200,
+                  "price": 83992.5
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T10:00:00Z",
+                  "seconds": 1790416800,
+                  "price": 82911.9
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-27T09:00:00Z",
+                  "seconds": 1790499600,
+                  "price": 85325.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-28T04:00:00Z",
+                  "seconds": 1790568000,
+                  "price": 83986.5
+                }
+              ]
+            },
+            {
+              "id": "9553baf2d062d68e2c63536de72f1aebcf87629f2f3709f5c74a2084ed29c743",
+              "patternId": "511f9b335b468bdea1c60ba671a047b02d7c4a5d72cfca4d88d6d5b81b60f230",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-10-03T00:00:00Z",
+              "anchorTime": "2026-10-02T21:00:00Z",
+              "neckline": "88481.30000000",
+              "invalidation": "86043.1",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-10-01T00:00:00Z",
+                  "seconds": 1790812800,
+                  "price": 86043.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-01T23:00:00Z",
+                  "seconds": 1790895600,
+                  "price": 88481.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-02T21:00:00Z",
+                  "seconds": 1790974800,
+                  "price": 86105.1
+                }
+              ]
+            },
+            {
+              "id": "b4441e2835eae97b70fa0728635817f7f9c3239fa9c0e3d3d5dcb60f9ec86c7f",
+              "patternId": "6fc4e1261a28eab6c44806272967c968f98b8ddb7e96b81bfcea3fa40f6647a0",
+              "type": "head_and_shoulders",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-10-03T20:00:00Z",
+              "anchorTime": "2026-10-03T17:00:00Z",
+              "neckline": "86074.10000000",
+              "invalidation": "88481.3",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-30T05:00:00Z",
+                  "seconds": 1790744400,
+                  "price": 87471.6
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-01T00:00:00Z",
+                  "seconds": 1790812800,
+                  "price": 86043.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-01T23:00:00Z",
+                  "seconds": 1790895600,
+                  "price": 88481.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-02T21:00:00Z",
+                  "seconds": 1790974800,
+                  "price": 86105.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-03T17:00:00Z",
+                  "seconds": 1791046800,
+                  "price": 87474
+                }
+              ]
+            },
+            {
+              "id": "43e893c13e4570a1989b7fd7fe2dd0be480f11a58b44cb852443bac007d21145",
+              "patternId": "6fc4e1261a28eab6c44806272967c968f98b8ddb7e96b81bfcea3fa40f6647a0",
+              "type": "head_and_shoulders",
+              "side": "top",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-10-04T11:00:00Z",
+              "anchorTime": "2026-10-04T10:00:00Z",
+              "neckline": "86074.10000000",
+              "invalidation": "88481.3",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-30T05:00:00Z",
+                  "seconds": 1790744400,
+                  "price": 87471.6
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-01T00:00:00Z",
+                  "seconds": 1790812800,
+                  "price": 86043.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-01T23:00:00Z",
+                  "seconds": 1790895600,
+                  "price": 88481.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-02T21:00:00Z",
+                  "seconds": 1790974800,
+                  "price": 86105.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-03T17:00:00Z",
+                  "seconds": 1791046800,
+                  "price": 87474
+                }
+              ]
+            },
+            {
+              "id": "056a0fbcbfdc5bc49db7edff7142c8a31117547faff8d39484c180d9d7eafa49",
+              "patternId": "511f9b335b468bdea1c60ba671a047b02d7c4a5d72cfca4d88d6d5b81b60f230",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "invalidated",
+              "isLatest": true,
+              "knownAt": "2026-10-04T12:00:00Z",
+              "anchorTime": "2026-10-04T11:00:00Z",
+              "neckline": "88481.30000000",
+              "invalidation": "86043.1",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-10-01T00:00:00Z",
+                  "seconds": 1790812800,
+                  "price": 86043.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-01T23:00:00Z",
+                  "seconds": 1790895600,
+                  "price": 88481.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-02T21:00:00Z",
+                  "seconds": 1790974800,
+                  "price": 86105.1
+                }
+              ]
+            },
+            {
+              "id": "3f36f3ec689560da265a1bde6361b014866349c771fa78ca38b55204b8c26e64",
+              "patternId": "386cc7c244b9b5c1688302ca8110c71e6e739f8eed199c94384c8c2bda83aea6",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-10-11T06:00:00Z",
+              "anchorTime": "2026-10-11T03:00:00Z",
+              "neckline": "84085.30000000",
+              "invalidation": "82945.4",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-10-10T02:00:00Z",
+                  "seconds": 1791597600,
+                  "price": 82945.4
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-10T15:00:00Z",
+                  "seconds": 1791644400,
+                  "price": 84085.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-11T03:00:00Z",
+                  "seconds": 1791687600,
+                  "price": 82994.9
+                }
+              ]
+            },
+            {
+              "id": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+              "patternId": "386cc7c244b9b5c1688302ca8110c71e6e739f8eed199c94384c8c2bda83aea6",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-10-11T15:00:00Z",
+              "anchorTime": "2026-10-11T14:00:00Z",
+              "neckline": "84085.30000000",
+              "invalidation": "82945.4",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-10-10T02:00:00Z",
+                  "seconds": 1791597600,
+                  "price": 82945.4
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-10T15:00:00Z",
+                  "seconds": 1791644400,
+                  "price": 84085.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-11T03:00:00Z",
+                  "seconds": 1791687600,
+                  "price": 82994.9
+                }
+              ]
+            },
+            {
+              "id": "a9d775c9cf4b47014547278b6dcaa9d674af1eb163042ba10aa84db0abc5bbc4",
+              "patternId": "410481370944a71e0d959ba5e566b2a3c2ac84a9081bb63c9ef49485253a7b5a",
+              "type": "double_top",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-10-12T21:00:00Z",
+              "anchorTime": "2026-10-12T18:00:00Z",
+              "neckline": "84159.00000000",
+              "invalidation": "85280.7",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-10-12T02:00:00Z",
+                  "seconds": 1791770400,
+                  "price": 85269.4
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-12T11:00:00Z",
+                  "seconds": 1791802800,
+                  "price": 84159
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-12T18:00:00Z",
+                  "seconds": 1791828000,
+                  "price": 85280.7
+                }
+              ]
+            },
+            {
+              "id": "270b7f6d236289fd02bc9a0009ca47b1985ce648dcbb9b35039c9e4617fbd2f5",
+              "patternId": "410481370944a71e0d959ba5e566b2a3c2ac84a9081bb63c9ef49485253a7b5a",
+              "type": "double_top",
+              "side": "top",
+              "state": "invalidated",
+              "isLatest": true,
+              "knownAt": "2026-10-13T10:00:00Z",
+              "anchorTime": "2026-10-13T09:00:00Z",
+              "neckline": "84159.00000000",
+              "invalidation": "85280.7",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-10-12T02:00:00Z",
+                  "seconds": 1791770400,
+                  "price": 85269.4
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-12T11:00:00Z",
+                  "seconds": 1791802800,
+                  "price": 84159
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-12T18:00:00Z",
+                  "seconds": 1791828000,
+                  "price": 85280.7
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "stored range",
+          "range": null
+        },
+        {
+          "name": "zoom preserved opening Chart Patterns",
+          "before": {
+            "from": 380,
+            "to": 502
+          },
+          "after": {
+            "from": 380,
+            "to": 502
+          }
+        },
+        {
+          "name": "default selection",
+          "expected": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+          "detection": {
+            "name": "Double Bottom",
+            "badge": "Confirmed",
+            "badgeTone": "green",
+            "score": "Not calculated",
+            "scoreTrackChildren": 0,
+            "explanation": "Price formed two distinct lows at a similar level (82,945.40 and 82,994.90) and closed above the 84,085.30 neckline (2026-10-11 15:00 UTC): the detector's confirmation."
+          },
+          "layer": {
+            "id": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+            "state": "confirmed",
+            "tone": "green",
+            "width": 1101,
+            "height": 758
+          }
+        },
+        {
+          "name": "zoom preserved selecting a pattern",
+          "before": {
+            "from": 380,
+            "to": 502
+          },
+          "after": {
+            "from": 380,
+            "to": 502
+          }
+        },
+        {
+          "name": "annotation anchors",
+          "pattern": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+          "state": "confirmed",
+          "anchors": [
+            {
+              "label": "Bottom 1",
+              "time": "2026-10-10T02:00:00.000Z",
+              "price": 82945.4,
+              "labelCentreX": 182.5,
+              "candleX": 182.3,
+              "heldAtPaneEdge": false
+            },
+            {
+              "label": "Bottom 2",
+              "time": "2026-10-11T03:00:00.000Z",
+              "price": 82994.9,
+              "labelCentreX": 406.1,
+              "candleX": 405.9,
+              "heldAtPaneEdge": false
+            }
+          ],
+          "neckline": {
+            "stored": "84085.30000000",
+            "drawnY": 388.7634428900834,
+            "priceScaleY": 388.7634428900834,
+            "x": [
+              146.56097560975604,
+              504.2845528455284
+            ]
+          },
+          "confirmation": {
+            "anchorTime": "2026-10-11T14:00:00Z",
+            "connector": {
+              "x1": 366.6734959349594,
+              "y1": 342.7634428900834,
+              "x2": 394.6734959349594,
+              "y2": 386.7634428900834,
+              "length": 52.2
+            },
+            "candleX": 504.2845528455284
+          },
+          "arcs": 2,
+          "oversizedFillPct": 0.5,
+          "title": {
+            "cls": "pattern-anno-title",
+            "text": "Double Bottom - Confirmed",
+            "tone": "green",
+            "time": null,
+            "price": null,
+            "centreX": 326.53125,
+            "atEdge": false,
+            "top": 302.75,
+            "bottom": 342.390625,
+            "inside": true,
+            "fontSize": "19px",
+            "colour": "rgb(42, 209, 157)",
+            "border": "rgb(42, 209, 157)"
+          },
+          "titleCoversCandles": 0
+        },
+        {
+          "name": "cards",
+          "detection": {
+            "name": "Double Bottom",
+            "badge": "Confirmed",
+            "badgeTone": "green",
+            "score": "Not calculated",
+            "scoreTrackChildren": 0,
+            "explanation": "Price formed two distinct lows at a similar level (82,945.40 and 82,994.90) and closed above the 84,085.30 neckline (2026-10-11 15:00 UTC): the detector's confirmation."
+          },
+          "others": [
+            {
+              "id": "43e893c13e4570a1989b7fd7fe2dd0be480f11a58b44cb852443bac007d21145",
+              "text": "Head and Shoulders Confirmed ›"
+            },
+            {
+              "id": "d600c0b418b4a2f9c2b5c517595809f4783baba4fe97ff0f0675c04ee641feda",
+              "text": "Inverse Head and Shoulders Confirmed ›"
+            },
+            {
+              "id": "a14b6288b13f6da826200d7d949bdc28061d7dcd54d0948fd9f3958185b7a915",
+              "text": "Double Top Confirmed ›"
+            },
+            {
+              "id": "270b7f6d236289fd02bc9a0009ca47b1985ce648dcbb9b35039c9e4617fbd2f5",
+              "text": "Double Top Invalidated ›"
+            },
+            {
+              "id": "056a0fbcbfdc5bc49db7edff7142c8a31117547faff8d39484c180d9d7eafa49",
+              "text": "Double Bottom Invalidated ›"
+            },
+            {
+              "id": "b051693c60fae9fa596fa014ed74b1ecff6102f0d0d75d1b4a6b60b87b8a7db3",
+              "text": "Double Top Invalidated ›"
+            }
+          ],
+          "othersEmpty": null,
+          "levels": [
+            {
+              "key": "neckline",
+              "available": "true",
+              "text": "Neckline (Breakout) 84,085.30"
+            },
+            {
+              "key": "support",
+              "available": "true",
+              "text": "Support (Bottoms) 82,945.40"
+            },
+            {
+              "key": "resistance",
+              "available": "false",
+              "text": "Resistance (Target) Unavailable"
+            }
+          ]
+        },
+        {
+          "name": "layout",
+          "header": {
+            "left": 0,
+            "top": 0,
+            "right": 1672,
+            "bottom": 80,
+            "width": 1672,
+            "height": 80
+          },
+          "headerOverlapPx": 0,
+          "chartPanel": {
+            "left": 11,
+            "right": 1202,
+            "top": 101,
+            "bottom": 936
+          },
+          "chartWidthPct": 71.2,
+          "rightColumn": {
+            "left": 1217,
+            "top": 108,
+            "right": 1661,
+            "bottom": 936,
+            "width": 444,
+            "height": 828
+          },
+          "rightWidthPct": 26.6,
+          "gutter": 15,
+          "topAligned": 7,
+          "cards": [
+            {
+              "cls": "pd-card pd-card--detection",
+              "top": 108,
+              "bottom": 458,
+              "height": 350
+            },
+            {
+              "cls": "pd-card pd-card--others",
+              "top": 471,
+              "bottom": 729,
+              "height": 258
+            },
+            {
+              "cls": "pd-card pd-card--levels",
+              "top": 742,
+              "bottom": 936,
+              "height": 194
+            }
+          ],
+          "timeframeBg": "rgb(11, 79, 196)",
+          "chartHeadText": "BTC/USDT · 1H · BINANCEO86,114.1H86,197.9L86,046C86,152.4+38.30 (+0.04%)",
+          "pageScrollWidth": 1672
+        },
+        {
+          "name": "labels inside the chart and no clipped text",
+          "clipped": [],
+          "overflowing": [
+            "pd-row-title"
+          ]
+        },
+        {
+          "name": "volume pane",
+          "label": "Volume1.39K",
+          "separator": {
+            "left": 12,
+            "top": 753,
+            "right": 1113,
+            "bottom": 754,
+            "width": 1101,
+            "height": 1
+          },
+          "readable": true,
+          "coloured": 66100
+        },
+        {
+          "name": "every listed record selectable",
+          "count": 6,
+          "selections": [
+            {
+              "id": "43e893c13e4570a1989b7fd7fe2dd0be480f11a58b44cb852443bac007d21145",
+              "type": "head_and_shoulders",
+              "state": "confirmed",
+              "layer": {
+                "id": "43e893c13e4570a1989b7fd7fe2dd0be480f11a58b44cb852443bac007d21145",
+                "state": "confirmed",
+                "tone": "red",
+                "width": 1101,
+                "height": 758
+              },
+              "detection": "Head and Shoulders",
+              "badge": "Confirmed",
+              "title": "Head and Shoulders - Confirmed",
+              "arcs": 3,
+              "levels": [
+                "Neckline (Breakdown) 86,074.10",
+                "Support (Target) Unavailable",
+                "Resistance (Head) 88,481.30"
+              ],
+              "secondary": [],
+              "oversizedFillPct": 1,
+              "zoomBefore": {
+                "from": 380,
+                "to": 502
+              },
+              "zoomAfter": {
+                "from": 150,
+                "to": 272
+              },
+              "titleCoversCandles": 0,
+              "neckline": {
+                "stored": "86074.10000000",
+                "drawnY": 431.7857014478276,
+                "priceScaleY": 431.7857014478276
+              }
+            },
+            {
+              "id": "d600c0b418b4a2f9c2b5c517595809f4783baba4fe97ff0f0675c04ee641feda",
+              "type": "inverse_head_and_shoulders",
+              "state": "confirmed",
+              "layer": {
+                "id": "d600c0b418b4a2f9c2b5c517595809f4783baba4fe97ff0f0675c04ee641feda",
+                "state": "confirmed",
+                "tone": "green",
+                "width": 1101,
+                "height": 758
+              },
+              "detection": "Inverse Head and Shoulders",
+              "badge": "Confirmed",
+              "title": "Inverse Head and Shoulders - Confirmed",
+              "arcs": 3,
+              "levels": [
+                "Neckline (Breakout) 85,303.00",
+                "Support (Head) 82,911.90",
+                "Resistance (Target) Unavailable"
+              ],
+              "secondary": [],
+              "oversizedFillPct": 1,
+              "zoomBefore": {
+                "from": 150,
+                "to": 272
+              },
+              "zoomAfter": {
+                "from": 117,
+                "to": 239
+              },
+              "titleCoversCandles": 0,
+              "neckline": {
+                "stored": "85303.00000000",
+                "drawnY": 231.8908574529662,
+                "priceScaleY": 231.8908574529662
+              }
+            },
+            {
+              "id": "a14b6288b13f6da826200d7d949bdc28061d7dcd54d0948fd9f3958185b7a915",
+              "type": "double_top",
+              "state": "confirmed",
+              "layer": {
+                "id": "a14b6288b13f6da826200d7d949bdc28061d7dcd54d0948fd9f3958185b7a915",
+                "state": "confirmed",
+                "tone": "red",
+                "width": 1101,
+                "height": 758
+              },
+              "detection": "Double Top",
+              "badge": "Confirmed",
+              "title": "Double Top - Confirmed",
+              "arcs": 2,
+              "levels": [
+                "Neckline (Breakdown) 83,992.50",
+                "Support (Target) Unavailable",
+                "Resistance (Tops) 85,280.50"
+              ],
+              "secondary": [],
+              "oversizedFillPct": 1.3,
+              "zoomBefore": {
+                "from": 117,
+                "to": 239
+              },
+              "zoomAfter": {
+                "from": 71,
+                "to": 193
+              },
+              "titleCoversCandles": 0,
+              "neckline": {
+                "stored": "83992.50000000",
+                "drawnY": 362.6785936546671,
+                "priceScaleY": 362.6785936546671
+              }
+            },
+            {
+              "id": "270b7f6d236289fd02bc9a0009ca47b1985ce648dcbb9b35039c9e4617fbd2f5",
+              "type": "double_top",
+              "state": "invalidated",
+              "layer": {
+                "id": "270b7f6d236289fd02bc9a0009ca47b1985ce648dcbb9b35039c9e4617fbd2f5",
+                "state": "invalidated",
+                "tone": "neutral",
+                "width": 1101,
+                "height": 758
+              },
+              "detection": "Double Top",
+              "badge": "Invalidated",
+              "title": "Double Top - Invalidated",
+              "arcs": 2,
+              "levels": [
+                "Neckline (Breakdown) 84,159.00",
+                "Support (Target) Unavailable",
+                "Resistance (Tops) 85,280.70"
+              ],
+              "secondary": [
+                {
+                  "id": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+                  "text": "Double Bottom"
+                }
+              ],
+              "oversizedFillPct": 0.1,
+              "zoomBefore": {
+                "from": 71,
+                "to": 193
+              },
+              "zoomAfter": {
+                "from": 480,
+                "to": 602
+              },
+              "titleCoversCandles": 0,
+              "neckline": {
+                "stored": "84159.00000000",
+                "drawnY": 379.16760092236666,
+                "priceScaleY": 379.16760092236666
+              }
+            },
+            {
+              "id": "056a0fbcbfdc5bc49db7edff7142c8a31117547faff8d39484c180d9d7eafa49",
+              "type": "double_bottom",
+              "state": "invalidated",
+              "layer": {
+                "id": "056a0fbcbfdc5bc49db7edff7142c8a31117547faff8d39484c180d9d7eafa49",
+                "state": "invalidated",
+                "tone": "neutral",
+                "width": 1101,
+                "height": 758
+              },
+              "detection": "Double Bottom",
+              "badge": "Invalidated",
+              "title": "Double Bottom - Invalidated",
+              "arcs": 2,
+              "levels": [
+                "Neckline (Breakout) 88,481.30",
+                "Support (Bottoms) 86,043.10",
+                "Resistance (Target) Unavailable"
+              ],
+              "secondary": [],
+              "oversizedFillPct": 1.6,
+              "zoomBefore": {
+                "from": 480,
+                "to": 602
+              },
+              "zoomAfter": {
+                "from": 244,
+                "to": 366
+              },
+              "titleCoversCandles": 0,
+              "neckline": {
+                "stored": "88481.30000000",
+                "drawnY": 113.70000000000005,
+                "priceScaleY": 113.70000000000005
+              }
+            },
+            {
+              "id": "b051693c60fae9fa596fa014ed74b1ecff6102f0d0d75d1b4a6b60b87b8a7db3",
+              "type": "double_top",
+              "state": "invalidated",
+              "layer": {
+                "id": "b051693c60fae9fa596fa014ed74b1ecff6102f0d0d75d1b4a6b60b87b8a7db3",
+                "state": "invalidated",
+                "tone": "neutral",
+                "width": 1101,
+                "height": 758
+              },
+              "detection": "Double Top",
+              "badge": "Invalidated",
+              "title": "Double Top - Invalidated",
+              "arcs": 2,
+              "levels": [
+                "Neckline (Breakdown) 82,911.90",
+                "Support (Target) Unavailable",
+                "Resistance (Tops) 85,325.50"
+              ],
+              "secondary": [],
+              "oversizedFillPct": 1.2,
+              "zoomBefore": {
+                "from": 244,
+                "to": 366
+              },
+              "zoomAfter": {
+                "from": 112,
+                "to": 234
+              },
+              "titleCoversCandles": 0,
+              "neckline": {
+                "stored": "82911.90000000",
+                "drawnY": 537.1800000000001,
+                "priceScaleY": 537.1800000000001
+              }
+            }
+          ]
+        },
+        {
+          "name": "manual choice and zoom survive a function switch",
+          "chosen": "43e893c13e4570a1989b7fd7fe2dd0be480f11a58b44cb852443bac007d21145",
+          "layer": {
+            "id": "43e893c13e4570a1989b7fd7fe2dd0be480f11a58b44cb852443bac007d21145",
+            "state": "confirmed",
+            "tone": "red",
+            "width": 1101,
+            "height": 758
+          },
+          "zoomBefore": {
+            "from": 250,
+            "to": 372
+          },
+          "zoomAfter": {
+            "from": 250,
+            "to": 372
+          }
+        },
+        {
+          "name": "resize redraws at the same candles",
+          "resizedAnchors": [
+            {
+              "label": "Bottom 1",
+              "labelCentreX": 280.1,
+              "candleX": 279.9
+            },
+            {
+              "label": "Bottom 2",
+              "labelCentreX": 503.7,
+              "candleX": 503.5
+            }
+          ]
+        },
+        {
+          "name": "detailed mode",
+          "toolbarVisible": true,
+          "layerDetailsVisible": true,
+          "recordFacts": 15,
+          "annotation": true
+        },
+        {
+          "name": "timeframe change clears the old annotation",
+          "oneHour": {
+            "id": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+            "state": "confirmed",
+            "tone": "green",
+            "width": 1101,
+            "height": 758
+          },
+          "fourHour": null,
+          "fourHourDetection": {
+            "name": null,
+            "badge": null,
+            "badgeTone": null,
+            "score": null,
+            "scoreTrackChildren": null,
+            "explanation": null
+          },
+          "labels": []
+        },
+        {
+          "name": "breakouts unaffected",
+          "topbarVisible": true,
+          "headerControlsChildren": 0,
+          "callouts": [
+            "breakout",
+            "retest",
+            "continuation"
+          ],
+          "patternLayer": false,
+          "volumeLabel": false,
+          "summaryCard": true,
+          "zoomBefore": {
+            "from": 355,
+            "to": 477
+          },
+          "zoomAfter": {
+            "from": 355,
+            "to": 477
+          }
+        }
+      ],
+      "pageErrors": [],
+      "consoleErrors": [
+        "Refused to apply inline style because it violates the following Content Security Policy directive: \"style-src 'self'\". Either the 'unsafe-inline' keyword, a hash ('sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='), or a nonce ('nonce-...') is required to enable inline execution.\n",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_RESET"
+      ],
+      "unexpectedConsoleErrors": []
+    },
+    {
+      "label": "1440x900",
+      "width": 1440,
+      "height": 900,
+      "checks": [
+        {
+          "name": "stored patterns",
+          "patterns": [
+            {
+              "id": "d4a892bd0388a99ed8b4f4544dd726a14e9e368e348fcfb2da5682bbfea3d257",
+              "patternId": "db6fbc5c992382124f4883f53235f8b90d4c56e829d9f77e0982204503ec2a61",
+              "type": "double_top",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-25T16:00:00Z",
+              "anchorTime": "2026-09-25T13:00:00Z",
+              "neckline": "83992.50000000",
+              "invalidation": "85280.5",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-23T17:00:00Z",
+                  "seconds": 1790182800,
+                  "price": 85120.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-24T17:00:00Z",
+                  "seconds": 1790269200,
+                  "price": 83992.5
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                }
+              ]
+            },
+            {
+              "id": "a14b6288b13f6da826200d7d949bdc28061d7dcd54d0948fd9f3958185b7a915",
+              "patternId": "db6fbc5c992382124f4883f53235f8b90d4c56e829d9f77e0982204503ec2a61",
+              "type": "double_top",
+              "side": "top",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-09-26T02:00:00Z",
+              "anchorTime": "2026-09-26T01:00:00Z",
+              "neckline": "83992.50000000",
+              "invalidation": "85280.5",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-23T17:00:00Z",
+                  "seconds": 1790182800,
+                  "price": 85120.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-24T17:00:00Z",
+                  "seconds": 1790269200,
+                  "price": 83992.5
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                }
+              ]
+            },
+            {
+              "id": "486762cfe8e448f434fc47e36ed4caeb8e18fe6cf802cda5e5e3edb8bff98444",
+              "patternId": "f00674da910a10210f9be2e4dcb4a9fd3a9d41bb7ffb1aa94723a0667085112f",
+              "type": "double_top",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-27T12:00:00Z",
+              "anchorTime": "2026-09-27T09:00:00Z",
+              "neckline": "82911.90000000",
+              "invalidation": "85325.5",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T10:00:00Z",
+                  "seconds": 1790416800,
+                  "price": 82911.9
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-27T09:00:00Z",
+                  "seconds": 1790499600,
+                  "price": 85325.5
+                }
+              ]
+            },
+            {
+              "id": "fd99bb32c87d5695b7f0c8738978baf8848476a72796685fe21b9ed7d0c061ef",
+              "patternId": "476599fde23e5451f1a61d1649156680622ac6b6d1617c01ca8b3f9e841d89e2",
+              "type": "inverse_head_and_shoulders",
+              "side": "bottom",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-28T07:00:00Z",
+              "anchorTime": "2026-09-28T04:00:00Z",
+              "neckline": "85303.00000000",
+              "invalidation": "82911.9",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-09-24T17:00:00Z",
+                  "seconds": 1790269200,
+                  "price": 83992.5
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T10:00:00Z",
+                  "seconds": 1790416800,
+                  "price": 82911.9
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-27T09:00:00Z",
+                  "seconds": 1790499600,
+                  "price": 85325.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-28T04:00:00Z",
+                  "seconds": 1790568000,
+                  "price": 83986.5
+                }
+              ]
+            },
+            {
+              "id": "b051693c60fae9fa596fa014ed74b1ecff6102f0d0d75d1b4a6b60b87b8a7db3",
+              "patternId": "f00674da910a10210f9be2e4dcb4a9fd3a9d41bb7ffb1aa94723a0667085112f",
+              "type": "double_top",
+              "side": "top",
+              "state": "invalidated",
+              "isLatest": true,
+              "knownAt": "2026-09-28T21:00:00Z",
+              "anchorTime": "2026-09-28T20:00:00Z",
+              "neckline": "82911.90000000",
+              "invalidation": "85325.5",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T10:00:00Z",
+                  "seconds": 1790416800,
+                  "price": 82911.9
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-27T09:00:00Z",
+                  "seconds": 1790499600,
+                  "price": 85325.5
+                }
+              ]
+            },
+            {
+              "id": "d600c0b418b4a2f9c2b5c517595809f4783baba4fe97ff0f0675c04ee641feda",
+              "patternId": "476599fde23e5451f1a61d1649156680622ac6b6d1617c01ca8b3f9e841d89e2",
+              "type": "inverse_head_and_shoulders",
+              "side": "bottom",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-09-28T21:00:00Z",
+              "anchorTime": "2026-09-28T20:00:00Z",
+              "neckline": "85303.00000000",
+              "invalidation": "82911.9",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-09-24T17:00:00Z",
+                  "seconds": 1790269200,
+                  "price": 83992.5
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T10:00:00Z",
+                  "seconds": 1790416800,
+                  "price": 82911.9
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-27T09:00:00Z",
+                  "seconds": 1790499600,
+                  "price": 85325.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-28T04:00:00Z",
+                  "seconds": 1790568000,
+                  "price": 83986.5
+                }
+              ]
+            },
+            {
+              "id": "9553baf2d062d68e2c63536de72f1aebcf87629f2f3709f5c74a2084ed29c743",
+              "patternId": "511f9b335b468bdea1c60ba671a047b02d7c4a5d72cfca4d88d6d5b81b60f230",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-10-03T00:00:00Z",
+              "anchorTime": "2026-10-02T21:00:00Z",
+              "neckline": "88481.30000000",
+              "invalidation": "86043.1",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-10-01T00:00:00Z",
+                  "seconds": 1790812800,
+                  "price": 86043.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-01T23:00:00Z",
+                  "seconds": 1790895600,
+                  "price": 88481.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-02T21:00:00Z",
+                  "seconds": 1790974800,
+                  "price": 86105.1
+                }
+              ]
+            },
+            {
+              "id": "b4441e2835eae97b70fa0728635817f7f9c3239fa9c0e3d3d5dcb60f9ec86c7f",
+              "patternId": "6fc4e1261a28eab6c44806272967c968f98b8ddb7e96b81bfcea3fa40f6647a0",
+              "type": "head_and_shoulders",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-10-03T20:00:00Z",
+              "anchorTime": "2026-10-03T17:00:00Z",
+              "neckline": "86074.10000000",
+              "invalidation": "88481.3",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-30T05:00:00Z",
+                  "seconds": 1790744400,
+                  "price": 87471.6
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-01T00:00:00Z",
+                  "seconds": 1790812800,
+                  "price": 86043.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-01T23:00:00Z",
+                  "seconds": 1790895600,
+                  "price": 88481.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-02T21:00:00Z",
+                  "seconds": 1790974800,
+                  "price": 86105.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-03T17:00:00Z",
+                  "seconds": 1791046800,
+                  "price": 87474
+                }
+              ]
+            },
+            {
+              "id": "43e893c13e4570a1989b7fd7fe2dd0be480f11a58b44cb852443bac007d21145",
+              "patternId": "6fc4e1261a28eab6c44806272967c968f98b8ddb7e96b81bfcea3fa40f6647a0",
+              "type": "head_and_shoulders",
+              "side": "top",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-10-04T11:00:00Z",
+              "anchorTime": "2026-10-04T10:00:00Z",
+              "neckline": "86074.10000000",
+              "invalidation": "88481.3",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-30T05:00:00Z",
+                  "seconds": 1790744400,
+                  "price": 87471.6
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-01T00:00:00Z",
+                  "seconds": 1790812800,
+                  "price": 86043.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-01T23:00:00Z",
+                  "seconds": 1790895600,
+                  "price": 88481.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-02T21:00:00Z",
+                  "seconds": 1790974800,
+                  "price": 86105.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-03T17:00:00Z",
+                  "seconds": 1791046800,
+                  "price": 87474
+                }
+              ]
+            },
+            {
+              "id": "056a0fbcbfdc5bc49db7edff7142c8a31117547faff8d39484c180d9d7eafa49",
+              "patternId": "511f9b335b468bdea1c60ba671a047b02d7c4a5d72cfca4d88d6d5b81b60f230",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "invalidated",
+              "isLatest": true,
+              "knownAt": "2026-10-04T12:00:00Z",
+              "anchorTime": "2026-10-04T11:00:00Z",
+              "neckline": "88481.30000000",
+              "invalidation": "86043.1",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-10-01T00:00:00Z",
+                  "seconds": 1790812800,
+                  "price": 86043.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-01T23:00:00Z",
+                  "seconds": 1790895600,
+                  "price": 88481.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-02T21:00:00Z",
+                  "seconds": 1790974800,
+                  "price": 86105.1
+                }
+              ]
+            },
+            {
+              "id": "3f36f3ec689560da265a1bde6361b014866349c771fa78ca38b55204b8c26e64",
+              "patternId": "386cc7c244b9b5c1688302ca8110c71e6e739f8eed199c94384c8c2bda83aea6",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-10-11T06:00:00Z",
+              "anchorTime": "2026-10-11T03:00:00Z",
+              "neckline": "84085.30000000",
+              "invalidation": "82945.4",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-10-10T02:00:00Z",
+                  "seconds": 1791597600,
+                  "price": 82945.4
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-10T15:00:00Z",
+                  "seconds": 1791644400,
+                  "price": 84085.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-11T03:00:00Z",
+                  "seconds": 1791687600,
+                  "price": 82994.9
+                }
+              ]
+            },
+            {
+              "id": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+              "patternId": "386cc7c244b9b5c1688302ca8110c71e6e739f8eed199c94384c8c2bda83aea6",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-10-11T15:00:00Z",
+              "anchorTime": "2026-10-11T14:00:00Z",
+              "neckline": "84085.30000000",
+              "invalidation": "82945.4",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-10-10T02:00:00Z",
+                  "seconds": 1791597600,
+                  "price": 82945.4
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-10T15:00:00Z",
+                  "seconds": 1791644400,
+                  "price": 84085.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-11T03:00:00Z",
+                  "seconds": 1791687600,
+                  "price": 82994.9
+                }
+              ]
+            },
+            {
+              "id": "a9d775c9cf4b47014547278b6dcaa9d674af1eb163042ba10aa84db0abc5bbc4",
+              "patternId": "410481370944a71e0d959ba5e566b2a3c2ac84a9081bb63c9ef49485253a7b5a",
+              "type": "double_top",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-10-12T21:00:00Z",
+              "anchorTime": "2026-10-12T18:00:00Z",
+              "neckline": "84159.00000000",
+              "invalidation": "85280.7",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-10-12T02:00:00Z",
+                  "seconds": 1791770400,
+                  "price": 85269.4
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-12T11:00:00Z",
+                  "seconds": 1791802800,
+                  "price": 84159
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-12T18:00:00Z",
+                  "seconds": 1791828000,
+                  "price": 85280.7
+                }
+              ]
+            },
+            {
+              "id": "270b7f6d236289fd02bc9a0009ca47b1985ce648dcbb9b35039c9e4617fbd2f5",
+              "patternId": "410481370944a71e0d959ba5e566b2a3c2ac84a9081bb63c9ef49485253a7b5a",
+              "type": "double_top",
+              "side": "top",
+              "state": "invalidated",
+              "isLatest": true,
+              "knownAt": "2026-10-13T10:00:00Z",
+              "anchorTime": "2026-10-13T09:00:00Z",
+              "neckline": "84159.00000000",
+              "invalidation": "85280.7",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-10-12T02:00:00Z",
+                  "seconds": 1791770400,
+                  "price": 85269.4
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-12T11:00:00Z",
+                  "seconds": 1791802800,
+                  "price": 84159
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-12T18:00:00Z",
+                  "seconds": 1791828000,
+                  "price": 85280.7
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "stored range",
+          "range": null
+        },
+        {
+          "name": "zoom preserved opening Chart Patterns",
+          "before": {
+            "from": 380,
+            "to": 502
+          },
+          "after": {
+            "from": 380,
+            "to": 502
+          }
+        },
+        {
+          "name": "default selection",
+          "expected": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+          "detection": {
+            "name": "Double Bottom",
+            "badge": "Confirmed",
+            "badgeTone": "green",
+            "score": "Not calculated",
+            "scoreTrackChildren": 0,
+            "explanation": "Price formed two distinct lows at a similar level (82,945.40 and 82,994.90) and closed above the 84,085.30 neckline (2026-10-11 15:00 UTC): the detector's confirmation."
+          },
+          "layer": {
+            "id": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+            "state": "confirmed",
+            "tone": "green",
+            "width": 932,
+            "height": 679
+          }
+        },
+        {
+          "name": "zoom preserved selecting a pattern",
+          "before": {
+            "from": 380,
+            "to": 502
+          },
+          "after": {
+            "from": 380,
+            "to": 502
+          }
+        },
+        {
+          "name": "annotation anchors",
+          "pattern": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+          "state": "confirmed",
+          "anchors": [
+            {
+              "label": "Bottom 1",
+              "time": "2026-10-10T02:00:00.000Z",
+              "price": 82945.4,
+              "labelCentreX": 154.5,
+              "candleX": 154.3,
+              "heldAtPaneEdge": false
+            },
+            {
+              "label": "Bottom 2",
+              "time": "2026-10-11T03:00:00.000Z",
+              "price": 82994.9,
+              "labelCentreX": 343.9,
+              "candleX": 343.8,
+              "heldAtPaneEdge": false
+            }
+          ],
+          "neckline": {
+            "stored": "84085.30000000",
+            "drawnY": 347.6644482705601,
+            "priceScaleY": 347.6644482705601,
+            "x": [
+              124.02439024390242,
+              427.1138211382114
+            ]
+          },
+          "confirmation": {
+            "anchorTime": "2026-10-11T14:00:00Z",
+            "connector": {
+              "x1": 280.9173983739838,
+              "y1": 301.6644482705601,
+              "x2": 308.9173983739838,
+              "y2": 345.6644482705601,
+              "length": 52.2
+            },
+            "candleX": 427.1138211382114
+          },
+          "arcs": 2,
+          "oversizedFillPct": 0.5,
+          "title": {
+            "cls": "pattern-anno-title",
+            "text": "Double Bottom - Confirmed",
+            "tone": "green",
+            "time": null,
+            "price": null,
+            "centreX": 240.78125,
+            "atEdge": false,
+            "top": 261.65625,
+            "bottom": 301.296875,
+            "inside": true,
+            "fontSize": "19px",
+            "colour": "rgb(42, 209, 157)",
+            "border": "rgb(42, 209, 157)"
+          },
+          "titleCoversCandles": 0
+        },
+        {
+          "name": "cards",
+          "detection": {
+            "name": "Double Bottom",
+            "badge": "Confirmed",
+            "badgeTone": "green",
+            "score": "Not calculated",
+            "scoreTrackChildren": 0,
+            "explanation": "Price formed two distinct lows at a similar level (82,945.40 and 82,994.90) and closed above the 84,085.30 neckline (2026-10-11 15:00 UTC): the detector's confirmation."
+          },
+          "others": [
+            {
+              "id": "43e893c13e4570a1989b7fd7fe2dd0be480f11a58b44cb852443bac007d21145",
+              "text": "Head and Shoulders Confirmed ›"
+            },
+            {
+              "id": "d600c0b418b4a2f9c2b5c517595809f4783baba4fe97ff0f0675c04ee641feda",
+              "text": "Inverse Head and Shoulders Confirmed ›"
+            },
+            {
+              "id": "a14b6288b13f6da826200d7d949bdc28061d7dcd54d0948fd9f3958185b7a915",
+              "text": "Double Top Confirmed ›"
+            },
+            {
+              "id": "270b7f6d236289fd02bc9a0009ca47b1985ce648dcbb9b35039c9e4617fbd2f5",
+              "text": "Double Top Invalidated ›"
+            },
+            {
+              "id": "056a0fbcbfdc5bc49db7edff7142c8a31117547faff8d39484c180d9d7eafa49",
+              "text": "Double Bottom Invalidated ›"
+            },
+            {
+              "id": "b051693c60fae9fa596fa014ed74b1ecff6102f0d0d75d1b4a6b60b87b8a7db3",
+              "text": "Double Top Invalidated ›"
+            }
+          ],
+          "othersEmpty": null,
+          "levels": [
+            {
+              "key": "neckline",
+              "available": "true",
+              "text": "Neckline (Breakout) 84,085.30"
+            },
+            {
+              "key": "support",
+              "available": "true",
+              "text": "Support (Bottoms) 82,945.40"
+            },
+            {
+              "key": "resistance",
+              "available": "false",
+              "text": "Resistance (Target) Unavailable"
+            }
+          ]
+        },
+        {
+          "name": "layout",
+          "header": {
+            "left": 0,
+            "top": 0,
+            "right": 1440,
+            "bottom": 115,
+            "width": 1440,
+            "height": 115
+          },
+          "headerOverlapPx": 0,
+          "chartPanel": {
+            "left": 11,
+            "right": 1033,
+            "top": 136,
+            "bottom": 892
+          },
+          "chartWidthPct": 71,
+          "rightColumn": {
+            "left": 1048,
+            "top": 143,
+            "right": 1429,
+            "bottom": 892,
+            "width": 381,
+            "height": 749
+          },
+          "rightWidthPct": 26.5,
+          "gutter": 15,
+          "topAligned": 7,
+          "cards": [
+            {
+              "cls": "pd-card pd-card--detection",
+              "top": 143,
+              "bottom": 553,
+              "height": 410
+            },
+            {
+              "cls": "pd-card pd-card--others",
+              "top": 566,
+              "bottom": 684,
+              "height": 118
+            },
+            {
+              "cls": "pd-card pd-card--levels",
+              "top": 697,
+              "bottom": 893,
+              "height": 196
+            }
+          ],
+          "timeframeBg": "rgb(11, 79, 196)",
+          "chartHeadText": "BTC/USDT · 1H · BINANCEO86,114.1H86,197.9L86,046C86,152.4+38.30 (+0.04%)",
+          "pageScrollWidth": 1440
+        },
+        {
+          "name": "labels inside the chart and no clipped text",
+          "clipped": [],
+          "overflowing": [
+            "pd-row-title",
+            "pd-row-title"
+          ]
+        },
+        {
+          "name": "volume pane",
+          "label": "Volume1.39K",
+          "separator": {
+            "left": 12,
+            "top": 725,
+            "right": 944,
+            "bottom": 726,
+            "width": 932,
+            "height": 1
+          },
+          "readable": true,
+          "coloured": 48651
+        },
+        {
+          "name": "breakouts unaffected",
+          "topbarVisible": true,
+          "headerControlsChildren": 0,
+          "callouts": [
+            "breakout",
+            "retest",
+            "continuation"
+          ],
+          "patternLayer": false,
+          "volumeLabel": false,
+          "summaryCard": true,
+          "zoomBefore": {
+            "from": 380,
+            "to": 502
+          },
+          "zoomAfter": {
+            "from": 380,
+            "to": 502
+          }
+        }
+      ],
+      "pageErrors": [],
+      "consoleErrors": [
+        "Refused to apply inline style because it violates the following Content Security Policy directive: \"style-src 'self'\". Either the 'unsafe-inline' keyword, a hash ('sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='), or a nonce ('nonce-...') is required to enable inline execution.\n",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_RESET",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED"
+      ],
+      "unexpectedConsoleErrors": []
+    },
+    {
+      "label": "1920x1080",
+      "width": 1920,
+      "height": 1080,
+      "checks": [
+        {
+          "name": "stored patterns",
+          "patterns": [
+            {
+              "id": "d4a892bd0388a99ed8b4f4544dd726a14e9e368e348fcfb2da5682bbfea3d257",
+              "patternId": "db6fbc5c992382124f4883f53235f8b90d4c56e829d9f77e0982204503ec2a61",
+              "type": "double_top",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-25T16:00:00Z",
+              "anchorTime": "2026-09-25T13:00:00Z",
+              "neckline": "83992.50000000",
+              "invalidation": "85280.5",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-23T17:00:00Z",
+                  "seconds": 1790182800,
+                  "price": 85120.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-24T17:00:00Z",
+                  "seconds": 1790269200,
+                  "price": 83992.5
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                }
+              ]
+            },
+            {
+              "id": "a14b6288b13f6da826200d7d949bdc28061d7dcd54d0948fd9f3958185b7a915",
+              "patternId": "db6fbc5c992382124f4883f53235f8b90d4c56e829d9f77e0982204503ec2a61",
+              "type": "double_top",
+              "side": "top",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-09-26T02:00:00Z",
+              "anchorTime": "2026-09-26T01:00:00Z",
+              "neckline": "83992.50000000",
+              "invalidation": "85280.5",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-23T17:00:00Z",
+                  "seconds": 1790182800,
+                  "price": 85120.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-24T17:00:00Z",
+                  "seconds": 1790269200,
+                  "price": 83992.5
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                }
+              ]
+            },
+            {
+              "id": "486762cfe8e448f434fc47e36ed4caeb8e18fe6cf802cda5e5e3edb8bff98444",
+              "patternId": "f00674da910a10210f9be2e4dcb4a9fd3a9d41bb7ffb1aa94723a0667085112f",
+              "type": "double_top",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-27T12:00:00Z",
+              "anchorTime": "2026-09-27T09:00:00Z",
+              "neckline": "82911.90000000",
+              "invalidation": "85325.5",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T10:00:00Z",
+                  "seconds": 1790416800,
+                  "price": 82911.9
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-27T09:00:00Z",
+                  "seconds": 1790499600,
+                  "price": 85325.5
+                }
+              ]
+            },
+            {
+              "id": "fd99bb32c87d5695b7f0c8738978baf8848476a72796685fe21b9ed7d0c061ef",
+              "patternId": "476599fde23e5451f1a61d1649156680622ac6b6d1617c01ca8b3f9e841d89e2",
+              "type": "inverse_head_and_shoulders",
+              "side": "bottom",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-28T07:00:00Z",
+              "anchorTime": "2026-09-28T04:00:00Z",
+              "neckline": "85303.00000000",
+              "invalidation": "82911.9",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-09-24T17:00:00Z",
+                  "seconds": 1790269200,
+                  "price": 83992.5
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T10:00:00Z",
+                  "seconds": 1790416800,
+                  "price": 82911.9
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-27T09:00:00Z",
+                  "seconds": 1790499600,
+                  "price": 85325.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-28T04:00:00Z",
+                  "seconds": 1790568000,
+                  "price": 83986.5
+                }
+              ]
+            },
+            {
+              "id": "b051693c60fae9fa596fa014ed74b1ecff6102f0d0d75d1b4a6b60b87b8a7db3",
+              "patternId": "f00674da910a10210f9be2e4dcb4a9fd3a9d41bb7ffb1aa94723a0667085112f",
+              "type": "double_top",
+              "side": "top",
+              "state": "invalidated",
+              "isLatest": true,
+              "knownAt": "2026-09-28T21:00:00Z",
+              "anchorTime": "2026-09-28T20:00:00Z",
+              "neckline": "82911.90000000",
+              "invalidation": "85325.5",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T10:00:00Z",
+                  "seconds": 1790416800,
+                  "price": 82911.9
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-27T09:00:00Z",
+                  "seconds": 1790499600,
+                  "price": 85325.5
+                }
+              ]
+            },
+            {
+              "id": "d600c0b418b4a2f9c2b5c517595809f4783baba4fe97ff0f0675c04ee641feda",
+              "patternId": "476599fde23e5451f1a61d1649156680622ac6b6d1617c01ca8b3f9e841d89e2",
+              "type": "inverse_head_and_shoulders",
+              "side": "bottom",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-09-28T21:00:00Z",
+              "anchorTime": "2026-09-28T20:00:00Z",
+              "neckline": "85303.00000000",
+              "invalidation": "82911.9",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-09-24T17:00:00Z",
+                  "seconds": 1790269200,
+                  "price": 83992.5
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T10:00:00Z",
+                  "seconds": 1790416800,
+                  "price": 82911.9
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-27T09:00:00Z",
+                  "seconds": 1790499600,
+                  "price": 85325.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-28T04:00:00Z",
+                  "seconds": 1790568000,
+                  "price": 83986.5
+                }
+              ]
+            },
+            {
+              "id": "9553baf2d062d68e2c63536de72f1aebcf87629f2f3709f5c74a2084ed29c743",
+              "patternId": "511f9b335b468bdea1c60ba671a047b02d7c4a5d72cfca4d88d6d5b81b60f230",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-10-03T00:00:00Z",
+              "anchorTime": "2026-10-02T21:00:00Z",
+              "neckline": "88481.30000000",
+              "invalidation": "86043.1",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-10-01T00:00:00Z",
+                  "seconds": 1790812800,
+                  "price": 86043.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-01T23:00:00Z",
+                  "seconds": 1790895600,
+                  "price": 88481.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-02T21:00:00Z",
+                  "seconds": 1790974800,
+                  "price": 86105.1
+                }
+              ]
+            },
+            {
+              "id": "b4441e2835eae97b70fa0728635817f7f9c3239fa9c0e3d3d5dcb60f9ec86c7f",
+              "patternId": "6fc4e1261a28eab6c44806272967c968f98b8ddb7e96b81bfcea3fa40f6647a0",
+              "type": "head_and_shoulders",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-10-03T20:00:00Z",
+              "anchorTime": "2026-10-03T17:00:00Z",
+              "neckline": "86074.10000000",
+              "invalidation": "88481.3",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-30T05:00:00Z",
+                  "seconds": 1790744400,
+                  "price": 87471.6
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-01T00:00:00Z",
+                  "seconds": 1790812800,
+                  "price": 86043.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-01T23:00:00Z",
+                  "seconds": 1790895600,
+                  "price": 88481.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-02T21:00:00Z",
+                  "seconds": 1790974800,
+                  "price": 86105.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-03T17:00:00Z",
+                  "seconds": 1791046800,
+                  "price": 87474
+                }
+              ]
+            },
+            {
+              "id": "43e893c13e4570a1989b7fd7fe2dd0be480f11a58b44cb852443bac007d21145",
+              "patternId": "6fc4e1261a28eab6c44806272967c968f98b8ddb7e96b81bfcea3fa40f6647a0",
+              "type": "head_and_shoulders",
+              "side": "top",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-10-04T11:00:00Z",
+              "anchorTime": "2026-10-04T10:00:00Z",
+              "neckline": "86074.10000000",
+              "invalidation": "88481.3",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-30T05:00:00Z",
+                  "seconds": 1790744400,
+                  "price": 87471.6
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-01T00:00:00Z",
+                  "seconds": 1790812800,
+                  "price": 86043.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-01T23:00:00Z",
+                  "seconds": 1790895600,
+                  "price": 88481.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-02T21:00:00Z",
+                  "seconds": 1790974800,
+                  "price": 86105.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-03T17:00:00Z",
+                  "seconds": 1791046800,
+                  "price": 87474
+                }
+              ]
+            },
+            {
+              "id": "056a0fbcbfdc5bc49db7edff7142c8a31117547faff8d39484c180d9d7eafa49",
+              "patternId": "511f9b335b468bdea1c60ba671a047b02d7c4a5d72cfca4d88d6d5b81b60f230",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "invalidated",
+              "isLatest": true,
+              "knownAt": "2026-10-04T12:00:00Z",
+              "anchorTime": "2026-10-04T11:00:00Z",
+              "neckline": "88481.30000000",
+              "invalidation": "86043.1",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-10-01T00:00:00Z",
+                  "seconds": 1790812800,
+                  "price": 86043.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-01T23:00:00Z",
+                  "seconds": 1790895600,
+                  "price": 88481.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-02T21:00:00Z",
+                  "seconds": 1790974800,
+                  "price": 86105.1
+                }
+              ]
+            },
+            {
+              "id": "3f36f3ec689560da265a1bde6361b014866349c771fa78ca38b55204b8c26e64",
+              "patternId": "386cc7c244b9b5c1688302ca8110c71e6e739f8eed199c94384c8c2bda83aea6",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-10-11T06:00:00Z",
+              "anchorTime": "2026-10-11T03:00:00Z",
+              "neckline": "84085.30000000",
+              "invalidation": "82945.4",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-10-10T02:00:00Z",
+                  "seconds": 1791597600,
+                  "price": 82945.4
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-10T15:00:00Z",
+                  "seconds": 1791644400,
+                  "price": 84085.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-11T03:00:00Z",
+                  "seconds": 1791687600,
+                  "price": 82994.9
+                }
+              ]
+            },
+            {
+              "id": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+              "patternId": "386cc7c244b9b5c1688302ca8110c71e6e739f8eed199c94384c8c2bda83aea6",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-10-11T15:00:00Z",
+              "anchorTime": "2026-10-11T14:00:00Z",
+              "neckline": "84085.30000000",
+              "invalidation": "82945.4",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-10-10T02:00:00Z",
+                  "seconds": 1791597600,
+                  "price": 82945.4
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-10T15:00:00Z",
+                  "seconds": 1791644400,
+                  "price": 84085.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-11T03:00:00Z",
+                  "seconds": 1791687600,
+                  "price": 82994.9
+                }
+              ]
+            },
+            {
+              "id": "a9d775c9cf4b47014547278b6dcaa9d674af1eb163042ba10aa84db0abc5bbc4",
+              "patternId": "410481370944a71e0d959ba5e566b2a3c2ac84a9081bb63c9ef49485253a7b5a",
+              "type": "double_top",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-10-12T21:00:00Z",
+              "anchorTime": "2026-10-12T18:00:00Z",
+              "neckline": "84159.00000000",
+              "invalidation": "85280.7",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-10-12T02:00:00Z",
+                  "seconds": 1791770400,
+                  "price": 85269.4
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-12T11:00:00Z",
+                  "seconds": 1791802800,
+                  "price": 84159
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-12T18:00:00Z",
+                  "seconds": 1791828000,
+                  "price": 85280.7
+                }
+              ]
+            },
+            {
+              "id": "270b7f6d236289fd02bc9a0009ca47b1985ce648dcbb9b35039c9e4617fbd2f5",
+              "patternId": "410481370944a71e0d959ba5e566b2a3c2ac84a9081bb63c9ef49485253a7b5a",
+              "type": "double_top",
+              "side": "top",
+              "state": "invalidated",
+              "isLatest": true,
+              "knownAt": "2026-10-13T10:00:00Z",
+              "anchorTime": "2026-10-13T09:00:00Z",
+              "neckline": "84159.00000000",
+              "invalidation": "85280.7",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-10-12T02:00:00Z",
+                  "seconds": 1791770400,
+                  "price": 85269.4
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-12T11:00:00Z",
+                  "seconds": 1791802800,
+                  "price": 84159
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-12T18:00:00Z",
+                  "seconds": 1791828000,
+                  "price": 85280.7
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "stored range",
+          "range": null
+        },
+        {
+          "name": "zoom preserved opening Chart Patterns",
+          "before": {
+            "from": 380,
+            "to": 502
+          },
+          "after": {
+            "from": 380,
+            "to": 502
+          }
+        },
+        {
+          "name": "default selection",
+          "expected": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+          "detection": {
+            "name": "Double Bottom",
+            "badge": "Confirmed",
+            "badgeTone": "green",
+            "score": "Not calculated",
+            "scoreTrackChildren": 0,
+            "explanation": "Price formed two distinct lows at a similar level (82,945.40 and 82,994.90) and closed above the 84,085.30 neckline (2026-10-11 15:00 UTC): the detector's confirmation."
+          },
+          "layer": {
+            "id": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+            "state": "confirmed",
+            "tone": "green",
+            "width": 1282,
+            "height": 897
+          }
+        },
+        {
+          "name": "zoom preserved selecting a pattern",
+          "before": {
+            "from": 380,
+            "to": 502
+          },
+          "after": {
+            "from": 380,
+            "to": 502
+          }
+        },
+        {
+          "name": "annotation anchors",
+          "pattern": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+          "state": "confirmed",
+          "anchors": [
+            {
+              "label": "Bottom 1",
+              "time": "2026-10-10T02:00:00.000Z",
+              "price": 82945.4,
+              "labelCentreX": 212.8,
+              "candleX": 212.7,
+              "heldAtPaneEdge": false
+            },
+            {
+              "label": "Bottom 2",
+              "time": "2026-10-11T03:00:00.000Z",
+              "price": 82994.9,
+              "labelCentreX": 473.4,
+              "candleX": 473.2,
+              "heldAtPaneEdge": false
+            }
+          ],
+          "neckline": {
+            "stored": "84085.30000000",
+            "drawnY": 459.65920860876116,
+            "priceScaleY": 459.65920860876116,
+            "x": [
+              170.97560975609758,
+              587.8861788617887
+            ]
+          },
+          "confirmation": {
+            "anchorTime": "2026-10-11T14:00:00Z",
+            "connector": {
+              "x1": 416.2426016260164,
+              "y1": 413.65920860876116,
+              "x2": 444.2426016260164,
+              "y2": 457.65920860876116,
+              "length": 52.2
+            },
+            "candleX": 587.8861788617887
+          },
+          "arcs": 2,
+          "oversizedFillPct": 0.5,
+          "title": {
+            "cls": "pattern-anno-title",
+            "text": "Double Bottom - Confirmed",
+            "tone": "green",
+            "time": null,
+            "price": null,
+            "centreX": 376.109375,
+            "atEdge": false,
+            "top": 373.65625,
+            "bottom": 413.296875,
+            "inside": true,
+            "fontSize": "19px",
+            "colour": "rgb(42, 209, 157)",
+            "border": "rgb(42, 209, 157)"
+          },
+          "titleCoversCandles": 0
+        },
+        {
+          "name": "cards",
+          "detection": {
+            "name": "Double Bottom",
+            "badge": "Confirmed",
+            "badgeTone": "green",
+            "score": "Not calculated",
+            "scoreTrackChildren": 0,
+            "explanation": "Price formed two distinct lows at a similar level (82,945.40 and 82,994.90) and closed above the 84,085.30 neckline (2026-10-11 15:00 UTC): the detector's confirmation."
+          },
+          "others": [
+            {
+              "id": "43e893c13e4570a1989b7fd7fe2dd0be480f11a58b44cb852443bac007d21145",
+              "text": "Head and Shoulders Confirmed ›"
+            },
+            {
+              "id": "d600c0b418b4a2f9c2b5c517595809f4783baba4fe97ff0f0675c04ee641feda",
+              "text": "Inverse Head and Shoulders Confirmed ›"
+            },
+            {
+              "id": "a14b6288b13f6da826200d7d949bdc28061d7dcd54d0948fd9f3958185b7a915",
+              "text": "Double Top Confirmed ›"
+            },
+            {
+              "id": "270b7f6d236289fd02bc9a0009ca47b1985ce648dcbb9b35039c9e4617fbd2f5",
+              "text": "Double Top Invalidated ›"
+            },
+            {
+              "id": "056a0fbcbfdc5bc49db7edff7142c8a31117547faff8d39484c180d9d7eafa49",
+              "text": "Double Bottom Invalidated ›"
+            },
+            {
+              "id": "b051693c60fae9fa596fa014ed74b1ecff6102f0d0d75d1b4a6b60b87b8a7db3",
+              "text": "Double Top Invalidated ›"
+            }
+          ],
+          "othersEmpty": null,
+          "levels": [
+            {
+              "key": "neckline",
+              "available": "true",
+              "text": "Neckline (Breakout) 84,085.30"
+            },
+            {
+              "key": "support",
+              "available": "true",
+              "text": "Support (Bottoms) 82,945.40"
+            },
+            {
+              "key": "resistance",
+              "available": "false",
+              "text": "Resistance (Target) Unavailable"
+            }
+          ]
+        },
+        {
+          "name": "layout",
+          "header": {
+            "left": 0,
+            "top": 0,
+            "right": 1920,
+            "bottom": 80,
+            "width": 1920,
+            "height": 80
+          },
+          "headerOverlapPx": 0,
+          "chartPanel": {
+            "left": 11,
+            "right": 1383,
+            "top": 101,
+            "bottom": 1075
+          },
+          "chartWidthPct": 71.5,
+          "rightColumn": {
+            "left": 1398,
+            "top": 108,
+            "right": 1909,
+            "bottom": 1075,
+            "width": 511,
+            "height": 967
+          },
+          "rightWidthPct": 26.6,
+          "gutter": 15,
+          "topAligned": 7,
+          "cards": [
+            {
+              "cls": "pd-card pd-card--detection",
+              "top": 108,
+              "bottom": 503,
+              "height": 395
+            },
+            {
+              "cls": "pd-card pd-card--others",
+              "top": 516,
+              "bottom": 866,
+              "height": 350
+            },
+            {
+              "cls": "pd-card pd-card--levels",
+              "top": 879,
+              "bottom": 1075,
+              "height": 196
+            }
+          ],
+          "timeframeBg": "rgb(11, 79, 196)",
+          "chartHeadText": "BTC/USDT · 1H · BINANCEO86,114.1H86,197.9L86,046C86,152.4+38.30 (+0.04%)",
+          "pageScrollWidth": 1920
+        },
+        {
+          "name": "labels inside the chart and no clipped text",
+          "clipped": [],
+          "overflowing": []
+        },
+        {
+          "name": "volume pane",
+          "label": "Volume1.39K",
+          "separator": {
+            "left": 12,
+            "top": 865,
+            "right": 1294,
+            "bottom": 866,
+            "width": 1282,
+            "height": 1
+          },
+          "readable": true,
+          "coloured": 92947
+        },
+        {
+          "name": "breakouts unaffected",
+          "topbarVisible": true,
+          "headerControlsChildren": 0,
+          "callouts": [
+            "breakout",
+            "retest",
+            "continuation"
+          ],
+          "patternLayer": false,
+          "volumeLabel": false,
+          "summaryCard": true,
+          "zoomBefore": {
+            "from": 380,
+            "to": 502
+          },
+          "zoomAfter": {
+            "from": 380,
+            "to": 502
+          }
+        }
+      ],
+      "pageErrors": [],
+      "consoleErrors": [
+        "Refused to apply inline style because it violates the following Content Security Policy directive: \"style-src 'self'\". Either the 'unsafe-inline' keyword, a hash ('sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='), or a nonce ('nonce-...') is required to enable inline execution.\n",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED"
+      ],
+      "unexpectedConsoleErrors": []
+    },
+    {
+      "label": "390-mobile",
+      "width": 390,
+      "height": 844,
+      "checks": [
+        {
+          "name": "stored patterns",
+          "patterns": [
+            {
+              "id": "d4a892bd0388a99ed8b4f4544dd726a14e9e368e348fcfb2da5682bbfea3d257",
+              "patternId": "db6fbc5c992382124f4883f53235f8b90d4c56e829d9f77e0982204503ec2a61",
+              "type": "double_top",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-25T16:00:00Z",
+              "anchorTime": "2026-09-25T13:00:00Z",
+              "neckline": "83992.50000000",
+              "invalidation": "85280.5",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-23T17:00:00Z",
+                  "seconds": 1790182800,
+                  "price": 85120.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-24T17:00:00Z",
+                  "seconds": 1790269200,
+                  "price": 83992.5
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                }
+              ]
+            },
+            {
+              "id": "a14b6288b13f6da826200d7d949bdc28061d7dcd54d0948fd9f3958185b7a915",
+              "patternId": "db6fbc5c992382124f4883f53235f8b90d4c56e829d9f77e0982204503ec2a61",
+              "type": "double_top",
+              "side": "top",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-09-26T02:00:00Z",
+              "anchorTime": "2026-09-26T01:00:00Z",
+              "neckline": "83992.50000000",
+              "invalidation": "85280.5",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-23T17:00:00Z",
+                  "seconds": 1790182800,
+                  "price": 85120.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-24T17:00:00Z",
+                  "seconds": 1790269200,
+                  "price": 83992.5
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                }
+              ]
+            },
+            {
+              "id": "486762cfe8e448f434fc47e36ed4caeb8e18fe6cf802cda5e5e3edb8bff98444",
+              "patternId": "f00674da910a10210f9be2e4dcb4a9fd3a9d41bb7ffb1aa94723a0667085112f",
+              "type": "double_top",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-27T12:00:00Z",
+              "anchorTime": "2026-09-27T09:00:00Z",
+              "neckline": "82911.90000000",
+              "invalidation": "85325.5",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T10:00:00Z",
+                  "seconds": 1790416800,
+                  "price": 82911.9
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-27T09:00:00Z",
+                  "seconds": 1790499600,
+                  "price": 85325.5
+                }
+              ]
+            },
+            {
+              "id": "fd99bb32c87d5695b7f0c8738978baf8848476a72796685fe21b9ed7d0c061ef",
+              "patternId": "476599fde23e5451f1a61d1649156680622ac6b6d1617c01ca8b3f9e841d89e2",
+              "type": "inverse_head_and_shoulders",
+              "side": "bottom",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-28T07:00:00Z",
+              "anchorTime": "2026-09-28T04:00:00Z",
+              "neckline": "85303.00000000",
+              "invalidation": "82911.9",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-09-24T17:00:00Z",
+                  "seconds": 1790269200,
+                  "price": 83992.5
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T10:00:00Z",
+                  "seconds": 1790416800,
+                  "price": 82911.9
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-27T09:00:00Z",
+                  "seconds": 1790499600,
+                  "price": 85325.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-28T04:00:00Z",
+                  "seconds": 1790568000,
+                  "price": 83986.5
+                }
+              ]
+            },
+            {
+              "id": "b051693c60fae9fa596fa014ed74b1ecff6102f0d0d75d1b4a6b60b87b8a7db3",
+              "patternId": "f00674da910a10210f9be2e4dcb4a9fd3a9d41bb7ffb1aa94723a0667085112f",
+              "type": "double_top",
+              "side": "top",
+              "state": "invalidated",
+              "isLatest": true,
+              "knownAt": "2026-09-28T21:00:00Z",
+              "anchorTime": "2026-09-28T20:00:00Z",
+              "neckline": "82911.90000000",
+              "invalidation": "85325.5",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T10:00:00Z",
+                  "seconds": 1790416800,
+                  "price": 82911.9
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-27T09:00:00Z",
+                  "seconds": 1790499600,
+                  "price": 85325.5
+                }
+              ]
+            },
+            {
+              "id": "d600c0b418b4a2f9c2b5c517595809f4783baba4fe97ff0f0675c04ee641feda",
+              "patternId": "476599fde23e5451f1a61d1649156680622ac6b6d1617c01ca8b3f9e841d89e2",
+              "type": "inverse_head_and_shoulders",
+              "side": "bottom",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-09-28T21:00:00Z",
+              "anchorTime": "2026-09-28T20:00:00Z",
+              "neckline": "85303.00000000",
+              "invalidation": "82911.9",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-09-24T17:00:00Z",
+                  "seconds": 1790269200,
+                  "price": 83992.5
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T13:00:00Z",
+                  "seconds": 1790341200,
+                  "price": 85280.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T10:00:00Z",
+                  "seconds": 1790416800,
+                  "price": 82911.9
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-27T09:00:00Z",
+                  "seconds": 1790499600,
+                  "price": 85325.5
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-28T04:00:00Z",
+                  "seconds": 1790568000,
+                  "price": 83986.5
+                }
+              ]
+            },
+            {
+              "id": "9553baf2d062d68e2c63536de72f1aebcf87629f2f3709f5c74a2084ed29c743",
+              "patternId": "511f9b335b468bdea1c60ba671a047b02d7c4a5d72cfca4d88d6d5b81b60f230",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-10-03T00:00:00Z",
+              "anchorTime": "2026-10-02T21:00:00Z",
+              "neckline": "88481.30000000",
+              "invalidation": "86043.1",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-10-01T00:00:00Z",
+                  "seconds": 1790812800,
+                  "price": 86043.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-01T23:00:00Z",
+                  "seconds": 1790895600,
+                  "price": 88481.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-02T21:00:00Z",
+                  "seconds": 1790974800,
+                  "price": 86105.1
+                }
+              ]
+            },
+            {
+              "id": "b4441e2835eae97b70fa0728635817f7f9c3239fa9c0e3d3d5dcb60f9ec86c7f",
+              "patternId": "6fc4e1261a28eab6c44806272967c968f98b8ddb7e96b81bfcea3fa40f6647a0",
+              "type": "head_and_shoulders",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-10-03T20:00:00Z",
+              "anchorTime": "2026-10-03T17:00:00Z",
+              "neckline": "86074.10000000",
+              "invalidation": "88481.3",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-30T05:00:00Z",
+                  "seconds": 1790744400,
+                  "price": 87471.6
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-01T00:00:00Z",
+                  "seconds": 1790812800,
+                  "price": 86043.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-01T23:00:00Z",
+                  "seconds": 1790895600,
+                  "price": 88481.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-02T21:00:00Z",
+                  "seconds": 1790974800,
+                  "price": 86105.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-03T17:00:00Z",
+                  "seconds": 1791046800,
+                  "price": 87474
+                }
+              ]
+            },
+            {
+              "id": "43e893c13e4570a1989b7fd7fe2dd0be480f11a58b44cb852443bac007d21145",
+              "patternId": "6fc4e1261a28eab6c44806272967c968f98b8ddb7e96b81bfcea3fa40f6647a0",
+              "type": "head_and_shoulders",
+              "side": "top",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-10-04T11:00:00Z",
+              "anchorTime": "2026-10-04T10:00:00Z",
+              "neckline": "86074.10000000",
+              "invalidation": "88481.3",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-30T05:00:00Z",
+                  "seconds": 1790744400,
+                  "price": 87471.6
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-01T00:00:00Z",
+                  "seconds": 1790812800,
+                  "price": 86043.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-01T23:00:00Z",
+                  "seconds": 1790895600,
+                  "price": 88481.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-02T21:00:00Z",
+                  "seconds": 1790974800,
+                  "price": 86105.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-03T17:00:00Z",
+                  "seconds": 1791046800,
+                  "price": 87474
+                }
+              ]
+            },
+            {
+              "id": "056a0fbcbfdc5bc49db7edff7142c8a31117547faff8d39484c180d9d7eafa49",
+              "patternId": "511f9b335b468bdea1c60ba671a047b02d7c4a5d72cfca4d88d6d5b81b60f230",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "invalidated",
+              "isLatest": true,
+              "knownAt": "2026-10-04T12:00:00Z",
+              "anchorTime": "2026-10-04T11:00:00Z",
+              "neckline": "88481.30000000",
+              "invalidation": "86043.1",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-10-01T00:00:00Z",
+                  "seconds": 1790812800,
+                  "price": 86043.1
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-01T23:00:00Z",
+                  "seconds": 1790895600,
+                  "price": 88481.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-02T21:00:00Z",
+                  "seconds": 1790974800,
+                  "price": 86105.1
+                }
+              ]
+            },
+            {
+              "id": "3f36f3ec689560da265a1bde6361b014866349c771fa78ca38b55204b8c26e64",
+              "patternId": "386cc7c244b9b5c1688302ca8110c71e6e739f8eed199c94384c8c2bda83aea6",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-10-11T06:00:00Z",
+              "anchorTime": "2026-10-11T03:00:00Z",
+              "neckline": "84085.30000000",
+              "invalidation": "82945.4",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-10-10T02:00:00Z",
+                  "seconds": 1791597600,
+                  "price": 82945.4
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-10T15:00:00Z",
+                  "seconds": 1791644400,
+                  "price": 84085.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-11T03:00:00Z",
+                  "seconds": 1791687600,
+                  "price": 82994.9
+                }
+              ]
+            },
+            {
+              "id": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+              "patternId": "386cc7c244b9b5c1688302ca8110c71e6e739f8eed199c94384c8c2bda83aea6",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-10-11T15:00:00Z",
+              "anchorTime": "2026-10-11T14:00:00Z",
+              "neckline": "84085.30000000",
+              "invalidation": "82945.4",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-10-10T02:00:00Z",
+                  "seconds": 1791597600,
+                  "price": 82945.4
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-10T15:00:00Z",
+                  "seconds": 1791644400,
+                  "price": 84085.3
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-11T03:00:00Z",
+                  "seconds": 1791687600,
+                  "price": 82994.9
+                }
+              ]
+            },
+            {
+              "id": "a9d775c9cf4b47014547278b6dcaa9d674af1eb163042ba10aa84db0abc5bbc4",
+              "patternId": "410481370944a71e0d959ba5e566b2a3c2ac84a9081bb63c9ef49485253a7b5a",
+              "type": "double_top",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-10-12T21:00:00Z",
+              "anchorTime": "2026-10-12T18:00:00Z",
+              "neckline": "84159.00000000",
+              "invalidation": "85280.7",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-10-12T02:00:00Z",
+                  "seconds": 1791770400,
+                  "price": 85269.4
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-12T11:00:00Z",
+                  "seconds": 1791802800,
+                  "price": 84159
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-12T18:00:00Z",
+                  "seconds": 1791828000,
+                  "price": 85280.7
+                }
+              ]
+            },
+            {
+              "id": "270b7f6d236289fd02bc9a0009ca47b1985ce648dcbb9b35039c9e4617fbd2f5",
+              "patternId": "410481370944a71e0d959ba5e566b2a3c2ac84a9081bb63c9ef49485253a7b5a",
+              "type": "double_top",
+              "side": "top",
+              "state": "invalidated",
+              "isLatest": true,
+              "knownAt": "2026-10-13T10:00:00Z",
+              "anchorTime": "2026-10-13T09:00:00Z",
+              "neckline": "84159.00000000",
+              "invalidation": "85280.7",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-10-12T02:00:00Z",
+                  "seconds": 1791770400,
+                  "price": 85269.4
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-10-12T11:00:00Z",
+                  "seconds": 1791802800,
+                  "price": 84159
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-10-12T18:00:00Z",
+                  "seconds": 1791828000,
+                  "price": 85280.7
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "stored range",
+          "range": null
+        },
+        {
+          "name": "zoom preserved opening Chart Patterns",
+          "before": {
+            "from": 440,
+            "to": 502
+          },
+          "after": {
+            "from": 385,
+            "to": 447
+          }
+        },
+        {
+          "name": "default selection",
+          "expected": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+          "detection": {
+            "name": "Double Bottom",
+            "badge": "Confirmed",
+            "badgeTone": "green",
+            "score": "Not calculated",
+            "scoreTrackChildren": 0,
+            "explanation": "Price formed two distinct lows at a similar level (82,945.40 and 82,994.90) and closed above the 84,085.30 neckline (2026-10-11 15:00 UTC): the detector's confirmation."
+          },
+          "layer": {
+            "id": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+            "state": "confirmed",
+            "tone": "green",
+            "width": 280,
+            "height": 459
+          }
+        },
+        {
+          "name": "zoom preserved selecting a pattern",
+          "before": {
+            "from": 385,
+            "to": 447
+          },
+          "after": {
+            "from": 385,
+            "to": 447
+          }
+        },
+        {
+          "name": "annotation anchors",
+          "pattern": "90599fd786ccbaea8389772f965f47ec6edd7a99ee369ffc62d19bcc07baa624",
+          "state": "confirmed",
+          "anchors": [
+            {
+              "label": "Bottom 1",
+              "time": "2026-10-10T02:00:00.000Z",
+              "price": 82945.4,
+              "labelCentreX": 67.9,
+              "candleX": 67.9,
+              "heldAtPaneEdge": false
+            },
+            {
+              "label": "Bottom 2",
+              "time": "2026-10-11T03:00:00.000Z",
+              "price": 82994.9,
+              "labelCentreX": 179,
+              "candleX": 179,
+              "heldAtPaneEdge": false
+            }
+          ],
+          "neckline": {
+            "stored": "84085.30000000",
+            "drawnY": 191.08052468007213,
+            "priceScaleY": 191.08052468007213,
+            "x": [
+              50.111111111111114,
+              227.88888888888889
+            ]
+          },
+          "confirmation": {
+            "anchorTime": "2026-10-11T14:00:00Z",
+            "connector": {
+              "x1": 141.64,
+              "y1": 145.08052468007213,
+              "x2": 169.64,
+              "y2": 189.08052468007213,
+              "length": 52.2
+            },
+            "candleX": 227.88888888888889
+          },
+          "arcs": 2,
+          "oversizedFillPct": 1.3,
+          "title": {
+            "cls": "pattern-anno-title",
+            "text": "Double Bottom - Confirmed",
+            "tone": "green",
+            "time": null,
+            "price": null,
+            "centreX": 114.859375,
+            "atEdge": true,
+            "top": 119.078125,
+            "bottom": 144.625,
+            "inside": true,
+            "fontSize": "13px",
+            "colour": "rgb(42, 209, 157)",
+            "border": "rgb(42, 209, 157)"
+          },
+          "titleCoversCandles": 0
+        },
+        {
+          "name": "cards",
+          "detection": {
+            "name": "Double Bottom",
+            "badge": "Confirmed",
+            "badgeTone": "green",
+            "score": "Not calculated",
+            "scoreTrackChildren": 0,
+            "explanation": "Price formed two distinct lows at a similar level (82,945.40 and 82,994.90) and closed above the 84,085.30 neckline (2026-10-11 15:00 UTC): the detector's confirmation."
+          },
+          "others": [
+            {
+              "id": "43e893c13e4570a1989b7fd7fe2dd0be480f11a58b44cb852443bac007d21145",
+              "text": "Head and Shoulders Confirmed ›"
+            },
+            {
+              "id": "d600c0b418b4a2f9c2b5c517595809f4783baba4fe97ff0f0675c04ee641feda",
+              "text": "Inverse Head and Shoulders Confirmed ›"
+            },
+            {
+              "id": "a14b6288b13f6da826200d7d949bdc28061d7dcd54d0948fd9f3958185b7a915",
+              "text": "Double Top Confirmed ›"
+            },
+            {
+              "id": "270b7f6d236289fd02bc9a0009ca47b1985ce648dcbb9b35039c9e4617fbd2f5",
+              "text": "Double Top Invalidated ›"
+            },
+            {
+              "id": "056a0fbcbfdc5bc49db7edff7142c8a31117547faff8d39484c180d9d7eafa49",
+              "text": "Double Bottom Invalidated ›"
+            },
+            {
+              "id": "b051693c60fae9fa596fa014ed74b1ecff6102f0d0d75d1b4a6b60b87b8a7db3",
+              "text": "Double Top Invalidated ›"
+            }
+          ],
+          "othersEmpty": null,
+          "levels": [
+            {
+              "key": "neckline",
+              "available": "true",
+              "text": "Neckline (Breakout) 84,085.30"
+            },
+            {
+              "key": "support",
+              "available": "true",
+              "text": "Support (Bottoms) 82,945.40"
+            },
+            {
+              "key": "resistance",
+              "available": "false",
+              "text": "Resistance (Target) Unavailable"
+            }
+          ]
+        },
+        {
+          "name": "layout",
+          "header": {
+            "left": 0,
+            "top": 0,
+            "right": 390,
+            "bottom": 199,
+            "width": 390,
+            "height": 199
+          },
+          "headerOverlapPx": 0,
+          "chartPanel": {
+            "left": 10,
+            "right": 380,
+            "top": 220,
+            "bottom": 794
+          },
+          "chartWidthPct": 94.9,
+          "rightColumn": {
+            "left": 10,
+            "top": 806,
+            "right": 380,
+            "bottom": 1841,
+            "width": 370,
+            "height": 1035
+          },
+          "rightWidthPct": 94.9,
+          "gutter": -370,
+          "topAligned": 586,
+          "cards": [
+            {
+              "cls": "pd-card pd-card--detection",
+              "top": 806,
+              "bottom": 1210,
+              "height": 404
+            },
+            {
+              "cls": "pd-card pd-card--others",
+              "top": 1223,
+              "bottom": 1632,
+              "height": 409
+            },
+            {
+              "cls": "pd-card pd-card--levels",
+              "top": 1645,
+              "bottom": 1841,
+              "height": 196
+            }
+          ],
+          "timeframeBg": "rgb(11, 79, 196)",
+          "chartHeadText": "BTC/USDT · 1H · BINANCEO86,114.1H86,197.9L86,046C86,152.4+38.30 (+0.04%)",
+          "pageScrollWidth": 390
+        },
+        {
+          "name": "labels inside the chart and no clipped text",
+          "clipped": [],
+          "overflowing": [
+            "pd-row-title",
+            "pd-row-title",
+            "pd-row-title"
+          ]
+        },
+        {
+          "name": "volume pane",
+          "label": "Volume1.39K",
+          "separator": {
+            "left": 11,
+            "top": 671,
+            "right": 291,
+            "bottom": 672,
+            "width": 280,
+            "height": 1
+          },
+          "readable": true,
+          "coloured": 8279
+        },
+        {
+          "name": "breakouts unaffected",
+          "topbarVisible": true,
+          "headerControlsChildren": 0,
+          "callouts": [
+            "breakout",
+            "retest",
+            "continuation"
+          ],
+          "patternLayer": false,
+          "volumeLabel": false,
+          "summaryCard": true,
+          "zoomBefore": {
+            "from": 385,
+            "to": 447
+          },
+          "zoomAfter": {
+            "from": 432,
+            "to": 494
+          }
+        }
+      ],
+      "pageErrors": [],
+      "consoleErrors": [
+        "Refused to apply inline style because it violates the following Content Security Policy directive: \"style-src 'self'\". Either the 'unsafe-inline' keyword, a hash ('sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='), or a nonce ('nonce-...') is required to enable inline execution.\n",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_RESET",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_RESET"
+      ],
+      "unexpectedConsoleErrors": []
+    }
+  ]
+}

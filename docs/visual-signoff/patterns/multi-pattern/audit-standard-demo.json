@@ -1,0 +1,1730 @@
+{
+  "url": "http://127.0.0.1:8123",
+  "generatedAt": "2026-10-14T00:07:29.433Z",
+  "viewports": [
+    {
+      "label": "1672x941",
+      "width": 1672,
+      "height": 941,
+      "checks": [
+        {
+          "name": "stored patterns",
+          "patterns": [
+            {
+              "id": "2b76baa9c8503daa7ab184ab8bad814b96292a88796abd7b60d57bad337f1c6d",
+              "patternId": "2f4902ef280c397cd785145f75cc3dcb115dd07d9ba93713ff178614f8a4cf8c",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-27T01:00:00Z",
+              "anchorTime": "2026-09-26T22:00:00Z",
+              "neckline": "84229.90000000",
+              "invalidation": "82349.7",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-09-23T21:00:00Z",
+                  "seconds": 1790197200,
+                  "price": 82349.7
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T15:00:00Z",
+                  "seconds": 1790348400,
+                  "price": 84229.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T22:00:00Z",
+                  "seconds": 1790460000,
+                  "price": 82461
+                }
+              ]
+            },
+            {
+              "id": "bdf991e3ae42411515dcd840af86e9a9519e688e267fb0bf31f3d8998f39187e",
+              "patternId": "2f4902ef280c397cd785145f75cc3dcb115dd07d9ba93713ff178614f8a4cf8c",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-09-28T09:00:00Z",
+              "anchorTime": "2026-09-28T08:00:00Z",
+              "neckline": "84229.90000000",
+              "invalidation": "82349.7",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-09-23T21:00:00Z",
+                  "seconds": 1790197200,
+                  "price": 82349.7
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T15:00:00Z",
+                  "seconds": 1790348400,
+                  "price": 84229.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T22:00:00Z",
+                  "seconds": 1790460000,
+                  "price": 82461
+                }
+              ]
+            },
+            {
+              "id": "e598504dcb80cabf540fa795ea9443d277a587a94a13ba3b67e458c60b3535e5",
+              "patternId": "9e70fef254d1a325a85457dc164b8ba6c631ab88ef0c3b78a10bc33f463046b4",
+              "type": "double_top",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-28T14:00:00Z",
+              "anchorTime": "2026-09-28T11:00:00Z",
+              "neckline": "82461.00000000",
+              "invalidation": "84484.4",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T15:00:00Z",
+                  "seconds": 1790348400,
+                  "price": 84229.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T22:00:00Z",
+                  "seconds": 1790460000,
+                  "price": 82461
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-28T11:00:00Z",
+                  "seconds": 1790593200,
+                  "price": 84484.4
+                }
+              ]
+            },
+            {
+              "id": "37ba2cfd2a42abd72e12e827685af5bbbdaa03d47d0c6bdca624cc325b7f1690",
+              "patternId": "9e70fef254d1a325a85457dc164b8ba6c631ab88ef0c3b78a10bc33f463046b4",
+              "type": "double_top",
+              "side": "top",
+              "state": "invalidated",
+              "isLatest": true,
+              "knownAt": "2026-09-28T19:00:00Z",
+              "anchorTime": "2026-09-28T18:00:00Z",
+              "neckline": "82461.00000000",
+              "invalidation": "84484.4",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T15:00:00Z",
+                  "seconds": 1790348400,
+                  "price": 84229.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T22:00:00Z",
+                  "seconds": 1790460000,
+                  "price": 82461
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-28T11:00:00Z",
+                  "seconds": 1790593200,
+                  "price": 84484.4
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "stored range",
+          "range": {
+            "id": "range:2026-10-09T19:00:00Z:2026-10-13T22:00:00Z",
+            "high": 88640.3,
+            "low": 87141.6,
+            "startSeconds": 1791572400,
+            "currentSeconds": 1791928800
+          }
+        },
+        {
+          "name": "zoom preserved opening Chart Patterns",
+          "before": {
+            "from": 380,
+            "to": 502
+          },
+          "after": {
+            "from": 107,
+            "to": 229
+          }
+        },
+        {
+          "name": "default selection",
+          "expected": "bdf991e3ae42411515dcd840af86e9a9519e688e267fb0bf31f3d8998f39187e",
+          "detection": {
+            "name": "Double Bottom",
+            "badge": "Confirmed",
+            "badgeTone": "green",
+            "score": "Not calculated",
+            "scoreTrackChildren": 0,
+            "explanation": "Price formed two distinct lows at a similar level (82,349.70 and 82,461.00) and closed above the 84,229.90 neckline (2026-09-28 09:00 UTC): the detector's confirmation."
+          },
+          "layer": {
+            "id": "bdf991e3ae42411515dcd840af86e9a9519e688e267fb0bf31f3d8998f39187e",
+            "state": "confirmed",
+            "tone": "green",
+            "width": 1109,
+            "height": 760
+          }
+        },
+        {
+          "name": "zoom preserved selecting a pattern",
+          "before": {
+            "from": 107,
+            "to": 229
+          },
+          "after": {
+            "from": 107,
+            "to": 229
+          }
+        },
+        {
+          "name": "annotation anchors",
+          "pattern": "bdf991e3ae42411515dcd840af86e9a9519e688e267fb0bf31f3d8998f39187e",
+          "state": "confirmed",
+          "anchors": [
+            {
+              "label": "Bottom 1",
+              "time": "2026-09-23T21:00:00.000Z",
+              "price": 82349.7,
+              "labelCentreX": 102.8,
+              "candleX": 102.6,
+              "heldAtPaneEdge": false
+            },
+            {
+              "label": "Bottom 2",
+              "time": "2026-09-26T22:00:00.000Z",
+              "price": 82461,
+              "labelCentreX": 760.3,
+              "candleX": 760.2,
+              "heldAtPaneEdge": false
+            }
+          ],
+          "neckline": {
+            "stored": "84229.90000000",
+            "drawnY": 164.62102403147992,
+            "priceScaleY": 164.62102403147992,
+            "x": [
+              30.52845528455282,
+              1066.4634146341464
+            ]
+          },
+          "confirmation": {
+            "anchorTime": "2026-09-28T08:00:00Z",
+            "connector": {
+              "x1": 549.0149593495936,
+              "y1": 118.62102403147992,
+              "x2": 577.0149593495936,
+              "y2": 162.62102403147992,
+              "length": 52.2
+            },
+            "candleX": 1066.4634146341464
+          },
+          "arcs": 2,
+          "oversizedFillPct": 1.4,
+          "title": {
+            "cls": "pattern-anno-title",
+            "text": "Double Bottom - Confirmed",
+            "tone": "green",
+            "time": null,
+            "price": null,
+            "centreX": 508.875,
+            "atEdge": false,
+            "top": 78.609375,
+            "bottom": 118.25,
+            "inside": true,
+            "fontSize": "19px",
+            "colour": "rgb(42, 209, 157)",
+            "border": "rgb(42, 209, 157)"
+          }
+        },
+        {
+          "name": "cards",
+          "detection": {
+            "name": "Double Bottom",
+            "badge": "Confirmed",
+            "badgeTone": "green",
+            "score": "Not calculated",
+            "scoreTrackChildren": 0,
+            "explanation": "Price formed two distinct lows at a similar level (82,349.70 and 82,461.00) and closed above the 84,229.90 neckline (2026-09-28 09:00 UTC): the detector's confirmation."
+          },
+          "others": [
+            {
+              "id": "37ba2cfd2a42abd72e12e827685af5bbbdaa03d47d0c6bdca624cc325b7f1690",
+              "text": "Double Top Invalidated ›"
+            },
+            {
+              "id": "range:2026-10-09T19:00:00Z:2026-10-13T22:00:00Z",
+              "text": "Trading Range Active ›"
+            }
+          ],
+          "othersEmpty": null,
+          "levels": [
+            {
+              "key": "neckline",
+              "available": "true",
+              "text": "Neckline (Breakout) 84,229.90"
+            },
+            {
+              "key": "support",
+              "available": "true",
+              "text": "Support (Bottoms) 82,349.70"
+            },
+            {
+              "key": "resistance",
+              "available": "false",
+              "text": "Resistance (Target) Unavailable"
+            }
+          ]
+        },
+        {
+          "name": "layout",
+          "header": {
+            "left": 0,
+            "top": 0,
+            "right": 1672,
+            "bottom": 80,
+            "width": 1672,
+            "height": 80
+          },
+          "headerOverlapPx": 0,
+          "chartPanel": {
+            "left": 11,
+            "right": 1202,
+            "top": 101,
+            "bottom": 936
+          },
+          "chartWidthPct": 71.2,
+          "rightColumn": {
+            "left": 1217,
+            "top": 108,
+            "right": 1661,
+            "bottom": 936,
+            "width": 444,
+            "height": 828
+          },
+          "rightWidthPct": 26.6,
+          "gutter": 15,
+          "topAligned": 7,
+          "cards": [
+            {
+              "cls": "pd-card pd-card--detection",
+              "top": 108,
+              "bottom": 503,
+              "height": 395
+            },
+            {
+              "cls": "pd-card pd-card--others",
+              "top": 516,
+              "bottom": 697,
+              "height": 181
+            },
+            {
+              "cls": "pd-card pd-card--levels",
+              "top": 710,
+              "bottom": 906,
+              "height": 196
+            }
+          ],
+          "timeframeBg": "rgb(11, 79, 196)",
+          "chartHeadText": "BTC/USDT · 1H · BINANCEO88,568H88,610.1L88,545.2C88,591.6+23.60 (+0.03%)",
+          "pageScrollWidth": 1672
+        },
+        {
+          "name": "labels inside the chart and no clipped text",
+          "clipped": [],
+          "overflowing": []
+        },
+        {
+          "name": "volume pane",
+          "label": "Volume1.01K",
+          "separator": {
+            "left": 12,
+            "top": 755,
+            "right": 1121,
+            "bottom": 756,
+            "width": 1109,
+            "height": 1
+          },
+          "readable": true,
+          "coloured": 93243
+        },
+        {
+          "name": "every listed record selectable",
+          "count": 2,
+          "selections": [
+            {
+              "id": "37ba2cfd2a42abd72e12e827685af5bbbdaa03d47d0c6bdca624cc325b7f1690",
+              "type": "double_top",
+              "state": "invalidated",
+              "layer": {
+                "id": "37ba2cfd2a42abd72e12e827685af5bbbdaa03d47d0c6bdca624cc325b7f1690",
+                "state": "invalidated",
+                "tone": "neutral",
+                "width": 1109,
+                "height": 760
+              },
+              "detection": "Double Top",
+              "badge": "Invalidated",
+              "title": "Double Top - Invalidated",
+              "arcs": 2,
+              "levels": [
+                "Neckline (Breakdown) 82,461.00",
+                "Support (Target) Unavailable",
+                "Resistance (Tops) 84,484.40"
+              ],
+              "secondary": [],
+              "oversizedFillPct": 1,
+              "zoomBefore": {
+                "from": 107,
+                "to": 229
+              },
+              "zoomAfter": {
+                "from": 133,
+                "to": 255
+              },
+              "neckline": {
+                "stored": "82461.00000000",
+                "drawnY": 538.6,
+                "priceScaleY": 538.6
+              }
+            },
+            {
+              "id": "range:2026-10-09T19:00:00Z:2026-10-13T22:00:00Z",
+              "type": "trading_range",
+              "state": "active",
+              "layer": {
+                "id": "range:2026-10-09T19:00:00Z:2026-10-13T22:00:00Z",
+                "state": "active",
+                "tone": "blue",
+                "width": 1109,
+                "height": 760
+              },
+              "detection": "Trading Range",
+              "badge": "Active",
+              "title": "Trading Range - Active",
+              "arcs": 0,
+              "levels": [
+                "Breakout (Target) Unavailable",
+                "Support (Range Low) 87,141.60",
+                "Resistance (Range High) 88,640.30"
+              ],
+              "secondary": [],
+              "oversizedFillPct": 0,
+              "zoomBefore": {
+                "from": 133,
+                "to": 255
+              },
+              "zoomAfter": {
+                "from": 480,
+                "to": 602
+              },
+              "range": {
+                "stored": {
+                  "id": "range:2026-10-09T19:00:00Z:2026-10-13T22:00:00Z",
+                  "high": 88640.3,
+                  "low": 87141.6,
+                  "startSeconds": 1791572400,
+                  "currentSeconds": 1791928800
+                },
+                "lines": {
+                  "highY": 114,
+                  "lowY": 472.80914575697705,
+                  "x1": 183.66666666666674,
+                  "x2": 1075.4715447154472
+                },
+                "priceScale": {
+                  "highY": 114,
+                  "lowY": 472.80914575697705
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "manual choice and zoom survive a function switch",
+          "chosen": "37ba2cfd2a42abd72e12e827685af5bbbdaa03d47d0c6bdca624cc325b7f1690",
+          "layer": {
+            "id": "37ba2cfd2a42abd72e12e827685af5bbbdaa03d47d0c6bdca624cc325b7f1690",
+            "state": "invalidated",
+            "tone": "neutral",
+            "width": 1109,
+            "height": 760
+          },
+          "zoomBefore": {
+            "from": 133,
+            "to": 255
+          },
+          "zoomAfter": {
+            "from": 133,
+            "to": 255
+          }
+        },
+        {
+          "name": "resize redraws at the same candles",
+          "resizedAnchors": [
+            {
+              "label": "Bottom 2",
+              "labelCentreX": 634.3,
+              "candleX": 634.2
+            }
+          ]
+        },
+        {
+          "name": "detailed mode",
+          "toolbarVisible": true,
+          "layerDetailsVisible": true,
+          "recordFacts": 15,
+          "annotation": true
+        },
+        {
+          "name": "timeframe change clears the old annotation",
+          "oneHour": {
+            "id": "bdf991e3ae42411515dcd840af86e9a9519e688e267fb0bf31f3d8998f39187e",
+            "state": "confirmed",
+            "tone": "green",
+            "width": 1109,
+            "height": 760
+          },
+          "fourHour": null,
+          "fourHourDetection": {
+            "name": null,
+            "badge": null,
+            "badgeTone": null,
+            "score": null,
+            "scoreTrackChildren": null,
+            "explanation": null
+          },
+          "labels": []
+        },
+        {
+          "name": "breakouts unaffected",
+          "topbarVisible": true,
+          "headerControlsChildren": 0,
+          "callouts": [
+            "breakout",
+            "retest",
+            "continuation"
+          ],
+          "patternLayer": false,
+          "volumeLabel": false,
+          "summaryCard": true,
+          "zoomBefore": {
+            "from": 7,
+            "to": 129
+          },
+          "zoomAfter": {
+            "from": 107,
+            "to": 229
+          }
+        }
+      ],
+      "pageErrors": [],
+      "consoleErrors": [
+        "Refused to apply inline style because it violates the following Content Security Policy directive: \"style-src 'self'\". Either the 'unsafe-inline' keyword, a hash ('sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='), or a nonce ('nonce-...') is required to enable inline execution.\n",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED"
+      ],
+      "unexpectedConsoleErrors": []
+    },
+    {
+      "label": "1440x900",
+      "width": 1440,
+      "height": 900,
+      "checks": [
+        {
+          "name": "stored patterns",
+          "patterns": [
+            {
+              "id": "2b76baa9c8503daa7ab184ab8bad814b96292a88796abd7b60d57bad337f1c6d",
+              "patternId": "2f4902ef280c397cd785145f75cc3dcb115dd07d9ba93713ff178614f8a4cf8c",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-27T01:00:00Z",
+              "anchorTime": "2026-09-26T22:00:00Z",
+              "neckline": "84229.90000000",
+              "invalidation": "82349.7",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-09-23T21:00:00Z",
+                  "seconds": 1790197200,
+                  "price": 82349.7
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T15:00:00Z",
+                  "seconds": 1790348400,
+                  "price": 84229.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T22:00:00Z",
+                  "seconds": 1790460000,
+                  "price": 82461
+                }
+              ]
+            },
+            {
+              "id": "bdf991e3ae42411515dcd840af86e9a9519e688e267fb0bf31f3d8998f39187e",
+              "patternId": "2f4902ef280c397cd785145f75cc3dcb115dd07d9ba93713ff178614f8a4cf8c",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-09-28T09:00:00Z",
+              "anchorTime": "2026-09-28T08:00:00Z",
+              "neckline": "84229.90000000",
+              "invalidation": "82349.7",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-09-23T21:00:00Z",
+                  "seconds": 1790197200,
+                  "price": 82349.7
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T15:00:00Z",
+                  "seconds": 1790348400,
+                  "price": 84229.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T22:00:00Z",
+                  "seconds": 1790460000,
+                  "price": 82461
+                }
+              ]
+            },
+            {
+              "id": "e598504dcb80cabf540fa795ea9443d277a587a94a13ba3b67e458c60b3535e5",
+              "patternId": "9e70fef254d1a325a85457dc164b8ba6c631ab88ef0c3b78a10bc33f463046b4",
+              "type": "double_top",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-28T14:00:00Z",
+              "anchorTime": "2026-09-28T11:00:00Z",
+              "neckline": "82461.00000000",
+              "invalidation": "84484.4",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T15:00:00Z",
+                  "seconds": 1790348400,
+                  "price": 84229.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T22:00:00Z",
+                  "seconds": 1790460000,
+                  "price": 82461
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-28T11:00:00Z",
+                  "seconds": 1790593200,
+                  "price": 84484.4
+                }
+              ]
+            },
+            {
+              "id": "37ba2cfd2a42abd72e12e827685af5bbbdaa03d47d0c6bdca624cc325b7f1690",
+              "patternId": "9e70fef254d1a325a85457dc164b8ba6c631ab88ef0c3b78a10bc33f463046b4",
+              "type": "double_top",
+              "side": "top",
+              "state": "invalidated",
+              "isLatest": true,
+              "knownAt": "2026-09-28T19:00:00Z",
+              "anchorTime": "2026-09-28T18:00:00Z",
+              "neckline": "82461.00000000",
+              "invalidation": "84484.4",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T15:00:00Z",
+                  "seconds": 1790348400,
+                  "price": 84229.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T22:00:00Z",
+                  "seconds": 1790460000,
+                  "price": 82461
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-28T11:00:00Z",
+                  "seconds": 1790593200,
+                  "price": 84484.4
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "stored range",
+          "range": {
+            "id": "range:2026-10-09T19:00:00Z:2026-10-13T22:00:00Z",
+            "high": 88640.3,
+            "low": 87141.6,
+            "startSeconds": 1791572400,
+            "currentSeconds": 1791928800
+          }
+        },
+        {
+          "name": "zoom preserved opening Chart Patterns",
+          "before": {
+            "from": 380,
+            "to": 502
+          },
+          "after": {
+            "from": 107,
+            "to": 229
+          }
+        },
+        {
+          "name": "default selection",
+          "expected": "bdf991e3ae42411515dcd840af86e9a9519e688e267fb0bf31f3d8998f39187e",
+          "detection": {
+            "name": "Double Bottom",
+            "badge": "Confirmed",
+            "badgeTone": "green",
+            "score": "Not calculated",
+            "scoreTrackChildren": 0,
+            "explanation": "Price formed two distinct lows at a similar level (82,349.70 and 82,461.00) and closed above the 84,229.90 neckline (2026-09-28 09:00 UTC): the detector's confirmation."
+          },
+          "layer": {
+            "id": "bdf991e3ae42411515dcd840af86e9a9519e688e267fb0bf31f3d8998f39187e",
+            "state": "confirmed",
+            "tone": "green",
+            "width": 940,
+            "height": 681
+          }
+        },
+        {
+          "name": "zoom preserved selecting a pattern",
+          "before": {
+            "from": 107,
+            "to": 229
+          },
+          "after": {
+            "from": 107,
+            "to": 229
+          }
+        },
+        {
+          "name": "annotation anchors",
+          "pattern": "bdf991e3ae42411515dcd840af86e9a9519e688e267fb0bf31f3d8998f39187e",
+          "state": "confirmed",
+          "anchors": [
+            {
+              "label": "Bottom 1",
+              "time": "2026-09-23T21:00:00.000Z",
+              "price": 82349.7,
+              "labelCentreX": 87,
+              "candleX": 86.9,
+              "heldAtPaneEdge": false
+            },
+            {
+              "label": "Bottom 2",
+              "time": "2026-09-26T22:00:00.000Z",
+              "price": 82461,
+              "labelCentreX": 644.9,
+              "candleX": 644.8,
+              "heldAtPaneEdge": false
+            }
+          ],
+          "neckline": {
+            "stored": "84229.90000000",
+            "drawnY": 147.2799456598118,
+            "priceScaleY": 147.2799456598118,
+            "x": [
+              25.7479674796748,
+              904.609756097561
+            ]
+          },
+          "confirmation": {
+            "anchorTime": "2026-09-28T08:00:00Z",
+            "connector": {
+              "x1": 475.94178861788623,
+              "y1": 101.2799456598118,
+              "x2": 503.94178861788623,
+              "y2": 145.2799456598118,
+              "length": 52.2
+            },
+            "candleX": 904.609756097561
+          },
+          "arcs": 2,
+          "oversizedFillPct": 1.4,
+          "title": {
+            "cls": "pattern-anno-title",
+            "text": "Double Bottom - Confirmed",
+            "tone": "green",
+            "time": null,
+            "price": null,
+            "centreX": 435.8125,
+            "atEdge": false,
+            "top": 61.265625,
+            "bottom": 100.90625,
+            "inside": true,
+            "fontSize": "19px",
+            "colour": "rgb(42, 209, 157)",
+            "border": "rgb(42, 209, 157)"
+          }
+        },
+        {
+          "name": "cards",
+          "detection": {
+            "name": "Double Bottom",
+            "badge": "Confirmed",
+            "badgeTone": "green",
+            "score": "Not calculated",
+            "scoreTrackChildren": 0,
+            "explanation": "Price formed two distinct lows at a similar level (82,349.70 and 82,461.00) and closed above the 84,229.90 neckline (2026-09-28 09:00 UTC): the detector's confirmation."
+          },
+          "others": [
+            {
+              "id": "37ba2cfd2a42abd72e12e827685af5bbbdaa03d47d0c6bdca624cc325b7f1690",
+              "text": "Double Top Invalidated ›"
+            },
+            {
+              "id": "range:2026-10-09T19:00:00Z:2026-10-13T22:00:00Z",
+              "text": "Trading Range Active ›"
+            }
+          ],
+          "othersEmpty": null,
+          "levels": [
+            {
+              "key": "neckline",
+              "available": "true",
+              "text": "Neckline (Breakout) 84,229.90"
+            },
+            {
+              "key": "support",
+              "available": "true",
+              "text": "Support (Bottoms) 82,349.70"
+            },
+            {
+              "key": "resistance",
+              "available": "false",
+              "text": "Resistance (Target) Unavailable"
+            }
+          ]
+        },
+        {
+          "name": "layout",
+          "header": {
+            "left": 0,
+            "top": 0,
+            "right": 1440,
+            "bottom": 115,
+            "width": 1440,
+            "height": 115
+          },
+          "headerOverlapPx": 0,
+          "chartPanel": {
+            "left": 11,
+            "right": 1033,
+            "top": 136,
+            "bottom": 892
+          },
+          "chartWidthPct": 71,
+          "rightColumn": {
+            "left": 1048,
+            "top": 143,
+            "right": 1429,
+            "bottom": 892,
+            "width": 381,
+            "height": 749
+          },
+          "rightWidthPct": 26.5,
+          "gutter": 15,
+          "topAligned": 7,
+          "cards": [
+            {
+              "cls": "pd-card pd-card--detection",
+              "top": 143,
+              "bottom": 553,
+              "height": 410
+            },
+            {
+              "cls": "pd-card pd-card--others",
+              "top": 566,
+              "bottom": 684,
+              "height": 118
+            },
+            {
+              "cls": "pd-card pd-card--levels",
+              "top": 697,
+              "bottom": 893,
+              "height": 196
+            }
+          ],
+          "timeframeBg": "rgb(11, 79, 196)",
+          "chartHeadText": "BTC/USDT · 1H · BINANCEO88,568H88,610.1L88,545.2C88,591.6+23.60 (+0.03%)",
+          "pageScrollWidth": 1440
+        },
+        {
+          "name": "labels inside the chart and no clipped text",
+          "clipped": [],
+          "overflowing": []
+        },
+        {
+          "name": "volume pane",
+          "label": "Volume1.01K",
+          "separator": {
+            "left": 12,
+            "top": 727,
+            "right": 952,
+            "bottom": 728,
+            "width": 940,
+            "height": 1
+          },
+          "readable": true,
+          "coloured": 68602
+        },
+        {
+          "name": "breakouts unaffected",
+          "topbarVisible": true,
+          "headerControlsChildren": 0,
+          "callouts": [
+            "breakout",
+            "retest",
+            "continuation"
+          ],
+          "patternLayer": false,
+          "volumeLabel": false,
+          "summaryCard": true,
+          "zoomBefore": {
+            "from": 107,
+            "to": 229
+          },
+          "zoomAfter": {
+            "from": 107,
+            "to": 229
+          }
+        }
+      ],
+      "pageErrors": [],
+      "consoleErrors": [
+        "Refused to apply inline style because it violates the following Content Security Policy directive: \"style-src 'self'\". Either the 'unsafe-inline' keyword, a hash ('sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='), or a nonce ('nonce-...') is required to enable inline execution.\n",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_RESET",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED"
+      ],
+      "unexpectedConsoleErrors": []
+    },
+    {
+      "label": "1920x1080",
+      "width": 1920,
+      "height": 1080,
+      "checks": [
+        {
+          "name": "stored patterns",
+          "patterns": [
+            {
+              "id": "2b76baa9c8503daa7ab184ab8bad814b96292a88796abd7b60d57bad337f1c6d",
+              "patternId": "2f4902ef280c397cd785145f75cc3dcb115dd07d9ba93713ff178614f8a4cf8c",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-27T01:00:00Z",
+              "anchorTime": "2026-09-26T22:00:00Z",
+              "neckline": "84229.90000000",
+              "invalidation": "82349.7",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-09-23T21:00:00Z",
+                  "seconds": 1790197200,
+                  "price": 82349.7
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T15:00:00Z",
+                  "seconds": 1790348400,
+                  "price": 84229.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T22:00:00Z",
+                  "seconds": 1790460000,
+                  "price": 82461
+                }
+              ]
+            },
+            {
+              "id": "bdf991e3ae42411515dcd840af86e9a9519e688e267fb0bf31f3d8998f39187e",
+              "patternId": "2f4902ef280c397cd785145f75cc3dcb115dd07d9ba93713ff178614f8a4cf8c",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-09-28T09:00:00Z",
+              "anchorTime": "2026-09-28T08:00:00Z",
+              "neckline": "84229.90000000",
+              "invalidation": "82349.7",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-09-23T21:00:00Z",
+                  "seconds": 1790197200,
+                  "price": 82349.7
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T15:00:00Z",
+                  "seconds": 1790348400,
+                  "price": 84229.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T22:00:00Z",
+                  "seconds": 1790460000,
+                  "price": 82461
+                }
+              ]
+            },
+            {
+              "id": "e598504dcb80cabf540fa795ea9443d277a587a94a13ba3b67e458c60b3535e5",
+              "patternId": "9e70fef254d1a325a85457dc164b8ba6c631ab88ef0c3b78a10bc33f463046b4",
+              "type": "double_top",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-28T14:00:00Z",
+              "anchorTime": "2026-09-28T11:00:00Z",
+              "neckline": "82461.00000000",
+              "invalidation": "84484.4",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T15:00:00Z",
+                  "seconds": 1790348400,
+                  "price": 84229.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T22:00:00Z",
+                  "seconds": 1790460000,
+                  "price": 82461
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-28T11:00:00Z",
+                  "seconds": 1790593200,
+                  "price": 84484.4
+                }
+              ]
+            },
+            {
+              "id": "37ba2cfd2a42abd72e12e827685af5bbbdaa03d47d0c6bdca624cc325b7f1690",
+              "patternId": "9e70fef254d1a325a85457dc164b8ba6c631ab88ef0c3b78a10bc33f463046b4",
+              "type": "double_top",
+              "side": "top",
+              "state": "invalidated",
+              "isLatest": true,
+              "knownAt": "2026-09-28T19:00:00Z",
+              "anchorTime": "2026-09-28T18:00:00Z",
+              "neckline": "82461.00000000",
+              "invalidation": "84484.4",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T15:00:00Z",
+                  "seconds": 1790348400,
+                  "price": 84229.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T22:00:00Z",
+                  "seconds": 1790460000,
+                  "price": 82461
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-28T11:00:00Z",
+                  "seconds": 1790593200,
+                  "price": 84484.4
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "stored range",
+          "range": {
+            "id": "range:2026-10-09T19:00:00Z:2026-10-13T22:00:00Z",
+            "high": 88640.3,
+            "low": 87141.6,
+            "startSeconds": 1791572400,
+            "currentSeconds": 1791928800
+          }
+        },
+        {
+          "name": "zoom preserved opening Chart Patterns",
+          "before": {
+            "from": 380,
+            "to": 502
+          },
+          "after": {
+            "from": 107,
+            "to": 229
+          }
+        },
+        {
+          "name": "default selection",
+          "expected": "bdf991e3ae42411515dcd840af86e9a9519e688e267fb0bf31f3d8998f39187e",
+          "detection": {
+            "name": "Double Bottom",
+            "badge": "Confirmed",
+            "badgeTone": "green",
+            "score": "Not calculated",
+            "scoreTrackChildren": 0,
+            "explanation": "Price formed two distinct lows at a similar level (82,349.70 and 82,461.00) and closed above the 84,229.90 neckline (2026-09-28 09:00 UTC): the detector's confirmation."
+          },
+          "layer": {
+            "id": "bdf991e3ae42411515dcd840af86e9a9519e688e267fb0bf31f3d8998f39187e",
+            "state": "confirmed",
+            "tone": "green",
+            "width": 1290,
+            "height": 899
+          }
+        },
+        {
+          "name": "zoom preserved selecting a pattern",
+          "before": {
+            "from": 107,
+            "to": 229
+          },
+          "after": {
+            "from": 107,
+            "to": 229
+          }
+        },
+        {
+          "name": "annotation anchors",
+          "pattern": "bdf991e3ae42411515dcd840af86e9a9519e688e267fb0bf31f3d8998f39187e",
+          "state": "confirmed",
+          "anchors": [
+            {
+              "label": "Bottom 1",
+              "time": "2026-09-23T21:00:00.000Z",
+              "price": 82349.7,
+              "labelCentreX": 119.8,
+              "candleX": 119.6,
+              "heldAtPaneEdge": false
+            },
+            {
+              "label": "Bottom 2",
+              "time": "2026-09-26T22:00:00.000Z",
+              "price": 82461,
+              "labelCentreX": 885.4,
+              "candleX": 885.2,
+              "heldAtPaneEdge": false
+            }
+          ],
+          "neckline": {
+            "stored": "84229.90000000",
+            "drawnY": 194.5343842226075,
+            "priceScaleY": 194.5343842226075,
+            "x": [
+              35.70731707317077,
+              1241.8048780487804
+            ]
+          },
+          "confirmation": {
+            "anchorTime": "2026-09-28T08:00:00Z",
+            "connector": {
+              "x1": 628.1775609756098,
+              "y1": 148.5343842226075,
+              "x2": 656.1775609756098,
+              "y2": 192.5343842226075,
+              "length": 52.2
+            },
+            "candleX": 1241.8048780487804
+          },
+          "arcs": 2,
+          "oversizedFillPct": 1.4,
+          "title": {
+            "cls": "pattern-anno-title",
+            "text": "Double Bottom - Confirmed",
+            "tone": "green",
+            "time": null,
+            "price": null,
+            "centreX": 588.046875,
+            "atEdge": false,
+            "top": 108.53125,
+            "bottom": 148.171875,
+            "inside": true,
+            "fontSize": "19px",
+            "colour": "rgb(42, 209, 157)",
+            "border": "rgb(42, 209, 157)"
+          }
+        },
+        {
+          "name": "cards",
+          "detection": {
+            "name": "Double Bottom",
+            "badge": "Confirmed",
+            "badgeTone": "green",
+            "score": "Not calculated",
+            "scoreTrackChildren": 0,
+            "explanation": "Price formed two distinct lows at a similar level (82,349.70 and 82,461.00) and closed above the 84,229.90 neckline (2026-09-28 09:00 UTC): the detector's confirmation."
+          },
+          "others": [
+            {
+              "id": "37ba2cfd2a42abd72e12e827685af5bbbdaa03d47d0c6bdca624cc325b7f1690",
+              "text": "Double Top Invalidated ›"
+            },
+            {
+              "id": "range:2026-10-09T19:00:00Z:2026-10-13T22:00:00Z",
+              "text": "Trading Range Active ›"
+            }
+          ],
+          "othersEmpty": null,
+          "levels": [
+            {
+              "key": "neckline",
+              "available": "true",
+              "text": "Neckline (Breakout) 84,229.90"
+            },
+            {
+              "key": "support",
+              "available": "true",
+              "text": "Support (Bottoms) 82,349.70"
+            },
+            {
+              "key": "resistance",
+              "available": "false",
+              "text": "Resistance (Target) Unavailable"
+            }
+          ]
+        },
+        {
+          "name": "layout",
+          "header": {
+            "left": 0,
+            "top": 0,
+            "right": 1920,
+            "bottom": 80,
+            "width": 1920,
+            "height": 80
+          },
+          "headerOverlapPx": 0,
+          "chartPanel": {
+            "left": 11,
+            "right": 1383,
+            "top": 101,
+            "bottom": 1075
+          },
+          "chartWidthPct": 71.5,
+          "rightColumn": {
+            "left": 1398,
+            "top": 108,
+            "right": 1909,
+            "bottom": 1075,
+            "width": 511,
+            "height": 967
+          },
+          "rightWidthPct": 26.6,
+          "gutter": 15,
+          "topAligned": 7,
+          "cards": [
+            {
+              "cls": "pd-card pd-card--detection",
+              "top": 108,
+              "bottom": 503,
+              "height": 395
+            },
+            {
+              "cls": "pd-card pd-card--others",
+              "top": 516,
+              "bottom": 697,
+              "height": 181
+            },
+            {
+              "cls": "pd-card pd-card--levels",
+              "top": 710,
+              "bottom": 906,
+              "height": 196
+            }
+          ],
+          "timeframeBg": "rgb(11, 79, 196)",
+          "chartHeadText": "BTC/USDT · 1H · BINANCEO88,568H88,610.1L88,545.2C88,591.6+23.60 (+0.03%)",
+          "pageScrollWidth": 1920
+        },
+        {
+          "name": "labels inside the chart and no clipped text",
+          "clipped": [],
+          "overflowing": []
+        },
+        {
+          "name": "volume pane",
+          "label": "Volume1.01K",
+          "separator": {
+            "left": 12,
+            "top": 866,
+            "right": 1302,
+            "bottom": 867,
+            "width": 1290,
+            "height": 1
+          },
+          "readable": true,
+          "coloured": 131698
+        },
+        {
+          "name": "breakouts unaffected",
+          "topbarVisible": true,
+          "headerControlsChildren": 0,
+          "callouts": [
+            "breakout",
+            "retest",
+            "continuation"
+          ],
+          "patternLayer": false,
+          "volumeLabel": false,
+          "summaryCard": true,
+          "zoomBefore": {
+            "from": 107,
+            "to": 229
+          },
+          "zoomAfter": {
+            "from": 107,
+            "to": 229
+          }
+        }
+      ],
+      "pageErrors": [],
+      "consoleErrors": [
+        "Refused to apply inline style because it violates the following Content Security Policy directive: \"style-src 'self'\". Either the 'unsafe-inline' keyword, a hash ('sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='), or a nonce ('nonce-...') is required to enable inline execution.\n",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_RESET",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED"
+      ],
+      "unexpectedConsoleErrors": []
+    },
+    {
+      "label": "390-mobile",
+      "width": 390,
+      "height": 844,
+      "checks": [
+        {
+          "name": "stored patterns",
+          "patterns": [
+            {
+              "id": "2b76baa9c8503daa7ab184ab8bad814b96292a88796abd7b60d57bad337f1c6d",
+              "patternId": "2f4902ef280c397cd785145f75cc3dcb115dd07d9ba93713ff178614f8a4cf8c",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-27T01:00:00Z",
+              "anchorTime": "2026-09-26T22:00:00Z",
+              "neckline": "84229.90000000",
+              "invalidation": "82349.7",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-09-23T21:00:00Z",
+                  "seconds": 1790197200,
+                  "price": 82349.7
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T15:00:00Z",
+                  "seconds": 1790348400,
+                  "price": 84229.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T22:00:00Z",
+                  "seconds": 1790460000,
+                  "price": 82461
+                }
+              ]
+            },
+            {
+              "id": "bdf991e3ae42411515dcd840af86e9a9519e688e267fb0bf31f3d8998f39187e",
+              "patternId": "2f4902ef280c397cd785145f75cc3dcb115dd07d9ba93713ff178614f8a4cf8c",
+              "type": "double_bottom",
+              "side": "bottom",
+              "state": "confirmed",
+              "isLatest": true,
+              "knownAt": "2026-09-28T09:00:00Z",
+              "anchorTime": "2026-09-28T08:00:00Z",
+              "neckline": "84229.90000000",
+              "invalidation": "82349.7",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "low",
+                  "time": "2026-09-23T21:00:00Z",
+                  "seconds": 1790197200,
+                  "price": 82349.7
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T15:00:00Z",
+                  "seconds": 1790348400,
+                  "price": 84229.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T22:00:00Z",
+                  "seconds": 1790460000,
+                  "price": 82461
+                }
+              ]
+            },
+            {
+              "id": "e598504dcb80cabf540fa795ea9443d277a587a94a13ba3b67e458c60b3535e5",
+              "patternId": "9e70fef254d1a325a85457dc164b8ba6c631ab88ef0c3b78a10bc33f463046b4",
+              "type": "double_top",
+              "side": "top",
+              "state": "formed",
+              "isLatest": false,
+              "knownAt": "2026-09-28T14:00:00Z",
+              "anchorTime": "2026-09-28T11:00:00Z",
+              "neckline": "82461.00000000",
+              "invalidation": "84484.4",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T15:00:00Z",
+                  "seconds": 1790348400,
+                  "price": 84229.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T22:00:00Z",
+                  "seconds": 1790460000,
+                  "price": 82461
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-28T11:00:00Z",
+                  "seconds": 1790593200,
+                  "price": 84484.4
+                }
+              ]
+            },
+            {
+              "id": "37ba2cfd2a42abd72e12e827685af5bbbdaa03d47d0c6bdca624cc325b7f1690",
+              "patternId": "9e70fef254d1a325a85457dc164b8ba6c631ab88ef0c3b78a10bc33f463046b4",
+              "type": "double_top",
+              "side": "top",
+              "state": "invalidated",
+              "isLatest": true,
+              "knownAt": "2026-09-28T19:00:00Z",
+              "anchorTime": "2026-09-28T18:00:00Z",
+              "neckline": "82461.00000000",
+              "invalidation": "84484.4",
+              "confidenceField": [],
+              "components": [
+                {
+                  "kind": "high",
+                  "time": "2026-09-25T15:00:00Z",
+                  "seconds": 1790348400,
+                  "price": 84229.9
+                },
+                {
+                  "kind": "low",
+                  "time": "2026-09-26T22:00:00Z",
+                  "seconds": 1790460000,
+                  "price": 82461
+                },
+                {
+                  "kind": "high",
+                  "time": "2026-09-28T11:00:00Z",
+                  "seconds": 1790593200,
+                  "price": 84484.4
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "stored range",
+          "range": {
+            "id": "range:2026-10-09T19:00:00Z:2026-10-13T22:00:00Z",
+            "high": 88640.3,
+            "low": 87141.6,
+            "startSeconds": 1791572400,
+            "currentSeconds": 1791928800
+          }
+        },
+        {
+          "name": "zoom preserved opening Chart Patterns",
+          "before": {
+            "from": 440,
+            "to": 502
+          },
+          "after": {
+            "from": 137,
+            "to": 199
+          }
+        },
+        {
+          "name": "default selection",
+          "expected": "bdf991e3ae42411515dcd840af86e9a9519e688e267fb0bf31f3d8998f39187e",
+          "detection": {
+            "name": "Double Bottom",
+            "badge": "Confirmed",
+            "badgeTone": "green",
+            "score": "Not calculated",
+            "scoreTrackChildren": 0,
+            "explanation": "Price formed two distinct lows at a similar level (82,349.70 and 82,461.00) and closed above the 84,229.90 neckline (2026-09-28 09:00 UTC): the detector's confirmation."
+          },
+          "layer": {
+            "id": "bdf991e3ae42411515dcd840af86e9a9519e688e267fb0bf31f3d8998f39187e",
+            "state": "confirmed",
+            "tone": "green",
+            "width": 288,
+            "height": 461
+          }
+        },
+        {
+          "name": "zoom preserved selecting a pattern",
+          "before": {
+            "from": 137,
+            "to": 199
+          },
+          "after": {
+            "from": 137,
+            "to": 199
+          }
+        },
+        {
+          "name": "annotation anchors",
+          "pattern": "bdf991e3ae42411515dcd840af86e9a9519e688e267fb0bf31f3d8998f39187e",
+          "state": "confirmed",
+          "anchors": [
+            {
+              "label": "Bottom 2",
+              "time": "2026-09-26T22:00:00.000Z",
+              "price": 82461,
+              "labelCentreX": 248.2,
+              "candleX": 248.1,
+              "heldAtPaneEdge": false
+            }
+          ],
+          "neckline": {
+            "stored": "84229.90000000",
+            "drawnY": 69,
+            "priceScaleY": 69,
+            "x": [
+              -122.14285714285711,
+              403.57142857142856
+            ]
+          },
+          "confirmation": {
+            "anchorTime": "2026-09-28T08:00:00Z",
+            "connector": {
+              "x1": 162.74857142857144,
+              "y1": 51,
+              "x2": 173.94857142857143,
+              "y2": 67,
+              "length": 19.5
+            },
+            "candleX": 403.57142857142856
+          },
+          "arcs": 2,
+          "oversizedFillPct": 3.3,
+          "title": {
+            "cls": "pattern-anno-title",
+            "text": "Double Bottom - Confirmed",
+            "tone": "green",
+            "time": null,
+            "price": null,
+            "centreX": 132.2421875,
+            "atEdge": true,
+            "top": 21,
+            "bottom": 51.25,
+            "inside": true,
+            "fontSize": "15px",
+            "colour": "rgb(42, 209, 157)",
+            "border": "rgb(42, 209, 157)"
+          }
+        },
+        {
+          "name": "cards",
+          "detection": {
+            "name": "Double Bottom",
+            "badge": "Confirmed",
+            "badgeTone": "green",
+            "score": "Not calculated",
+            "scoreTrackChildren": 0,
+            "explanation": "Price formed two distinct lows at a similar level (82,349.70 and 82,461.00) and closed above the 84,229.90 neckline (2026-09-28 09:00 UTC): the detector's confirmation."
+          },
+          "others": [
+            {
+              "id": "37ba2cfd2a42abd72e12e827685af5bbbdaa03d47d0c6bdca624cc325b7f1690",
+              "text": "Double Top Invalidated ›"
+            },
+            {
+              "id": "range:2026-10-09T19:00:00Z:2026-10-13T22:00:00Z",
+              "text": "Trading Range Active ›"
+            }
+          ],
+          "othersEmpty": null,
+          "levels": [
+            {
+              "key": "neckline",
+              "available": "true",
+              "text": "Neckline (Breakout) 84,229.90"
+            },
+            {
+              "key": "support",
+              "available": "true",
+              "text": "Support (Bottoms) 82,349.70"
+            },
+            {
+              "key": "resistance",
+              "available": "false",
+              "text": "Resistance (Target) Unavailable"
+            }
+          ]
+        },
+        {
+          "name": "layout",
+          "header": {
+            "left": 0,
+            "top": 0,
+            "right": 390,
+            "bottom": 199,
+            "width": 390,
+            "height": 199
+          },
+          "headerOverlapPx": 0,
+          "chartPanel": {
+            "left": 10,
+            "right": 380,
+            "top": 220,
+            "bottom": 794
+          },
+          "chartWidthPct": 94.9,
+          "rightColumn": {
+            "left": 10,
+            "top": 806,
+            "right": 380,
+            "bottom": 1613,
+            "width": 370,
+            "height": 807
+          },
+          "rightWidthPct": 94.9,
+          "gutter": -370,
+          "topAligned": 586,
+          "cards": [
+            {
+              "cls": "pd-card pd-card--detection",
+              "top": 806,
+              "bottom": 1210,
+              "height": 404
+            },
+            {
+              "cls": "pd-card pd-card--others",
+              "top": 1223,
+              "bottom": 1404,
+              "height": 181
+            },
+            {
+              "cls": "pd-card pd-card--levels",
+              "top": 1417,
+              "bottom": 1613,
+              "height": 196
+            }
+          ],
+          "timeframeBg": "rgb(11, 79, 196)",
+          "chartHeadText": "BTC/USDT · 1H · BINANCEO88,568H88,610.1L88,545.2C88,591.6+23.60 (+0.03%)",
+          "pageScrollWidth": 390
+        },
+        {
+          "name": "labels inside the chart and no clipped text",
+          "clipped": [],
+          "overflowing": []
+        },
+        {
+          "name": "volume pane",
+          "label": "Volume1.01K",
+          "separator": {
+            "left": 11,
+            "top": 673,
+            "right": 299,
+            "bottom": 674,
+            "width": 288,
+            "height": 1
+          },
+          "readable": true,
+          "coloured": 10581
+        },
+        {
+          "name": "breakouts unaffected",
+          "topbarVisible": true,
+          "headerControlsChildren": 0,
+          "callouts": [
+            "breakout",
+            "retest",
+            "continuation"
+          ],
+          "patternLayer": false,
+          "volumeLabel": false,
+          "summaryCard": true,
+          "zoomBefore": {
+            "from": 137,
+            "to": 199
+          },
+          "zoomAfter": {
+            "from": 194,
+            "to": 256
+          }
+        }
+      ],
+      "pageErrors": [],
+      "consoleErrors": [
+        "Refused to apply inline style because it violates the following Content Security Policy directive: \"style-src 'self'\". Either the 'unsafe-inline' keyword, a hash ('sha256-3pRED1tOXas1FXFoPb9TGCjmYe9XQsmO9OV23khV2nY='), or a nonce ('nonce-...') is required to enable inline execution.\n",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED",
+        "WebSocket connection to 'wss://stream.binance.com:9443/ws/btcusdt@kline_1h' failed: Error in connection establishment: net::ERR_CONNECTION_CLOSED"
+      ],
+      "unexpectedConsoleErrors": []
+    }
+  ]
+}

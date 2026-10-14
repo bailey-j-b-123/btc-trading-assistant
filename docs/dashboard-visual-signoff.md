@@ -106,3 +106,20 @@ check also exercises all five view-only timeframe controls, the More menu and
 refresh. It fails on unmodified PR #59 at 390px because identity, timeframe and
 runner-status content escape their cells; it passes with this CSS correction.
 Visual acceptance remains a human decision.
+
+## Chart Patterns — correction against the approved reference
+
+Follow-up to PR #62 (`a0f1faf`), frontend presentation only. The Chart Patterns
+function is reshaped to the approved `BRAIN_Approved_Chart_Patterns.png`
+(1672 × 941): a slim navy header, the chart at ~71 %, a 15 px gutter and three
+cards (Pattern Detection, Other Detected Patterns, Key Levels). The selected
+stored record is drawn at its own candles and prices. Confidence reads
+"Not calculated", and patterns that were not detected are never shown.
+Breakouts & Retests and the other functions are unchanged; the Breakouts
+screenshot at 1672 is byte-identical before and after.
+
+Full A–P pass/fail report, record ids, measurements, deviations and test output:
+[`visual-signoff/patterns/REPORT.md`](visual-signoff/patterns/REPORT.md). Side by side:
+[`visual-signoff/patterns/comparison-before-after-1672x941.png`](visual-signoff/patterns/comparison-before-after-1672x941.png).
+Regression: `node scripts/browser-audit/patterns-check.mjs http://127.0.0.1:8123 <out>`.
+Visual acceptance remains a human decision.

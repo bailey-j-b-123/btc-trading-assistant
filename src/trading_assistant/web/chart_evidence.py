@@ -297,6 +297,17 @@ def _zone_item(zone: Any, index: int, interval: timedelta) -> dict[str, Any]:
     }
 
 
+def project_event(event: Any, kind: str, interval: timedelta) -> dict[str, Any]:
+    """Public projection of one stored event for read-only consumers.
+
+    Same payload :func:`build_chart_evidence` uses for its own event groups, so a
+    zone-relationship read (see ``web.zone_evidence``) reports the identical
+    stored fields the chart does.
+    """
+
+    return _event_item(event, kind, interval)
+
+
 def build_chart_evidence(
     *,
     exchange: str,
@@ -456,6 +467,7 @@ __all__ = [
     "CHART_EVIDENCE_RULES_VERSION",
     "CHART_EVIDENCE_WINDOW",
     "build_chart_evidence",
+    "project_event",
     "swing_labels",
     "unavailable_chart_evidence",
 ]

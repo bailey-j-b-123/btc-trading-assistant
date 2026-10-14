@@ -15,7 +15,6 @@ import {
   chartFunctionById,
   filterEvidence,
   functionStatus,
-  highlightedPattern,
   layersForSelection,
   normalizeFunctionId,
   normalizeMode,
@@ -41,9 +40,20 @@ import {
 } from "../decision.js";
 import { breakoutStages, drawableStages, stageFrame } from "../breakout_stages.js";
 import {
+  annotationFullyOnScreen,
+  chartPatternRecords,
+  chooseChartPattern,
+  patternAnnotation,
+  secondaryAnnotations,
+} from "../pattern_view.js";
+import {
   captureChartView,
   captureLogicalView,
   clearBreakoutAnnotations,
+  clearPatternAnnotation,
+  holdWindowThroughResize,
+  setPatternAnnotation,
+  setPatternPane,
   focusBarOnChart,
   frameBarsOnChart,
   redrawOverlays,
@@ -517,6 +527,10 @@ export function overlaysForViewedTimeframe({ dashboard, viewedTimeframe, structu
   return {
     equal_levels: [],
     zones: Array.isArray(structure.zones) ? structure.zones : [],
+    // The backend already presented these bands for this exact timeframe.
+    // Keep its bounds/counts/linkage; never rebuild them or borrow engine bands.
+    ...(structure.zone_bands && typeof structure.zone_bands === "object"
+      ? { zone_bands: structure.zone_bands } : {}),
     range: structure.range && typeof structure.range === "object" ? structure.range : null,
     swings: Array.isArray(structure.swings) ? structure.swings : [],
     setup_reference: null,
@@ -542,8 +556,42 @@ const CHART_LAYER_TOGGLES = Object.freeze([
   { id: "equalLevels", label: "Liquidity", overlay: "equalLevels", color: OVERLAY_COLORS.equalLevels, hint: "Equal highs and lows. Only on the engine timeframe.", legacy: true },
 ]);
 
-/** Next higher timeframe whose stored structure may be shown on this chart. */
+/**
+ * The fallback higher-timeframe ladder, used only when the dashboard payload does not carry this
+ * deployment's own supported timeframes (an older server, or a page loaded from cache).
+ */
 const HIGHER_TIMEFRAME = Object.freeze({ "5m": "15m", "15m": "1h", "1h": "4h" });
+
+/** Minutes per timeframe token, so the ladder can be ordered without a table. */
+const TIMEFRAME_UNIT_MINUTES = Object.freeze({ m: 1, h: 60, d: 1440, w: 10080 });
+
+/** One timeframe's length in minutes, or null when the token is not a timeframe. */
+export function timeframeMinutesOf(timeframe) {
+  const match = /^([1-9][0-9]*)([mhdw])$/.exec(String(timeframe || ""));
+  if (!match) return null;
+  return Number(match[1]) * TIMEFRAME_UNIT_MINUTES[match[2]];
+}
+
+/**
+ * The next higher timeframe whose stored structure may be shown on this chart.
+ *
+ * It is read from the deployment's own `supported_timeframes`, so a chart offers "1D above 4H"
+ * only when this deployment really supports and stores 1d candles. Nothing is synthesised: with
+ * no supported timeframe above the one being viewed, the layer says there is none rather than
+ * borrowing a lower timeframe's levels.
+ */
+export function nextHigherTimeframe(viewedTimeframe, supportedTimeframes = null) {
+  const current = timeframeMinutesOf(viewedTimeframe);
+  if (current === null) return null;
+  const candidates = (Array.isArray(supportedTimeframes) ? supportedTimeframes : [])
+    .map((timeframe) => ({ timeframe, minutes: timeframeMinutesOf(timeframe) }))
+    .filter((entry) => entry.minutes !== null && entry.minutes > current)
+    .sort((left, right) => left.minutes - right.minutes);
+  if (candidates.length) return candidates[0].timeframe;
+  // No declared support list: fall back to the fixed ladder, which never invents a timeframe.
+  const fallback = HIGHER_TIMEFRAME[viewedTimeframe];
+  return fallback || null;
+}
 /** Swing connector line colours, matching the structure marker tones. */
 const STRUCTURE_HIGH_COLOR = "#2fbf7f";
 const STRUCTURE_LOW_COLOR = "#e0565b";
@@ -628,6 +676,15 @@ function chartCard(initialDashboard) {
     "aria-label": "Forming candle display only", text: "FORMING — DISPLAY ONLY" });
   const confirmedStatus = el("div", { class: "chart-note confirmed-status", text: "Last confirmed stored close: unavailable" });
   const ohlcLine = el("div", { class: "chart-ohlc", "aria-live": "off", text: "Move over a candle for its confirmed OHLC." });
+  // Chart Patterns screen: the chart's own header line (instrument, timeframe,
+  // exchange and the OHLC of the hovered or newest stored candle), drawn at the
+  // top edge of the chart panel exactly where the approved layout puts it.
+  const chartPanelTitle = el("span", { class: "pch-title", text: "" });
+  const chartPanelOhlc = el("span", { class: "pch-ohlc", "aria-live": "off" });
+  const chartPanelHead = el("div", { class: "pattern-chart-head", "aria-label": "Candle OHLC" }, [chartPanelTitle, chartPanelOhlc]);
+  // Where the chart-function and mode switches sit while the Chart Patterns
+  // screen is open: the slim header bar, beside the timeframe selector.
+  const headerControls = el("div", { class: "chart-header-controls", role: "group", "aria-label": "Chart function controls" });
   const evidenceMeta = el("div", { class: "chart-evidence-meta", role: "note", text: "" });
   // Text alternative to the chart markers: every drawn item, reachable without hovering or clicking the canvas.
   const itemListBody = el("div", { class: "chart-items-body" });
@@ -664,6 +721,8 @@ function chartCard(initialDashboard) {
     stages: null,
     htfBands: [],
     htfStatus: null,
+    // How many stored bands this chart painted, and how many it did not (see applyViewedOverlays).
+    bandAccounting: null,
   };
   let emptyNode = null;
 
@@ -714,6 +773,12 @@ function chartCard(initialDashboard) {
   const restoreRedrawView = (view) => restoreLogicalView(handleRef.current, view);
   const swingFunctionActive = () => activeChartFunction === "swings" || activeChartMode === DETAILED_MODE;
   const patternFunctionActive = () => activeChartFunction === "patterns" || activeChartMode === DETAILED_MODE;
+  /** The approved pattern-focused layout belongs to the Chart Patterns function only. */
+  const patternFocus = () => activeChartFunction === "patterns";
+  /** Bar index of one stored candle time on the loaded series, or -1. Never a neighbour. */
+  const barIndexOf = (timeSeconds) => toChartCandles(viewed.candleRows).findIndex((bar) => bar.time === timeSeconds);
+  /** True while the Chart Patterns screen may still need to bring the selected pattern into view. */
+  let patternInViewPending = false;
   function stopForming() {
     formingStream?.stop();
     formingStream = null;
@@ -763,12 +828,31 @@ function chartCard(initialDashboard) {
     const viewedClose = lastConfirmedClose(viewed.candleRows);
     // Calm default: at most the nearest band per side plus one containing price, per timeframe. The
     // rest are still stored and listed in the nearby-zones card; they are simply not painted on candles.
-    const viewedBands = overlayPrefs.zones === true && Array.isArray(viewed.overlays?.zone_bands?.bands)
-      ? capBandsForDisplay(relocateBands(viewed.overlays.zone_bands.bands, viewedClose)).shown
-      : [];
-    const higherBands = overlayPrefs.zones === true && effectivePrefs.layers?.htfLevels === true
-      ? capBandsForDisplay(relocateBands(viewed.htfBands || [], viewedClose)).shown
-      : [];
+    const viewedCap = overlayPrefs.zones === true && Array.isArray(viewed.overlays?.zone_bands?.bands)
+      ? capBandsForDisplay(relocateBands(viewed.overlays.zone_bands.bands, viewedClose))
+      : null;
+    const htfCap = overlayPrefs.zones === true && effectivePrefs.layers?.htfLevels === true
+      ? capBandsForDisplay(relocateBands(viewed.htfBands || [], viewedClose))
+      : null;
+    const viewedBands = viewedCap ? viewedCap.shown : [];
+    const higherBands = htfCap ? htfCap.shown : [];
+    // Every band this chart decided not to paint is accounted for here: the backend's own
+    // nearest-per-side selection first, then this chart's readability cap. The status line, the
+    // nearby-zones card and the function panel all report the same totals.
+    const backendHidden = viewed.overlays?.zone_bands?.hidden_count;
+    const capHidden = (viewedCap ? viewedCap.hidden : 0) + (htfCap ? htfCap.hidden : 0);
+    const capHiddenBySide = (viewedCap ? viewedCap.hiddenBySide : { above_price: 0, below_price: 0, price_inside: 0 });
+    const higherTimeframeHidden = htfCap ? htfCap.hidden : 0;
+    viewed.bandAccounting = {
+      drawn: viewedBands.length + higherBands.length,
+      backendHidden: Number.isFinite(backendHidden) ? backendHidden : null,
+      capHidden,
+      capHiddenBySide,
+      higherTimeframeHidden,
+      totalStored: Number.isFinite(viewed.overlays?.zone_bands?.total_stored)
+        ? viewed.overlays.zone_bands.total_stored
+        : null,
+    };
     // Breakouts & Retests: the band the sequence happened at, from the stored
     // breakout's own bounds. Painted by the existing zone painter, so it is
     // shaded, positioned and labelled like every other stored band.
@@ -776,8 +860,9 @@ function chartCard(initialDashboard) {
     // The S/R summary card and the function status read exactly the bands that were painted.
     viewed.paintedBands = [...viewedBands, ...higherBands, ...(sequenceBand ? [sequenceBand] : [])];
     setZoneBands(handleRef.current, viewed.paintedBands, { onSelect: selectZoneBand });
-    // The status line and the panel both read the bands of this selection, so they
-    // are painted after the bands are known.
+    // The status line, the panel and the evidence meta line all read the bands of
+    // this selection, so they are all refreshed after the bands are known.
+    updateEvidenceMeta();
     paintFunctionStatus();
     paintFunctionPanel();
   };
@@ -790,6 +875,7 @@ function chartCard(initialDashboard) {
   const renderEvidence = () => {
     const handle = handleRef.current;
     if (!handle) return;
+    paintChartHead(null);
     const layers = selectionLayers();
     const evidence = filterEvidence(viewed.evidence, activeChartFunction, {
       mode: activeChartMode,
@@ -815,8 +901,36 @@ function chartCard(initialDashboard) {
       : null;
     emphasiseStoredSwings(viewed.model);
     addSwingConnector(viewed.model);
-    setEvidence(handle, viewed.model);
-    const counts = viewed.model.hiddenFuture
+    // Chart Patterns, Simple: the annotated shape below IS the chart's reading
+    // of the selected record, so the small pattern marker and zigzag lines are
+    // not drawn on top of it. The records stay in the model, so the count, the
+    // item list and click-to-explain are unchanged. Detailed keeps them all.
+    const patternAnnotated = patternFocus() && activeChartMode !== DETAILED_MODE;
+    const drawnModel = patternAnnotated
+      ? {
+          ...viewed.model,
+          markers: viewed.model.markers.filter((marker) => marker.shape !== "square"),
+          patternLines: viewed.model.patternLines.filter((line) => !String(line.role || "").startsWith("pattern-")),
+        }
+      : viewed.model;
+    setEvidence(handle, drawnModel);
+    paintPatternAnnotation();
+    updateEvidenceMeta();
+    paintFunctionStatus();
+    paintFunctionPanel();
+    paintBreakoutAnnotations();
+    renderItemList(viewed.model);
+  };
+
+  /**
+   * The line under the chart. It is recomposed whenever the evidence model OR the
+   * painted bands change: the overlays arrive from a later request than the evidence,
+   * and a line that still said "0 drawn" after bands appeared would report two
+   * different totals on the same screen.
+   */
+  const updateEvidenceMeta = () => {
+    const layers = selectionLayers();
+    const counts = viewed.model?.hiddenFuture
       ? ` · ${viewed.model.hiddenFuture} item(s) not yet known at this instant are hidden`
       : "";
     const htf = activeChartMode === DETAILED_MODE && layers.htfLevels === true && viewed.htfStatus
@@ -824,14 +938,20 @@ function chartCard(initialDashboard) {
       : "";
     const zb = viewed.overlays?.zone_bands;
     const overlayPrefs = selectionOverlayPrefs();
+    const account = viewed.bandAccounting;
     const zoneText = overlayPrefs.zones === true && zb && zb.reason !== "no_zones"
-      ? ` · S/R bands: ${zb.bands?.length ?? 0} shown, ${zb.hidden_count ?? 0} hidden, ${zb.merged_count ?? 0} merged`
+      ? ` · S/R bands: ${account ? account.drawn : zb.bands?.length ?? 0} drawn`
+        + `, ${(zb.hidden_count ?? 0) + (account?.capHidden ?? 0)} stored band(s) not drawn`
+        + `, ${zb.merged_count ?? 0} merged`
       : "";
-    evidenceMeta.textContent = `${evidenceMetaText(viewed.evidence, viewed.timeframe)} ${evidenceCountText(viewed.model)}${counts}${htf}${zoneText}`;
-    paintFunctionStatus();
-    paintFunctionPanel();
-    paintBreakoutAnnotations();
-    renderItemList(viewed.model);
+    // Before the first evidence model exists there is no count to state, and the
+    // sentence for "nothing drawn" would be a claim about a view that has not loaded.
+    const evidenceCounts = viewed.model ? evidenceCountText(viewed.model) : "";
+    evidenceMeta.textContent = [
+      evidenceMetaText(viewed.evidence, viewed.timeframe),
+      `${evidenceCounts}${counts}${htf}${zoneText}`,
+    ].filter(Boolean).join(" ");
+
   };
 
   /**
@@ -905,12 +1025,156 @@ function chartCard(initialDashboard) {
         hiddenCount: viewed.overlays?.zone_bands?.hidden_count ?? null,
         mergedCount: viewed.overlays?.zone_bands?.merged_count ?? null,
         reason: viewed.overlays?.zone_bands?.reason ?? null,
+        // The bands this chart itself left unpainted, so the status can state the real total.
+        capHidden: viewed.bandAccounting?.capHidden ?? 0,
+        capHiddenBySide: viewed.bandAccounting?.capHiddenBySide ?? null,
+        higherTimeframeHidden: viewed.bandAccounting?.higherTimeframeHidden ?? 0,
+        totalStored: viewed.overlays?.zone_bands?.total_stored ?? null,
       },
     });
     functionStatusNode.dataset.tone = status.available ? "neutral" : "amber";
     functionStatusNode.textContent = `${fn.label}: ${status.text}`;
     renderPatternPicker();
   };
+
+  /**
+   * Chart Patterns: draw the selected stored record in the approved style
+   * (pattern_view.patternAnnotation). Any other function removes it.
+   */
+  const paintPatternAnnotation = () => {
+    const handle = handleRef.current;
+    if (!handle) return;
+    if (!patternFocus() || viewed.evidence?.available !== true) {
+      clearPatternAnnotation(handle);
+      viewed.patternAnnotation = null;
+      return;
+    }
+    // The selected record (or the documented default), plus — in Simple mode —
+    // other current records in the understated secondary style where they do
+    // not overlap it. Only stored records of THIS timeframe's payload exist here.
+    const records = chartPatternRecords(viewed.evidence);
+    const raw = chooseChartPattern(records, selectedPatternId);
+    viewed.patternAnnotation = raw ? patternAnnotation(raw, viewed.candleRows) : null;
+    const secondary = viewed.patternAnnotation && activeChartMode !== DETAILED_MODE
+      ? secondaryAnnotations(records, viewed.patternAnnotation, viewed.candleRows)
+      : [];
+    setPatternAnnotation(handle, viewed.patternAnnotation, { secondary });
+    ensurePatternInView();
+  };
+
+  /**
+   * A timeframe with no stored candles must not retain the previous frame's
+   * OHLC, pattern cards or swing bias under the new label.
+   */
+  const clearUnavailableChartScreen = () => {
+    viewed.candleRows = [];
+    paintChartHead(null);
+    paintFunctionPanel();
+  };
+
+  /** Bar span of the drawn pattern on the loaded series, or null. */
+  const patternBarSpan = () => {
+    const annotation = viewed.patternAnnotation;
+    if (!annotation) return null;
+    const fromIndex = barIndexOf(annotation.fromSeconds);
+    const toIndex = barIndexOf(annotation.toSeconds);
+    return fromIndex >= 0 && toIndex >= 0 ? { fromIndex, toIndex } : null;
+  };
+
+  /**
+   * Centre the window on the selected pattern when it is not wholly on screen,
+   * at the operator's own zoom (focusBarOnChart keeps the number of candles on
+   * screen; a pattern wider than the window stays partly off it — only the
+   * explicit Fit button changes the zoom). Runs once when the screen opens and
+   * once per pattern selection; it never drags the view back afterwards.
+   */
+  const ensurePatternInView = () => {
+    const handle = handleRef.current;
+    if (!patternInViewPending || !handle) return;
+    const span = patternBarSpan();
+    if (!span) return;
+    const range = handle.chart?.timeScale?.().getVisibleLogicalRange?.();
+    patternInViewPending = false;
+    if (annotationFullyOnScreen(span, range)) return;
+    if (!focusBarOnChart(handle, Math.round((span.fromIndex + span.toIndex) / 2))) return;
+    scheduleRedraw(handle);
+  };
+
+  /** Fit the whole selected pattern into the window: the one control here that changes the zoom. */
+  function fitPattern() {
+    const handle = handleRef.current;
+    const span = patternBarSpan();
+    if (!handle || !span) return;
+    const width = Math.max(1, span.toIndex - span.fromIndex);
+    frameBarsOnChart(handle, span.fromIndex, span.toIndex, { pad: Math.round(width * 0.6) });
+    scheduleRedraw(handle);
+  }
+
+  /** Select one stored pattern record from the Other Detected Patterns card. */
+  function choosePattern(patternId) {
+    selectedPatternId = patternId;
+    const keep = captureRedrawView();
+    renderEvidence();
+    restoreRedrawView(keep);
+    // After the operator's window is restored: only then may it move to the
+    // newly selected pattern, and only if none of it is on screen.
+    patternInViewPending = true;
+    ensurePatternInView();
+    scheduleRedraw(handleRef.current);
+  }
+
+  /**
+   * Put the chart-function and mode switches in the header while the Chart
+   * Patterns screen is open, and back in the chart toolbar otherwise; split the
+   * chart into candle and volume panes for that screen only.
+   */
+  const applyPatternFocus = () => {
+    const focus = patternFocus();
+    const target = focus ? headerControls : controlHome;
+    if (controlRow.parentNode !== target) {
+      // The chart panel changes width with this layout: keep the same candles on screen.
+      holdWindowThroughResize(handleRef.current);
+      controlRow.remove();
+      target.append(controlRow);
+    }
+    setPatternPane(handleRef.current, focus);
+    paintChartHead(null);
+  };
+
+  /** The OHLC line of the Chart Patterns panel: the hovered candle, else the newest stored one. */
+  function paintChartHead(bar) {
+    chartPanelTitle.textContent = `${symbol} · ${viewedTimeframeLabel(viewed.timeframe)} · ${exchange ? exchange.toUpperCase() : "UNKNOWN"}`;
+    const candles = toChartCandles(viewed.candleRows);
+    const shown = bar || candles.at(-1) || null;
+    clearNode(chartPanelOhlc);
+    if (!shown) {
+      chartPanelOhlc.append(el("span", { class: "pch-none", text: "No stored candle" }));
+      return;
+    }
+    const up = Number(shown.close) >= Number(shown.open);
+    const tone = up ? "green" : "red";
+    const field = (key, value) => el("span", { class: "pch-field" }, [
+      el("span", { class: "pch-key", text: key }),
+      el("span", { class: "pch-value", dataset: { tone }, text: displayPrice(value).display ?? UNKNOWN_TEXT }),
+    ]);
+    const change = Number(shown.close) - Number(shown.open);
+    const changePct = Number(shown.open) ? (change / Number(shown.open)) * 100 : null;
+    chartPanelOhlc.append(
+      field("O", shown.open),
+      field("H", shown.high),
+      field("L", shown.low),
+      field("C", shown.close),
+      Number.isFinite(change)
+        ? el("span", {
+            class: "pch-change",
+            dataset: { tone },
+            title: "This candle's close minus its open",
+            text: `${change >= 0 ? "+" : "\u2212"}${displayPrice(Math.abs(change).toFixed(2)).display}${changePct === null ? "" : ` (${change >= 0 ? "+" : "\u2212"}${Math.abs(changePct).toFixed(2)}%)`}`,
+          })
+        : null,
+    );
+    chartPanelHead.title = `${bar ? "Hovered" : "Newest stored"} confirmed candle · opened ${formatUtc(new Date(shown.time * 1000).toISOString())}`;
+  }
 
   /** Draw the explanation panel for the selected function, from stored records only. */
   /**
@@ -1041,14 +1305,23 @@ function chartCard(initialDashboard) {
       bands: Array.isArray(viewed.paintedBands) ? viewed.paintedBands : [],
       hidden: Number.isFinite(zb.hidden_count) ? zb.hidden_count : null,
       merged: Number.isFinite(zb.merged_count) ? zb.merged_count : null,
+      accounting: viewed.bandAccounting || null,
       reason: zb.reason || null,
       plan: hasValidTradePlan(dashboard) ? dashboard.plan : null,
       planState: dashboard?.planning?.state_detail || null,
       planReason: planningReason(dashboard),
-      marketState: dashboard?.market_state || null,
+      marketState: viewed.timeframe === engineTimeframe && dashboard?.market_state
+        ? { ...dashboard.market_state, timeframe: engineTimeframe }
+        : null,
       selectedPatternId,
       stages: viewed.stages,
-    }), { onSelectStage: selectStage, onFrameStages: frameStoredEvents })];
+    }), {
+      onSelectStage: selectStage,
+      onFrameStages: frameStoredEvents,
+      onSelectPattern: choosePattern,
+      onFitPattern: fitPattern,
+      mode: activeChartMode,
+    })];
     // The Breakouts & Retests screen pairs the chart with the market summary
     // and the Breakout Logic panel; every other function keeps its own panel.
     clearNode(functionPanelMount).append(...(activeChartFunction === "breakouts" ? [marketSummaryCard(), ...nodes] : nodes));
@@ -1063,7 +1336,8 @@ function chartCard(initialDashboard) {
       patternPickerBody.append(el("span", { class: "chart-note", text: "No detected pattern is stored for this window." }));
       return;
     }
-    const highlighted = highlightedPattern(viewed.evidence, selectedPatternId);
+    // The same record the chart draws (a selected range presses no pattern button).
+    const highlighted = chooseChartPattern(chartPatternRecords(viewed.evidence), selectedPatternId);
     for (const entry of catalogue) {
       const pressed = highlighted && entry.id === highlighted.id;
       patternPickerBody.append(el("button", {
@@ -1149,10 +1423,19 @@ function chartCard(initialDashboard) {
     // Opening the Breakouts screen may need to move the window to its steps;
     // leaving it must never drag the view back.
     stagesInViewPending = next === "breakouts";
+    patternInViewPending = false;
     const keep = captureRedrawView();
+    applyPatternFocus();
     renderEvidence();
     applyViewedOverlays();
     restoreRedrawView(keep);
+    // Opening Chart Patterns brings the selected pattern into view if it is
+    // off screen, at the operator's own zoom (the window moves, never the zoom).
+    if (next === "patterns") {
+      patternInViewPending = true;
+      ensurePatternInView();
+      scheduleRedraw(handleRef.current);
+    }
     // The restore above puts the operator's view back, which can leave the
     // stored steps off the side of this screen. Check once more, still at the
     // operator's own zoom — this moves the window, never the zoom.
@@ -1197,6 +1480,7 @@ function chartCard(initialDashboard) {
     itemListBody.append(list);
   };
   const showOhlc = (bar) => {
+    paintChartHead(bar || null);
     if (!bar) {
       ohlcLine.textContent = "Move over a candle for its confirmed OHLC.";
       return;
@@ -1329,14 +1613,19 @@ function chartCard(initialDashboard) {
     modeSwitch.append(button);
   }
   patternPicker.append(el("span", { class: "control-caption", text: "DETECTED PATTERN" }), patternPickerBody);
+  const controlRow = el("div", { class: "chart-control-row" }, [
+    el("span", { class: "control-caption", text: "CHART FUNCTION" }),
+    functionSwitch,
+    el("span", { class: "control-caption", text: "MODE" }),
+    modeSwitch,
+    swingConnectorButton,
+  ]);
+  // The row's home in the toolbar. `display: contents`, so the toolbar lays
+  // the row out exactly as before; the Chart Patterns screen lends the row to
+  // the header and puts it back here when another function is selected.
+  const controlHome = el("div", { class: "chart-control-home" }, [controlRow]);
   toolbar.append(
-    el("div", { class: "chart-control-row" }, [
-      el("span", { class: "control-caption", text: "CHART FUNCTION" }),
-      functionSwitch,
-      el("span", { class: "control-caption", text: "MODE" }),
-      modeSwitch,
-      swingConnectorButton,
-    ]),
+    controlHome,
     functionStatusNode,
     patternPicker,
   );
@@ -1412,7 +1701,9 @@ function chartCard(initialDashboard) {
   /** Higher-timeframe zones: fetched only when the layer is on, cached per view, never mixed into the viewed timeframe's levels. */
   async function refreshHigherLevels() {
     const generation = viewed.generation;
-    const target = HIGHER_TIMEFRAME[viewed.timeframe];
+    // The ladder comes from the deployment's own supported timeframes (payload meta), so 1D is
+    // offered above 4H exactly when this server supports 1d — never assumed.
+    const target = nextHigherTimeframe(viewed.timeframe, dashboard?.meta?.supported_timeframes);
     if (loadPrefs().layers?.htfLevels !== true) {
       viewed.htfBands = [];
       viewed.htfStatus = null;
@@ -1558,7 +1849,9 @@ function chartCard(initialDashboard) {
     if (handleRef.current) {
       clearOverlays(handleRef.current);
       clearEvidence(handleRef.current);
+      clearPatternAnnotation(handleRef.current);
     }
+    viewed.patternAnnotation = null;
     viewed.model = null;
     viewed.history = null;
     historyNoteEl.textContent = "";
@@ -1633,6 +1926,7 @@ function chartCard(initialDashboard) {
       viewed.overlays = emptyOverlays();
       viewed.evidence = { available: false, reason: "no candles for this timeframe" };
       if (handleRef.current) setCandles(handleRef.current, []);
+      clearUnavailableChartScreen();
       const detail = candlesError
         ? `${candlesError.message} No substitute data is shown.`
         : `The backend returned ${timeframeEcho || "unlabelled"} data for a ${label} request; it is not shown.`;
@@ -1645,6 +1939,7 @@ function chartCard(initialDashboard) {
       viewed.overlays = emptyOverlays();
       viewed.evidence = { available: false, reason: "no stored closed candles at this decision time" };
       if (handleRef.current) setCandles(handleRef.current, []);
+      clearUnavailableChartScreen();
       const returned = Number.isInteger(candlesPayload.returned_count) ? candlesPayload.returned_count : fetchedRows.length;
       showChartOverlay(chartEmpty(
         `${label} data unavailable`,
@@ -1765,7 +2060,7 @@ function chartCard(initialDashboard) {
     ohlcLine,
     // The chart and its function panel sit side by side on a wide screen, and
     // stack (chart first) on a narrow one.
-    el("div", { class: "chart-stage" }, [host, functionPanelMount]),
+    el("div", { class: "chart-stage" }, [chartPanelHead, host, functionPanelMount]),
     evidenceMeta,
     itemList,
     markerKey,
@@ -1775,6 +2070,7 @@ function chartCard(initialDashboard) {
 
   refreshLayerButtons();
   updateLiquidityToggle();
+  applyPatternFocus();
   paintFunctionStatus();
   paintFunctionPanel();
   paintBreakoutAnnotations();
@@ -1793,6 +2089,7 @@ function chartCard(initialDashboard) {
     // the top of the dashboard, and the explanation panel sits in the Current
     // Setup column beside the trading status it must never replace.
     timeframeControls,
+    headerControls,
     explainPanel,
     update,
     canUpdate,
@@ -1804,6 +2101,7 @@ function chartCard(initialDashboard) {
       const handle = ensureChart();
       if (!handle) return;
       setCandles(handle, rows);
+      setPatternPane(handle, patternFocus());
       startForming(engineTimeframe, rows);
       void attachEngineHistory(handle, engineTimeframe, viewed.generation);
       applyViewedOverlays();
@@ -2896,14 +3194,34 @@ function decisionHero(dashboard, forward) {
   ]);
 }
 
+/**
+ * The test figure for one zone row: distinct instants that tested the level, and the swing
+ * evidence behind them when the two differ. A summed evidence count is never printed as if every
+ * count were a separate test.
+ */
+function zoneRowTests(band) {
+  const distinct = Number.isFinite(band?.distinct_test_timestamps) ? band.distinct_test_timestamps : null;
+  const evidences = Number.isFinite(band?.touch_count) ? band.touch_count : null;
+  if (distinct === null && evidences === null) return "tests unknown";
+  const tests = distinct === null ? evidences : distinct;
+  const plural = tests === 1 ? "" : "s";
+  if (distinct !== null && evidences !== null && evidences > distinct) {
+    return `${tests} test${plural} · ${evidences} swing evidences`;
+  }
+  return `${tests} test${plural}`;
+}
+
 function zoneRow(band) {
   const above = band.position === "above_price";
   const below = band.position === "below_price";
   const role = above ? "Resistance" : below ? "Support" : "Price inside";
   const tone = above ? "red" : below ? "green" : "amber";
   const tf = band.source_timeframe ? String(band.source_timeframe).toUpperCase() : "";
-  const touches = Number.isFinite(band.touch_count) ? `${band.touch_count} touch${band.touch_count === 1 ? "" : "es"}` : "touches unknown";
-  const meta = [tf && `${tf} zone`, touches, band.faded ? "older, faded" : null].filter(Boolean).join(" · ");
+  const touches = zoneRowTests(band);
+  const linked = band.linked_events && band.linked_events.linked === true
+    ? `${band.linked_events.event_count} stored event(s) referenced it`
+    : null;
+  const meta = [tf && `${tf} zone`, touches, linked, band.faded ? "older, faded" : null].filter(Boolean).join(" · ");
   return el("li", { class: "zone-row", dataset: { tone } }, [
     el("div", { class: "zone-row-head" }, [
       el("strong", { class: "zone-role", text: role }),
@@ -2927,17 +3245,25 @@ function nearbyZonesCard(dashboard) {
   const tf = String(zb?.timeframe || dashboard?.meta?.timeframe || "").toUpperCase();
   const hidden = Number.isFinite(zb?.hidden_count) ? zb.hidden_count : 0;
   const merged = Number.isFinite(zb?.merged_count) ? zb.merged_count : 0;
+  const stored = Number.isFinite(zb?.total_stored) ? zb.total_stored : null;
+  // The card lists the bands the backend presented; the count below says how many of the stored
+  // zones it did not present.
+  const presented = Number.isFinite(zb?.presented_count) ? zb.presented_count : bands.length;
   return el("section", { class: "card context-card", "aria-label": "Nearby support and resistance" }, [
     el("div", { class: "card-kicker", text: `Nearby zones${tf ? ` · ${tf}` : ""}` }),
     bands.length === 0
       ? el("p", {
           class: "muted",
-          text: zb?.reason === "no_zones" ? "No support or resistance zones are stored at this instant." : "No zone bands to show.",
+          text: zb?.reason === "no_zones"
+            ? stored === 0
+              ? "No support or resistance zones are stored at this instant."
+              : `No zone band is drawable at this instant (${stored ?? "some"} stored zone(s) unavailable).`
+            : "No zone bands to show.",
         })
       : el("ul", { class: "zone-list" }, bands.map(zoneRow)),
     el("p", {
       class: "hint",
-      text: `${hidden} further zone(s) hidden · ${merged} merged for display. Zones are context; they do not change decisions.`,
+      text: `${presented} of ${stored ?? presented} stored zone(s) presented${hidden > 0 ? `, ${hidden} beyond the nearest-band selection` : ""} · ${merged} merged for display. Zones are context; they do not change decisions.`,
     }),
   ]);
 }
@@ -3065,7 +3391,7 @@ function moreMenu() {
   ]);
 }
 
-function tradingBar({ dashboard, forward, live, updateStatusNode, timeframeControls }) {
+function tradingBar({ dashboard, forward, live, updateStatusNode, timeframeControls, headerControls = null }) {
   const meta = dashboard?.meta || {};
   const symbol = meta.symbol || "UNKNOWN";
   const timeframe = meta.timeframe ? String(meta.timeframe).toUpperCase() : "UNKNOWN";
@@ -3077,11 +3403,12 @@ function tradingBar({ dashboard, forward, live, updateStatusNode, timeframeContr
   const latestClose = latest && !isMissing(latest.close) ? displayRounded(latest.close, 2).display : "UNKNOWN";
   return el("section", { class: "dash-commandbar", "aria-label": "Trading bar" }, [
     el("div", { class: "commandbar-identity" }, [
-      el("span", { class: "commandbar-symbol", text: symbol }),
+      el("span", { class: "commandbar-symbol", title: `Analysed as of ${asOf} · stored closed candles only`, text: symbol }),
       el("span", { class: "mode-pill", text: "PAPER MODE" }),
       el("span", { class: "commandbar-engine", text: `ENGINE ${timeframe}` }),
     ]),
     timeframeControls,
+    headerControls,
     el("div", { class: "commandbar-quote" }, [live.node]),
     el("div", { class: "commandbar-health" }, [
       el("span", { class: "commandbar-health-pill", dataset: { tone: health.tone }, role: "status", text: health.label }),
@@ -3092,6 +3419,15 @@ function tradingBar({ dashboard, forward, live, updateStatusNode, timeframeContr
       updateStatusNode,
     ]),
     el("div", { class: "commandbar-asof", text: `Analysed as of ${asOf} · stored closed candles only` }),
+    // Shown only in the Chart Patterns header, where the global bar (and its
+    // Refresh button) is folded away: the same refresh, nothing new.
+    el("button", {
+      type: "button",
+      class: "commandbar-refresh",
+      "aria-label": "Refresh dashboard",
+      title: "Refresh dashboard",
+      onclick: () => document.getElementById("refresh-dashboard")?.click?.(),
+    }, [el("span", { "aria-hidden": "true", text: "\u21bb" })]),
     moreMenu(),
   ]);
 }
@@ -3674,6 +4010,7 @@ export async function renderDashboard(view, { refresh = false } = {}) {
       live,
       updateStatusNode,
       timeframeControls: chart.timeframeControls,
+      headerControls: chart.headerControls,
     }),
     // Main area: the chart on the left, the Current Setup panel on the right.
     el("div", { class: "dash-main" }, [

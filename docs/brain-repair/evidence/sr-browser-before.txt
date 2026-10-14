@@ -1,0 +1,2 @@
+support-resistance check FAILED (1):
+ - 1536x864: after switching to 4h the labels name 4H

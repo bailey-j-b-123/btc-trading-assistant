@@ -1,0 +1,27 @@
+........................................................................ [  5%]
+.............x.......................................................... [ 11%]
+........................................................................ [ 17%]
+........................................................................ [ 23%]
+........................................................................ [ 29%]
+........................................................................ [ 34%]
+........................................................................ [ 40%]
+........................................................................ [ 46%]
+........................................................................ [ 52%]
+........................................................................ [ 58%]
+........................................................................ [ 64%]
+........................................................................ [ 69%]
+........................................................................ [ 75%]
+........................................................................ [ 81%]
+........................................................................ [ 87%]
+........................................................................ [ 93%]
+........................................................................ [ 98%]
+.............                                                            [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.11/site-packages/fastapi/testclient.py:1
+  /home/user/btc-trading-assistant/.venv/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+XFAIL tests/test_decision_invariance.py::test_a_shallow_stored_start_does_not_change_live_setups_at_a_later_boundary - Known defect: a shorter stored history misses live setups whose reference level formed before the stored start. The 131-close depth gate does not cover reference age, and the reference-provenance gate bounds what such a record may *plan*, not what it can see — so under-reporting near the stored start persists. See docs/decision-invariance.md and docs/reference-provenance.md. Remove this marker when the defect is fixed.
+1236 passed, 1 xfailed, 1 warning in 280.21s (0:04:40)
