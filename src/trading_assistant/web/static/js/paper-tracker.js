@@ -348,9 +348,17 @@ function trackerTone(model) {
   return model.unresolvedCount > 0 ? "amber" : "neutral";
 }
 
+function trackerState(model) {
+  if (!model.available || model.unresolvedCount === null) return "unknown";
+  if (model.recordedCount === 0) return "empty";
+  if (model.unresolvedCount > 0) return "active";
+  return model.recordedCount !== null ? "settled" : "unknown";
+}
+
 function trackerStateLine(model) {
   if (!model.available) return "UNKNOWN";
-  if (model.unresolvedCount === null) return UNKNOWN_TEXT;
+  if (model.recordedCount === 0) return "NO PAPER TRADES";
+  if (model.unresolvedCount === null || model.recordedCount === null) return UNKNOWN_TEXT;
   if (model.unresolvedCount > 0) return model.unresolvedCount === 1 ? "1 UNRESOLVED" : `${model.unresolvedCount} UNRESOLVED`;
   return "ALL SETTLED";
 }
@@ -500,6 +508,8 @@ export function paperTrackerCard(forward) {
   let body;
   if (!model.available) {
     body = [emptyState("Paper trade tracker unavailable", model.unavailableReason)];
+  } else if (model.plans.length === 0 && model.recordedCount !== 0) {
+    body = [emptyState("Paper trade details unavailable", "No plan rows were returned. An empty response is not proof that no paper trades exist.")];
   } else if (model.plans.length === 0) {
     body = [el("div", { class: "tracker-empty" }, [
       el("div", { class: "big", text: "No paper trade recorded yet" }),
@@ -521,7 +531,7 @@ export function paperTrackerCard(forward) {
   return el("section", {
     class: "card terminal-card paper-tracker",
     "aria-label": "Active and recent paper trade tracker",
-    dataset: { trackerState: model.available ? (model.unresolvedCount > 0 ? "active" : "settled") : "unknown" },
+    dataset: { trackerState: trackerState(model) },
   }, [
     el("div", { class: "section-title-row" }, [
       el("h2", { class: "card-title", text: "Paper trade tracker" }),

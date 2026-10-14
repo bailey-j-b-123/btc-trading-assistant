@@ -13,6 +13,10 @@ import {
   FALLBACK_CHART_HEIGHT,
   FALLBACK_CHART_WIDTH,
   setCandles,
+  setEvidence,
+  resetChartView,
+  captureChartView,
+  restoreChartView,
   toChartCandles,
 } from "../../src/trading_assistant/web/static/js/chart.js";
 
@@ -450,4 +454,65 @@ test("price-axis labels use two decimals with thousands separators (display only
   assert.equal(formatPriceAxis(82787.25), "82,787.25");
   assert.equal(formatPriceAxis(0.5), "0.50");
   assert.equal(formatPriceAxis(NaN), "");
+});
+
+
+test("pattern lines share price coordinates but never contribute to autoscale", () => {
+  const options = [], removed = [];
+  const handle = { evidenceSeries: [], series: { setMarkers() {} }, chart: {
+    addLineSeries: (opts) => { options.push(opts); return { setData(data) { this.data = data; } }; },
+    removeSeries: (series) => removed.push(series),
+  } };
+  const patternLines = [{ points: [{ time: 1, value: 1 }, { time: 2, value: 1000000 }] }];
+  setEvidence(handle, { patternLines });
+  assert.equal(options[0].priceScaleId, "right");
+  assert.equal(options[0].autoscaleInfoProvider(() => ({ priceRange: { minValue: 1, maxValue: 1000000 } })), null);
+  assert.equal(options[0].lastValueVisible, false);
+  setEvidence(handle, { patternLines: [] });
+  assert.equal(removed.length, 1);
+  assert.equal(handle.evidenceSeries.length, 0);
+});
+
+test("explicit reset restores recent candles and automatic price scale, not overlay data", () => {
+  const ranges = [], scales = [];
+  const handle = { barCount: 300, chart: {
+    timeScale: () => ({ setVisibleLogicalRange: (r) => ranges.push(r) }),
+    priceScale: (id) => ({ applyOptions: (o) => scales.push([id, o]) }),
+  } };
+  resetChartView(handle);
+  assert.deepEqual(ranges, [{ from: 180, to: 302 }]);
+  assert.deepEqual(scales, [["right", { autoScale: true }]]);
+});
+
+test("out-of-order and duplicate candle times are normalised without changing OHLC values", () => {
+  const replacement = [...ROWS[0]];
+  replacement[4] = "100.25";
+  const candles = toChartCandles([ROWS[1], ROWS[0], replacement]);
+  assert.equal(candles.length, 2);
+  assert.equal(candles[0].close, 100.25);
+  assert.ok(candles[0].time < candles[1].time);
+});
+
+
+test("refresh retains fractional zoom/right margin and anchors a historical pan by candle time", () => {
+  const rows = Array.from({ length: 150 }, (_, i) => [1700000000000 + i * 3600000, 100, 102, 99, 101, 10]);
+  let logical = { from: 35.25, to: 152.75 };
+  let visible = { from: rows[36][0] / 1000, to: rows.at(-1)[0] / 1000 };
+  const handle = { loadedRows: rows, lastBarTime: rows.at(-1)[0] / 1000, barCount: 150, chart: { timeScale: () => ({
+    getVisibleRange: () => visible, getVisibleLogicalRange: () => logical,
+    setVisibleLogicalRange: (r) => { logical = r; },
+    setVisibleRange: () => { throw new Error("must preserve the exact logical view"); },
+  }) } };
+  const capture = captureChartView(handle);
+  handle.loadedRows = [...rows, [rows.at(-1)[0] + 3600000, 101, 103, 100, 102, 11]];
+  handle.barCount = 151; handle.lastBarTime += 3600;
+  restoreChartView(handle, capture);
+  assert.deepEqual(logical, { from: 36.25, to: 153.75 });
+
+  logical = { from: 10.25, to: 50.75 };
+  visible = { from: rows[11][0] / 1000, to: rows[50][0] / 1000 };
+  const history = captureChartView(handle);
+  handle.loadedRows = handle.loadedRows.slice(5); handle.barCount -= 5;
+  restoreChartView(handle, history);
+  assert.deepEqual(logical, { from: 5.25, to: 45.75 }, "same candles, even if loaded indices move");
 });

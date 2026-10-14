@@ -171,6 +171,7 @@ test("a formed pattern draws a dashed zigzag, neckline and invalidation at backe
     candles: rows(20),
     asOfMs: ms(10),
     layers: LAYERS_ON,
+    selectedPatternId: "pattern-record-formed",
   });
   const zigzag = model.patternLines.find((line) => line.role === "pattern-zigzag");
   assert.equal(zigzag.lineStyle, 2, "formed patterns are dashed");
@@ -190,6 +191,7 @@ test("a confirmed pattern ends its neckline at the confirmation candle and label
     candles: rows(20),
     asOfMs: ms(13),
     layers: LAYERS_ON,
+    selectedPatternId: "pattern-record-confirmed",
   });
   const neckline = model.patternLines.find((line) => line.role === "pattern-neckline");
   // The neckline stops at the candle that closed through it (open ms(11)), not at its close boundary (ms(12)).
@@ -228,8 +230,7 @@ test("pattern components unknown to the candle series are dropped rather than br
   pattern.components[1].time_ms = ms(50); // not on screen
   const model = buildEvidenceModel({ evidence: evidence({ patterns: [pattern] }), candles: rows(20), asOfMs: ms(10), layers: LAYERS_ON });
   const zigzag = model.patternLines.find((line) => line.role === "pattern-zigzag");
-  assert.equal(zigzag.points.length, 2);
-  assert.ok(zigzag.points.every((point) => point.time !== toSeconds(ms(50))));
+  assert.equal(zigzag, undefined, "two peaks must not be joined across an absent trough");
 });
 
 test("breakouts, failed breakouts, sweeps and retests get their own labelled markers", () => {
@@ -441,6 +442,7 @@ test("an invalidated pattern's level stops at the invalidating candle", () => {
     candles: rows(20),
     asOfMs: ms(14),
     layers: LAYERS_ON,
+    selectedPatternId: "pattern-record-invalidated",
   });
   const level = model.patternLines.find((line) => line.role === "pattern-invalidation");
   assert.equal(level.points[1].time, toSeconds(ms(12)));
@@ -452,6 +454,7 @@ test("a formed pattern's level still runs to the latest candle", () => {
     candles: rows(20),
     asOfMs: ms(13),
     layers: LAYERS_ON,
+    selectedPatternId: "pattern-record-formed",
   });
   const level = model.patternLines.find((line) => line.role === "pattern-invalidation");
   assert.equal(level.points[1].time, toSeconds(ms(19)));
@@ -542,6 +545,51 @@ test("the dashboard renders the evidence item list and the marker key names the 
   );
   assert.match(source, /evidenceItemRows\(model\)/);
   assert.match(source, /class: "chart-items"/);
-  assert.match(source, /onclick: \(\) => showExplanationAt\(row\.timeSeconds\)/);
+  assert.match(source, /onclick: \(\) => showExplanationAt\(row\.timeSeconds, row\.id\)/);
   assert.match(source, /DT double top, DB double bottom, H&S head and shoulders, iH&S inverse H&S/);
+});
+
+
+test("overview has outlines only; inspection adds guides for one exact pattern record", () => {
+  const patterns = [doubleTopPattern("formed"), doubleTopPattern("confirmed")];
+  const args = { evidence: evidence({ patterns }), candles: rows(20), asOfMs: ms(20), layers: LAYERS_ON };
+  const overview = buildEvidenceModel(args);
+  assert.ok(overview.patternLines.length > 0);
+  assert.ok(overview.patternLines.every((line) => line.role === "pattern-zigzag"));
+  const inspection = buildEvidenceModel({ ...args, selectedPatternId: patterns[1].id });
+  const guides = inspection.patternLines.filter((line) => line.role !== "pattern-zigzag");
+  assert.equal(guides.length, 2);
+  assert.ok(guides.every((line) => line.patternId === patterns[1].id));
+  assert.deepEqual(overview.markers, inspection.markers, "selection does not move or add markers");
+});
+
+test("both guides stop at the terminal candle, including when that candle is not loaded", () => {
+  for (const state of ["confirmed", "invalidated"]) {
+    const pattern = doubleTopPattern(state);
+    const candles = rows(20).filter((row) => row[0] !== Date.parse(pattern.anchor_time));
+    const model = buildEvidenceModel({ evidence: evidence({ patterns: [pattern] }), candles, asOfMs: ms(20), layers: LAYERS_ON, selectedPatternId: pattern.id });
+    const guides = model.patternLines.filter((line) => line.role !== "pattern-zigzag");
+    assert.equal(guides.length, 2);
+    assert.ok(guides.every((line) => line.points.at(-1).time < Date.parse(pattern.anchor_time) / 1000));
+  }
+});
+
+test("missing or invalid pattern prices never become a zero level or invented segment", () => {
+  for (const invalid of [null, undefined, "", "  ", "bad", 0, -5]) {
+    const pattern = doubleTopPattern("formed", { neckline: invalid, invalidation_level: invalid });
+    pattern.components[1].price = invalid;
+    const model = buildEvidenceModel({ evidence: evidence({ patterns: [pattern] }), candles: rows(20), asOfMs: ms(20), layers: LAYERS_ON, selectedPatternId: pattern.id });
+    assert.deepEqual(model.patternLines, []);
+    assert.equal(model.counts.patterns, 1, "record is still explainable without inventing geometry");
+  }
+});
+
+test("many patterns on the same candle share one marker without losing inspectable records", () => {
+  const patterns = Array.from({ length: 80 }, (_, i) => doubleTopPattern("confirmed", { id: `pattern-${i}` }));
+  const model = buildEvidenceModel({ evidence: evidence({ swings: [], patterns }), candles: rows(20), asOfMs: ms(20), layers: LAYERS_ON });
+  assert.equal(model.markers.length, 1, "no eighty-marker stack stretching the scale");
+  assert.equal(model.markers[0].text, "DT · confirmed +79");
+  assert.equal(model.counts.patterns, 80);
+  assert.equal(itemsAtTime(model, toSeconds(ms(11))).length, 80);
+  assert.equal(new Set(evidenceItemRows(model).map((row) => row.id)).size, 80);
 });
