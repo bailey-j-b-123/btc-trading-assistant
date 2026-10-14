@@ -281,6 +281,50 @@ test("the explanation states which recorded events used the band, and never more
   assert.equal(unchecked.rows.find((row) => row.label === "Recorded events referencing this zone").value, "not checked on this view");
 });
 
+test("a smaller earlier recorded band inside the zone is stated as contained, never as identity", () => {
+  // The evolved-zone case: the displayed band grew after the event was recorded, so the event's
+  // own band is no longer identical — but it is inside, and the operator must not read "nothing".
+  const contained = explainZoneBand({
+    ...baseBand,
+    linked_events: {
+      linked: false, event_count: 0,
+      counts: { breakout: 0, failed_breakout: 0, sweep: 0, retest: 0 },
+      contained_count: 3,
+      contained_counts: { breakout: 1, failed_breakout: 0, sweep: 0, retest: 2 },
+    },
+  }, { timeframe: "1h" });
+  assert.doesNotMatch(body(contained, 3), /No stored breakout, sweep or retest used this zone as its own reference level/);
+  assert.match(body(contained, 3), /No stored event's own recorded band is this exact zone/);
+  assert.match(body(contained, 3), /1 breakout, 2 retests hold a smaller, earlier reference inside this band's price area/);
+  assert.match(body(contained, 3), /not identity with this band/);
+  assert.equal(contained.rows.find((row) => row.label === "Recorded events referencing this zone").value, "3 inside it (different recorded bounds)");
+
+  // A band with neither fact still says exactly that.
+  const neither = explainZoneBand({
+    ...baseBand,
+    linked_events: {
+      linked: false, event_count: 0,
+      counts: { breakout: 0, failed_breakout: 0, sweep: 0, retest: 0 },
+      contained_count: 0, contained_counts: { breakout: 0, failed_breakout: 0, sweep: 0, retest: 0 },
+    },
+  }, { timeframe: "1h" });
+  assert.match(body(neither, 3), /No stored breakout, sweep or retest used this zone as its own reference level/);
+
+  // Both classes at once: identity is stated first, and the contained ones are added, not hidden.
+  const both = explainZoneBand({
+    ...baseBand,
+    linked_events: {
+      linked: true, event_count: 1,
+      counts: { breakout: 1, failed_breakout: 0, sweep: 0, retest: 0 },
+      contained_count: 2,
+      contained_counts: { breakout: 0, failed_breakout: 0, sweep: 0, retest: 2 },
+    },
+  }, { timeframe: "1h" });
+  assert.match(body(both, 3), /Used as the reference level of 1 breakout on this timeframe/);
+  assert.match(body(both, 3), /2 further stored event\(s\) hold a smaller, earlier reference inside this band's price area/);
+  assert.equal(both.rows.find((row) => row.label === "Recorded events referencing this zone").value, "1 breakout");
+});
+
 test("a merged display band reports how many detector zones it combines", () => {
   const explanation = explainZoneBand({ ...baseBand, merged_zone_count: 3, source_timeframe: "4h" }, { timeframe: "4h" });
   assert.match(body(explanation, 3), /Merged from 3 overlapping detector zones for display; the test and evidence counts are the sum of those zones' own stored numbers/);

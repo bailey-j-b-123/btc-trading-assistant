@@ -9,6 +9,7 @@ import {
   renderDashboard,
   systemHealthViewModel,
   verdictViewModel,
+  zoneEventNote,
 } from "../../src/trading_assistant/web/static/js/views/dashboard.js";
 import { TRACKER_REFRESH_INTERVAL_MS } from "../../src/trading_assistant/web/static/js/paper-tracker.js";
 
@@ -1903,4 +1904,41 @@ test("integrated patterns survive S/R refresh with all three accounting surfaces
     assert.equal(chartState.charts[0], chart, "one chart instance, not a replacement");
     assert.deepEqual({ plan: dashboard.plan, qualification: dashboard.qualification }, originalDecision);
   });
+});
+
+// --- the zone row's stored-event note -------------------------------------------------
+//
+// Exact identity and a smaller contained reference are different facts. The note must never say
+// "referenced it" for a band the stored events did not use as their own band, and it must not read
+// as an absolute "nothing happened here" while a stored event's band sits inside the displayed one.
+
+test("a zone row reports exact stored links in its own words", () => {
+  const note = zoneEventNote({
+    linked: true, event_count: 3,
+    counts: { breakout: 2, retest: 1, sweep: 0, failed_breakout: 0 },
+    contained_count: 1,
+  });
+  assert.equal(note, "3 stored event(s) referenced it");
+});
+
+test("a zone row with only smaller recorded bands inside it says exactly that", () => {
+  const note = zoneEventNote({
+    linked: false, event_count: 0,
+    counts: { breakout: 0, retest: 0, sweep: 0, failed_breakout: 0 },
+    contained_count: 2,
+    contained_counts: { breakout: 0, retest: 2, sweep: 0, failed_breakout: 0 },
+  });
+  assert.equal(note, "2 stored event(s) inside it with smaller recorded bounds");
+  assert.doesNotMatch(note, /referenced it/);
+});
+
+test("a zone row with no stored event at all adds no note, and an unchecked view adds none either", () => {
+  assert.equal(zoneEventNote({
+    linked: false, event_count: 0, counts: { breakout: 0, retest: 0, sweep: 0, failed_breakout: 0 },
+    contained_count: 0,
+  }), null);
+  assert.equal(zoneEventNote(null), null);
+  assert.equal(zoneEventNote(undefined), null);
+  // A view that never checked (null counts) must not be rendered as a claim either.
+  assert.equal(zoneEventNote({ linked: false, event_count: null, counts: null }), null);
 });

@@ -3211,6 +3211,19 @@ function zoneRowTests(band) {
   return `${tests} test${plural}`;
 }
 
+/**
+ * The stored-event note for one zone row. Exact identity (the event's own recorded band IS this
+ * band) and a contained reference (a smaller, earlier recorded band inside this band's price area)
+ * are different facts and are worded differently, so the stricter identity rule never reads as an
+ * absolute "nothing happened here" while a stored event's band really sits inside it.
+ */
+export function zoneEventNote(linkage) {
+  if (!linkage || typeof linkage !== "object") return null;
+  if (linkage.linked === true) return `${linkage.event_count} stored event(s) referenced it`;
+  const contained = Number.isFinite(linkage.contained_count) ? linkage.contained_count : 0;
+  return contained > 0 ? `${contained} stored event(s) inside it with smaller recorded bounds` : null;
+}
+
 function zoneRow(band) {
   const above = band.position === "above_price";
   const below = band.position === "below_price";
@@ -3218,9 +3231,7 @@ function zoneRow(band) {
   const tone = above ? "red" : below ? "green" : "amber";
   const tf = band.source_timeframe ? String(band.source_timeframe).toUpperCase() : "";
   const touches = zoneRowTests(band);
-  const linked = band.linked_events && band.linked_events.linked === true
-    ? `${band.linked_events.event_count} stored event(s) referenced it`
-    : null;
+  const linked = zoneEventNote(band.linked_events);
   const meta = [tf && `${tf} zone`, touches, linked, band.faded ? "older, faded" : null].filter(Boolean).join(" · ");
   return el("li", { class: "zone-row", dataset: { tone } }, [
     el("div", { class: "zone-row-head" }, [

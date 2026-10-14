@@ -183,6 +183,39 @@ test("a band referenced by stored events says exactly which events, and one that
   assert.doesNotMatch(unchecked.list[0].meta, /no recorded event used this zone/);
 });
 
+test("a band holding only smaller earlier recorded bands says that, never \"no recorded event\"", () => {
+  // The evolved-zone case in the panel's one-line summary: not identity, but definitely not nothing.
+  const contained = functionPanelModel({
+    functionId: "support_resistance",
+    bands: [{
+      id: "b", band_low: "1", band_high: "2", display_role: "support", touch_count: 2,
+      linked_events: {
+        linked: false, event_count: 0,
+        counts: { breakout: 0, retest: 0, sweep: 0, failed_breakout: 0 },
+        contained_count: 2,
+        contained_counts: { breakout: 0, retest: 2, sweep: 0, failed_breakout: 0 },
+      },
+    }],
+  });
+  assert.match(contained.list[0].meta, /2 stored event\(s\) inside it, with smaller recorded bounds/);
+  assert.doesNotMatch(contained.list[0].meta, /no recorded event used this zone/);
+
+  // Identity present: the summary still reports the exact links, unchanged.
+  const linked = functionPanelModel({
+    functionId: "support_resistance",
+    bands: [{
+      id: "b", band_low: "1", band_high: "2", display_role: "resistance", touch_count: 2,
+      linked_events: {
+        linked: true, event_count: 1,
+        counts: { breakout: 1, retest: 0, sweep: 0, failed_breakout: 0 },
+        contained_count: 1,
+        contained_counts: { breakout: 0, retest: 1, sweep: 0, failed_breakout: 0 },
+      },
+    }],
+  });
+  assert.match(linked.list[0].meta, /referenced by 1 breakout/);
+});
+
 test("the support/resistance panel has an honest empty state", () => {
   const none = functionPanelModel({ functionId: "support_resistance", bands: [], reason: "no_zones", accounting: { totalStored: 0 } });
   assert.equal(none.list.length, 0);

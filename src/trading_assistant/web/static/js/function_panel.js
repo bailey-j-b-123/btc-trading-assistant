@@ -155,11 +155,21 @@ function bandTestText(band) {
   return `${tests} test${plural}`;
 }
 
-/** One factual line about the stored events that used this zone as their own reference. */
+/** One factual line about the stored events that used this zone as their own reference.
+ *
+ * An exact match (the event's own recorded band is this band) and a contained reference (a
+ * smaller, earlier recorded band inside this band's price area) are stated differently: only the
+ * first is identity, and the second keeps the line from reading as "nothing happened here".
+ */
 function linkedEventText(linkage) {
   if (!linkage || typeof linkage !== "object") return null;
   if (linkage.event_count === null || linkage.counts === null) return null;
-  if (!linkage.linked) return "no recorded event used this zone";
+  const contained = Number.isFinite(linkage.contained_count) ? linkage.contained_count : 0;
+  if (!linkage.linked) {
+    return contained > 0
+      ? `${contained} stored event(s) inside it, with smaller recorded bounds`
+      : "no recorded event used this zone";
+  }
   const counts = linkage.counts || {};
   const parts = [
     counts.breakout ? `${counts.breakout} breakout${counts.breakout === 1 ? "" : "s"}` : null,

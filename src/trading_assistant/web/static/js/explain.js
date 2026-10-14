@@ -411,22 +411,48 @@ function numberOrNull(value) {
  * Read-only facts from the stored records: which events, how many of each kind, and where price
  * sat relative to the band when each one was recorded. It never claims a role change, a hold or a
  * flip — those would need the events' own outcomes, which are stated elsewhere.
+ *
+ * Two classes stay separate: an exact match (the event's own recorded band IS this band) and a
+ * contained reference (a smaller, earlier recorded band inside this band's price area). The second
+ * is never reported as identity, and it stops the stricter identity rule from reading as an
+ * absolute "nothing happened here" when stored events really do sit inside the band.
  */
+function containedCount(linkage) {
+  return Number.isFinite(linkage?.contained_count) ? linkage.contained_count : 0;
+}
+
+const EVENT_KIND_LABELS = [
+  ["breakout", "breakout", "breakouts"],
+  ["failed_breakout", "failed breakout", "failed breakouts"],
+  ["sweep", "sweep", "sweeps"],
+  ["retest", "retest", "retests"],
+];
+
+function eventKindParts(counts) {
+  return EVENT_KIND_LABELS
+    .map(([key, singular, plural]) => (counts?.[key] ? `${counts[key]} ${counts[key] === 1 ? singular : plural}` : null))
+    .filter(Boolean);
+}
+
 function linkedEventSentence(band) {
   const linkage = band?.linked_events;
   if (!linkage || typeof linkage !== "object") return "";
   if (linkage.event_count === null || linkage.counts === null) return "";
+  const contained = containedCount(linkage);
   if (linkage.linked !== true) {
+    if (contained > 0) {
+      const parts = eventKindParts(linkage.contained_counts);
+      const listed = parts.length ? parts.join(", ") : `${contained} stored event(s)`;
+      return ` No stored event's own recorded band is this exact zone; ${listed} hold a smaller, earlier reference inside this band's price area, each keeping its own bounds and instant. That is an observation of earlier bounds, not identity with this band.`;
+    }
     return " No stored breakout, sweep or retest used this zone as its own reference level.";
   }
-  const counts = linkage.counts || {};
-  const parts = [
-    counts.breakout ? `${counts.breakout} breakout${counts.breakout === 1 ? "" : "s"}` : null,
-    counts.failed_breakout ? `${counts.failed_breakout} failed breakout${counts.failed_breakout === 1 ? "" : "s"}` : null,
-    counts.sweep ? `${counts.sweep} sweep${counts.sweep === 1 ? "" : "s"}` : null,
-    counts.retest ? `${counts.retest} retest${counts.retest === 1 ? "" : "s"}` : null,
-  ].filter(Boolean);
-  return ` Used as the reference level of ${parts.join(", ")} on this timeframe; the recorded direction and state of each one are stated on that event, and no hold, flip or retest is claimed here.`;
+  const parts = eventKindParts(linkage.counts);
+  const exact = ` Used as the reference level of ${parts.join(", ")} on this timeframe; the recorded direction and state of each one are stated on that event, and no hold, flip or retest is claimed here.`;
+  if (contained > 0) {
+    return `${exact} ${contained} further stored event(s) hold a smaller, earlier reference inside this band's price area, with their own bounds and instants listed on those events.`;
+  }
+  return exact;
 }
 
 /** The linked-event row's value: the stored facts, or an explicit statement that there were none. */
@@ -435,7 +461,10 @@ function linkedRows(band) {
   if (!linkage || typeof linkage !== "object" || linkage.event_count === null || linkage.counts === null) {
     return "not checked on this view";
   }
-  if (linkage.linked !== true) return "none recorded";
+  const contained = containedCount(linkage);
+  if (linkage.linked !== true) {
+    return contained > 0 ? `${contained} inside it (different recorded bounds)` : "none recorded";
+  }
   const counts = linkage.counts || {};
   const parts = [
     counts.breakout ? `${counts.breakout} breakout` : null,

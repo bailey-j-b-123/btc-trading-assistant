@@ -222,10 +222,14 @@ def _event_item(event: Any, kind: str, interval: timedelta) -> dict[str, Any]:
                 "breakout_id": event.breakout.id,
                 "direction": event.breakout.direction,
                 "reference_type": event.breakout.reference.type,
+                "reference_id": event.breakout.reference.id,
                 "band_low": _dec(event.breakout.reference.band_low),
                 "band_high": _dec(event.breakout.reference.band_high),
                 "time_ms": _ms(event.candle.timestamp),
                 "time": _iso(event.candle.timestamp),
+                # The re-entry candle's own close, so the reported band position at the
+                # failed breakout is a stored fact like every other event's.
+                "close": _dec(event.candle.close),
                 "reentry_distance": _dec(event.reentry_distance),
                 "elapsed_candles": event.elapsed_candles,
             }
@@ -250,10 +254,20 @@ def _event_item(event: Any, kind: str, interval: timedelta) -> dict[str, Any]:
                 "state": event.state,
                 "breakout_id": event.breakout.id,
                 "direction": event.breakout.direction,
+                # A retest is measured against the breakout's own reference level,
+                # so it carries that reference's type and id exactly as the
+                # breakout does. Without them a read-only consumer cannot tell
+                # which stored level the retest used (see ``web.zone_evidence``).
+                "reference_type": event.breakout.reference.type,
+                "reference_id": event.breakout.reference.id,
                 "band_low": _dec(event.breakout.reference.band_low),
                 "band_high": _dec(event.breakout.reference.band_high),
                 "time_ms": _ms(event.candle.timestamp),
                 "time": _iso(event.candle.timestamp),
+                # The retest's own recorded close on the candle it was detected with, so a
+                # read-only consumer can state where the band sat relative to price at that
+                # instant (see ``web.zone_evidence``).
+                "close": _dec(event.candle.close),
                 "distance_from_band": _dec(event.distance_from_band),
                 "elapsed_candles": event.elapsed_candles,
             }
