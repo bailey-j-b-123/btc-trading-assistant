@@ -107,6 +107,10 @@ Auditor-added check of the repairer's extra commit `09f5ee2` (backend S/R bands 
 
 Conditions:
 1. Repair `BRAIN-AUDIT-0005` and `BRAIN-AUDIT-0006`, or explicitly stop advertising per-band event linkage in the UI and documentation; as it stands, an operator can be told “no stored breakout, sweep or retest used this zone” while the stored evidence says the opposite.
+   * **Addendum (2026-10-14, repair commit `926fea2`, feed branch):** both defects are repaired;
+     see `REPAIR-0005-0006.md`. Condition 1 is satisfied **pending independent recheck** — the
+     repair is not independently verified, and the browser regression could not be executed in the
+     repairing environment.
 2. Continue paper trading on **stored, genuine** market data with the runner-health semantics now in place (stale/future/absent heartbeats can no longer read healthy), and keep the historical/forward results separate as the UI already does.
 
 ## 9. Reproduction index

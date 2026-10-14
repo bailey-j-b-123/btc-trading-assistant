@@ -42,6 +42,12 @@ branch; this branch neither contains nor touches it.
   where price sat relative to the band at that instant. A link requires exact band identity and a
   reference of type `zone`; a similar price is not a link, and no link is ever claimed when none was
   recorded.
+  * **Correction (2026-10-14, BRAIN-AUDIT-0005/0006 repair).** Zones are re-derived per frame, so an
+    event's recorded band often predates the band now on screen: the event is reported as a
+    **contained reference** (a smaller, earlier recorded band inside the displayed band's price
+    area, with its own bounds and instant) instead of being dropped. Exact identity is still the
+    only thing worded as a link, and a band with no stored event at all still says so. Repair
+    record: `../../brain-audit/REPAIR-0005-0006.md`.
 
 ## 2. Detector accuracy — pinned, not assumed
 
@@ -209,6 +215,16 @@ Tooling: `scripts/browser-audit/support-resistance-check.mjs` (new), `scripts/se
   use swing and zone references that do not coincide); the code path is covered by tests with
   detector-shaped fixtures, not by a live record. A live linkage should be observed before the
   feature is described as working end to end against real stored events.
+  * **Correction (2026-10-14, BRAIN-AUDIT-0005/0006 repair).** The measurement behind that bullet
+    was wrong, and the audit measured it (`../../brain-audit/findings/BRAIN-AUDIT-0005.md`,
+    `.../BRAIN-AUDIT-0006.md`): the demo series' events do hold zone references — 5 of 15 breakouts,
+    1 of 3 failed breakouts and 10 of 30 retests — while **no retest had ever reached the linkage**
+    (`chart_evidence._event_item`'s retest branch omitted the reference type/id), and the remaining
+    references were dropped because their recorded bounds no longer equal the current frame's zone.
+    Both causes are repaired: the 4h demo database now reports `linked: true` at
+    `2026-08-26T08:00:00Z` (band `85958.6 – 86543.0`, one breakout) and, at later instants, the
+    evolved bands report their earlier recorded bands as contained references. Evidence:
+    `../../brain-audit/evidence/repair-0005-0006-stored-data.txt`.
 * The engine's `higher_timeframes` list is empty for the engine snapshot on these demo databases, so
   the HTF ladder was verified through the chart's own supported-timeframe driven path and the payload
   probe, not with a live 1D band drawn on a 1H chart.

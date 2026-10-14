@@ -1,7 +1,7 @@
 # BRAIN-AUDIT-0006 — Linked-event accounting cannot fire for historical references, and the UI states an absolute negative
 
 - Severity: **P2** (misleading operator-facing evidence statement; the advertised read fails on every realistic view).
-- Status: **CONFIRMED**. Residual after BRAIN-AUDIT-0005 is repaired: these are separate causes.
+- Status: **CONFIRMED at audit time** → **REPAIRED** in `926fea2` (branch `arena/0d6ba3f7-btc-trading-assistant`, PR #71) — **READY FOR INDEPENDENT RECHECK**; not independently verified by the repairing agent. The two causes were repaired together. See `../REPAIR-0005-0006.md`.
 - Component: `src/trading_assistant/web/zone_evidence.py::link_events_to_bands` (exact-bounds index), wired at `src/trading_assistant/web/dashboard_service.py` (`_zone_bands(..., events=events)`, `zone_link_events`), presented via `src/trading_assistant/web/zone_presentation.py`; operator strings at `src/trading_assistant/web/static/js/explain.js` (`linkedEventSentence`, `linkedRows`) and `src/trading_assistant/web/static/js/views/dashboard.js::zoneRow`.
 - Affected commits: PR #66 `a5c9013c491938dbbf8317af75da3f4793a5a3a9`; still present at PR #69 `09f5ee2113b3cf35015e4d0058f45fa212cbe529`.
 - Scope: exists **individually** on #66; not integration-caused. Read-only presentation; no plan, journal or ledger record is affected.

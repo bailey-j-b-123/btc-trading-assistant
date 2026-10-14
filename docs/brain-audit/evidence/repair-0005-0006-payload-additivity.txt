@@ -1,0 +1,37 @@
+# BRAIN-AUDIT-0005 / 0006 repair — decision-payload additivity evidence
+# captured: 2026-10-14T10:00:21Z
+#
+# Contract: the repair may only ADD evidence. Pre-existing exact-link record content must not
+# change or vanish, and nothing outside the two repaired blocks may move. Method: dump the
+# dashboard payload (stripped exactly as the decision-digest regression does it) at the four
+# pinned decision boundaries, in the merged tree at HEAD and in the repaired tree, then
+# classify every difference path by path.
+
+COMMAND (both trees): PYTHONPATH=src <venv> docs/brain-audit/probes/payload-additivity-map.py <out.json> <root>
+  HEAD     = /home/user/audit-wt/head @ 87efd45f63c2da8768dc671d68525b8647ca3733   (merged tree, repair not applied)
+  REPAIRED = this worktree, repair applied (uncommitted working tree)
+
+COMMAND: python3 docs/brain-audit/probes/payload-additivity-check.py /tmp/all-head.json /tmp/all-repair2.json
+models compared: 4 boundaries ['250', '375', '400', '500']
+pre-existing exact-link records whose content changed or vanished: 0
+newly linked records (the repair's intended effect): 20
+paths changed outside the repaired evidence blocks: 0
+
+##################################################################
+# The linkage figures the repair changes, per pinned boundary (band index: exact links)
+  boundary 375: band 1 event_count 9 -> 17, retests linked 0 -> 8
+  boundary 375: band 2 event_count 3 -> 7, retests linked 0 -> 4
+  boundary 400: band 1 event_count 4 -> 10, retests linked 0 -> 6
+  boundary 500: band 0 event_count 2 -> 4, retests linked 0 -> 2
+
+##################################################################
+# Digest fixtures: only the dashboard fixture is regenerated, decisions byte-identical
+COMMAND: PYTHONPATH=src .venv/bin/python tests/decision_digests.py tests/fixtures/decision_digests
+COMMAND: git status --porcelain tests/fixtures/decision_digests/
+ M tests/fixtures/decision_digests/dashboard_n500.json
+  (decision_n1000.json absent from that list == byte-identical: frames, snapshots and
+   trade plans are unchanged by the repair; only dashboard_n500.json was regenerated)
+
+COMMAND: PYTHONPATH=src .venv/bin/python -m pytest tests/test_decision_output_regression.py -q
+..                                                                       [100%]
+2 passed in 20.57s

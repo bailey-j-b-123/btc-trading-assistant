@@ -40,3 +40,22 @@ GitHub PR metadata, bodies, changed paths, checks and commits are preserved in `
 ## Publication setup correction
 
 The clone's generic fetch did not populate the feature-base tracking reference. Initial `merge --ff-only` failed, but the audit documentation commit and draft PR creation succeeded. An explicit fetch and merge of the existing development base then succeeded (`403b368`). This was an ancestry import, not an auditor code modification. `git diff <common-base> HEAD` showed only audit documentation before test evidence was added. No merge into main occurred.
+
+## Repair phase — BRAIN-AUDIT-0005 / 0006 (2026-10-14)
+
+The audit role was extended by the owner to repair the two outstanding S/R event-linking defects
+("BRAIN — FINAL AUDIT REPAIRS"). Because this session can push only the audit-feed branch, PR #69's
+head (`09f5ee2`) was merged into the feed branch — merge `87efd45`, clean — and the repair sits
+directly on top of that tree, so no work is duplicated.
+
+| Subject | Exact commit |
+|---|---|
+| Feed tip before the repair | `e829355` |
+| Merge of PR #69 head into the feed branch | `87efd45` |
+| Repair (code, tests, regenerated dashboard digest fixture) | `926fea2` |
+
+Status: **REPAIRED — READY FOR INDEPENDENT RECHECK**; not independently verified. Full record,
+acceptance-criteria mapping, exact suite results and verification limits: `REPAIR-0005-0006.md`.
+Browser checks could not be run in the repairing environment (no browser system libraries, no root,
+download hosts outside the allowlist) — that limitation is stated in §6 of the repair record and is
+part of the recheck.

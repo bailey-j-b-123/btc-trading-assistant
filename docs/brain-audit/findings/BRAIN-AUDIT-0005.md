@@ -1,7 +1,7 @@
 # BRAIN-AUDIT-0005 — Retests can never be linked to a zone band (the projection drops the reference)
 
 - Severity: **P2** (incorrect interface claim; an advertised capability is unreachable).
-- Status: **CONFIRMED**, not repaired at the integration head audited here.
+- Status: **CONFIRMED at audit time** → **REPAIRED** in `926fea2` (branch `arena/0d6ba3f7-btc-trading-assistant`, PR #71) — **READY FOR INDEPENDENT RECHECK**; not independently verified by the repairing agent. See `../REPAIR-0005-0006.md` and `../evidence/repair-0005-0006-stored-data.txt`.
 - Component: `src/trading_assistant/web/chart_evidence.py::_event_item` (retest branch, lines 247–260 at `09f5ee2`) and `src/trading_assistant/web/zone_evidence.py::link_events_to_bands` (reference-type filter, line 182).
 - Affected commits: PR #66 `a5c9013c491938dbbf8317af75da3f4793a5a3a9`; still present in PR #69 `09f5ee2113b3cf35015e4d0058f45fa212cbe529`.
 - Scope: exists **individually** on #66. Not caused by integration (#65/#67 do not touch this path). No trading rule, plan, journal or ledger record is affected — this is a read-only presentation/accounting path.
