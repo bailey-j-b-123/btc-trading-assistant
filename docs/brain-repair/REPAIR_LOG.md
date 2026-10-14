@@ -54,3 +54,16 @@
 ### Browser checkpoint
 - Combined `breakouts-check.mjs` and `patterns-check.mjs`: exit 0.
 - `mobile-layout-check.mjs` and `desktop-bottom-check.mjs`: exit 1, uncaught `Incorrect locale information provided`. Initial mobile geometry had zero overflow/issues. Investigating the error rather than suppressing assertions; not claiming these suites pass.
+
+### BRAIN-AUDIT-0004 — retest outcome timestamp attribution
+- Reproduced 4 new failing cases: delayed Held/Failed and same-candle observation/outcome controls.
+- Repair: retain existing status precedence but choose the actual matching outcome record for candle anchor, jump index, price and distance/elapsed metadata. Explicitly expose first observation and outcome known-at times. Describe stored lifecycle records rather than independent tests.
+- `node --test tests/frontend/breakout-stages.test.mjs tests/frontend/function-panel.test.mjs`: **47 passed / 0 failed**. Each new case also checks pre-confirmation stays pending despite later candle prices and source evidence remains unmodified.
+- Re-ran Agent 1's actual-detector synthetic probe: Held now anchors at **07:00**, known **08:00**, while metadata separately states observation candle **06:00**, known **07:00** (see `evidence/0004-detector-after.json`).
+- Files: `src/trading_assistant/web/static/js/breakout_stages.js`, `tests/frontend/breakout-stages.test.mjs`, this log and `evidence/0004-*`.
+- No detector, threshold, event contract, backend causality or stored record changes. **READY FOR AUDITOR RECHECK**.
+
+### Integrated Python regression complete
+- At combined application head `e07e4e6affcff4d742f336e6460e6451bb5a9583`: `.venv/bin/python -m pytest -q` → **1236 passed, 1 xfailed, 1 warning**, 280.21 s. Includes all decision-digest, causal detector, zone/evidence, API, persistence and paper-ledger suites. Subsequent 0003/0004 application changes are JavaScript-only.
+- BRAIN-AUDIT-0003 repair commit: **`ccde86fa955e07e884b2edf11da06e2b7763a2a3`**.
+- Audit checkpoint: `4193b09` adds independent baseline/per-feature evidence, no new defect ID yet. Auditor's browser probe also pins an explicit en-US locale; rerunning responsive tests with that environment rather than changing/weakening assertions.

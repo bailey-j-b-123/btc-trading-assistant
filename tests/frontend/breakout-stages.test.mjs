@@ -225,3 +225,33 @@ test("a step that is still in progress points at how far price has reached", () 
   assert.equal(continuation.barIndex, 12);
   assert.match(continuation.meta, /highest high is 84,250\.00/);
 });
+
+// BRAIN-AUDIT-0004: lifecycle confirmation belongs to its actual outcome candle.
+for (const state of ["held", "failed"]) {
+  for (const delayed of [true, false]) {
+    test(`retest ${state} uses ${delayed ? "later" : "same-candle"} outcome evidence, not the first touch`, () => {
+      const observed = { id: "observed", breakout_id: "bo-1", state: "observed", time_ms: ms(11), known_at: iso(12), distance_from_band: "0", elapsed_candles: 1 };
+      const outcome = { ...observed, id: state, state, time_ms: ms(delayed ? 12 : 11), known_at: iso(delayed ? 13 : 12), distance_from_band: "1", elapsed_candles: delayed ? 2 : 1 };
+      const stored = evidence({ retests: [observed, outcome] });
+      const before = structuredClone(stored);
+      const rows = candles(30);
+      rows[12][3] = "84110";
+      const stage = breakoutStages({ evidence: stored, candles: rows }).stages[1];
+      assert.equal(stage.status, state === "held" ? "Held" : "Failed");
+      assert.equal(stage.timeSeconds, outcome.time_ms / 1000);
+      assert.equal(stage.barIndex, delayed ? 12 : 11);
+      assert.equal(stage.price, delayed ? 84110 : 84100);
+      assert.equal(stage.knownAt, outcome.known_at);
+      assert.equal(stage.observedKnownAt, observed.known_at);
+      assert.match(stage.meta, /1\.00 from the band/);
+      assert.match(stage.meta, /first observed/);
+      assert.match(stage.meta, /outcome known/);
+      assert.doesNotMatch(stage.detail, /1 of 2 held/);
+      assert.deepEqual(stored, before, "source records unchanged");
+      // Before the confirming record exists, do not infer an outcome from later candles.
+      const pending = breakoutStages({ evidence: evidence({ retests: [observed] }), candles: rows }).stages[1];
+      assert.equal(pending.status, "Awaiting Confirmation");
+      assert.equal(pending.timeSeconds, observed.time_ms / 1000);
+    });
+  }
+}
