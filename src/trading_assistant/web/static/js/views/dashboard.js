@@ -15,7 +15,6 @@ import {
   chartFunctionById,
   filterEvidence,
   functionStatus,
-  highlightedPattern,
   layersForSelection,
   normalizeFunctionId,
   normalizeMode,
@@ -40,7 +39,13 @@ import {
   DECISION_MEANINGS,
 } from "../decision.js";
 import { breakoutStages, drawableStages, stageFrame } from "../breakout_stages.js";
-import { annotationFullyOnScreen, patternAnnotation } from "../pattern_view.js";
+import {
+  annotationFullyOnScreen,
+  chartPatternRecords,
+  chooseChartPattern,
+  patternAnnotation,
+  secondaryAnnotations,
+} from "../pattern_view.js";
 import {
   captureChartView,
   captureLogicalView,
@@ -958,12 +963,16 @@ function chartCard(initialDashboard) {
       viewed.patternAnnotation = null;
       return;
     }
-    const chosen = highlightedPattern(viewed.evidence, selectedPatternId);
-    const raw = chosen
-      ? (Array.isArray(viewed.evidence.patterns) ? viewed.evidence.patterns : []).find((pattern) => pattern?.id === chosen.id) || null
-      : null;
+    // The selected record (or the documented default), plus — in Simple mode —
+    // other current records in the understated secondary style where they do
+    // not overlap it. Only stored records of THIS timeframe's payload exist here.
+    const records = chartPatternRecords(viewed.evidence);
+    const raw = chooseChartPattern(records, selectedPatternId);
     viewed.patternAnnotation = raw ? patternAnnotation(raw, viewed.candleRows) : null;
-    setPatternAnnotation(handle, viewed.patternAnnotation);
+    const secondary = viewed.patternAnnotation && activeChartMode !== DETAILED_MODE
+      ? secondaryAnnotations(records, viewed.patternAnnotation, viewed.candleRows)
+      : [];
+    setPatternAnnotation(handle, viewed.patternAnnotation, { secondary });
     ensurePatternInView();
   };
 
@@ -1238,7 +1247,8 @@ function chartCard(initialDashboard) {
       patternPickerBody.append(el("span", { class: "chart-note", text: "No detected pattern is stored for this window." }));
       return;
     }
-    const highlighted = highlightedPattern(viewed.evidence, selectedPatternId);
+    // The same record the chart draws (a selected range presses no pattern button).
+    const highlighted = chooseChartPattern(chartPatternRecords(viewed.evidence), selectedPatternId);
     for (const entry of catalogue) {
       const pressed = highlighted && entry.id === highlighted.id;
       patternPickerBody.append(el("button", {

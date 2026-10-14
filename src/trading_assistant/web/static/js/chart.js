@@ -1328,13 +1328,15 @@ export function renderZoneBands(handle) {
 // ---------------------------------------------------------------------------
 // Chart Patterns: the annotated pattern and the volume pane
 //
-// One stored pattern record is drawn over the candles in the approved style:
-// the shape in its tone colour through the record's own points, a light fill
-// up to the dashed neckline, a dashed line at the stored extreme, labels on
-// the record's own extremes, and an outlined title ("Double Bottom -
-// Confirmed") joined by a thin line to the confirmation candle. The geometry
-// comes from pattern_view.js; this layer only turns times and prices into
-// pixels with the chart's own coordinate functions, exactly like the zone
+// One stored record is drawn over the candles in the approved, restrained
+// style: a small arc at each stored extreme ("Bottom 1", "Head" ...), a thin
+// dashed neckline at the stored price that ends on the confirmation candle, a
+// dashed line at a double pattern's stored invalidation level, and an
+// outlined title ("Double Bottom - Confirmed") joined by a short connector to
+// the neckline. A range is drawn as its stored box. Other records may be drawn
+// in an understated grey where they do not overlap the selected one. The
+// geometry comes from pattern_view.js; this layer only turns times and prices
+// into pixels with the chart's own coordinate functions, exactly like the zone
 // bands and breakout callouts above. It never changes a series or a value.
 // ---------------------------------------------------------------------------
 
@@ -1342,8 +1344,11 @@ const PATTERN_TONE_COLORS = Object.freeze({
   green: "#2ad19d",
   red: "#e0565b",
   amber: "#e8a33d",
+  blue: "#5b9cf5",
   neutral: "#8f9bb3",
 });
+/** The understated colour of the secondary (not selected) records. */
+const PATTERN_SECONDARY_COLOR = "#7d889c";
 const SVG_NS_CHART = "http://www.w3.org/2000/svg";
 /** Gap between the neckline and the bottom of the title box (approved layout). */
 const PATTERN_TITLE_GAP = 46;
@@ -1387,51 +1392,26 @@ function paneSize(handle) {
 }
 
 /**
- * Smooth monotone path through the given pixel points (Fritsch–Carlson).
- * Monotone interpolation never overshoots between two points, so the drawn
- * curve never dips below a stored bottom or rises above a stored top: it is a
- * connector between the points, not a new low or high.
+ * One arc around a stored extreme, in pixels: from its left end down (up, for
+ * a top) to the stored point and back to its right end. The turning point is
+ * the stored point with a flat tangent, and every control point lies between
+ * the ends and that point, so the arc never passes beyond the stored extreme.
  */
-export function monotonePath(points) {
-  const pts = [];
-  for (const point of points) {
-    if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) continue;
-    if (pts.length && Math.abs(point.x - pts[pts.length - 1].x) < 0.5) continue;
-    pts.push({ x: point.x, y: point.y });
+export function arcPath({ left, center, right }) {
+  if (!center || !Number.isFinite(center.x) || !Number.isFinite(center.y)) return "";
+  const f = (n) => n.toFixed(1);
+  let d = "";
+  if (left && Number.isFinite(left.x) && Number.isFinite(left.y) && center.x - left.x > 0.5) {
+    const w = center.x - left.x;
+    d += `M${f(left.x)},${f(left.y)} C${f(left.x + w * 0.12)},${f(left.y + (center.y - left.y) * 0.6)} ${f(center.x - w * 0.5)},${f(center.y)} ${f(center.x)},${f(center.y)}`;
+  } else {
+    d += `M${f(center.x)},${f(center.y)}`;
   }
-  if (pts.length < 2) return "";
-  const n = pts.length;
-  const dx = [];
-  const slope = [];
-  for (let i = 0; i < n - 1; i += 1) {
-    dx.push(pts[i + 1].x - pts[i].x);
-    slope.push((pts[i + 1].y - pts[i].y) / dx[i]);
+  if (right && Number.isFinite(right.x) && Number.isFinite(right.y) && right.x - center.x > 0.5) {
+    const w = right.x - center.x;
+    d += ` C${f(center.x + w * 0.5)},${f(center.y)} ${f(right.x - w * 0.12)},${f(right.y + (center.y - right.y) * 0.6)} ${f(right.x)},${f(right.y)}`;
   }
-  const tangent = new Array(n).fill(0);
-  tangent[0] = slope[0];
-  tangent[n - 1] = slope[n - 2];
-  for (let i = 1; i < n - 1; i += 1) {
-    if (slope[i - 1] * slope[i] <= 0) {
-      tangent[i] = 0; // a turning point: flat, so each extreme reads as a rounded U
-    } else {
-      const a = dx[i - 1];
-      const b = dx[i];
-      tangent[i] = (3 * (a + b)) / ((2 * b + a) / slope[i - 1] + (b + 2 * a) / slope[i]);
-    }
-  }
-  // End points: limit the tangent so the end segment cannot overshoot either.
-  for (const i of [0, n - 1]) {
-    const s = i === 0 ? slope[0] : slope[n - 2];
-    if (Math.abs(tangent[i]) > Math.abs(3 * s)) tangent[i] = 3 * s;
-  }
-  let path = `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
-  for (let i = 0; i < n - 1; i += 1) {
-    const h = dx[i] / 3;
-    path += ` C${(pts[i].x + h).toFixed(1)},${(pts[i].y + tangent[i] * h).toFixed(1)}`
-      + ` ${(pts[i + 1].x - h).toFixed(1)},${(pts[i + 1].y - tangent[i + 1] * h).toFixed(1)}`
-      + ` ${pts[i + 1].x.toFixed(1)},${pts[i + 1].y.toFixed(1)}`;
-  }
-  return path;
+  return d;
 }
 
 function createPatternLayer(handle) {
@@ -1461,11 +1441,13 @@ function createPatternLayer(handle) {
 }
 
 /**
- * Draw one stored pattern record (see pattern_view.patternAnnotation). Passing
- * null removes it. The annotation is re-positioned on every pan, zoom and
- * resize from the candle times and prices it carries.
+ * Draw one stored pattern record (see pattern_view.patternAnnotation), plus
+ * any understated secondary records (pattern_view.secondaryAnnotations).
+ * Passing null removes everything. The drawing is re-positioned on every pan,
+ * zoom and resize from the candle times and prices it carries, and each
+ * redraw replaces the previous one: nothing accumulates.
  */
-export function setPatternAnnotation(handle, annotation) {
+export function setPatternAnnotation(handle, annotation, { secondary = [] } = {}) {
   if (!handle || handle.destroyed) return;
   if (!annotation) {
     clearPatternAnnotation(handle);
@@ -1473,6 +1455,7 @@ export function setPatternAnnotation(handle, annotation) {
   }
   createPatternLayer(handle);
   handle.patternAnnotation = annotation;
+  handle.patternSecondary = Array.isArray(secondary) ? secondary : [];
   renderPatternAnnotation(handle);
 }
 
@@ -1488,6 +1471,7 @@ export function clearPatternAnnotation(handle) {
   }
   handle.patternUnsubscribers = [];
   handle.patternAnnotation = null;
+  handle.patternSecondary = [];
   if (handle.patternLayer) {
     handle.patternLayer.remove?.();
     handle.patternLayer = null;
@@ -1522,6 +1506,7 @@ export function renderPatternAnnotation(handle) {
   if (!handle || handle.destroyed || !handle.patternLayer) return;
   const annotation = handle.patternAnnotation;
   const layer = handle.patternLayer;
+  // Every redraw starts from an empty layer: nothing is ever drawn twice.
   layer.textContent = "";
   if (!annotation) return;
   const { series, chart } = handle;
@@ -1532,157 +1517,240 @@ export function renderPatternAnnotation(handle) {
   layer.style.width = `${size.width}px`;
   layer.style.height = `${size.height}px`;
   const xOf = (time) => {
+    if (time === null || time === undefined) return null;
     const x = timeScale.timeToCoordinate(time);
     return x === null || x === undefined ? null : Number(x);
   };
   const yOf = (price) => {
+    if (price === null || price === undefined) return null;
     const y = series.priceToCoordinate(price);
     return y === null || y === undefined ? null : Number(y);
   };
-  const curve = annotation.curve
-    .map((point) => ({ ...point, x: xOf(point.timeSeconds), y: yOf(point.price) }))
-    .filter((point) => point.x !== null && point.y !== null);
-  if (curve.length < 2) return;
-  const color = PATTERN_TONE_COLORS[annotation.tone] || PATTERN_TONE_COLORS.neutral;
-  const top = annotation.side === "top";
-  const xStart = curve[0].x;
-  const xEnd = curve[curve.length - 1].x;
-  const yNeck = annotation.neckline ? yOf(annotation.neckline.price) : null;
+  const point = (p) => (p ? { x: xOf(p.timeSeconds), y: yOf(p.price) } : null);
+  const floor = candleFloor(handle, size);
+  const ctx = { layer, size, floor, xOf, yOf, point };
 
   layer.dataset.patternId = String(annotation.id ?? "");
+  layer.dataset.patternType = String(annotation.type ?? "");
   layer.dataset.state = String(annotation.state ?? "");
   layer.dataset.tone = annotation.tone;
 
   const svg = svgEl("svg", { class: "pattern-anno-svg", width: size.width, height: size.height, viewBox: `0 0 ${size.width} ${size.height}` });
-  const path = monotonePath(curve);
-  if (yNeck !== null) {
-    // Light wash between the shape and the neckline, strongest at the neckline.
-    const gradientId = `pattern-fill-${Math.random().toString(36).slice(2, 9)}`;
-    const defs = svgEl("defs");
-    const gradient = svgEl("linearGradient", { id: gradientId, x1: 0, y1: top ? 1 : 0, x2: 0, y2: top ? 0 : 1 });
-    gradient.appendChild(svgEl("stop", { offset: "0%", "stop-color": color, "stop-opacity": annotation.tone === "neutral" ? 0.08 : 0.16 }));
-    gradient.appendChild(svgEl("stop", { offset: "100%", "stop-color": color, "stop-opacity": 0.03 }));
-    defs.appendChild(gradient);
-    svg.appendChild(defs);
-    svg.appendChild(svgEl("path", {
-      class: "pattern-anno-fill",
-      d: `${path} L${xEnd.toFixed(1)},${yNeck.toFixed(1)} L${xStart.toFixed(1)},${yNeck.toFixed(1)} Z`,
-      fill: `url(#${gradientId})`,
-      stroke: "none",
-    }));
-    svg.appendChild(svgEl("line", {
-      class: "pattern-anno-neckline",
-      x1: xStart, y1: yNeck, x2: xEnd, y2: yNeck,
-      stroke: color, "stroke-width": 1.6, "stroke-dasharray": "8 6", "stroke-opacity": 0.95,
-    }));
-  }
-  if (annotation.extremeLine) {
-    const yExt = yOf(annotation.extremeLine.price);
-    const x1 = xOf(annotation.extremeLine.fromSeconds);
-    const x2 = xOf(annotation.extremeLine.toSeconds);
-    if (yExt !== null && x1 !== null && x2 !== null) {
-      // Stretched a little past the two stored extremes, like the approved line.
-      const pad = Math.max(18, Math.min(60, (x2 - x1) * 0.25));
-      svg.appendChild(svgEl("line", {
-        class: "pattern-anno-extreme",
-        x1: Math.max(xStart, x1 - pad), y1: yExt, x2: Math.min(xEnd, x2 + pad), y2: yExt,
-        stroke: color, "stroke-width": 1.4, "stroke-dasharray": "8 6", "stroke-opacity": 0.75,
-      }));
-    }
-  }
-  svg.appendChild(svgEl("path", {
-    class: "pattern-anno-curve",
-    d: path,
-    fill: "none",
-    stroke: color,
-    "stroke-width": 2.2,
-    "stroke-linecap": "round",
-    "stroke-linejoin": "round",
-    "stroke-dasharray": annotation.state === "formed" ? "6 5" : null,
-  }));
   layer.appendChild(svg);
+  ctx.svg = svg;
+  // The understated records first, so the selected one is drawn over them.
+  for (const other of Array.isArray(handle.patternSecondary) ? handle.patternSecondary : []) drawSecondaryPattern(ctx, other);
+  if (annotation.drawing === "range") drawRangePattern(ctx, annotation);
+  else drawExtremePattern(ctx, annotation);
+}
 
-  // Labels on the record's own extremes, under a bottom / over a top.
-  const placed = [];
-  for (const point of annotation.extremes) {
-    const x = xOf(point.timeSeconds);
-    const y = yOf(point.price);
-    if (x === null || y === null || x < 0 || x > size.width) continue;
-    const node = patternLabel(layer, "pattern-anno-point", point.label, annotation.tone);
-    node.dataset.time = String(point.timeSeconds);
-    node.dataset.price = String(point.price);
-    const w = node.offsetWidth || 0;
-    const h = node.offsetHeight || 0;
-    // Clear of the dashed extreme line too, when it runs past this point.
-    const yLine = annotation.extremeLine ? yOf(annotation.extremeLine.price) : null;
-    const yEdge = yLine === null ? y : top ? Math.min(y, yLine) : Math.max(y, yLine);
-    // Kept above the volume pane: a label never sits on the histogram.
-    placed.push(placeLabel(node, x - w / 2, top ? yEdge - 10 - h : yEdge + 10, { width: size.width, height: candleFloor(handle, size) }));
-  }
+function dashedLine(svg, className, x1, x2, y, color, { width = 1.5, dash = "7 5", opacity = 0.95 } = {}) {
+  if (![x1, x2, y].every(Number.isFinite) || Math.abs(x2 - x1) < 1) return null;
+  const line = svgEl("line", {
+    class: className,
+    x1, y1: y, x2, y2: y,
+    stroke: color, "stroke-width": width, "stroke-dasharray": dash, "stroke-opacity": opacity,
+  });
+  svg.appendChild(line);
+  return line;
+}
 
-  if (yNeck === null) return;
-  const anchorX = xOf(annotation.labelAnchorSeconds) ?? (xStart + xEnd) / 2;
-  const target = annotation.confirmation
-    ? { x: xOf(annotation.confirmation.timeSeconds), y: yNeck }
-    : { x: anchorX, y: yNeck };
-
-  // Title box: centred over the record's middle point, above the neckline of a
-  // bottom pattern (below the neckline of a top pattern).
-  const title = patternLabel(layer, "pattern-anno-title", annotation.title, annotation.tone);
+/** The pattern's outlined title, outside its neckline (or top line) when it fits. */
+function placeTitle(ctx, annotation, { anchorX, lineY, below }) {
+  const title = patternLabel(ctx.layer, "pattern-anno-title", annotation.title, annotation.tone);
   title.dataset.state = String(annotation.state ?? "");
   const titleW = title.offsetWidth || 0;
   const titleH = title.offsetHeight || 0;
-  // Outside the neckline (above it for a bottom), at the approved distance or,
-  // when the neckline is near the edge of the visible prices, closer to it.
-  const floor = candleFloor(handle, size);
-  const outsideTop = (gap) => (top ? yNeck + gap : yNeck - gap - titleH);
-  const fits = (y) => y >= 6 && y + titleH <= floor - 6;
-  let titleX = anchorX;
-  let titleTop = [PATTERN_TITLE_GAP, 14].map(outsideTop).find(fits);
+  const outsideTop = (gap) => (below ? lineY + gap : lineY - gap - titleH);
+  const fits = (y) => y >= 6 && y + titleH <= ctx.floor - 6;
+  let titleTop = [PATTERN_TITLE_GAP, 18].map(outsideTop).find(fits);
   if (titleTop === undefined) {
-    // No room outside at all: just inside the neckline, over the first half
-    // of the shape where the pattern leaves open space, never on the volume.
-    titleTop = top ? yNeck - PATTERN_TITLE_GAP - titleH : yNeck + PATTERN_TITLE_GAP;
-    titleX = Math.max(xStart + titleW / 2, (xStart + anchorX) / 2);
+    // No room outside at all: just inside the line, never on the volume.
+    titleTop = below ? lineY - PATTERN_TITLE_GAP - titleH : lineY + PATTERN_TITLE_GAP;
   }
-  const titleBox = placeLabel(title, titleX - titleW / 2, titleTop, { width: size.width, height: floor });
+  // The approved box sits a little right of the central point.
+  return placeLabel(title, anchorX - titleW / 2 + Math.min(28, titleW * 0.1), titleTop, { width: ctx.size.width, height: ctx.floor });
+}
 
-  // "Neckline": just over the line (under it for a top), at the middle point,
-  // moved left if the connector would run through it.
-  const neckLabel = patternLabel(layer, "pattern-anno-neckline-label", "Neckline", annotation.tone);
-  const neckW = neckLabel.offsetWidth || 0;
-  const neckH = neckLabel.offsetHeight || 0;
-  const connectorStartX = target.x === null
-    ? null
-    : Math.min(Math.max(target.x, titleBox.left + 24), titleBox.right - 24);
-  // Beside the middle point rather than on it: the middle candle's wick
-  // reaches the neckline, the label must not sit on it.
-  let neckX = anchorX - neckW / 2 - 16;
-  if (connectorStartX !== null && Math.abs(connectorStartX - neckX) < neckW) neckX = (xStart + anchorX) / 2;
-  // Where placeLabel will actually put it (held inside the pane).
-  const clampNeckX = (x) => Math.min(Math.max(x, neckW / 2 + 4), Math.max(neckW / 2 + 4, size.width - neckW / 2 - 4));
-  neckX = clampNeckX(neckX);
-  let neckY = top ? yNeck + 5 : yNeck - 5 - neckH;
-  const overlapsTitle = (x, y) => x - neckW / 2 < titleBox.right + 4 && x + neckW / 2 > titleBox.left - 4
-    && y < titleBox.bottom + 2 && y + neckH > titleBox.top - 2;
-  // Never under the title box: try the left end of the line, then the other
-  // side of the line at that end.
-  if (overlapsTitle(neckX, neckY)) neckX = Math.max(xStart, 0) + neckW / 2 + 6;
-  if (overlapsTitle(neckX, neckY)) neckY = top ? yNeck - 5 - neckH : yNeck + 5;
-  placeLabel(neckLabel, neckX - neckW / 2, neckY, size);
+function drawExtremePattern(ctx, annotation) {
+  const { svg, layer, size, floor, xOf, yOf, point } = ctx;
+  const color = PATTERN_TONE_COLORS[annotation.tone] || PATTERN_TONE_COLORS.neutral;
+  const top = annotation.side === "top";
+  const yNeck = annotation.neckline ? yOf(annotation.neckline.price) : null;
+  const formed = annotation.state === "formed";
 
-  // Thin line from the title to the confirmation candle on the neckline.
-  if (target.x !== null && connectorStartX !== null) {
-    const startY = top ? titleBox.top : titleBox.bottom;
-    const endY = top ? target.y + 3 : target.y - 3;
-    if (Math.abs(endY - startY) > 4) {
-      svg.appendChild(svgEl("line", {
-        class: "pattern-anno-connector",
-        x1: connectorStartX, y1: startY, x2: target.x, y2: endY,
-        stroke: color, "stroke-width": 1.4, "stroke-opacity": 0.9,
+  // Small arcs at the stored extremes, each with a faint wash inside it only.
+  for (const arc of annotation.arcs || []) {
+    const pixels = { left: point(arc.left), center: point(arc.center), right: point(arc.right) };
+    if (!pixels.center || pixels.center.x === null || pixels.center.y === null) continue;
+    const d = arcPath(pixels);
+    if (!d) continue;
+    const ends = [pixels.left, pixels.right].filter((p) => p && Number.isFinite(p.x) && Number.isFinite(p.y));
+    if (ends.length === 2) {
+      svg.appendChild(svgEl("path", {
+        class: "pattern-anno-arc-fill",
+        d: `${d} Z`,
+        fill: color,
+        "fill-opacity": annotation.tone === "neutral" ? 0.05 : 0.09,
+        stroke: "none",
+      }));
+    }
+    svg.appendChild(svgEl("path", {
+      class: "pattern-anno-arc",
+      d,
+      fill: "none",
+      stroke: color,
+      "stroke-width": 1.8,
+      "stroke-linecap": "round",
+      "stroke-dasharray": formed ? "5 4" : null,
+      "data-time": arc.center.timeSeconds,
+      "data-price": arc.center.price,
+    }));
+  }
+
+  // A type without arcs (a family BRAIN does not detect yet): a thin line
+  // through the record's own stored points.
+  if (!(annotation.arcs || []).length && (annotation.outline || []).length >= 2) {
+    const pts = annotation.outline.map(point).filter((p) => p.x !== null && p.y !== null);
+    if (pts.length >= 2) {
+      svg.appendChild(svgEl("polyline", {
+        class: "pattern-anno-outline",
+        points: pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "),
+        fill: "none", stroke: color, "stroke-width": 1.6, "stroke-linejoin": "round",
       }));
     }
   }
+
+  let neckX1 = null;
+  let neckX2 = null;
+  if (yNeck !== null) {
+    neckX1 = xOf(annotation.neckline.fromSeconds);
+    neckX2 = xOf(annotation.neckline.toSeconds);
+    dashedLine(svg, "pattern-anno-neckline", neckX1, neckX2, yNeck, color);
+  }
+  let yExt = null;
+  if (annotation.extremeLine) {
+    yExt = yOf(annotation.extremeLine.price);
+    dashedLine(svg, "pattern-anno-extreme", xOf(annotation.extremeLine.fromSeconds), xOf(annotation.extremeLine.toSeconds), yExt, color, { width: 1.3, opacity: 0.7 });
+  }
+
+  // Labels on the record's own extremes, under a bottom / over a top.
+  for (const extreme of annotation.extremes || []) {
+    const x = xOf(extreme.timeSeconds);
+    const y = yOf(extreme.price);
+    if (x === null || y === null || x < 0 || x > size.width) continue;
+    const node = patternLabel(layer, "pattern-anno-point", extreme.label, annotation.tone);
+    node.dataset.time = String(extreme.timeSeconds);
+    node.dataset.price = String(extreme.price);
+    const w = node.offsetWidth || 0;
+    const h = node.offsetHeight || 0;
+    const yEdge = yExt === null ? y : top ? Math.min(y, yExt) : Math.max(y, yExt);
+    // Kept above the volume pane: a label never sits on the histogram.
+    placeLabel(node, x - w / 2, top ? yEdge - 8 - h : yEdge + 8, { width: size.width, height: floor });
+  }
+
+  if (yNeck === null) {
+    const anchorX = xOf(annotation.labelAnchorSeconds);
+    if (anchorX !== null) {
+      const yAnchor = yOf((annotation.outline || []).find((p) => p.timeSeconds === annotation.labelAnchorSeconds)?.price);
+      if (yAnchor !== null) placeTitle(ctx, annotation, { anchorX, lineY: yAnchor, below: top });
+    }
+    return;
+  }
+  const anchorX = xOf(annotation.labelAnchorSeconds) ?? ((neckX1 ?? 0) + (neckX2 ?? size.width)) / 2;
+  const titleBox = placeTitle(ctx, annotation, { anchorX, lineY: yNeck, below: top });
+
+  // "Neckline": just over the line (under it for a top), beside the central
+  // point — whose wick reaches the line — and clear of the title box.
+  const neckLabel = patternLabel(layer, "pattern-anno-neckline-label", "Neckline", annotation.tone);
+  const neckW = neckLabel.offsetWidth || 0;
+  const neckH = neckLabel.offsetHeight || 0;
+  const clampNeckX = (x) => Math.min(Math.max(x, neckW / 2 + 4), Math.max(neckW / 2 + 4, size.width - neckW / 2 - 4));
+  let neckX = clampNeckX(anchorX - neckW / 2 - 14);
+  let neckY = top ? yNeck + 5 : yNeck - 5 - neckH;
+  const overlapsTitle = (x, y) => x - neckW / 2 < titleBox.right + 4 && x + neckW / 2 > titleBox.left - 4
+    && y < titleBox.bottom + 2 && y + neckH > titleBox.top - 2;
+  if (overlapsTitle(neckX, neckY) && neckX1 !== null) neckX = clampNeckX(Math.max(neckX1, 0) + neckW / 2 + 6);
+  if (overlapsTitle(neckX, neckY)) neckY = top ? yNeck - 5 - neckH : yNeck + 5;
+  placeLabel(neckLabel, neckX - neckW / 2, neckY, size);
+
+  // A short connector from the title to the neckline, as in the approved design.
+  const startX = Math.min(Math.max(titleBox.left + (titleBox.right - titleBox.left) * 0.62, titleBox.left + 12), titleBox.right - 12);
+  const startY = top ? titleBox.top : titleBox.bottom;
+  const endY = top ? yNeck + 2 : yNeck - 2;
+  let endX = startX + Math.min(28, Math.abs(endY - startY) * 0.7);
+  if (neckX1 !== null && neckX2 !== null) endX = Math.min(Math.max(endX, Math.min(neckX1, neckX2)), Math.max(neckX1, neckX2));
+  if (Math.abs(endY - startY) > 4 && (top ? startY > endY : startY < endY)) {
+    svg.appendChild(svgEl("line", {
+      class: "pattern-anno-connector",
+      x1: startX, y1: startY, x2: endX, y2: endY,
+      stroke: color, "stroke-width": 1.4, "stroke-opacity": 0.9,
+    }));
+  }
+}
+
+function drawRangePattern(ctx, annotation) {
+  const { svg, layer, size, xOf, yOf } = ctx;
+  const box = annotation.rangeBox;
+  if (!box) return;
+  const color = PATTERN_TONE_COLORS[annotation.tone] || PATTERN_TONE_COLORS.neutral;
+  const x1 = xOf(box.fromSeconds);
+  const x2 = xOf(box.toSeconds);
+  const yHigh = yOf(box.high);
+  const yLow = yOf(box.low);
+  if (![x1, x2, yHigh, yLow].every(Number.isFinite)) return;
+  svg.appendChild(svgEl("rect", {
+    class: "pattern-anno-range",
+    x: Math.min(x1, x2), y: Math.min(yHigh, yLow), width: Math.abs(x2 - x1), height: Math.abs(yLow - yHigh),
+    fill: color, "fill-opacity": 0.06, stroke: "none",
+  }));
+  dashedLine(svg, "pattern-anno-range-high", x1, x2, yHigh, color);
+  dashedLine(svg, "pattern-anno-range-low", x1, x2, yLow, color);
+  for (const [text, y, above] of [["Range high", yHigh, true], ["Range low", yLow, false]]) {
+    const node = patternLabel(layer, "pattern-anno-neckline-label", text, annotation.tone);
+    const w = node.offsetWidth || 0;
+    const h = node.offsetHeight || 0;
+    placeLabel(node, Math.max(x1, 0) + 6, above ? y - 5 - h : y + 5, size);
+    void w;
+  }
+  placeTitle(ctx, annotation, { anchorX: xOf(annotation.labelAnchorSeconds) ?? (x1 + x2) / 2, lineY: yHigh, below: false });
+}
+
+/** An understated grey rendering of another stored record, with its name. */
+function drawSecondaryPattern(ctx, other) {
+  const { svg, layer, size, floor, xOf, yOf, point } = ctx;
+  const color = PATTERN_SECONDARY_COLOR;
+  let labelAt = null;
+  if (other.drawing === "range" && other.rangeBox) {
+    const x1 = xOf(other.rangeBox.fromSeconds);
+    const x2 = xOf(other.rangeBox.toSeconds);
+    const yHigh = yOf(other.rangeBox.high);
+    const yLow = yOf(other.rangeBox.low);
+    if (![x1, x2, yHigh, yLow].every(Number.isFinite)) return;
+    dashedLine(svg, "pattern-anno-secondary", x1, x2, yHigh, color, { width: 1.1, dash: "5 5", opacity: 0.6 });
+    dashedLine(svg, "pattern-anno-secondary", x1, x2, yLow, color, { width: 1.1, dash: "5 5", opacity: 0.6 });
+    labelAt = { x: (x1 + x2) / 2, y: yLow + 6, below: true };
+  } else {
+    const pts = (other.outline || []).map(point).filter((p) => p.x !== null && p.y !== null);
+    if (pts.length < 2) return;
+    svg.appendChild(svgEl("polyline", {
+      class: "pattern-anno-secondary",
+      points: pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "),
+      fill: "none", stroke: color, "stroke-width": 1.1, "stroke-opacity": 0.6, "stroke-linejoin": "round",
+    }));
+    if (other.neckline) {
+      dashedLine(svg, "pattern-anno-secondary", xOf(other.neckline.fromSeconds), xOf(other.neckline.toSeconds), yOf(other.neckline.price), color, { width: 1, dash: "5 5", opacity: 0.45 });
+    }
+    const below = other.side !== "top";
+    const ys = pts.map((p) => p.y);
+    labelAt = { x: (pts[0].x + pts[pts.length - 1].x) / 2, y: below ? Math.max(...ys) + 8 : Math.min(...ys) - 8, below };
+  }
+  if (!labelAt || labelAt.x < 0 || labelAt.x > size.width) return;
+  const node = patternLabel(layer, "pattern-anno-secondary-label", other.name || other.title || "", "neutral");
+  node.dataset.patternId = String(other.id ?? "");
+  const w = node.offsetWidth || 0;
+  const h = node.offsetHeight || 0;
+  placeLabel(node, labelAt.x - w / 2, labelAt.below ? labelAt.y : labelAt.y - h, { width: size.width, height: floor });
 }
 
 /** Lowest y of the candle area: the volume separator when the pattern pane is on. */

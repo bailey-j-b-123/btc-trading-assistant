@@ -23,16 +23,16 @@
 import {
   chartFunctionById,
   eventCatalogue,
-  highlightedPattern,
   levelCatalogue,
   normalizeFunctionId,
-  patternCatalogue,
   swingCatalogue,
 } from "./chart_functions.js";
 import { directionArrow, directionLabel, displayRounded, formatUtc, isMissing } from "./format.js";
 import {
-  PATTERN_ICON_POINTS,
+  chartPatternRecords,
+  chooseChartPattern,
   patternExplanation,
+  patternIconPoints,
   patternKeyLevels,
   patternRecordFacts,
   patternStateTitle,
@@ -47,11 +47,13 @@ const MAX_LEVELS = 4;
 const MAX_SWINGS = 6;
 const MAX_EVENTS = 6;
 
+/** Sentence-case names for the legacy panel fields (title, list), unchanged. */
 const PATTERN_NAMES = Object.freeze({
   double_top: "Double top",
   double_bottom: "Double bottom",
   head_and_shoulders: "Head and shoulders",
   inverse_head_and_shoulders: "Inverse head and shoulders",
+  trading_range: "Trading range",
 });
 
 const EVENT_KINDS = Object.freeze({
@@ -237,12 +239,17 @@ function swingsModel({ evidence, bands, marketState }) {
   };
 }
 
-/** Chart Patterns: the selected shape, its stored geometry and the other states. */
+/**
+ * Chart Patterns: the selected record, its stored geometry and the other
+ * records. The records are the stored pattern records plus the range
+ * detector's active range (pattern_view.chartPatternRecords), in the
+ * documented default order; nothing else is listed.
+ */
 function patternsModel({ evidence, selectedPatternId, bands }) {
-  const catalogue = patternCatalogue(evidence?.available === true ? evidence : null);
-  const chosen = highlightedPattern(evidence, selectedPatternId);
+  const records = chartPatternRecords(evidence);
+  const raw = chooseChartPattern(records, selectedPatternId);
   const levels = nearestBands(bands);
-  if (!chosen) {
+  if (!raw) {
     return {
       heading: "Chart Patterns",
       chip: null,
@@ -259,47 +266,50 @@ function patternsModel({ evidence, selectedPatternId, bands }) {
       note: "No chart pattern is stored for this window at this instant.",
     };
   }
-  const raw = (Array.isArray(evidence?.patterns) ? evidence.patterns : [])
-    .find((pattern) => pattern?.id === chosen.id) || {};
-  const rawById = new Map((Array.isArray(evidence?.patterns) ? evidence.patterns : [])
-    .filter((pattern) => pattern && typeof pattern === "object")
-    .map((pattern) => [pattern.id, pattern]));
+  const isRange = raw.type === "trading_range";
   const geometry = raw.geometry && typeof raw.geometry === "object" ? raw.geometry : null;
-  const facts = [
-    { label: "State", value: chosen.state || UNKNOWN, tone: stateTone(chosen.state) },
-    { label: "Known at", value: when(chosen.knownAt), tone: "neutral" },
-    { label: "Neckline", value: isMissing(chosen.neckline) ? "not stored" : price(chosen.neckline), tone: "blue" },
-    { label: "Invalidation level", value: isMissing(chosen.invalidation) ? "not stored" : price(chosen.invalidation), tone: "red" },
-    { label: "Detected points", value: String(chosen.componentCount), tone: "neutral" },
-  ];
+  const componentCount = Array.isArray(raw.components) ? raw.components.length : 0;
+  const facts = isRange
+    ? [
+        { label: "State", value: raw.state || UNKNOWN, tone: "blue" },
+        { label: "Known at", value: when(raw.known_at), tone: "neutral" },
+      ]
+    : [
+        { label: "State", value: raw.state || UNKNOWN, tone: stateTone(raw.state) },
+        { label: "Known at", value: when(raw.known_at), tone: "neutral" },
+        { label: "Neckline", value: isMissing(raw.neckline) ? "not stored" : price(raw.neckline), tone: "blue" },
+        { label: "Invalidation level", value: isMissing(raw.invalidation_level) ? "not stored" : price(raw.invalidation_level), tone: "red" },
+        { label: "Detected points", value: String(componentCount), tone: "neutral" },
+      ];
   const geometryRows = geometry ? [
     { label: "Matching extremes differ by", value: percentText(geometry.matching_extremes_difference_pct) },
     { label: "Pattern depth", value: percentText(geometry.depth_pct) },
+    { label: "Head prominence", value: percentText(geometry.head_prominence_pct) },
     { label: "Span", value: Number.isFinite(Number(geometry.span_candles)) ? `${Number(geometry.span_candles)} candles` : UNKNOWN },
   ].filter((row) => row.value !== null) : [];
+  const others = records.filter((record) => record.id !== raw.id);
+  const name = (record) => patternTitle(record.type, record.label);
+  const legacyName = (record) => PATTERN_NAMES[record.type] || record.label || "Pattern";
   return {
     heading: "Chart Patterns",
-    chip: chosen.state || null,
-    tone: stateTone(chosen.state),
+    chip: raw.state || null,
+    tone: stateTone(raw.state),
     title: {
-      label: PATTERN_NAMES[chosen.type] || chosen.label || "Pattern",
-      state: chosen.state || UNKNOWN,
-      tone: stateTone(chosen.state),
+      label: legacyName(raw),
+      state: raw.state || UNKNOWN,
+      tone: stateTone(raw.state),
     },
     legend: [],
     facts,
     geometry: geometryRows,
-    list: catalogue
-      .filter((entry) => entry.id !== chosen.id)
-      .slice(0, MAX_LEVELS)
-      .map((entry) => ({
-        title: PATTERN_NAMES[entry.type] || entry.label || "Pattern",
-        value: entry.state || UNKNOWN,
-        meta: `${entry.isLatestState ? "current state" : "earlier state"} · known ${when(entry.knownAt)}`,
-        tone: stateTone(entry.state),
-      })),
+    list: others.slice(0, MAX_LEVELS).map((record) => ({
+      title: legacyName(record),
+      value: record.state || UNKNOWN,
+      meta: `${record.is_latest_state === true ? "current state" : "earlier state"} · known ${when(record.known_at)}`,
+      tone: stateTone(record.state),
+    })),
     levels: [
-      { label: "Neckline", value: isMissing(chosen.neckline) ? "not stored" : price(chosen.neckline), tone: "blue" },
+      isRange ? null : { label: "Neckline", value: isMissing(raw.neckline) ? "not stored" : price(raw.neckline), tone: "blue" },
       levels.resistance ? { label: "Stored level above price", value: `${price(levels.resistance.low)} – ${price(levels.resistance.high)}`, tone: "red" } : null,
       levels.support ? { label: "Stored level below price", value: `${price(levels.support.low)} – ${price(levels.support.high)}`, tone: "green" } : null,
     ].filter(Boolean),
@@ -308,28 +318,27 @@ function patternsModel({ evidence, selectedPatternId, bands }) {
     // slot states that nothing is calculated, because the backend calculates
     // nothing of the kind.
     detection: {
-      id: chosen.id,
-      type: chosen.type,
-      name: patternTitle(chosen.type, chosen.label),
-      state: chosen.state || null,
-      stateTitle: patternStateTitle(chosen.state),
+      id: raw.id,
+      type: raw.type || null,
+      name: name(raw),
+      state: raw.state || null,
+      stateTitle: patternStateTitle(raw.state),
       tone: patternTone(raw),
-      knownAt: chosen.knownAt,
+      knownAt: raw.known_at || null,
+      source: isRange ? "range detector" : "pattern detector",
       score: { calculated: false, text: "Not calculated" },
       explanation: patternExplanation(raw),
     },
-    others: catalogue
-      .filter((entry) => entry.id !== chosen.id)
-      .map((entry) => ({
-        id: entry.id,
-        type: entry.type,
-        name: patternTitle(entry.type, entry.label),
-        state: entry.state || null,
-        stateTitle: patternStateTitle(entry.state),
-        tone: patternTone(rawById.get(entry.id) || entry),
-        current: entry.isLatestState,
-        knownAt: entry.knownAt,
-      })),
+    others: others.map((record) => ({
+      id: record.id,
+      type: record.type || null,
+      name: name(record),
+      state: record.state || null,
+      stateTitle: patternStateTitle(record.state),
+      tone: patternTone(record),
+      current: record.is_latest_state === true,
+      knownAt: record.known_at || null,
+    })),
     keyLevels: patternKeyLevels(raw),
     recordFacts: patternRecordFacts(raw),
     note: "The shape drawn is the detector's own geometry. The detector stores geometry, not a confidence score, so no confidence percentage is shown.",
@@ -729,7 +738,7 @@ function svgNode(tag, attrs = {}, children = []) {
 
 /** A pictogram of the pattern TYPE (not of the record). */
 function patternIcon(type, className) {
-  const points = PATTERN_ICON_POINTS[type] || PATTERN_ICON_POINTS.double_bottom;
+  const points = patternIconPoints(type);
   return svgNode("svg", {
     class: className,
     viewBox: "0 0 100 60",

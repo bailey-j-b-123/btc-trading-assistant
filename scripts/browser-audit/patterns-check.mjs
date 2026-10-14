@@ -38,6 +38,18 @@ const VIEWPORTS = [
  * vendored chart library sets one inline style the page's CSP refuses (present
  * before this change too). Anything else is reported as a failure.
  */
+const TITLES = {
+  double_bottom: "Double Bottom",
+  double_top: "Double Top",
+  head_and_shoulders: "Head and Shoulders",
+  inverse_head_and_shoulders: "Inverse Head and Shoulders",
+  trading_range: "Trading Range",
+};
+
+/** The stored extremes a pattern's arcs mark: the lows of a bottom, the highs of a top. */
+const extremeCount = (record) => record.components
+  .filter((point) => point.kind === (/bottom|inverse/.test(record.type) ? "low" : "high")).length;
+
 const KNOWN_ENVIRONMENT_ERRORS = [
   /WebSocket connection to 'wss:\/\/stream\.binance\.com/,
   /Refused to apply inline style because it violates the following Content Security Policy/,
@@ -137,7 +149,10 @@ try {
       await page.click(selector);
     };
     const restMouse = async () => {
-      // Off the chart, so the OHLC line shows the newest candle and no crosshair is drawn.
+      // Back to the top of the page (clicking a lower Card 2 row scrolls the
+      // page to reach it), then off the chart, so the OHLC line shows the
+      // newest candle and no crosshair is drawn.
+      await page.evaluate(() => window.scrollTo(0, 0));
       await page.mouse.move(viewport.width - 4, 4);
       await wait(250);
     };
@@ -162,12 +177,24 @@ try {
           confidenceField: Object.keys(item).filter((key) => /confidence|probability|score/i.test(key)),
           components: (item.components || []).map((point) => ({ kind: point.kind, time: point.time, seconds: Math.floor(Number(point.time_ms) / 1000), price: Number(point.price) })),
         })),
+        // The active trading range (market-structure range detector), if any.
+        range: payload?.range && payload.range.active === true && typeof payload.range.id === "string"
+          ? {
+            id: payload.range.id,
+            high: Number(payload.range.range_high),
+            low: Number(payload.range.range_low),
+            startSeconds: Math.floor(Date.parse(payload.range.start_time) / 1000),
+            currentSeconds: Math.floor(Date.parse(payload.range.current_time) / 1000),
+          }
+          : null,
       };
     });
     assert.equal(stored.available, true, "chart evidence is available on the demo server");
     assert.ok(stored.patterns.length > 0, "the demo database stores patterns to show");
     checks.push({ name: "stored patterns", patterns: stored.patterns });
     const storedIds = new Set(stored.patterns.map((item) => item.id));
+    if (stored.range) storedIds.add(stored.range.id);
+    checks.push({ name: "stored range", range: stored.range });
 
     // --- Zoom: selecting the function keeps the number of candles on screen.
     const beforeSwitch = await logicalRange();
@@ -188,7 +215,7 @@ try {
       };
       const layer = document.querySelector(".pattern-anno-layer");
       const layerBox = layer?.getBoundingClientRect();
-      const labels = [...document.querySelectorAll(".pattern-anno-point, .pattern-anno-title, .pattern-anno-neckline-label")].map((node) => {
+      const labels = [...document.querySelectorAll(".pattern-anno-point, .pattern-anno-title, .pattern-anno-neckline-label, .pattern-anno-secondary-label")].map((node) => {
         const r = node.getBoundingClientRect();
         return {
           cls: node.className,
@@ -242,7 +269,35 @@ try {
         neckY: neck ? Number(neck.getAttribute("y1")) : null,
         neckX: neck ? [Number(neck.getAttribute("x1")), Number(neck.getAttribute("x2"))] : null,
         connectorEnd: connector ? { x: Number(connector.getAttribute("x2")), y: Number(connector.getAttribute("y2")) } : null,
-        curves: document.querySelectorAll(".pattern-anno-curve").length,
+        arcs: document.querySelectorAll(".pattern-anno-layer > svg .pattern-anno-arc").length,
+        titles: document.querySelectorAll(".pattern-anno-title").length,
+        layers: document.querySelectorAll(".pattern-anno-layer").length,
+        secondary: [...document.querySelectorAll(".pattern-anno-secondary-label")].map((node) => ({ id: node.dataset.patternId || null, text: node.textContent })),
+        oversizedFill: (() => {
+          // No large wash: every filled shape stays small relative to the pane.
+          const pane = document.querySelector(".pattern-anno-layer")?.getBoundingClientRect();
+          if (!pane) return null;
+          return Math.max(0, ...[...document.querySelectorAll(".pattern-anno-arc-fill")].map((node) => {
+            const r = node.getBoundingClientRect();
+            return Math.round(((r.width * r.height) / (pane.width * pane.height)) * 1000) / 10;
+          }));
+        })(),
+        // A trading range is a box by definition; it must stay faint.
+        rangeFillOpacity: (() => {
+          const node = document.querySelector(".pattern-anno-range");
+          return node ? Number(node.getAttribute("fill-opacity")) : null;
+        })(),
+        rangeLines: (() => {
+          const high = document.querySelector(".pattern-anno-range-high");
+          const low = document.querySelector(".pattern-anno-range-low");
+          return high && low ? { highY: Number(high.getAttribute("y1")), lowY: Number(low.getAttribute("y1")), x1: Number(high.getAttribute("x1")), x2: Number(high.getAttribute("x2")) } : null;
+        })(),
+        connector: (() => {
+          const node = document.querySelector(".pattern-anno-connector");
+          if (!node) return null;
+          const [x1, y1, x2, y2] = ["x1", "y1", "x2", "y2"].map((key) => Number(node.getAttribute(key)));
+          return { x1, y1, x2, y2, length: Math.round(Math.hypot(x2 - x1, y2 - y1) * 10) / 10 };
+        })(),
         detection: {
           name: panel?.querySelector(".pd-name")?.textContent || null,
           badge: panel?.querySelector(".pd-card--detection .pd-badge")?.textContent || null,
@@ -265,9 +320,16 @@ try {
       };
     });
 
-    // The default selection is the newest current state (unchanged behaviour).
-    const latest = stored.patterns.filter((item) => item.isLatest).sort((a, b) => Date.parse(b.knownAt) - Date.parse(a.knownAt))[0];
+    // The documented default, recomputed here from the API alone: current
+    // states before earlier ones, not-invalidated before invalidated, newest
+    // known_at first, then id descending; the active range only when no
+    // pattern record exists.
+    const rank = (item) => (item.isLatest ? 0 : 2) + (item.state === "invalidated" ? 1 : 0);
+    const latest = [...stored.patterns].sort((a, b) => rank(a) - rank(b)
+      || Date.parse(b.knownAt) - Date.parse(a.knownAt)
+      || String(b.id).localeCompare(String(a.id)))[0] || (stored.range ? { id: stored.range.id } : null);
     let screen = await readScreen();
+    assert.equal(screen.layer?.id ?? null, latest?.id ?? null, "the default drawing is the documented default record");
     assert.equal(screen.topbarVisible, false, "the global bar folds away on this screen");
     assert.equal(screen.headerControlsChildren, 1, "the function switches sit in the slim header");
     assert.equal(screen.activeTimeframe, "1H");
@@ -301,9 +363,17 @@ try {
     const neckY = await page.evaluate((price) => window.__yOf(price), Number(target.neckline));
     if (screen.neckY !== null && neckY !== null) assert.ok(Math.abs(screen.neckY - neckY) <= 0.6, "the neckline is drawn at the stored neckline price");
     const confirmX = target.state === "confirmed" ? await page.evaluate((iso) => window.__xOf(Math.floor(Date.parse(iso) / 1000)), target.anchorTime) : null;
-    if (screen.connectorEnd && confirmX !== null) assert.ok(Math.abs(screen.connectorEnd.x - confirmX) <= 0.6, "the label's connector ends on the confirmation candle");
+    // The neckline runs to the confirmation candle; the connector is short and touches the neckline.
+    if (screen.neckX && confirmX !== null) assert.ok(Math.abs(Math.max(...screen.neckX) - confirmX) <= 0.6, "the neckline ends on the confirmation candle");
+    if (screen.connector && screen.neckY !== null) {
+      assert.ok(Math.abs(screen.connector.y2 - screen.neckY) <= 3, "the connector ends on the neckline");
+      assert.ok(screen.connector.length <= 90, `the connector is short (${screen.connector.length}px)`);
+    }
+    assert.equal(screen.arcs, extremeCount(target), "one small arc per stored extreme");
+    assert.equal(screen.titles, 1, "exactly one title (no duplicates from redraws)");
+    assert.ok(screen.oversizedFill !== null && screen.oversizedFill <= 6, `no large shaded area (${screen.oversizedFill}% of the pane)`);
     const title = screen.labels.find((item) => item.cls === "pattern-anno-title");
-    const expectedTitle = `${target.type === "double_bottom" ? "Double Bottom" : target.type} - ${target.state[0].toUpperCase()}${target.state.slice(1)}`;
+    const expectedTitle = `${TITLES[target.type] || target.type} - ${target.state[0].toUpperCase()}${target.state.slice(1)}`;
     if (title) assert.equal(title.text, expectedTitle, "the label carries the stored lifecycle state");
     checks.push({
       name: "annotation anchors",
@@ -311,7 +381,9 @@ try {
       state: target.state,
       anchors,
       neckline: { stored: target.neckline, drawnY: screen.neckY, priceScaleY: neckY, x: screen.neckX },
-      confirmation: { anchorTime: target.anchorTime, connectorEnd: screen.connectorEnd, candleX: confirmX },
+      confirmation: { anchorTime: target.anchorTime, connector: screen.connector, candleX: confirmX },
+      arcs: screen.arcs,
+      oversizedFillPct: screen.oversizedFill,
       title,
     });
 
@@ -382,6 +454,83 @@ try {
     if (viewport.width < 600) await shot("double-bottom-full", true);
     if (viewport.primary) {
       await shot("full", true);
+
+      // --- Every genuinely detected record listed in Card 2: selecting it
+      // draws that record's own geometry from its stored anchors, updates all
+      // three cards, and keeps the zoom.
+      const selections = [];
+      const rows = (await readScreen()).others.map((row) => row.id);
+      for (const id of rows) {
+        const record = stored.patterns.find((item) => item.id === id);
+        const isRange = stored.range && stored.range.id === id;
+        assert.ok(record || isRange, `${id} is a stored record`);
+        const zoomBefore = await logicalRange();
+        await clickControl(`[data-select-pattern="${id}"]`);
+        await wait(800);
+        await restMouse();
+        const zoomAfter = await logicalRange();
+        const view = await readScreen();
+        const type = record ? record.type : "trading_range";
+        const state = record ? record.state : "active";
+        const entry = { id, type, state, layer: view.layer, detection: view.detection.name, badge: view.detection.badge, title: view.labels.find((item) => item.cls === "pattern-anno-title")?.text || null, arcs: view.arcs, levels: view.levels.map((row) => row.text), secondary: view.secondary, oversizedFillPct: view.oversizedFill, zoomBefore, zoomAfter };
+        assert.equal(view.layer?.id, id, `${type}: the chart draws the selected record`);
+        assert.equal(view.detection.name, TITLES[type], `${type}: Card 1 names the selected record`);
+        assert.ok(!view.others.some((row) => row.id === id), `${type}: the selected record leaves Card 2`);
+        assert.equal(zoomWidth(zoomAfter), zoomWidth(zoomBefore), `${type}: selecting keeps the zoom`);
+        assert.equal(view.titles, 1, `${type}: one title`);
+        assert.equal(view.layers, 1, `${type}: one annotation layer`);
+        assert.ok(view.oversizedFill !== null && view.oversizedFill <= 6, `${type}: no large shaded area`);
+        if (record) {
+          for (const label of view.labels.filter((item) => item.cls === "pattern-anno-point")) {
+            const component = record.components.find((point) => point.seconds === label.time);
+            assert.ok(component, `${type}: ${label.text} sits on a stored component candle`);
+            assert.equal(label.price, component.price, `${type}: ${label.text} uses the stored price`);
+          }
+          const y = await page.evaluate((price) => window.__yOf(price), Number(record.neckline));
+          if (view.neckY !== null && y !== null) assert.ok(Math.abs(view.neckY - y) <= 0.6, `${type}: neckline at the stored price`);
+          if (view.layer) assert.equal(view.arcs, extremeCount(record), `${type}: one arc per stored extreme`);
+          entry.neckline = { stored: record.neckline, drawnY: view.neckY, priceScaleY: y };
+        } else {
+          const highY = await page.evaluate((price) => window.__yOf(price), stored.range.high);
+          const lowY = await page.evaluate((price) => window.__yOf(price), stored.range.low);
+          if (view.rangeLines && highY !== null) assert.ok(Math.abs(view.rangeLines.highY - highY) <= 0.6, "range high at the stored price");
+          if (view.rangeLines && lowY !== null) assert.ok(Math.abs(view.rangeLines.lowY - lowY) <= 0.6, "range low at the stored price");
+          assert.equal(view.arcs, 0, "a range is not drawn with the double-bottom arcs");
+          if (view.rangeFillOpacity !== null) assert.ok(view.rangeFillOpacity <= 0.08, "the range box is only faintly filled");
+          entry.range = { stored: stored.range, lines: view.rangeLines, priceScale: { highY, lowY } };
+        }
+        selections.push(entry);
+        await shot(`select-${type}-${state}`);
+      }
+      checks.push({ name: "every listed record selectable", count: selections.length, selections });
+
+      // --- A manual choice survives a function switch, and so does the zoom.
+      if (rows.length) {
+        // The loop left the last row selected; choose the first (still listed in Card 2).
+        const chosen = rows.length > 1 ? rows[0] : rows[rows.length - 1];
+        if ((await readScreen()).others.some((row) => row.id === chosen)) {
+          await clickControl(`[data-select-pattern="${chosen}"]`);
+          await wait(700);
+        }
+        const zoomBefore = await logicalRange();
+        await clickControl('[data-function="swings"]');
+        await wait(700);
+        await clickControl('[data-function="patterns"]');
+        await page.waitForSelector(".pattern-panel", { visible: true });
+        await wait(900);
+        await restMouse();
+        const back = await readScreen();
+        const zoomAfter = await logicalRange();
+        checks.push({ name: "manual choice and zoom survive a function switch", chosen, layer: back.layer, zoomBefore, zoomAfter });
+        assert.equal(back.layer?.id, chosen, "the manual choice is kept across a function switch");
+        assert.equal(zoomWidth(zoomAfter), zoomWidth(zoomBefore), "the zoom is kept across a function switch");
+      }
+      // Back to the record the rest of this audit measures.
+      if ((await readScreen()).others.some((row) => row.id === target.id)) {
+        await clickControl(`[data-select-pattern="${target.id}"]`);
+        await wait(700);
+        await restMouse();
+      }
 
       // Resize: the drawing follows its candles.
       await page.setViewport({ width: 1500, height: 900, deviceScaleFactor: 1 });
