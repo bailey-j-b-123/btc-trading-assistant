@@ -1,0 +1,21 @@
+# BRAIN-AUDIT-0001 recheck: are both features retained in the integration?
+# command: python docs/brain-audit/probes/integration-retention.py . ee6ab77 a5c9013 09f5ee2 <5 files>
+src/trading_assistant/web/static/js/views/dashboard.js: OK  parentA=132 parentB=133 merged=136 missing_from_merged(A)=[] missing_from_merged(B)=[]
+src/trading_assistant/web/static/js/chart.js: OK  parentA=94 parentB=66 merged=98 missing_from_merged(A)=[] missing_from_merged(B)=[]
+src/trading_assistant/web/static/js/chart_functions.js: OK  parentA=27 parentB=26 merged=28 missing_from_merged(A)=[] missing_from_merged(B)=[]
+src/trading_assistant/web/static/js/function_panel.js: OK  parentA=35 parentB=28 merged=37 missing_from_merged(A)=[] missing_from_merged(B)=[]
+src/trading_assistant/web/static/styles.css: OK  parentA=525 parentB=468 merged=526 missing_from_merged(A)=[] missing_from_merged(B)=[]
+
+files with retention gaps: 0
+
+# original conflict reproduced on the dev base:
+# command: git merge-tree --write-tree ee6ab77 a5c9013
+
+Auto-merging src/trading_assistant/web/static/js/chart.js
+Auto-merging src/trading_assistant/web/static/js/chart_functions.js
+Auto-merging src/trading_assistant/web/static/js/function_panel.js
+Auto-merging src/trading_assistant/web/static/js/views/dashboard.js
+CONFLICT (content): Merge conflict in src/trading_assistant/web/static/js/views/dashboard.js
+Auto-merging src/trading_assistant/web/static/styles.css
+Auto-merging tests/frontend/dashboard.test.mjs
+# exit=0

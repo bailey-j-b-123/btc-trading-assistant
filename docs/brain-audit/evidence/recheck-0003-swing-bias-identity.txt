@@ -1,0 +1,35 @@
+# BRAIN-AUDIT-0003 recheck: swing bias timeframe identity
+# node docs/brain-audit/probes/swing-bias-identity.mjs <tree>   (real functionPanelModel)
+########## base ##########
+{"case":"A viewed 15m trend believable over 1h engine","chip":"Bullish","bias":"Bullish · higher highs and higher lows"}
+{"case":"B viewed 15m available, no trend, engine is 1h","chip":"Bullish","bias":"Bullish · higher highs and higher lows"}
+{"case":"C viewed 15m available, no trend, engine is 15m","chip":"Bullish","bias":"Bullish · higher highs and higher lows"}
+{"case":"D viewed 15m unavailable, engine 1h bullish","chip":"Bullish","bias":"Bullish · higher highs and higher lows"}
+{"case":"E viewed 15m unavailable, engine 15m bullish","chip":"Bullish","bias":"Bullish · higher highs and higher lows"}
+{"case":"F viewed evidence has no timeframe, engine 1h","chip":"Bullish","bias":"Bullish · higher highs and higher lows"}
+{"case":"G malformed direction \"sideways\", engine 1h","chip":"Bullish","bias":"Bullish · higher highs and higher lows"}
+{"case":"H trend present but no reason, engine 1h","chip":"Bullish","bias":"Bullish · higher highs and higher lows"}
+{"case":"I engine itself unavailable, viewed available no trend","chip":null,"bias":"UNKNOWN"}
+{"case":"J marketState missing entirely","chip":null,"bias":"UNKNOWN"}
+########## pr67 ##########
+{"case":"A viewed 15m trend believable over 1h engine","chip":"Bearish","bias":"Bearish · lower highs and lower lows"}
+{"case":"B viewed 15m available, no trend, engine is 1h","chip":"Bullish","bias":"Bullish · higher highs and higher lows"}
+{"case":"C viewed 15m available, no trend, engine is 15m","chip":"Bullish","bias":"Bullish · higher highs and higher lows"}
+{"case":"D viewed 15m unavailable, engine 1h bullish","chip":"Bullish","bias":"Bullish · higher highs and higher lows"}
+{"case":"E viewed 15m unavailable, engine 15m bullish","chip":"Bullish","bias":"Bullish · higher highs and higher lows"}
+{"case":"F viewed evidence has no timeframe, engine 1h","chip":"Bullish","bias":"Bullish · higher highs and higher lows"}
+{"case":"G malformed direction \"sideways\", engine 1h","chip":"sideways","bias":"sideways · x"}
+{"case":"H trend present but no reason, engine 1h","chip":"Bearish","bias":"Bearish · an unknown reason"}
+{"case":"I engine itself unavailable, viewed available no trend","chip":null,"bias":"UNKNOWN"}
+{"case":"J marketState missing entirely","chip":null,"bias":"UNKNOWN"}
+########## pr69 ##########
+{"case":"A viewed 15m trend believable over 1h engine","chip":"Bearish","bias":"Bearish · lower highs and lower lows"}
+{"case":"B viewed 15m available, no trend, engine is 1h","chip":null,"bias":"UNKNOWN"}
+{"case":"C viewed 15m available, no trend, engine is 15m","chip":"Bullish","bias":"Bullish · higher highs and higher lows"}
+{"case":"D viewed 15m unavailable, engine 1h bullish","chip":null,"bias":"UNKNOWN"}
+{"case":"E viewed 15m unavailable, engine 15m bullish","chip":null,"bias":"UNKNOWN"}
+{"case":"F viewed evidence has no timeframe, engine 1h","chip":null,"bias":"UNKNOWN"}
+{"case":"G malformed direction \"sideways\", engine 1h","chip":null,"bias":"UNKNOWN"}
+{"case":"H trend present but no reason, engine 1h","chip":"Bearish","bias":"Bearish · an unknown reason"}
+{"case":"I engine itself unavailable, viewed available no trend","chip":null,"bias":"UNKNOWN"}
+{"case":"J marketState missing entirely","chip":null,"bias":"UNKNOWN"}
