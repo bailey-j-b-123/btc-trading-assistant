@@ -63,8 +63,15 @@ from trading_assistant.chart_geometry.parameters import (
     CHART_GEOMETRY_RULES_VERSION,
     ChartGeometryParameters,
 )
-from trading_assistant.market_data.timeframes import require_utc_datetime
+from trading_assistant.market_data.timeframes import (
+    datetime_to_milliseconds,
+    require_utc_datetime,
+)
 from trading_assistant.market_data.types import Candle
+from trading_assistant.market_data.validation import (
+    CandleValidationError,
+    validate_ohlcv_rows,
+)
 from trading_assistant.market_structure.candles import (
     interval_for_timeframe,
     ordered_candles,
@@ -98,11 +105,12 @@ def detect_chart_geometry(
 ) -> ChartGeometrySnapshot:
     """Describe every chart-geometry-v1 formation knowable from closed candles.
 
-    ``candles`` must be genuinely closed OHLCV rows for exactly one instrument,
-    strictly ordered by open time and spaced by whole multiples of the timeframe
-    interval (the existing Step 3 validation is applied unchanged and raises
-    rather than repairing anything). ``exchange``, ``symbol``, and ``timeframe``
-    scope the identities and must match every candle. ``as_of`` is the causal
+    ``candles`` must be OHLCV rows for exactly one instrument, strictly ordered
+    by open time and spaced by whole multiples of the timeframe interval.
+    Order/spacing validation and the existing Step 2 OHLCV validator are applied
+    unchanged; invalid closed rows raise rather than being repaired. ``exchange``,
+    ``symbol``, and ``timeframe`` scope the identities and must match every candle.
+    ``as_of`` is the causal
     instant: only candles that had fully closed by then are used, and only
     confirmed swings knowable by then can become components.
 
@@ -129,6 +137,27 @@ def detect_chart_geometry(
                 "given to detect_chart_geometry"
             )
     closed = tuple(c for c in validated if c.timestamp + interval <= as_of_utc)
+    # Validate only OHLCV values in the closed prefix. Future candle prices are
+    # deliberately not inspected; only their sequence, spacing, and scope above
+    # are needed to establish which rows are excluded at this ``as_of``.
+    closed_ohlcv = validate_ohlcv_rows(
+        [
+            [
+                datetime_to_milliseconds(candle.timestamp),
+                candle.open,
+                candle.high,
+                candle.low,
+                candle.close,
+                candle.volume,
+            ]
+            for candle in closed
+        ],
+        exchange=scoped_exchange,
+        symbol=scoped_symbol,
+        timeframe=scoped_timeframe,
+    )
+    if closed_ohlcv.issues:
+        raise CandleValidationError(closed_ohlcv)
     excluded_future = len(validated) - len(closed)
 
     swing_parameters = SwingParameters(

@@ -49,6 +49,7 @@ from trading_assistant.chart_geometry import (
     detect_chart_geometry,
 )
 from trading_assistant.chart_geometry.identity import formation_identity
+from trading_assistant.market_data.validation import CandleValidationError
 from trading_assistant.market_data.types import Candle
 from trading_assistant.market_structure.swings import SwingKind
 
@@ -162,6 +163,61 @@ class TestClosedHistoryOnly(unittest.TestCase):
 
         self.assertEqual(canonical(original), canonical(mutated))
         self.assertEqual(mutated.diagnostics.excluded_future_candle_count, len(future))
+
+    def test_closed_ohlcv_values_are_rejected_by_step2_validation(self):
+        candles = synthetic_series(ASCENDING_PIVOTS, tail=ASCENDING_TAIL)
+        candle_index = 19
+        original = candles[candle_index]
+        invalid_values = (
+            ("non-finite close", {"close": decimal.Decimal("NaN")}, "malformed_value"),
+            (
+                "non-finite volume",
+                {"volume": decimal.Decimal("Infinity")},
+                "malformed_value",
+            ),
+            ("non-positive low", {"low": decimal.Decimal("0")}, "non_positive_price"),
+            (
+                "low above open",
+                {"open": original.low - decimal.Decimal("0.1")},
+                "invalid_ohlc",
+            ),
+            (
+                "high below close",
+                {"high": original.close - decimal.Decimal("0.1")},
+                "invalid_ohlc",
+            ),
+            ("negative volume", {"volume": decimal.Decimal("-1")}, "negative_volume"),
+        )
+
+        for label, changes, expected_code in invalid_values:
+            malformed = list(candles)
+            malformed[candle_index] = replace(original, **changes)
+            with self.subTest(case=label):
+                with self.assertRaises(CandleValidationError) as raised:
+                    detect(tuple(malformed), as_of=close_time(candle_index))
+                self.assertEqual(
+                    [(issue.row_index, issue.code) for issue in raised.exception.report.issues],
+                    [(candle_index, expected_code)],
+                )
+
+    def test_excluded_future_ohlcv_mutations_do_not_change_closed_result(self):
+        candles = synthetic_series(ASCENDING_PIVOTS, tail=ASCENDING_TAIL)
+        boundary = close_time(len(candles) - 1)
+        future = replace(
+            candles[-1],
+            timestamp=candles[-1].timestamp + INTERVAL,
+            open=decimal.Decimal("NaN"),
+            high=decimal.Decimal("-1"),
+            low=decimal.Decimal("0"),
+            close=decimal.Decimal("Infinity"),
+            volume=decimal.Decimal("-1"),
+        )
+
+        original = detect(candles, as_of=boundary)
+        mutated = detect(tuple(candles) + (future,), as_of=boundary)
+
+        self.assertEqual(canonical(original), canonical(mutated))
+        self.assertEqual(mutated.diagnostics.excluded_future_candle_count, 1)
 
     def test_prefix_equivalence_holds_at_every_closed_boundary(self):
         candles = synthetic_series(CUP_PIVOTS, tail=CUP_TAIL)

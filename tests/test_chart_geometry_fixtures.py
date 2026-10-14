@@ -93,7 +93,7 @@ ASCENDING_PIVOTS = [100, 110, 104, "110.1", 108]
 ASCENDING_TAIL = [
     ("108", "109.2", "108.0", "109.0"),  # index 17, inside both boundaries
     ("109.0", "109.7", "109.0", "109.5"),  # index 18, confirms the last component
-    ("109.5", "110.0", "109.6", "109.8"),  # index 19, first eligible candle, inside
+    ("109.6", "110.0", "109.6", "109.8"),  # index 19, first eligible candle, inside
     ("109.8", "111.7", "109.7", "111.5"),  # index 20, closes above the upper line
 ]
 
@@ -123,12 +123,12 @@ DESCENDING_TAIL = [
 #   i.e. at index 19.6: index 19 is still inside, index 20 is at/after the apex.
 SYMMETRICAL_PIVOTS = [100, 110, 100, 107, 103]
 SYMMETRICAL_CONFIRM_TAIL = [
-    ("103", "104.4", "103.2", "104.2"),  # index 17
+    ("103.2", "104.4", "103.2", "104.2"),  # index 17
     ("104.2", "104.3", "103.7", "104.0"),  # index 18
     ("104.0", "105.6", "103.9", "105.5"),  # index 19, closes above the upper line
 ]
 SYMMETRICAL_APEX_TAIL = [
-    ("103", "104.4", "103.2", "104.2"),  # index 17
+    ("103.2", "104.4", "103.2", "104.2"),  # index 17
     ("104.2", "104.3", "103.7", "104.0"),  # index 18
     ("104.0", "104.4", "103.9", "104.2"),  # index 19, still inside (104.025..104.475)
     ("104.2", "104.5", "104.0", "104.3"),  # index 20, past the apex: lines crossed
@@ -176,7 +176,7 @@ FALLING_TAIL = [
 #   body gaps @12/@16/@20 = 3.20 / 2.15 / 1.10 (non-expanding)
 BULL_FLAG_PIVOTS = [104, 100, 110, 106, 108, "106.1"]
 BULL_FLAG_TAIL = [
-    ("106.1", "106.6", "106.2", "106.4"),  # index 21
+    ("106.2", "106.6", "106.2", "106.4"),  # index 21
     ("106.4", "106.6", "106.3", "106.5"),  # index 22, confirms the last component
     ("106.5", "106.9", "106.4", "106.7"),  # index 23, closes above the upper line
     ("106.7", "107.6", "106.6", "107.5"),  # index 24, further above
@@ -214,7 +214,7 @@ BEAR_FLAG_TAIL = [
 #   handle gaps @24/@28/@32 = 3.575 / 3.20 / 2.825 (non-expanding)
 CUP_PIVOTS = [100, 110, 100, 104, "100.5", "109.5", 106, 108, "106.5"]
 CUP_TAIL = [
-    ("106.5", "107.2", "106.6", "107.0"),  # index 33
+    ("106.6", "107.2", "106.6", "107.0"),  # index 33
     ("107.0", "107.7", "106.9", "107.5"),  # index 34, confirms the last component
     ("107.5", "108.2", "107.4", "108.0"),  # index 35, first eligible candle, inside
     ("108.0", "110.2", "107.9", "110.0"),  # index 36, closes above the rim line

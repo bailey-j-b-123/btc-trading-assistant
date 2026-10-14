@@ -46,6 +46,14 @@ the configured left/right windows and tie policy. Each component retains its
 original pivot timestamp and the actual confirmation instant and confirmation
 candle timestamp. A swing that is not confirmed by `as_of` is not a component.
 
+The closed prefix is also checked with Step 2's existing `validate_ohlcv_rows`:
+OHLC values must be finite and positive, the high/low must bound the open and
+close, and volume must be finite and non-negative. Invalid closed rows raise
+`CandleValidationError` with the Step 2 issue report. Unclosed future rows are
+excluded before this OHLCV-value check, so mutations to their prices or volume
+do not affect the snapshot; their sequence order, spacing, and instrument scope
+are still validated.
+
 A missing candle is never synthesized. Candidate windows use consecutive
 confirmed swings; the detector never skips a pivot or bridges a candle gap to
 make a pattern fit. A gap inside a candidate's component range rejects it. A

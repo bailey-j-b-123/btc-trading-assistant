@@ -35,15 +35,18 @@ from test_chart_geometry_fixtures import (
     DESCENDING_PIVOTS,
     DESCENDING_TAIL,
     EPOCH,
+    EXCHANGE,
     FALLING_PIVOTS,
     FALLING_TAIL,
     INTERVAL,
     RISING_PIVOTS,
     RISING_TAIL,
     SWING_OFFSET,
+    SYMBOL,
     SYMMETRICAL_APEX_TAIL,
     SYMMETRICAL_CONFIRM_TAIL,
     SYMMETRICAL_PIVOTS,
+    TIMEFRAME,
     close_time,
     detect,
     synthetic_series,
@@ -54,6 +57,8 @@ from trading_assistant.chart_geometry import (
     ChartGeometryParameters,
     minimum_component_count,
 )
+from trading_assistant.market_data.timeframes import datetime_to_milliseconds
+from trading_assistant.market_data.validation import validate_ohlcv_rows
 from trading_assistant.market_structure.swings import SwingKind
 
 # --- Shared helpers ----------------------------------------------------------
@@ -79,6 +84,66 @@ def only(snapshot, family: ChartGeometryFamily):
     formations = snapshot.formations_for(family)
     assert len(formations) == 1, [f.family.value for f in snapshot.formations]
     return formations[0]
+
+
+def test_every_family_positive_fixture_passes_step2_ohlcv_validation():
+    cases = (
+        ("ascending_triangle", ASCENDING_PIVOTS, ASCENDING_TAIL),
+        ("descending_triangle", DESCENDING_PIVOTS, DESCENDING_TAIL),
+        ("symmetrical_triangle", SYMMETRICAL_PIVOTS, SYMMETRICAL_CONFIRM_TAIL),
+        ("symmetrical_triangle_apex", SYMMETRICAL_PIVOTS, SYMMETRICAL_APEX_TAIL),
+        ("rising_wedge", RISING_PIVOTS, RISING_TAIL),
+        ("falling_wedge", FALLING_PIVOTS, FALLING_TAIL),
+        ("bull_flag", BULL_FLAG_PIVOTS, BULL_FLAG_TAIL),
+        ("bear_flag", BEAR_FLAG_PIVOTS, BEAR_FLAG_TAIL),
+        ("cup_and_handle", CUP_PIVOTS, CUP_TAIL),
+    )
+    for name, pivots, tail in cases:
+        candles = synthetic_series(pivots, tail=tail)
+        report = validate_ohlcv_rows(
+            [
+                [
+                    datetime_to_milliseconds(candle.timestamp),
+                    candle.open,
+                    candle.high,
+                    candle.low,
+                    candle.close,
+                    candle.volume,
+                ]
+                for candle in candles
+            ],
+            exchange=EXCHANGE,
+            symbol=SYMBOL,
+            timeframe=TIMEFRAME,
+        )
+        assert report.issues == (), (name, report.issues)
+        assert len(report.candles) == len(candles)
+
+
+def test_original_invalid_tail_rows_are_reproduced_by_step2_validation():
+    examples = (
+        ("ascending triangle", 19, ("109.5", "110.0", "109.6", "109.8")),
+        ("symmetrical triangle", 17, ("103", "104.4", "103.2", "104.2")),
+        ("bull flag", 21, ("106.1", "106.6", "106.2", "106.4")),
+        ("bull flag short pole", 21, ("100.4", "100.9", "100.5", "100.8")),
+        ("bull flag beyond pole", 21, ("106.1", "107.0", "106.3", "106.8")),
+        ("bull flag widening", 21, ("100.2", "101.0", "100.4", "100.8")),
+        ("cup and handle", 33, ("106.5", "107.2", "106.6", "107.0")),
+        ("cup low recovery", 33, ("103.5", "104.3", "103.7", "104.1")),
+        ("cup without handle", 25, ("106", "107.0", "106.2", "106.5")),
+    )
+    for name, index, values in examples:
+        row = [
+            datetime_to_milliseconds(EPOCH + INTERVAL * index),
+            *(D(value) for value in values),
+            D("10"),
+        ]
+        report = validate_ohlcv_rows(
+            [row], exchange=EXCHANGE, symbol=SYMBOL, timeframe=TIMEFRAME
+        )
+        assert [(issue.code, issue.message) for issue in report.issues] == [
+            ("invalid_ohlc", "low > open")
+        ], name
 
 
 # --- ascending_triangle ------------------------------------------------------
@@ -301,7 +366,7 @@ def test_symmetrical_triangle_records_the_direction_observed_not_an_expected_one
     candles = synthetic_series(
         SYMMETRICAL_PIVOTS,
         tail=[
-            ("103", "104.4", "103.2", "104.2"),
+            ("103.2", "104.4", "103.2", "104.2"),
             ("104.2", "104.3", "103.7", "104.0"),
             # index 19: lower boundary is 104.025, tolerance 0.104025 -> 103.920975
             ("104.0", "104.1", "103.4", "103.5"),
@@ -558,7 +623,7 @@ def test_bull_flag_requires_a_real_directional_pole():
     candles = synthetic_series(
         [104, 100, 101, "100.2", "100.8", "100.4"],
         tail=[
-            ("100.4", "100.9", "100.5", "100.8"),
+            ("100.5", "100.9", "100.5", "100.8"),
             ("100.8", "101.0", "100.6", "100.9"),
             ("100.9", "101.2", "100.7", "101.0"),
         ],
@@ -577,7 +642,7 @@ def test_bull_flag_rejects_a_consolidation_that_leaves_the_pole_range():
     candles = synthetic_series(
         [104, 100, 110, 106, 112, "106.1"],
         tail=[
-            ("106.1", "107.0", "106.3", "106.8"),
+            ("106.3", "107.0", "106.3", "106.8"),
             ("106.8", "107.2", "106.6", "107.0"),
             ("107.0", "107.4", "106.8", "107.2"),
         ],
@@ -598,7 +663,7 @@ def test_bull_flag_rejects_a_widening_consolidation():
     candles = synthetic_series(
         [104, 100, 110, 106, "109.95", "100.2"],
         tail=[
-            ("100.2", "101.0", "100.4", "100.8"),
+            ("100.4", "101.0", "100.4", "100.8"),
             ("100.8", "101.2", "100.6", "101.0"),
             ("101.0", "101.4", "100.8", "101.2"),
         ],
@@ -795,7 +860,7 @@ def test_cup_and_handle_requires_recovery_to_the_rim():
     candles = synthetic_series(
         [100, 110, 100, 104, "100.5", 105, 103, "104.5", "103.5"],
         tail=[
-            ("103.5", "104.3", "103.7", "104.1"),
+            ("103.7", "104.3", "103.7", "104.1"),
             ("104.1", "104.5", "103.9", "104.3"),
             ("104.3", "104.7", "104.1", "104.5"),
         ],
@@ -813,7 +878,7 @@ def test_cup_and_handle_requires_an_explicit_later_handle():
     candles = synthetic_series(
         [100, 110, 100, 104, "100.5", "109.5", 106],
         tail=[
-            ("106", "107.0", "106.2", "106.5"),
+            ("106.2", "107.0", "106.2", "106.5"),
             ("106.5", "107.2", "106.4", "106.8"),
             ("106.8", "107.5", "106.7", "107.2"),
         ],
