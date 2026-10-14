@@ -412,20 +412,35 @@ function numberOrNull(value) {
  * sat relative to the band when each one was recorded. It never claims a role change, a hold or a
  * flip — those would need the events' own outcomes, which are stated elsewhere.
  */
+function eventCountParts(counts, { compact = false } = {}) {
+  const suffix = compact ? "" : "s";
+  return [
+    counts.breakout ? `${counts.breakout} breakout${counts.breakout === 1 ? "" : suffix}` : null,
+    counts.failed_breakout
+      ? `${counts.failed_breakout} failed breakout${counts.failed_breakout === 1 ? "" : suffix}`
+      : null,
+    counts.sweep ? `${counts.sweep} sweep${counts.sweep === 1 ? "" : suffix}` : null,
+    counts.retest ? `${counts.retest} retest${counts.retest === 1 ? "" : suffix}` : null,
+  ].filter(Boolean);
+}
+
 function linkedEventSentence(band) {
   const linkage = band?.linked_events;
   if (!linkage || typeof linkage !== "object") return "";
   if (linkage.event_count === null || linkage.counts === null) return "";
   if (linkage.linked !== true) {
+    // A stored event whose reference overlaps this band but is not identical to it must not be
+    // reported as nothing at all (BRAIN-AUDIT-0006): the level is re-derived each frame while the
+    // event keeps the bounds it was detected with, so say the overlap and say it is not a link.
+    const overlapping = Number(linkage.overlapping_count) || 0;
+    if (overlapping > 0) {
+      const parts = eventCountParts(linkage.overlapping_counts || {});
+      return ` ${overlapping} stored event${overlapping === 1 ? "" : "s"}${parts.length ? ` (${parts.join(", ")})` : ""} reference a level whose stored bounds OVERLAP this band without being identical to it. The band's bounds are re-derived on this frame while each event keeps the bounds it was detected with, so this is an overlapping, non-identical reference and is not counted as the same level.`;
+    }
     return " No stored breakout, sweep or retest used this zone as its own reference level.";
   }
   const counts = linkage.counts || {};
-  const parts = [
-    counts.breakout ? `${counts.breakout} breakout${counts.breakout === 1 ? "" : "s"}` : null,
-    counts.failed_breakout ? `${counts.failed_breakout} failed breakout${counts.failed_breakout === 1 ? "" : "s"}` : null,
-    counts.sweep ? `${counts.sweep} sweep${counts.sweep === 1 ? "" : "s"}` : null,
-    counts.retest ? `${counts.retest} retest${counts.retest === 1 ? "" : "s"}` : null,
-  ].filter(Boolean);
+  const parts = eventCountParts(counts);
   return ` Used as the reference level of ${parts.join(", ")} on this timeframe; the recorded direction and state of each one are stated on that event, and no hold, flip or retest is claimed here.`;
 }
 
@@ -435,14 +450,13 @@ function linkedRows(band) {
   if (!linkage || typeof linkage !== "object" || linkage.event_count === null || linkage.counts === null) {
     return "not checked on this view";
   }
-  if (linkage.linked !== true) return "none recorded";
-  const counts = linkage.counts || {};
-  const parts = [
-    counts.breakout ? `${counts.breakout} breakout` : null,
-    counts.failed_breakout ? `${counts.failed_breakout} failed` : null,
-    counts.sweep ? `${counts.sweep} sweep` : null,
-    counts.retest ? `${counts.retest} retest` : null,
-  ].filter(Boolean);
+  if (linkage.linked !== true) {
+    const overlapping = Number(linkage.overlapping_count) || 0;
+    return overlapping > 0
+      ? `${overlapping} overlapping, non-identical reference${overlapping === 1 ? "" : "s"}`
+      : "none recorded";
+  }
+  const parts = eventCountParts(linkage.counts || {}, { compact: true });
   return parts.length ? parts.join(" · ") : `${linkage.event_count} stored event(s)`;
 }
 

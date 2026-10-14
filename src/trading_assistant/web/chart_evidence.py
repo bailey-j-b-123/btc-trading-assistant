@@ -250,6 +250,12 @@ def _event_item(event: Any, kind: str, interval: timedelta) -> dict[str, Any]:
                 "state": event.state,
                 "breakout_id": event.breakout.id,
                 "direction": event.breakout.direction,
+                # A retest borrows the reference of the breakout it follows, so it carries that
+                # reference's own type and id exactly as the breakout branch does. Without them the
+                # zone linkage could never consider a retest, although the linkage advertises
+                # retests (BRAIN-AUDIT-0005).
+                "reference_type": event.breakout.reference.type,
+                "reference_id": event.breakout.reference.id,
                 "band_low": _dec(event.breakout.reference.band_low),
                 "band_high": _dec(event.breakout.reference.band_high),
                 "time_ms": _ms(event.candle.timestamp),

@@ -205,10 +205,19 @@ Tooling: `scripts/browser-audit/support-resistance-check.mjs` (new), `scripts/se
   reference. Review against it is still required.
 * The support band on the 60-day demo renders at full class opacity; whether the default support
   wash should be lighter is a design question for review, not a defect this session resolved.
-* `linked_events` was never observed in the `linked: true` state on the demo databases (their events
-  use swing and zone references that do not coincide); the code path is covered by tests with
-  detector-shaped fixtures, not by a live record. A live linkage should be observed before the
-  feature is described as working end to end against real stored events.
+* **Corrected 2026-10-14 (BRAIN-AUDIT-0006).** The original entry here said `linked_events` was
+  never observed in the `linked: true` state because "their events use swing and zone references
+  that do not coincide". That reason was factually wrong: on the 4h demo frame the detector objects
+  contain 5 zone-referenced breakouts, 1 zone-referenced failed breakout and 10 zone-referenced
+  retests, and the linkage could not link historical references because it compared bounds for
+  exact equality while those bounds are re-derived every analysis frame. Two separate defects were
+  confirmed and repaired on the integration branch (BRAIN-AUDIT-0005: the shared projection dropped
+  a retest's reference entirely; BRAIN-AUDIT-0006: the identity rule plus an operator-facing
+  absolute negative that the stored evidence did not support). A live `linked: true` record has now
+  been observed — on the demo series truncated at the band's own breakout instant
+  (`as_of=2026-08-26T08:00:00Z`), band `85958.6 – 86543.0` reports `linked=True, count=1,
+  counts={'breakout': 1, ...}` in the browser as well as the payload. See
+  `docs/brain-repair/REPAIR_LOG.md` and `docs/brain-repair/evidence/0005-0006-browser.txt`.
 * The engine's `higher_timeframes` list is empty for the engine snapshot on these demo databases, so
   the HTF ladder was verified through the chart's own supported-timeframe driven path and the payload
   probe, not with a live 1D band drawn on a 1H chart.

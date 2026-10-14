@@ -1,20 +1,20 @@
 {
  "boundaries": {
   "250": {
-   "bytes": 745022,
-   "sha256": "8fcf465c3f131a3c5940c8c4394b524ef306a3c3e242cde1f471365806448a73"
+   "bytes": 777309,
+   "sha256": "c6a56cd26863cbd78d22b02ecf173761f1f7042d916669ace20069670ad3ab2d"
   },
   "375": {
-   "bytes": 1262358,
-   "sha256": "cf4a425825262025aad045d51d9f0327d2011ff1208abf122801984b4c29cd15"
+   "bytes": 1351095,
+   "sha256": "4792e302f4cc6affcbc722e7423367cb96f8a616389cdaa0498d3aa3b7a76548"
   },
   "400": {
-   "bytes": 1496066,
-   "sha256": "c32db423e9ee96ee5abcc14129fe5539021d476429269e6824b7ceec4cc7fafe"
+   "bytes": 1600743,
+   "sha256": "ee0b5612275539b7f19e01f6a23088a4f9d11de760af6b577f87ba9432a3caaa"
   },
   "500": {
-   "bytes": 2279801,
-   "sha256": "ebd64298dc1119862742694cce9ede6796d7d019a9040846783e21bb273836d6"
+   "bytes": 2456820,
+   "sha256": "d78f40acafe5279450781ccd2b3f5d3a4387b8f0bcf404d201db2f4bf678fe9d"
   }
  },
  "candles": 500

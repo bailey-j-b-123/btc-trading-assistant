@@ -1904,3 +1904,72 @@ test("integrated patterns survive S/R refresh with all three accounting surfaces
     assert.deepEqual({ plan: dashboard.plan, qualification: dashboard.qualification }, originalDecision);
   });
 });
+
+// BRAIN-AUDIT-0006: the nearby-zones card must not drop a band's stored references, and must not
+// dress an overlapping, non-identical reference up as a link.
+test("nearby zone rows state overlapping references and keep the unsupported negative off them", async () => {
+  const dashboard = patternScreenDashboard();
+  const template = dashboard.overlays.zone_bands.bands[0];
+  const overlapping = {
+    ...template,
+    id: "band-overlap",
+    band_low: "61500",
+    band_high: "61600",
+    center: "61550",
+    linked_events: {
+      linked: false,
+      event_count: 0,
+      events: [],
+      counts: { breakout: 0, failed_breakout: 0, sweep: 0, retest: 0 },
+      reference_ids: [],
+      matched_band_bounds: [],
+      overlapping: true,
+      overlapping_count: 3,
+      overlapping_events: [],
+      overlapping_counts: { breakout: 1, failed_breakout: 0, sweep: 0, retest: 2 },
+      overlap_note: "stored events whose zone reference overlaps this band but is not identical to it",
+    },
+  };
+  const unreferenced = {
+    ...template,
+    id: "band-none",
+    band_low: "61000",
+    band_high: "61100",
+    center: "61050",
+    linked_events: {
+      linked: false,
+      event_count: 0,
+      events: [],
+      counts: { breakout: 0, failed_breakout: 0, sweep: 0, retest: 0 },
+      reference_ids: [],
+      matched_band_bounds: [],
+      overlapping: false,
+      overlapping_count: 0,
+      overlapping_events: [],
+      overlapping_counts: { breakout: 0, failed_breakout: 0, sweep: 0, retest: 0 },
+      overlap_note: null,
+    },
+  };
+  dashboard.overlays.zone_bands = {
+    ...dashboard.overlays.zone_bands,
+    bands: [overlapping, unreferenced],
+  };
+  await withDashboard(dashboard, forwardPayload(), async ({ view }) => {
+    await renderDashboard(view);
+    const metas = byClass(view, "zone-meta").map((node) => node.textContent);
+    assert.equal(metas.length, 2, "both presented bands are listed");
+    // Non-vacuous in both directions: the overlap is stated where it exists, and nothing is stated
+    // where it does not, so a row printed unconditionally cannot pass this test.
+    assert.equal(
+      metas.filter((text) => /3 event\(s\) overlap it at different bounds/.test(text)).length,
+      1,
+      `one row states the overlap: ${JSON.stringify(metas)}`,
+    );
+    assert.doesNotMatch(metas.join(" | "), /stored event\(s\) referenced it/, "no overlap is called a link");
+    assert.equal(
+      metas.filter((text) => /^1H zone · 2 tests$/.test(text)).length,
+      1,
+      `the unreferenced row keeps no reference claim at all: ${JSON.stringify(metas)}`,
+    );
+  });
+});

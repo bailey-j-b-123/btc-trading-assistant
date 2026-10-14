@@ -3220,7 +3220,11 @@ function zoneRow(band) {
   const touches = zoneRowTests(band);
   const linked = band.linked_events && band.linked_events.linked === true
     ? `${band.linked_events.event_count} stored event(s) referenced it`
-    : null;
+    // Overlapping non-identical references are stated as such rather than dropped or dressed up
+    // as a link (BRAIN-AUDIT-0006).
+    : band.linked_events && Number(band.linked_events.overlapping_count) > 0
+      ? `${band.linked_events.overlapping_count} event(s) overlap it at different bounds`
+      : null;
   const meta = [tf && `${tf} zone`, touches, linked, band.faded ? "older, faded" : null].filter(Boolean).join(" · ");
   return el("li", { class: "zone-row", dataset: { tone } }, [
     el("div", { class: "zone-row-head" }, [

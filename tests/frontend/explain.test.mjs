@@ -281,6 +281,74 @@ test("the explanation states which recorded events used the band, and never more
   assert.equal(unchecked.rows.find((row) => row.label === "Recorded events referencing this zone").value, "not checked on this view");
 });
 
+test("an overlapping, non-identical stored reference is reported instead of an absolute negative", () => {
+  // BRAIN-AUDIT-0006: the band's bounds are re-derived on this frame while a historical event keeps
+  // the bounds it was detected with, so a band that IS referenced must not read as unreferenced.
+  const overlapping = explainZoneBand({
+    ...baseBand,
+    linked_events: {
+      linked: false, event_count: 0, counts: { breakout: 0, failed_breakout: 0, sweep: 0, retest: 0 },
+      overlapping: true, overlapping_count: 3,
+      overlapping_counts: { breakout: 1, failed_breakout: 0, sweep: 0, retest: 2 },
+      overlap_note: "stored events whose zone reference overlaps this band but is not identical to it",
+    },
+  }, { timeframe: "1h" });
+  const text = body(overlapping, 3);
+  assert.doesNotMatch(text, /No stored breakout, sweep or retest used this zone as its own reference level/);
+  assert.match(text, /3 stored events \(1 breakout, 2 retests\) reference a level whose stored bounds OVERLAP this band/);
+  assert.match(text, /not counted as the same level/);
+  assert.equal(
+    overlapping.rows.find((row) => row.label === "Recorded events referencing this zone").value,
+    "3 overlapping, non-identical references",
+  );
+
+  // Exactly one overlapping reference reads in the singular and still never claims a link.
+  const single = explainZoneBand({
+    ...baseBand,
+    linked_events: {
+      linked: false, event_count: 0, counts: { breakout: 0, failed_breakout: 0, sweep: 0, retest: 0 },
+      overlapping: true, overlapping_count: 1,
+      overlapping_counts: { breakout: 0, failed_breakout: 0, sweep: 0, retest: 1 },
+    },
+  }, { timeframe: "1h" });
+  assert.match(body(single, 3), /1 stored event \(1 retest\) reference a level whose stored bounds OVERLAP/);
+  assert.equal(
+    single.rows.find((row) => row.label === "Recorded events referencing this zone").value,
+    "1 overlapping, non-identical reference",
+  );
+
+  // Zero overlaps keeps the original, now-supported absolute statement.
+  const noneAgain = explainZoneBand({
+    ...baseBand,
+    linked_events: {
+      linked: false, event_count: 0, counts: { breakout: 0, failed_breakout: 0, sweep: 0, retest: 0 },
+      overlapping: false, overlapping_count: 0,
+    },
+  }, { timeframe: "1h" });
+  assert.match(body(noneAgain, 3), /No stored breakout, sweep or retest used this zone as its own reference level/);
+  assert.equal(
+    noneAgain.rows.find((row) => row.label === "Recorded events referencing this zone").value,
+    "none recorded",
+  );
+});
+
+test("a linked band still states its own overlapping references separately", () => {
+  const linked = explainZoneBand({
+    ...baseBand,
+    linked_events: {
+      linked: true, event_count: 1, counts: { breakout: 1, failed_breakout: 0, sweep: 0, retest: 0 },
+      overlapping: true, overlapping_count: 2,
+      overlapping_counts: { breakout: 1, failed_breakout: 0, sweep: 0, retest: 1 },
+    },
+  }, { timeframe: "1h" });
+  assert.match(body(linked, 3), /Used as the reference level of 1 breakout on this timeframe/);
+  assert.equal(
+    linked.rows.find((row) => row.label === "Recorded events referencing this zone").value,
+    "1 breakout",
+    "the linked row reports the linked events, not the overlapping ones",
+  );
+});
+
 test("a merged display band reports how many detector zones it combines", () => {
   const explanation = explainZoneBand({ ...baseBand, merged_zone_count: 3, source_timeframe: "4h" }, { timeframe: "4h" });
   assert.match(body(explanation, 3), /Merged from 3 overlapping detector zones for display; the test and evidence counts are the sum of those zones' own stored numbers/);

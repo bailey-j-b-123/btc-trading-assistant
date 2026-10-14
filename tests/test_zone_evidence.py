@@ -12,6 +12,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import pytest
+
 from trading_assistant.web.zone_evidence import (
     EMPTY_LINKAGE,
     NOT_EVALUATED_LINKAGE,
@@ -292,3 +294,189 @@ def test_event_projection_is_the_same_shape_the_chart_evidence_uses():
     linkage = link_events_to_bands([band()], events=[projected], as_of=AS_OF)["1h:61000:61500"]
     assert linkage["linked"] is True
     assert linkage["events"][0]["id"] == "bo-1"
+
+
+# --- a retest projected from REAL detector objects must stay linkable (BRAIN-AUDIT-0005) ---
+# The linkage advertises breakouts, failed breakouts, sweeps and retests, but the retest branch of
+# the shared projection used to omit the reference it borrows from its breakout, so a retest could
+# never be linked whatever its bounds were. These cases build real pattern_liquidity objects.
+
+def _projected_retest(reference_type: str, *, low: str = "61000", high: str = "61500"):
+    from datetime import timedelta as _timedelta
+
+    from trading_assistant.market_data.types import Candle
+    from trading_assistant.pattern_liquidity.events import Breakout, Reference, Retest
+    from trading_assistant.web.chart_evidence import project_event
+
+    candle = Candle(
+        exchange="binance",
+        symbol="BTC/USDT",
+        timeframe="1h",
+        timestamp=datetime(2026, 10, 8, 12, 0, tzinfo=UTC),
+        open=Decimal("100"),
+        high=Decimal("110"),
+        low=Decimal("90"),
+        close=Decimal("105"),
+        volume=Decimal("1"),
+    )
+    reference = Reference(
+        id=f"ref-{reference_type}",
+        type=reference_type,
+        band_low=Decimal(low),
+        band_high=Decimal(high),
+        known_at=AS_OF,
+        swings=(),
+    )
+    breakout = Breakout(
+        id="bo-retest",
+        direction="bullish",
+        reference=reference,
+        previous_candle=candle,
+        candle=candle,
+        known_at=AS_OF,
+        confirmation_candles=(),
+        breakout_close=Decimal("61700"),
+        penetration=Decimal("200"),
+        penetration_pct=Decimal("0.33"),
+        penetration_atr=None,
+        volatility=None,
+        volume=None,
+        parameters=None,
+    )
+    retest = Retest(
+        id="rt-1",
+        breakout=breakout,
+        state="held",
+        candle=candle,
+        known_at=AS_OF,
+        distance_from_band=Decimal("1"),
+        elapsed_candles=2,
+        evidence_candles=(),
+        parameters=None,
+    )
+    return project_event(retest, "retest", _timedelta(hours=1))
+
+
+def test_a_real_retest_projection_carries_the_reference_of_the_breakout_it_follows():
+    projected = _projected_retest("zone")
+    assert projected["reference_type"] == "zone"
+    assert projected["reference_id"] == "ref-zone"
+    assert projected["band_low"] == "61000"
+    assert projected["band_high"] == "61500"
+
+
+def test_a_zone_referenced_retest_is_linked_and_counted_as_a_retest():
+    linkage = link_events_to_bands([band()], events=[_projected_retest("zone")], as_of=AS_OF)["1h:61000:61500"]
+    assert linkage["linked"] is True
+    assert linkage["counts"]["retest"] == 1
+    assert linkage["events"][0]["id"] == "rt-1"
+    assert linkage["reference_ids"] == ["ref-zone"]
+
+
+@pytest.mark.parametrize("reference_type", ["swing_high", "swing_low", "range_high", "range_low"])
+def test_a_retest_on_a_non_zone_reference_is_never_relabelled_as_a_zone_link(reference_type):
+    linkage = link_events_to_bands([band()], events=[_projected_retest(reference_type)], as_of=AS_OF)[
+        "1h:61000:61500"
+    ]
+    assert linkage["linked"] is False
+    assert linkage["counts"]["retest"] == 0
+    assert linkage["overlapping"] is False, "a non-zone reference is not an overlapping zone reference"
+
+
+# --- overlapping, non-identical references are measured, never claimed as a link ------------
+# A band's bounds are re-derived on every analysis frame while an event keeps the bounds it was
+# detected with, so the exact-identity rule above reports no link for a historical reference to the
+# same level. That is correct, but reporting it as "nothing referenced this band" is not
+# (BRAIN-AUDIT-0006): the measured overlap is stated instead, and it never becomes a link.
+
+def test_a_historical_reference_with_shifted_bounds_overlaps_without_linking():
+    from trading_assistant.web.zone_evidence import OVERLAP_NOTE
+
+    linkage = link_events_to_bands(
+        [band()], events=[event(band_low="61000", band_high="61300")], as_of=AS_OF
+    )["1h:61000:61500"]
+    assert linkage["linked"] is False, "the identity rule is unchanged"
+    assert linkage["note"] == EMPTY_LINKAGE["note"]
+    assert linkage["overlapping"] is True
+    assert linkage["overlapping_count"] == 1
+    assert linkage["overlapping_counts"]["breakout"] == 1
+    assert linkage["overlap_note"] == OVERLAP_NOTE
+    record = linkage["overlapping_events"][0]
+    assert record["band_low"] == "61000" and record["band_high"] == "61300"
+    assert record["overlap_relation"] == "contained_by"
+
+
+def test_a_reference_that_contains_the_band_reports_that_relation():
+    linkage = link_events_to_bands(
+        [band()], events=[event(band_low="60000", band_high="62000")], as_of=AS_OF
+    )["1h:61000:61500"]
+    assert linkage["linked"] is False
+    assert linkage["overlapping_events"][0]["overlap_relation"] == "contains"
+
+
+def test_a_partially_overlapping_reference_reports_a_plain_overlap():
+    linkage = link_events_to_bands(
+        [band()], events=[event(band_low="61400", band_high="62000")], as_of=AS_OF
+    )["1h:61000:61500"]
+    assert linkage["overlapping_events"][0]["overlap_relation"] == "overlaps"
+
+
+def test_a_reference_that_does_not_overlap_is_not_reported_as_an_overlap():
+    linkage = link_events_to_bands(
+        [band()], events=[event(band_low="70000", band_high="70100")], as_of=AS_OF
+    )["1h:61000:61500"]
+    assert linkage["linked"] is False
+    assert linkage["overlapping"] is False
+    assert linkage["overlapping_count"] == 0
+    assert linkage["overlap_note"] is None
+
+
+def test_an_identical_reference_is_a_link_and_never_also_an_overlap():
+    linkage = link_events_to_bands([band()], events=[event()], as_of=AS_OF)["1h:61000:61500"]
+    assert linkage["linked"] is True
+    assert linkage["overlapping"] is False
+    assert linkage["overlapping_count"] == 0
+
+
+def test_an_overlap_is_still_bounded_by_the_analysed_instant():
+    later = event(band_low="61000", band_high="61300", known_at=AS_OF + timedelta(hours=1))
+    linkage = link_events_to_bands([band()], events=[later], as_of=AS_OF)["1h:61000:61500"]
+    assert linkage["linked"] is False
+    assert linkage["overlapping"] is False, "an event recorded later is not evidence at this instant"
+
+
+def test_a_non_zone_reference_is_never_reported_as_an_overlapping_zone_reference():
+    linkage = link_events_to_bands(
+        [band()], events=[event(reference_type="swing_high", band_low="61000", band_high="61300")],
+        as_of=AS_OF,
+    )["1h:61000:61500"]
+    assert linkage["linked"] is False
+    assert linkage["overlapping"] is False
+
+
+def test_a_merged_bands_overlap_is_measured_through_its_member_zones():
+    linkage = link_events_to_bands(
+        [band(members=[{"band_low": "61000", "band_high": "61200"}, {"band_low": "61400", "band_high": "61500"}])],
+        events=[event(band_low="61000", band_high="61300")],
+        as_of=AS_OF,
+    )["1h:61000:61500"]
+    assert linkage["linked"] is False
+    assert linkage["overlapping_count"] == 1
+    # 61000–61300 contains the first member zone 61000–61200 and spills past it, and shares only an
+    # edge with the second, so the relation is decided against the member it actually covers.
+    assert linkage["overlapping_events"][0]["overlap_relation"] == "contains"
+
+
+def test_every_kind_counts_its_own_overlaps_separately():
+    events = [
+        event(kind="breakout", event_id="b1", band_low="61000", band_high="61300"),
+        event(kind="retest", event_id="r1", band_low="61000", band_high="61200"),
+        event(kind="retest", event_id="r2", band_low="61050", band_high="61250"),
+    ]
+    linkage = link_events_to_bands([band()], events=events, as_of=AS_OF)["1h:61000:61500"]
+    assert linkage["overlapping_counts"] == {
+        "breakout": 1,
+        "failed_breakout": 0,
+        "sweep": 0,
+        "retest": 2,
+    }

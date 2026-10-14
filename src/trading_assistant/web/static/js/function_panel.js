@@ -159,7 +159,15 @@ function bandTestText(band) {
 function linkedEventText(linkage) {
   if (!linkage || typeof linkage !== "object") return null;
   if (linkage.event_count === null || linkage.counts === null) return null;
-  if (!linkage.linked) return "no recorded event used this zone";
+  if (!linkage.linked) {
+    // Overlapping, non-identical references are stored facts and must not read as "nothing"
+    // (BRAIN-AUDIT-0006); they are still explicitly not the same level.
+    const overlapping = Number(linkage.overlapping_count) || 0;
+    if (overlapping > 0) {
+      return `${overlapping} recorded event${overlapping === 1 ? "" : "s"} overlap this level at different bounds (not counted as the same level)`;
+    }
+    return "no recorded event used this zone";
+  }
   const counts = linkage.counts || {};
   const parts = [
     counts.breakout ? `${counts.breakout} breakout${counts.breakout === 1 ? "" : "s"}` : null,

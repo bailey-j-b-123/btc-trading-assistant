@@ -22,8 +22,13 @@ is `support-resistance-report.json` beside this file.
 1. **Owner review against the approved reference screenshot.** That asset has not been available to
    this session, so no visual acceptance is claimed. The screenshots here are behavioural evidence.
 3. **A live `linked: true` zone-to-event link** on a database whose stored breakout/sweep/retest used
-   a zone reference (the demo series' events use swing references, so the path is covered by
-   fixtures, not by a stored record).
+   a zone reference. **Observed 2026-10-14** on the demo series truncated at the band's own breakout
+   instant (`as_of=2026-08-26T08:00:00Z`): band `85958.6 – 86543.0` reports `linked=True, count=1,
+   counts={'breakout': 1, ...}` in the payload and on screen. The two defects that had made this
+   unreachable (BRAIN-AUDIT-0005 and 0006 — a dropped retest reference, and an exact-bounds identity
+   rule stated as an absolute negative) are repaired on the integration branch; the finding's own
+   end-state probe now also counts the ten zone-referenced retests. See
+   `docs/brain-repair/REPAIR_LOG.md`.
 4. **A 1D band drawn on a lower timeframe** — needs a deployment configured with `1d` and real stored
    1D candles; this session verified the ladder and the refusal to invent a frame above 4H.
 5. Design question, not a defect: the default support wash strength on the 60-day demo series.

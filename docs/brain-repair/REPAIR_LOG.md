@@ -145,7 +145,105 @@ branch, no audit branch and no `main` was touched, and no commit was duplicated.
   `evidence/sr-switch-probe.txt`.
 - Status: **READY FOR AUDITOR RECHECK**.
 
+### BRAIN-AUDIT-0005 (P2) — retests could never be linked to a zone band
+
+- Read the full finding on PR #68 (`docs/brain-audit/findings/BRAIN-AUDIT-0005.md`) and reproduced it
+  on the repaired lineage before touching code: the probe showed `retest projected= 30 carrying
+  reference_type= 0` against `retest n= 30 {'swing_high': 16, 'zone': 10, 'range_high': 4}` — ten
+  retests really held a `zone` reference and none of them reached the linkage.
+- Root cause: `src/trading_assistant/web/chart_evidence.py::_event_item` sets `reference_type`/
+  `reference_id` on the breakout, failed-breakout and sweep branches but not on the retest branch,
+  so every retest arrived at `link_events_to_bands` with no reference and was filtered out.
+- Repair (acceptance criterion 1): the retest branch now carries the reference of the breakout the
+  retest follows (`reference_type`, `reference_id`), exactly as the other branches carry theirs. No
+  detector, threshold, identity, plan, journal or ledger change; the fields are additive and
+  read-only.
+- Regression tests (acceptance criterion 2): `tests/test_zone_evidence.py` now projects a **real**
+  `Retest` (real `Reference`/`Breakout` objects, not hand-made dicts) through
+  `chart_evidence.project_event` and asserts the linkage counts it under `counts.retest` with
+  `reference_ids == ["ref-zone"]`; four separate cases use `swing_high`/`swing_low`/`range_high`/
+  `range_low` references and must stay unlinked. New `tests/test_zone_linkage_end_to_end.py` drives
+  the real detectors over stored candles (the S&R demo generator, anchored at a fixed date) and
+  asserts a retest's counted reference equals its own breakout's reference bounds.
+- Post-repair reproduction (acceptance criterion 3, with 0006's rule settled): the auditor's own
+  probe now reads `retest projected= 30 carrying reference_type= 30`, and the ten zone-referenced
+  retests are counted on the bands as overlaps (0006) — see the end state below.
+- Negative control: reverting only the retest projection fails three tests
+  (`test_a_real_retest_projection_carries_the_reference_of_the_breakout_it_follows`,
+  `test_a_zone_referenced_retest_is_linked_and_counted_as_a_retest`, and the end-to-end retest test).
+- Status: **READY FOR AUDITOR RECHECK**.
+
+### BRAIN-AUDIT-0006 (P2) — a referenced band could state an absolute negative
+
+- Read the full finding and reproduced the end state on the repaired lineage: all five presented 4h
+  bands reported `linked=False count=0` while the same payload carried ten zone-referenced events
+  overlapping them (e.g. `85958.6 – 86543.0`, `86076.2 – 86543.0`, `86543.0 – 86543.0` against the
+  displayed `85958.6 – 87052.5`). Cause: the identity rule is exact decimal-bounds equality between
+  the event's reference and the band (or a member zone), while zone bounds are re-derived every
+  analysis frame and an event keeps the bounds it was detected with — so a historical reference to
+  the same level almost never links.
+- Repair (acceptance criterion 1): the identity rule is unchanged and now stated explicitly in
+  `zone_evidence`'s docstring. Alongside it the linkage reports what the stored evidence actually
+  establishes — `overlapping`, `overlapping_count`, `overlapping_counts`, `overlapping_events`
+  (each with `overlap_relation` in `contained_by` / `contains` / `overlaps`) and `overlap_note`.
+  A band is only ever reported as having no stored reference when nothing overlaps it and nothing is
+  identical to it. The operator-facing wording changed on four surfaces: the band explanation
+  (`explain.js::linkedEventSentence`, `linkedRows`), the Support & Resistance panel row
+  (`function_panel.js::linkedEventText`), the nearby-zones card row
+  (`views/dashboard.js::zoneRow`), and the payload's own `overlap_note`. Every overlap sentence
+  says the reference is NOT counted as the same level.
+- Regression tests (acceptance criterion 2): `tests/test_zone_evidence.py` (30 tests) covers shifted
+  bounds, containment both ways, partial overlap, non-overlap, identical bounds, merged bands
+  measured through their member zones, and per-kind counts; `tests/test_zone_linkage_end_to_end.py`
+  pins true positives and true negatives at fixed `as_of` instants against stored detector output
+  (one band linked at the positive-control instant, three bands reporting overlaps and two bands
+  reporting nothing at the end state); `tests/frontend/{explain,function-panel,dashboard}.test.mjs`
+  pin the wording and the singular/plural forms, and that a row with no reference makes no claim.
+- Negative control: disabling the overlap detector in the working tree fails five unit/end-to-end
+  tests, and the browser check fails 16 assertions on target; a card-row mutation fails exactly the
+  new card test.
+- Payload effect, measured key by key on the deterministic synthetic series: only additive keys
+  (`reference_type`/`reference_id` on retests, the five overlap fields) plus the three linked-event
+  values that must change because retests are now counted (`event_count 2 -> 4`,
+  `counts.retest 0 -> 2`, the events list). No key removed; no decision, plan, scenario,
+  qualification or risk value changed; `decision_n1000` digest unchanged.
+- Docs correction (acceptance criterion 3): the #66 `README.md`/`STATUS.md` claims that "the demo
+  series' events use swing references" are corrected to the measured evidence below.
+- Status: **READY FOR AUDITOR RECHECK**.
+
+### Recheck evidence for 0005 / 0006 (repaired head)
+
+- End state (4h, `as_of=2026-10-14T00:00:00Z`, the finding's own instant): bands
+  `88363.8–89574.0`, `87180.3–88340.1` and `85958.6–87052.5` each report
+  `linked=False, overlapping=True` with 3, 3 and 10 overlapping references; bands
+  `90227.9–91022.4` and `85158.0–85158.0` report nothing, which the payload supports. Every retest
+  reaches the linkage with its reference: `retest projected= 30 carrying reference_type= 30`.
+- Positive control (4h, `as_of=2026-08-26T08:00:00Z`): band `85958.6–86543.0` still links exactly
+  (`linked=True, count=1, counts={'breakout': 1, ...}`) and additionally reports its three
+  overlapping, non-identical references. The overlap branch never swallows a true link.
+- In a real browser (`scripts/browser-audit/zone-reference-check.mjs`, 4 viewports): the explanation,
+  the panel row and the card row all state the overlap for the three bands above, none states the
+  absolute negative, the two unreferenced band checks stay clean, and the figures on screen are the
+  figures the API reports. Positive-control database: the linked band states its link on all four
+  surfaces. Negative controls (JS surfaces reverted; overlap detector disabled) fail the check.
+- Transcripts: `evidence/0005-0006-recheck.txt`, `evidence/0005-0006-browser.txt`.
+
 ### Outstanding
+- Found while proving reachability in a browser (recorded, not repaired here): the linkage is only
+  evaluated on the ENGINE timeframe, so on the demo series — whose zone-referenced events are all
+  on 4h while the default engine timeframe is 1h — the operator sees the overlap fact only when the
+  engine timeframe is 4h. On a 1h-engine view of the same series every band honestly says
+  `not checked on this view` (the 1h frame stores no reference events). This is the documented
+  engine/non-engine split, not a regression, but it is worth an explicit decision: either the
+  demo/default engine timeframe should match the timeframe the series stores references on, or the
+  reader should be told why the fact is absent on other frames.
+- Recorded for the auditor: `support-resistance-check.mjs` must be run against a server whose engine
+  (default) timeframe equals its `--timeframe` (its usage block does this). Pointed at a 4H-engine
+  server with `--timeframe 1h` its first phase reads the previous view's bands before the requested
+  view applies and fails 29 assertions; an independent probe shows the application paints the
+  correct 1H band once settled. A one-line fix (wait for the viewed timeframe's own settle facts in
+  the first phase too, as the switch phase already does) is deliberately left to a separate,
+  auditable change rather than bundled into these two repairs.
 - REPAIR-SR-001 (non-engine `zone_bands` passthrough) is confirmed effective in a real browser by
   the probe above; it still awaits its audit ID and independent recheck.
 - Nothing else outstanding on this branch at this checkpoint; the audit feed is rechecked at each

@@ -183,6 +183,23 @@ test("a band referenced by stored events says exactly which events, and one that
   assert.doesNotMatch(unchecked.list[0].meta, /no recorded event used this zone/);
 });
 
+test("an overlapping non-identical reference is stated, not reported as no event", () => {
+  const overlapping = functionPanelModel({
+    functionId: "support_resistance",
+    bands: [{
+      id: "b", band_low: "1", band_high: "2", display_role: "resistance", touch_count: 2,
+      linked_events: {
+        linked: false, event_count: 0, counts: { breakout: 0, retest: 0, sweep: 0, failed_breakout: 0 },
+        overlapping: true, overlapping_count: 2,
+        overlapping_counts: { breakout: 1, retest: 1, sweep: 0, failed_breakout: 0 },
+      },
+    }],
+  });
+  assert.match(overlapping.list[0].meta, /2 recorded events overlap this level at different bounds/);
+  assert.match(overlapping.list[0].meta, /not counted as the same level/);
+  assert.doesNotMatch(overlapping.list[0].meta, /no recorded event used this zone/);
+});
+
 test("the support/resistance panel has an honest empty state", () => {
   const none = functionPanelModel({ functionId: "support_resistance", bands: [], reason: "no_zones", accounting: { totalStored: 0 } });
   assert.equal(none.list.length, 0);
