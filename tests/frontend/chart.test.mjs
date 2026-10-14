@@ -451,3 +451,50 @@ test("price-axis labels use two decimals with thousands separators (display only
   assert.equal(formatPriceAxis(0.5), "0.50");
   assert.equal(formatPriceAxis(NaN), "");
 });
+
+test("Chart Patterns price axis drops trailing decimals but never rounds a stored price away", async () => {
+  const { formatPatternPriceAxis } = await import("../../src/trading_assistant/web/static/js/chart.js");
+  assert.equal(formatPatternPriceAxis(84800), "84,800");
+  assert.equal(formatPatternPriceAxis(84429.7), "84,429.7");
+  assert.equal(formatPatternPriceAxis(84229.9), "84,229.9");
+  assert.equal(formatPatternPriceAxis(82349.75), "82,349.75");
+  assert.equal(formatPatternPriceAxis("86000"), "86,000");
+  assert.equal(formatPatternPriceAxis(NaN), "");
+  assert.equal(formatPatternPriceAxis(undefined), "");
+});
+
+test("the pattern axis style applies only while Chart Patterns is open and is restored exactly afterwards", async () => {
+  const { setPatternPane, formatPriceAxis, formatPatternPriceAxis } = await import(
+    "../../src/trading_assistant/web/static/js/chart.js"
+  );
+  const seriesOptions = [];
+  const formingOptions = [];
+  const chartOptions = [];
+  const scaleOptions = [];
+  const defaultLayout = { textColor: "#9aa4b5", fontFamily: "monospace", fontSize: 11 };
+  const handle = {
+    destroyed: false,
+    defaultLayout,
+    series: {
+      applyOptions: (options) => seriesOptions.push(options),
+      priceScale: () => ({ applyOptions: (options) => scaleOptions.push(options) }),
+    },
+    formingSeries: { applyOptions: (options) => formingOptions.push(options) },
+    chart: {
+      applyOptions: (options) => chartOptions.push(options),
+      priceScale: () => ({ applyOptions: (options) => scaleOptions.push(options) }),
+    },
+  };
+
+  setPatternPane(handle, true);
+  assert.equal(seriesOptions.at(-1).priceFormat.formatter, formatPatternPriceAxis);
+  assert.equal(formingOptions.at(-1).priceFormat.formatter, formatPatternPriceAxis);
+  assert.equal(chartOptions.at(-1).layout.fontSize, 13);
+  assert.ok(scaleOptions.some((options) => options.scaleMargins?.top === 0.865), "volume sits in the lower pane");
+
+  setPatternPane(handle, false);
+  assert.equal(seriesOptions.at(-1).priceFormat.formatter, formatPriceAxis);
+  assert.equal(formingOptions.at(-1).priceFormat.formatter, formatPriceAxis);
+  assert.deepEqual(chartOptions.at(-1).layout, defaultLayout);
+  assert.equal(handle.patternPaneOn, false);
+});

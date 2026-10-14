@@ -1672,3 +1672,180 @@ test("desktop keeps Performance beside left tabs and restores narrow tab behavio
   });
   assert.equal(removed, true, "responsive listener is removed on dashboard disposal");
 });
+
+// ---------------------------------------------------------------------------
+// Chart Patterns — approved pattern-focused screen
+// ---------------------------------------------------------------------------
+
+const P_HOUR = 3_600_000;
+const P_LAST = 1791288000000;
+const P_COUNT = 200;
+const pTime = (index) => P_LAST - (P_COUNT - 1 - index) * P_HOUR;
+const pIso = (index) => new Date(pTime(index)).toISOString().replace(".000Z", "Z");
+
+/** 200 stored candles and two stored patterns: one on screen, one far in history. */
+function patternScreenDashboard() {
+  const dashboard = evidenceDashboard();
+  const candles = [];
+  for (let index = 0; index < P_COUNT; index += 1) {
+    let low = 61_800;
+    let high = 62_300;
+    if (index === 150 || index === 20) low = 61_500;
+    if (index === 172 || index === 44) low = 61_520;
+    if (index === 160 || index === 32) high = 62_400;
+    candles.push([pTime(index), "62000", String(high), String(low), "62100", "10"]);
+  }
+  dashboard.market = { ...dashboard.market, candles };
+  const record = (id, state, first, peak, second, anchor, latest) => ({
+    id,
+    pattern_id: `${id}-group`,
+    type: "double_bottom",
+    label: "DB",
+    side: "bottom",
+    state,
+    is_latest_state: latest,
+    known_at: pIso(anchor),
+    anchor_time: pIso(anchor),
+    anchor_time_ms: pTime(anchor),
+    neckline: "62400",
+    invalidation_level: "61500",
+    components: [
+      { kind: "low", time_ms: pTime(first), time: pIso(first), price: "61500" },
+      { kind: "high", time_ms: pTime(peak), time: pIso(peak), price: "62400" },
+      { kind: "low", time_ms: pTime(second), time: pIso(second), price: "61520" },
+    ],
+  });
+  dashboard.chart_evidence = {
+    ...dashboard.chart_evidence,
+    counts: { ...dashboard.chart_evidence.counts, patterns: 2 },
+    patterns: [
+      record("pattern:db:history", "formed", 20, 32, 44, 50, true),
+      record("pattern:db:recent", "confirmed", 150, 160, 172, 180, true),
+    ],
+  };
+  return dashboard;
+}
+
+/** Give the mock chart a real visible logical range, so zoom can be measured. */
+function measurableZoom(chartState) {
+  const state = { range: null, sets: [] };
+  const create = chartState.library.createChart;
+  chartState.library.createChart = (...args) => {
+    const chart = create(...args);
+    chart.timeScale = () => ({
+      getVisibleLogicalRange: () => (state.range ? { ...state.range } : null),
+      setVisibleLogicalRange: (next) => { state.range = { from: next.from, to: next.to }; state.sets.push(state.range); },
+      subscribeVisibleLogicalRangeChange() {},
+      unsubscribeVisibleLogicalRangeChange() {},
+      timeToCoordinate: () => null,
+      logicalToCoordinate: () => null,
+      coordinateToLogical: () => null,
+      height: () => 0,
+      width: () => 0,
+    });
+    return chart;
+  };
+  return state;
+}
+
+const span = (range) => range.to - range.from;
+
+test("Chart Patterns cards show stored records only, with the confidence not calculated", async () => {
+  await withDashboard(patternScreenDashboard(), forwardPayload(), async ({ view }) => {
+    await renderDashboard(view);
+    press(findNodes(view, (node) => node.getAttribute?.("data-function") === "patterns")[0]);
+    await drainMicrotasks();
+    const detection = byClass(view, "pd-card--detection")[0];
+    assert.match(detection.textContent, /Pattern Detection/);
+    assert.match(detection.textContent, /Double Bottom/);
+    assert.match(detection.textContent, /Confirmed/, "the newest current state, in the backend's own word");
+    assert.match(detection.textContent, /ConfidenceNot calculated/);
+    assert.doesNotMatch(detection.textContent, /\d+(\.\d+)?\s?%/, "no percentage anywhere on the card");
+    const others = byClass(view, "pd-other-button");
+    assert.deepEqual(others.map((node) => node.getAttribute("data-select-pattern")), ["pattern:db:history"], "only the other stored record");
+    assert.doesNotMatch(byClass(view, "pattern-panel")[0].textContent, /Bull Flag|Descending Triangle/);
+    const levels = byClass(view, "pd-level");
+    assert.deepEqual(levels.map((row) => row.dataset.level), ["neckline", "support", "resistance"]);
+    assert.match(levels[0].textContent, /62,400\.00/);
+    assert.match(levels[1].textContent, /61,500\.00/);
+    assert.match(levels[2].textContent, /Unavailable/, "no target is derived");
+    // The function switches sit in the header on this screen only.
+    assert.equal(byClass(view, "chart-header-controls")[0].children.length, 1);
+    assert.match(byClass(view, "pattern-chart-head")[0].textContent, /BTC\/USDT · 1H · BINANCE/);
+  });
+});
+
+test("selecting another detected pattern updates the cards and keeps the operator's zoom", async () => {
+  await withDashboard(patternScreenDashboard(), forwardPayload(), async ({ view, chartState }) => {
+    const zoom = measurableZoom(chartState);
+    await renderDashboard(view);
+    const opened = { ...zoom.range };
+    assert.equal(span(opened), 122, "the first-load window");
+    // The operator zooms in.
+    zoom.range = { from: 140.5, to: 190.5 };
+    press(findNodes(view, (node) => node.getAttribute?.("data-function") === "patterns")[0]);
+    await drainMicrotasks();
+    assert.deepEqual(zoom.range, { from: 140.5, to: 190.5 }, "the selected pattern is on screen: the window does not move");
+
+    press(byClass(view, "pd-other-button")[0]); // the pattern far in history
+    await drainMicrotasks();
+    assert.match(byClass(view, "pd-card--detection")[0].textContent, /Formed/, "the cards follow the selection");
+    assert.equal(span(zoom.range), 50, "the zoom (candles on screen) is unchanged");
+    assert.ok(zoom.range.from <= 32 && zoom.range.to >= 32, "the window moved to the stored pattern");
+    const choices = findNodes(byClass(view, "chart-pattern-picker")[0], (node) => node.getAttribute?.("data-pattern-id"));
+    assert.deepEqual(
+      choices.filter((node) => node.getAttribute("aria-pressed") === "true").map((node) => node.getAttribute("data-pattern-id")),
+      ["pattern:db:history"],
+      "the picker agrees",
+    );
+
+    const before = { ...zoom.range };
+    press(findNodes(view, (node) => node.getAttribute?.("data-function") === "breakouts")[0]);
+    await drainMicrotasks();
+    assert.equal(span(zoom.range), span(before), "a function switch keeps the zoom");
+    press(findNodes(view, (node) => node.getAttribute?.("data-function") === "patterns")[0]);
+    await drainMicrotasks();
+    assert.equal(span(zoom.range), span(before), "coming back keeps the zoom");
+  });
+});
+
+test("Breakouts & Retests is unaffected by the Chart Patterns screen", async () => {
+  await withDashboard(patternScreenDashboard(), forwardPayload(), async ({ view }) => {
+    await renderDashboard(view);
+    const fn = (id) => findNodes(view, (node) => node.getAttribute?.("data-function") === id)[0];
+    press(fn("breakouts"));
+    await drainMicrotasks();
+    const status = () => byClass(view, "chart-function-status")[0].textContent;
+    const panelText = () => byClass(view, "chart-function-panel")[0].textContent;
+    const first = { status: status(), panel: panelText(), header: byClass(view, "chart-header-controls")[0].children.length };
+    assert.equal(first.header, 0, "outside Chart Patterns the switches stay in the chart toolbar");
+    assert.equal(byClass(view, "pattern-panel").length, 0);
+    press(fn("patterns"));
+    await drainMicrotasks();
+    press(fn("breakouts"));
+    await drainMicrotasks();
+    assert.equal(status(), first.status);
+    assert.equal(panelText(), first.panel);
+    assert.equal(byClass(view, "chart-header-controls")[0].children.length, 0, "the switches went back to the toolbar");
+    assert.equal(byClass(byClass(view, "chart-control-home")[0], "chart-control-row").length, 1);
+  });
+});
+
+test("a timeframe with no stored candles empties the Chart Patterns cards and OHLC line", async () => {
+  await withDashboard(patternScreenDashboard(), forwardPayload(), async ({ view }) => {
+    await renderDashboard(view);
+    press(findNodes(view, (node) => node.getAttribute?.("data-function") === "patterns")[0]);
+    await drainMicrotasks();
+    assert.match(byClass(view, "pd-card--detection")[0].textContent, /Double Bottom/);
+    // The fixture server answers the 4H candle request with a non-4H payload, so
+    // the 4H chart is honestly unavailable.
+    press(findNodes(view, (node) => node.getAttribute?.("data-timeframe") === "4h")[0]);
+    await drainMicrotasks();
+    const head = byClass(view, "pattern-chart-head")[0].textContent;
+    assert.match(head, /BTC\/USDT · 4H · BINANCE/);
+    assert.match(head, /No stored candle/, "no 1H prices under the 4H label");
+    assert.doesNotMatch(byClass(view, "pattern-panel")[0].textContent, /Double Bottom|62,400/, "no 1H pattern under the 4H label");
+    assert.match(byClass(view, "pd-card--others")[0].textContent, /No other patterns recorded/);
+    assert.ok(byClass(view, "pd-level").every((row) => /Unavailable/.test(row.textContent)));
+  });
+});

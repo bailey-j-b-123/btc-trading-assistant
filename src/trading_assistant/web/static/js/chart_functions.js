@@ -220,8 +220,33 @@ export function patternCatalogue(evidence) {
 }
 
 /**
+ * Deterministic default order for stored pattern records (documented in
+ * docs/visual-signoff/patterns/REPORT.md). It ranks by lifecycle evidence and
+ * recency only — never by a "strength" or score, which the backend does not
+ * calculate:
+ *
+ *   1. current states (`is_latest_state`) before earlier states;
+ *   2. among those, a record that is still standing (formed / confirmed)
+ *      before one the detector has invalidated;
+ *   3. then the most recently known (`known_at`) first;
+ *   4. then the record id, descending, so equal times never flicker.
+ */
+export function patternDefaultRank(left, right) {
+  const latest = (entry) => (entry.isLatestState ? 0 : 1);
+  const standing = (entry) => (entry.state === "invalidated" ? 1 : 0);
+  if (latest(left) !== latest(right)) return latest(left) - latest(right);
+  if (standing(left) !== standing(right)) return standing(left) - standing(right);
+  const leftTime = Date.parse(left.knownAt || "") || 0;
+  const rightTime = Date.parse(right.knownAt || "") || 0;
+  if (leftTime !== rightTime) return rightTime - leftTime;
+  return String(right.id).localeCompare(String(left.id));
+}
+
+/**
  * The pattern to highlight: the operator's explicit choice when that exact
- * stored record exists in this window, otherwise the most recent current state.
+ * stored record exists in this window, otherwise the first record in the
+ * documented default order (patternDefaultRank): the most recent current state
+ * that has not been invalidated, else the most recent current state.
  */
 export function highlightedPattern(evidence, selectedId) {
   const catalogue = patternCatalogue(evidence);
@@ -229,7 +254,7 @@ export function highlightedPattern(evidence, selectedId) {
     const chosen = catalogue.find((entry) => entry.id === selectedId);
     if (chosen) return chosen;
   }
-  return catalogue.find((entry) => entry.isLatestState) || catalogue[0] || null;
+  return [...catalogue].sort(patternDefaultRank)[0] || null;
 }
 
 /**
