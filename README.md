@@ -1563,18 +1563,44 @@ To work with real data, download candles first (Step 2 `MarketDataService.update
 
 ### Desktop and mobile behaviour
 
-Five primary areas are reached from a **sidebar on desktop** and a **bottom tab bar on
-mobile** (thumb-reachable, one-handed): **Dashboard, Journal, Statistics, Validation, Settings.**
-The active section is highlighted with `aria-current="page"`.
+The dashboard is a single trading view under a sticky market/status bar. Desktop pairs
+the chart with timeframe context and nearby zones; smaller screens stack these cards.
+The decision, paper tracker, plan, waiting conditions and diagnostics remain separate:
+changing a chart timeframe never changes the engine timeframe or the paper ledger.
+The journal is accessible from the footer; other existing views keep their routes.
 
-* **Desktop** lays out cards in a single column under a sticky top bar that always shows
-  symbol, latest stored price and the freshness badge. The candlestick chart is ~420px
-  with overlay toggle chips (zones, range, equal levels, plan levels, swings).
-* **Mobile (≤860px)** is designed intentionally, not shrunk: the top bar compacts, cards
-  stack, the chart drops to ~320px, decision buttons become full-width ≥44px touch
-  targets, tables become cards, and the nav becomes a fixed bottom bar with
-  `safe-area-inset` padding. Status is never conveyed by colour alone — every badge pairs
-  a dot with text (`QUALIFIED`, `WATCH`, `NO TRADE`, `CURRENT`, `STALE`, …).
+* **Chart controls:** 5M / 15M / 1H / 4H are view-only. A new timeframe opens on
+  recent candles (120 desktop, 90 tablet, 60 phone). **Reset view** returns to
+  recent candles and automatic price scaling. Refreshes preserve fractional zoom,
+  the right margin, historical position and already-loaded history.
+* **Patterns follow data, not reference illustrations.** Outlines join recorded
+  component swings at their exact candle times/prices. Missing components break
+  the outline; they are not connected across a gap. Select a pattern in the
+  evidence list (keyboard accessible) or click its candle to inspect its neckline
+  and invalidation. Only that record's guides are shown. Both guides stop at the
+  confirmation/invalidation candle once resolved; they are not future predictions.
+  **Clear selection** returns to the outline-only overview.
+* **Stable scale:** pattern guides and marker stacks do not contribute to price
+  autoscaling. They use the candles' price coordinates, so off-scale evidence is
+  clipped rather than flattening the market. Confirmed OHLC and the separate
+  unconfirmed forming series remain distinct; volume has its own scale and no
+  misleading price-axis label.
+* **Zones:** support/resistance comes from the viewed timeframe's backend display
+  bands. Higher-timeframe zones stay explicitly labelled. Bands/labels follow
+  pan, zoom, price-axis drags and resizing, and stay inside the plot rather than
+  covering the axes. Switching timeframe removes the old candles, guides, zones
+  and confirmed-close label immediately, including when the next request fails.
+* **Responsive:** chart controls wrap and cards stack without horizontal page
+  overflow. Text alternatives and an evidence list keep information available
+  when chart labels would collide. Coincident patterns share one marker with a
+  count, while each individual record remains selectable in the list.
+
+An empty paper ledger says **NO PAPER TRADES**, not “All settled”. Missing tracker
+counts/details remain unknown, not a fabricated zero. All changes above are
+presentation-only; detection, qualification, planning and historical records are unchanged.
+
+See [dashboard review](docs/audits/DASHBOARD_PRESENTATION_REVIEW.md) for regressions
+covered and verification limits.
 
 The web manifest and meta tags make the app **installable to a home screen** (PWA-ready
 presentation), but Step 10 deliberately ships **no service worker and no push

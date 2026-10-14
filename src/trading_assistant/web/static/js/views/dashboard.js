@@ -22,6 +22,8 @@ import {
 import {
   captureChartView,
   restoreChartView,
+  resetChartView,
+  clearZoneBands,
   setZoneBands,
   applyOverlays,
   clearEvidence,
@@ -462,6 +464,7 @@ export function overlaysForViewedTimeframe({ dashboard, viewedTimeframe, structu
   return {
     equal_levels: [],
     zones: Array.isArray(structure.zones) ? structure.zones : [],
+    zone_bands: structure.zone_bands || null,
     range: structure.range && typeof structure.range === "object" ? structure.range : null,
     swings: Array.isArray(structure.swings) ? structure.swings : [],
     setup_reference: null,
@@ -562,6 +565,16 @@ function chartCard(initialDashboard) {
     el("div", { class: "evidence-explain-title", text: "Click-to-explain" }),
     explainBody,
   ]);
+  const selectionNote = el("span", { class: "chart-selection-note", text: "Pattern outlines follow recorded swings. Select a pattern to inspect its neckline and invalidation." });
+  const clearSelection = el("button", {
+    type: "button", class: "tf-button", text: "Clear selection", hidden: true,
+    onclick: () => {
+      viewed.selectedPatternId = null;
+      renderEvidence();
+      clearNode(explainBody).append(el("p", { class: "evidence-explain-hint", text: CHART_EXPLAIN_HINT }));
+    },
+  });
+  const selectionBar = el("div", { class: "chart-selection" }, [selectionNote, clearSelection]);
   let formingStream = null;
   let eventRelease = null;
   const viewed = {
@@ -574,6 +587,7 @@ function chartCard(initialDashboard) {
       : { available: false, reason: "the dashboard payload did not include chart evidence" },
     candleRows: rows,
     model: null,
+    selectedPatternId: null,
     htfBands: [],
     htfStatus: null,
   };
@@ -607,7 +621,7 @@ function chartCard(initialDashboard) {
       ? `LAST CONFIRMED ${viewedTimeframeLabel(timeframe)} CLOSE · $${latest.close.toLocaleString("en-US")} · stored candle`
       : "Last confirmed stored close: unavailable";
     formingStatus.dataset.freshness = "UNAVAILABLE";
-    formingStatus.textContent = `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY`;
+    formingStatus.textContent = `FORMING ${viewedTimeframeLabel(timeframe)} — DISPLAY ONLY · UNAVAILABLE · stored candles only`;
     if (!handleRef.current || exchange !== BINANCE_EXCHANGE_ID || symbol !== "BTC/USDT" || !latest ||
         !canShowForming(timeframe, latest.time * 1000, Date.now())) return;
     // This public display-only socket is bound ONLY to the selected chart view,
@@ -632,7 +646,7 @@ function chartCard(initialDashboard) {
     applyOverlays(handleRef.current, {
       overlays: viewed.overlays || {},
       plan: planForOverlays(),
-      scenarioBand: scenarioBand(dashboard?.looking_for, viewed.timeframe),
+      scenarioBand: prefs.layers?.plan !== false ? scenarioBand(dashboard?.looking_for, viewed.timeframe) : null,
       prefs,
     });
     // Support/resistance bands: the viewed timeframe's presented bands, plus higher-timeframe bands when that layer is on.
@@ -650,7 +664,7 @@ function chartCard(initialDashboard) {
     setZoneBands(handleRef.current, [...viewedBands, ...higherBands], { onSelect: selectZoneBand });
   };
   /** Draw evidence for the viewed timeframe. Clears previous evidence first. */
-  const renderEvidence = () => {
+  const renderEvidence = ({ updateList = true } = {}) => {
     const handle = handleRef.current;
     if (!handle) return;
     const layers = loadPrefs().layers;
@@ -659,18 +673,29 @@ function chartCard(initialDashboard) {
       candles: viewed.candleRows,
       asOfMs: decisionAsOfMs,
       layers,
+      selectedPatternId: viewed.selectedPatternId,
     });
+    const selected = viewed.model.items.find((item) => item.id === viewed.selectedPatternId);
+    if (viewed.selectedPatternId && !selected) {
+      viewed.selectedPatternId = null;
+      clearNode(explainBody).append(el("p", { class: "evidence-explain-hint", text: CHART_EXPLAIN_HINT }));
+    }
+    clearSelection.hidden = !selected;
+    selectionNote.textContent = selected
+      ? `${selected.label || "Pattern"} · ${selected.state} — exact recorded neckline and invalidation; no projection.`
+      : "Pattern outlines follow recorded swings. Select a pattern to inspect its neckline and invalidation.";
     setEvidence(handle, viewed.model);
     const counts = viewed.model.hiddenFuture
       ? ` · ${viewed.model.hiddenFuture} item(s) not yet known at this instant are hidden`
       : "";
     const htf = layers.htfLevels === true && viewed.htfStatus ? ` · ${viewed.htfStatus}` : "";
     const zb = viewed.overlays?.zone_bands;
+    const selectedBands = capBandsForDisplay(relocateBands(zb?.bands, lastConfirmedClose(viewed.candleRows)));
     const zoneText = loadPrefs().overlays?.zones === true && zb && zb.reason !== "no_zones"
-      ? ` · S/R bands: ${zb.bands?.length ?? 0} shown, ${zb.hidden_count ?? 0} hidden, ${zb.merged_count ?? 0} merged`
+      ? ` · S/R bands: ${selectedBands.shown.length} selected (off-scale bands stay hidden), ${(zb.hidden_count ?? 0) + selectedBands.hidden} hidden by selection, ${zb.merged_count ?? 0} merged`
       : "";
     evidenceMeta.textContent = `${evidenceMetaText(viewed.evidence, viewed.timeframe)} ${evidenceCountText(viewed.model)}${counts}${htf}${zoneText}`;
-    renderItemList(viewed.model);
+    if (updateList) renderItemList(viewed.model);
   };
   /** One button per drawn evidence item; selecting it opens the same click-to-explain panel as a chart click. */
   const renderItemList = (model) => {
@@ -686,7 +711,7 @@ function chartCard(initialDashboard) {
         el("button", {
           type: "button",
           class: "chart-item-button",
-          onclick: () => showExplanationAt(row.timeSeconds),
+          onclick: () => showExplanationAt(row.timeSeconds, row.id),
         }, [
           el("span", { class: "chart-item-time mono", text: formatUtc(new Date(row.timeSeconds * 1000).toISOString()) }),
           el("span", { class: "chart-item-name", text: row.name }),
@@ -706,6 +731,8 @@ function chartCard(initialDashboard) {
   };
   /** Click a band label: explain that zone (bounds, origin, touches, last test, position vs price). */
   const selectZoneBand = (band) => {
+    viewed.selectedPatternId = null;
+    renderEvidence({ updateList: false });
     clearNode(explainBody);
     const explanation = explainZoneBand(band, { timeframe: band.source_timeframe, close: band.viewed_close ?? band.latest_close ?? null });
     if (!explanation) {
@@ -715,7 +742,7 @@ function chartCard(initialDashboard) {
     explainBody.append(el("div", { class: "evidence-explain-when", text: band.htf ? `Higher-timeframe zone (${band.source_timeframe})` : `Zone on the ${viewed.timeframe} chart` }));
     explainBody.append(explanationNode(explanation));
   };
-  const showExplanationAt = (timeSeconds) => {
+  const showExplanationAt = (timeSeconds, itemId = null) => {
     if (!Number.isFinite(timeSeconds)) return;
     clearNode(explainBody);
     const when = formatUtc(new Date(timeSeconds * 1000).toISOString());
@@ -723,7 +750,10 @@ function chartCard(initialDashboard) {
       explainBody.append(el("p", { class: "evidence-explain-hint", text: `No chart evidence is loaded for this view (${when}).` }));
       return;
     }
-    const items = itemsAtTime(viewed.model, timeSeconds);
+    const atTime = itemsAtTime(viewed.model, timeSeconds);
+    const items = itemId ? atTime.filter((item) => item.id === itemId) : atTime;
+    viewed.selectedPatternId = items.find((item) => item.group === "patterns")?.id || null;
+    renderEvidence({ updateList: false });
     const explained = items
       .map((item) => explainEvidence(item, { timeframe: viewed.timeframe, qualification: dashboard?.qualification || null }))
       .filter(Boolean);
@@ -770,6 +800,12 @@ function chartCard(initialDashboard) {
     switcher.append(button);
   }
   toolbar.append(switcher);
+  toolbar.append(el("button", {
+    class: "tf-button chart-reset", type: "button", text: "Reset view",
+    "aria-label": "Reset chart to recent candles and automatic price scale",
+    title: "Return to recent candles and fit their price range; does not change layers or data",
+    onclick: () => resetChartView(handleRef.current),
+  }));
   toolbar.append(el("span", { class: "chart-toolbar-sep", "aria-hidden": "true" }));
 
   // Layer toggles. Each button either flips a layer (persisted with its legacy
@@ -863,7 +899,7 @@ function chartCard(initialDashboard) {
       const bands = Array.isArray(payload.zone_bands?.bands) ? payload.zone_bands.bands : [];
       viewed.htfBands = bands.map((band) => ({ ...band, htf: true }));
       viewed.htfStatus = bands.length
-        ? `${label} zones: ${bands.length} band(s) shown`
+        ? `${label} zones: ${bands.length} available; nearest selected, off-scale bands hidden`
         : `${label} zones: none stored at this instant`;
     }
     applyViewedOverlays();
@@ -909,7 +945,10 @@ function chartCard(initialDashboard) {
     }
     const merged = mergeOlderRows(viewed.candleRows, payload.candles);
     viewed.candleRows = merged.rows;
-    if (merged.added > 0) setCandlesPreservingView(handle, merged.rows, merged.added);
+    if (merged.added > 0) {
+      setCandlesPreservingView(handle, merged.rows, merged.added);
+      renderEvidence();
+    }
     attachHistory(handle, payload, timeframe, generation);
   }
 
@@ -947,6 +986,7 @@ function chartCard(initialDashboard) {
     const merged = mergeOlderRows(viewed.candleRows, payload.candles);
     viewed.candleRows = merged.rows;
     setCandlesPreservingView(handle, merged.rows, merged.added);
+    renderEvidence();
     viewed.history = { ...historyState({ payload, rows: merged.rows }), symbol, timeframe, decisionAsOf, generation };
     updateHistoryNote();
     // An empty page (a window of stored holes) adds nothing visible. Keep going while the edge is still in view.
@@ -958,6 +998,8 @@ function chartCard(initialDashboard) {
 
   async function showTimeframe(timeframe, { force = false, keepView = null } = {}) {
     if ((!force && timeframe === viewed.timeframe) || viewed.cancelled) return;
+    const changedTimeframe = timeframe !== viewed.timeframe;
+    const retainedRows = changedTimeframe ? [] : viewed.candleRows;
     const generation = ++viewed.generation;
     const label = viewedTimeframeLabel(timeframe);
     viewed.timeframe = timeframe;
@@ -973,8 +1015,20 @@ function chartCard(initialDashboard) {
     if (handleRef.current) {
       clearOverlays(handleRef.current);
       clearEvidence(handleRef.current);
+      clearZoneBands(handleRef.current);
+      setHistoryListener(handleRef.current, null);
+      // A new timeframe has different bar indices. Never leave the old candles
+      // under the new heading while its request is in flight.
+      setCandles(handleRef.current, []);
+      if (changedTimeframe) handleRef.current.initialRangeApplied = false;
     }
+    viewed.overlays = emptyOverlays();
+    viewed.evidence = { available: false, reason: "loading this timeframe" };
+    viewed.candleRows = [];
     viewed.model = null;
+    viewed.selectedPatternId = null;
+    clearSelection.hidden = true;
+    selectionNote.textContent = "Pattern outlines follow recorded swings. Select a pattern to inspect its neckline and invalidation.";
     viewed.history = null;
     historyNoteEl.textContent = "";
     viewed.htfBands = [];
@@ -984,6 +1038,8 @@ function chartCard(initialDashboard) {
     clearNode(itemListBody);
     itemListSummary.textContent = "Evidence items on this chart";
     showOhlc(null);
+    confirmedStatus.textContent = "Last confirmed stored close: unavailable until this timeframe loads";
+    formingStatus.textContent = `FORMING ${label} — DISPLAY ONLY · unavailable while loading`;
     viewNote.textContent = `Loading stored ${label} closed candles…`;
 
     // The engine view restores the exact dashboard snapshot (no refetch, no
@@ -1012,6 +1068,7 @@ function chartCard(initialDashboard) {
       const handle = ensureChart();
       if (!handle || generation !== viewed.generation || viewed.cancelled) return;
       setCandles(handle, rows);
+      restoreChartView(handle, keepView);
       startForming(timeframe, rows);
       renderEvidence();
       applyViewedOverlays();
@@ -1048,7 +1105,7 @@ function chartCard(initialDashboard) {
       viewNote.textContent = `${label} stored candles unavailable — nothing rendered in their place.`;
       return;
     }
-    const fetchedRows = Array.isArray(candlesPayload.candles) ? candlesPayload.candles : [];
+    let fetchedRows = Array.isArray(candlesPayload.candles) ? candlesPayload.candles : [];
     if (!toChartCandles(fetchedRows).length) {
       viewed.overlays = emptyOverlays();
       viewed.evidence = { available: false, reason: "no stored closed candles at this decision time" };
@@ -1063,6 +1120,7 @@ function chartCard(initialDashboard) {
     }
     const handle = ensureChart();
     if (!handle || generation !== viewed.generation || viewed.cancelled) return;
+    fetchedRows = mergeCandleRows(retainedRows, fetchedRows).rows;
     viewed.candleRows = fetchedRows;
     setCandles(handle, fetchedRows);
     restoreChartView(handle, keepView);
@@ -1080,9 +1138,9 @@ function chartCard(initialDashboard) {
     if (generation !== viewed.generation || viewed.cancelled) return;
     viewed.evidence = evidenceError
       ? { available: false, reason: `${evidenceError.message}` }
-      : evidencePayload && typeof evidencePayload === "object"
+      : evidencePayload?.timeframe === timeframe
         ? evidencePayload
-        : { available: false, reason: "the backend returned no evidence" };
+        : { available: false, reason: "the backend returned no evidence for this timeframe" };
     renderEvidence();
 
     let structurePayload = null;
@@ -1106,7 +1164,7 @@ function chartCard(initialDashboard) {
     applyViewedOverlays();
     const zoneCount = Array.isArray(viewed.overlays.zones) ? viewed.overlays.zones.length : 0;
     const returned = Number.isInteger(candlesPayload.returned_count) ? candlesPayload.returned_count : fetchedRows.length;
-    viewNote.textContent = `${label} stored closed candles (${returned}) · ${label} structure (${zoneCount} zone(s)${viewed.overlays.range ? " · range shown" : ""}) · plan levels from the engine plan · liquidity overlays unavailable on this view.`;
+    viewNote.textContent = `${label} stored closed candles (${returned}) · ${label} structure (${zoneCount} zone(s)${viewed.overlays.range ? " · range available" : ""}) · plan levels from the engine plan · liquidity overlays unavailable on this view.`;
     if (loadPrefs().layers?.htfLevels === true) await refreshHigherLevels();
   }
 
@@ -1130,6 +1188,10 @@ function chartCard(initialDashboard) {
       void showTimeframe(viewed.timeframe, { force: true, keepView: keep });
       return;
     }
+    ++viewed.generation; // invalidate history/HTF requests belonging to the previous snapshot
+    viewed.history = null;
+    viewed.htfBands = [];
+    viewed.htfStatus = null;
     viewed.overlays = next?.overlays && typeof next.overlays === "object" ? next.overlays : emptyOverlays();
     viewed.evidence = next?.chart_evidence && typeof next.chart_evidence === "object"
       ? next.chart_evidence
@@ -1144,6 +1206,7 @@ function chartCard(initialDashboard) {
     }
     renderEvidence();
     applyViewedOverlays();
+    if (loadPrefs().layers?.htfLevels === true) void refreshHigherLevels();
   }
 
   /** True when this chart can be updated in place (same symbol, exchange and engine timeframe, live handle). */
@@ -1167,6 +1230,7 @@ function chartCard(initialDashboard) {
     confirmedStatus,
     ohlcLine,
     host,
+    selectionBar,
     evidenceMeta,
     itemList,
     markerKey,

@@ -190,3 +190,45 @@ test("CSS keeps candles clickable under the bands: only labels take pointer even
   assert.match(bandRule, /pointer-events:\s*none/);
   assert.match(labelRule, /pointer-events:\s*auto/);
 });
+
+
+test("bands are clipped to the plot, excluding both axes, and unchanged redraws keep focus targets", () => {
+  const handle = makeHandle();
+  const scale = handle.chart.timeScale();
+  handle.chart.timeScale = () => ({ ...scale, width: () => 710, height: () => 28 });
+  setZoneBands(handle, [band()]);
+  assert.equal(handle.zoneLayer.style.width, "710px");
+  assert.equal(handle.zoneLayer.style.height, "372px");
+  const label = labelNodes(handle)[0];
+  renderZoneBands(handle);
+  assert.equal(labelNodes(handle)[0], label, "moving the crosshair must not destroy the label button");
+});
+
+test("labels clustered at the bottom stay inside the plot and missing bounds never become zero", () => {
+  const handle = makeHandle(100);
+  setZoneBands(handle, [
+    band({ band_low: "100.0", band_high: "100.2" }),
+    band({ band_low: "100.1", band_high: "100.3" }),
+    band({ band_low: "100.2", band_high: "100.4" }),
+    band({ band_low: null, band_high: "105" }),
+  ]);
+  assert.equal(bandNodes(handle).length, 3);
+  const ys = labelNodes(handle).map((label) => parseFloat(label.style.top));
+  assert.ok(ys.every((y) => y >= 0 && y + 24 <= 100));
+  assert.ok(ys.every((y, i) => i === 0 || y >= ys[i - 1] + 24));
+});
+
+test("price-axis repaint primitive is attached once and detached on cleanup", () => {
+  const handle = makeHandle();
+  const attached = [], detached = [];
+  handle.series.attachPrimitive = (primitive) => attached.push(primitive);
+  handle.series.detachPrimitive = (primitive) => detached.push(primitive);
+  setZoneBands(handle, [band()]);
+  setZoneBands(handle, [band()]);
+  assert.equal(attached.length, 1);
+  handle.series.priceToCoordinate = (price) => (TOP_PRICE - price) * 12;
+  attached[0].updateAllViews();
+  assert.equal(bandNodes(handle)[0].style.top, "108px");
+  clearZoneBands(handle);
+  assert.deepEqual(detached, attached);
+});

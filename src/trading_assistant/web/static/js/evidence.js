@@ -225,55 +225,59 @@ export function patternAnchorSeconds(pattern) {
   return null;
 }
 
+function positivePrice(value) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const price = Number(value);
+  return Number.isFinite(price) && price > 0 ? price : null;
+}
+
 function patternLines(pattern, { lastTime, candleSet }) {
-  const points = (pattern.components || [])
-    .map((point) => ({ time: toSeconds(point.time_ms), value: Number(point.price) }))
-    .filter((point) => point.time !== null && candleSet.has(point.time) && Number.isFinite(point.value));
+  const components = Array.isArray(pattern.components) ? pattern.components : [];
+  const points = components.map((point) => ({ time: toSeconds(point.time_ms), value: positivePrice(point.price) }));
   const lines = [];
   const top = pattern.side === "top";
   const zigzagStyle = pattern.state === "formed" ? 2 : pattern.state === "invalidated" ? 1 : 0;
-  if (points.length >= 2) {
-    lines.push({
-      id: `${pattern.id}:zigzag`,
-      role: "pattern-zigzag",
-      patternId: pattern.id,
+  // Keep contiguous recorded segments only. Filtering out a missing middle
+  // component first used to connect the two peaks into an invented shape.
+  let run = [];
+  const flush = () => {
+    if (run.length >= 2) lines.push({
+      id: `${pattern.id}:zigzag:${lines.length}`,
+      role: "pattern-zigzag", patternId: pattern.id,
       color: top ? PATTERN_TOP : PATTERN_BOTTOM,
-      lineStyle: zigzagStyle,
-      lineWidth: 2,
-      points,
+      lineStyle: zigzagStyle, lineWidth: 2, points: run,
     });
-  }
-  const start = points.length ? points[0].time : null;
-  const neckline = Number(pattern.neckline);
-  const anchor = patternAnchorSeconds(pattern);
-  const anchorOnChart = anchor !== null && candleSet.has(anchor) ? anchor : null;
-  if (start !== null && Number.isFinite(neckline)) {
-    // A confirmed neckline stops at the candle that broke it; otherwise it runs to the latest candle.
-    const end = pattern.state === "confirmed" && anchorOnChart !== null ? anchorOnChart : lastTime;
-    if (end !== null && end > start) {
-      lines.push({
-        id: `${pattern.id}:neckline`,
-        role: "pattern-neckline",
-        patternId: pattern.id,
-        color: NECKLINE,
-        lineStyle: 2,
-        lineWidth: 1,
-        points: [{ time: start, value: neckline }, { time: end, value: neckline }],
-      });
+    run = [];
+  };
+  for (const point of points) {
+    if (point.time === null || !candleSet.has(point.time) || point.value === null) {
+      flush();
+      continue;
     }
+    if (run.length && point.time <= run.at(-1).time) flush();
+    run.push(point);
   }
-  const invalidation = Number(pattern.invalidation_level);
-  // An invalidated pattern's level stops at the candle that invalidated it; before that it runs to the latest candle.
-  const invalidationEnd = pattern.state === "invalidated" && anchorOnChart !== null ? anchorOnChart : lastTime;
-  if (start !== null && Number.isFinite(invalidation) && invalidationEnd !== null && invalidationEnd > start) {
+  flush();
+  const start = points.find((point) => point.value !== null && candleSet.has(point.time))?.time;
+  const anchor = patternAnchorSeconds(pattern);
+  const terminal = pattern.state === "confirmed" || pattern.state === "invalidated";
+  // BOTH guides stop when the pattern resolves. Neither is an ongoing level
+  // or a projected path after confirmation/invalidation. Missing anchors do
+  // not license extending a completed pattern into the present.
+  const end = terminal
+    ? anchor === null ? null : Math.max(...[...candleSet].filter((time) => time <= anchor))
+    : lastTime;
+  if (start === undefined || !Number.isFinite(end) || end <= start) return lines;
+  for (const [role, value, color, lineStyle] of [
+    ["neckline", pattern.neckline, NECKLINE, 2],
+    ["invalidation", pattern.invalidation_level, INVALIDATION, 1],
+  ]) {
+    const price = positivePrice(value);
+    if (price === null) continue;
     lines.push({
-      id: `${pattern.id}:invalidation`,
-      role: "pattern-invalidation",
-      patternId: pattern.id,
-      color: INVALIDATION,
-      lineStyle: 1,
-      lineWidth: 1,
-      points: [{ time: start, value: invalidation }, { time: invalidationEnd, value: invalidation }],
+      id: `${pattern.id}:${role}`, role: `pattern-${role}`, patternId: pattern.id,
+      color, lineStyle, lineWidth: 1,
+      points: [{ time: start, value: price }, { time: end, value: price }],
     });
   }
   return lines;
@@ -287,8 +291,9 @@ function patternLines(pattern, { lastTime, candleSet }) {
  * @param {Array} args.candles stored candle rows [ms,o,h,l,c,v] on screen
  * @param {number|null} args.asOfMs displayed decision instant (epoch ms)
  * @param {object} args.layers normalised layer switches
+ * @param {string|null} args.selectedPatternId record to inspect (guides are opt-in)
  */
-export function buildEvidenceModel({ evidence, candles, asOfMs, layers }) {
+export function buildEvidenceModel({ evidence, candles, asOfMs, layers, selectedPatternId = null }) {
   const model = {
     markers: [],
     patternLines: [],
@@ -344,12 +349,15 @@ export function buildEvidenceModel({ evidence, candles, asOfMs, layers }) {
   }
 
   if (normal.patterns) {
+    const patternMarkers = new Map();
     for (const pattern of Array.isArray(evidence.patterns) ? evidence.patterns : []) {
       if (!eligible(pattern)) continue;
       if (pattern.is_latest_state !== true) continue; // history stays in the explanation panel
       const top = pattern.side === "top";
       const lines = patternLines(pattern, { lastTime, candleSet });
-      model.patternLines.push(...lines);
+      // Overview shows recorded outlines, not a forest of full-window guides.
+      // Inspection adds exact neckline/invalidation only for the chosen record.
+      model.patternLines.push(...lines.filter((line) => line.role === "pattern-zigzag" || pattern.id === selectedPatternId));
       const anchorSource = patternAnchorSeconds(pattern);
       const anchor = anchorSource !== null && candleSet.has(anchorSource) ? anchorSource : null;
       if (anchor !== null) {
@@ -360,8 +368,16 @@ export function buildEvidenceModel({ evidence, candles, asOfMs, layers }) {
           text: patternMarkerText(pattern),
           size: 1,
         });
-        model.markers.push(marker);
-        labelCandidates.push({ marker, priority: 0, index: candleIndex.get(anchor) ?? -1 });
+        const key = `${anchor}:${marker.position}`;
+        const existing = patternMarkers.get(key);
+        if (existing) {
+          existing.count += 1;
+          existing.marker.text = `${existing.text} +${existing.count - 1}`;
+        } else {
+          patternMarkers.set(key, { marker, text: marker.text, count: 1 });
+          model.markers.push(marker);
+          labelCandidates.push({ marker, priority: 0, index: candleIndex.get(anchor) ?? -1 });
+        }
         register(pattern, anchor, "patterns");
         model.counts.patterns += 1;
       }
@@ -476,7 +492,7 @@ export function evidenceCountText(model) {
   const parts = [];
   if (model.counts.structure) parts.push(`${model.counts.structure} swing label${model.counts.structure === 1 ? "" : "s"}`);
   if (model.counts.patterns) parts.push(`${model.counts.patterns} pattern${model.counts.patterns === 1 ? "" : "s"}`);
-  if (model.counts.breakouts) parts.push(`${model.counts.breakouts} breakout/sweep marker${model.counts.breakouts === 1 ? "" : "s"}`);
+  if (model.counts.breakouts) parts.push(`${model.counts.breakouts} breakout/sweep event${model.counts.breakouts === 1 ? "" : "s"}`);
   if (model.counts.candleSignals) parts.push(`${model.counts.candleSignals} candle shape${model.counts.candleSignals === 1 ? "" : "s"}`);
   const older = (model.hiddenOlder?.breakouts || 0) + (model.hiddenOlder?.candleSignals || 0);
   if (older) parts.push(`${older} older event${older === 1 ? "" : "s"} not drawn (outside the last ${RECENT_EVENT_CANDLES} candles)`);
@@ -524,6 +540,7 @@ export function evidenceItemRows(model) {
   return [...model.items]
     .sort((a, b) => a.timeSeconds - b.timeSeconds)
     .map((item) => ({
+      id: item.id,
       timeSeconds: item.timeSeconds,
       group: item.group,
       name: describeEvidenceItem(item),

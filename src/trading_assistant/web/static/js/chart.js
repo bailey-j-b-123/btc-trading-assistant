@@ -53,11 +53,11 @@ function validRow(row) {
  * Invalid/missing rows are omitted; values are not interpolated or rounded.
  */
 export function toChartCandles(payload) {
-  const mapped = [];
+  const mapped = new Map();
   for (const row of rowsFromPayload(payload)) {
     const candle = validRow(row);
     if (!candle) continue;
-    mapped.push({
+    mapped.set(Math.floor(candle.timestamp / 1000), {
       time: Math.floor(candle.timestamp / 1000),
       open: candle.open,
       high: candle.high,
@@ -65,7 +65,7 @@ export function toChartCandles(payload) {
       close: candle.close,
     });
   }
-  return mapped;
+  return [...mapped.values()].sort((a, b) => a.time - b.time);
 }
 
 export const FALLBACK_CHART_WIDTH = 640;
@@ -130,12 +130,18 @@ export function createPriceChart(container, { height } = {}) {
         vertLine: { color: "#3a4560" },
         horzLine: { color: "#3a4560" },
       },
-      rightPriceScale: { borderColor: "#222b3b" },
+      rightPriceScale: { borderColor: "#222b3b", scaleMargins: { top: 0.12, bottom: 0.2 } },
       timeScale: { borderColor: "#222b3b", timeVisible: true, secondsVisible: false },
       handleScroll: true,
       handleScale: true,
     });
     series = chart.addCandlestickSeries({
+      // Marker density must not resize the market. Fixed pane margins reserve
+      // room for annotations/volume; only OHLC contributes to this range.
+      autoscaleInfoProvider: (original) => {
+        const info = original();
+        return info ? { priceRange: info.priceRange } : null;
+      },
       upColor: UP,
       downColor: DOWN,
       wickUpColor: UP,
@@ -153,6 +159,8 @@ export function createPriceChart(container, { height } = {}) {
     });
     volume = chart.addHistogramSeries({
       priceFormat: { type: "volume" },
+      lastValueVisible: false,
+      priceLineVisible: false,
       priceScaleId: "volume",
     });
     chart.priceScale("volume").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
@@ -223,6 +231,17 @@ function defaultVisibleCandles() {
   return DEFAULT_VISIBLE_CANDLES;
 }
 
+/** Explicit recovery control and initial view for a NEW timeframe, never a layer toggle. */
+export function resetChartView(handle) {
+  if (!handle || handle.destroyed || !handle.barCount) return;
+  handle.chart?.priceScale?.("right")?.applyOptions?.({ autoScale: true });
+  const last = handle.barCount - 1;
+  handle.chart?.timeScale?.().setVisibleLogicalRange?.({
+    from: Math.max(0, last - defaultVisibleCandles() + 1), to: last + 3,
+  });
+  renderZoneBands(handle);
+}
+
 export function setCandles(handle, payload) {
   if (!handle || handle.destroyed) return;
   const rows = rowsFromPayload(payload);
@@ -235,26 +254,25 @@ export function setCandles(handle, payload) {
   // Apply the default view once per chart: later refreshes must not reset a
   // zoom or pan the user has made.
   if (!handle.initialRangeApplied && candles.length > 0 && handle.chart && typeof handle.chart.timeScale === "function") {
-    const timeScale = handle.chart.timeScale();
-    if (typeof timeScale.setVisibleLogicalRange === "function") {
-      const last = candles.length - 1;
-      const visible = defaultVisibleCandles();
-      timeScale.setVisibleLogicalRange({ from: Math.max(0, last - visible + 1), to: last + 3 });
-    }
+    resetChartView(handle);
     handle.initialRangeApplied = true;
   }
 
-  const volumeRows = [];
+  const volumeRows = new Map();
   for (const row of rows) {
     const candle = validRow(row);
-    if (!candle || candle.volume === null) continue;
-    volumeRows.push({
+    if (!candle) continue;
+    if (candle.volume === null) {
+      volumeRows.delete(Math.floor(candle.timestamp / 1000));
+      continue;
+    }
+    volumeRows.set(Math.floor(candle.timestamp / 1000), {
       time: Math.floor(candle.timestamp / 1000),
       value: candle.volume,
       color: candle.close >= candle.open ? "rgba(47,191,127,0.28)" : "rgba(224,86,91,0.28)",
     });
   }
-  if (handle.volume && typeof handle.volume.setData === "function") handle.volume.setData(volumeRows);
+  if (handle.volume && typeof handle.volume.setData === "function") handle.volume.setData([...volumeRows.values()].sort((a, b) => a.time - b.time));
   renderZoneBands(handle);
 }
 
@@ -292,7 +310,10 @@ export function captureChartView(handle) {
   const range = timeScale.getVisibleRange();
   const lastBar = Number.isFinite(handle.lastBarTime) ? handle.lastBarTime : null;
   if (!range || !Number.isFinite(range.from) || !Number.isFinite(range.to) || lastBar === null) return null;
-  return { from: range.from, to: range.to, lastBar, atEdge: range.to >= lastBar };
+  const logical = timeScale.getVisibleLogicalRange?.();
+  const anchorIndex = toChartCandles(handle.loadedRows).findIndex((bar) => bar.time === range.from);
+  return { from: range.from, to: range.to, lastBar, atEdge: range.to >= lastBar,
+    logical, anchorIndex, barCount: handle.barCount };
 }
 
 /** Put back a view captured by captureChartView, after setCandles has loaded the new data. */
@@ -303,6 +324,15 @@ export function restoreChartView(handle, captured) {
   if (!captured || !timeScale || typeof timeScale.setVisibleRange !== "function") return;
   const newLast = Number.isFinite(handle.lastBarTime) ? handle.lastBarTime : null;
   if (newLast === null) return;
+  if (captured.logical && typeof timeScale.setVisibleLogicalRange === "function") {
+    const anchorIndex = toChartCandles(handle.loadedRows).findIndex((bar) => bar.time === captured.from);
+    const shift = captured.atEdge ? handle.barCount - captured.barCount
+      : anchorIndex >= 0 && captured.anchorIndex >= 0 ? anchorIndex - captured.anchorIndex : null;
+    if (shift !== null && Number.isFinite(shift)) {
+      timeScale.setVisibleLogicalRange({ from: captured.logical.from + shift, to: captured.logical.to + shift });
+      return;
+    }
+  }
   if (captured.atEdge) {
     const width = captured.to - captured.from;
     const to = newLast + (captured.to - captured.lastBar);
@@ -558,11 +588,15 @@ export function setEvidence(handle, model) {
     // Lightweight Charts requires strictly ascending times: keep one point per time.
     const byTime = new Map();
     for (const point of line.points || []) {
-      if (Number.isFinite(point.time) && Number.isFinite(point.value)) byTime.set(point.time, point.value);
+      if (Number.isFinite(point.time) && Number.isFinite(point.value) && point.value > 0) byTime.set(point.time, point.value);
     }
     const data = [...byTime.entries()].sort((a, b) => a[0] - b[0]).map(([time, value]) => ({ time, value }));
     if (data.length < 2) continue;
     const series = handle.chart.addLineSeries({
+      // Evidence shares the candle coordinates, but must NEVER set their scale.
+      // Distant/old levels used to flatten candles whenever Patterns was enabled.
+      priceScaleId: "right",
+      autoscaleInfoProvider: () => null,
       color: line.color,
       lineWidth: line.lineWidth || 1,
       lineStyle: line.lineStyle ?? 0,
@@ -645,7 +679,7 @@ export function addHigherTimeframeLines(handle, entries) {
 // changes, crosshair moves and resizes. They never change candles or the price scale, and
 // pointer events are off except on each band's label, so candles under a band stay clickable.
 
-const ZONE_LABEL_MIN_GAP_PX = 16;
+const ZONE_LABEL_MIN_GAP_PX = 24;
 /** The setup reference (backend reference bounds, display only): a neutral, unlabelled-by-role band. */
 const SETUP_BAND_STYLE = { fill: "rgba(143, 166, 255, 0.07)", edge: "#8fa6ff" };
 // Fills are deliberately faint: candles must stay the focus (PR #38 follow-up). Edges are drawn at
@@ -666,6 +700,13 @@ function createZoneLayer(handle) {
   layer.className = "zone-band-layer";
   container.appendChild(layer);
   handle.zoneLayer = layer;
+  // A zero-view primitive gets notified on price-axis drags/auto-scale as well
+  // as time-axis changes. Crosshair events alone miss those redraws in v4.
+  if (typeof handle.series?.attachPrimitive === "function") {
+    const primitive = { updateAllViews: () => renderZoneBands(handle) };
+    handle.series.attachPrimitive(primitive);
+    handle.zoneUnsubscribers.push(() => handle.series.detachPrimitive?.(primitive));
+  }
   const timeScale = handle.chart?.timeScale?.();
   const render = () => renderZoneBands(handle);
   if (timeScale && typeof timeScale.subscribeVisibleLogicalRangeChange === "function") {
@@ -688,6 +729,7 @@ export function setZoneBands(handle, bands, { onSelect } = {}) {
   // Feature-detect the DOM it needs; without it, bands are skipped and the chart still renders.
   if (typeof handle.container.appendChild !== "function" || typeof document === "undefined" || typeof document.createElement !== "function") return;
   createZoneLayer(handle);
+  handle.zoneRenderKey = null;
   handle.zoneBandsState = {
     bands: Array.isArray(bands) ? bands.filter((band) => band && typeof band === "object") : [],
     onSelect: typeof onSelect === "function" ? onSelect : null,
@@ -707,6 +749,7 @@ export function clearZoneBands(handle) {
   }
   handle.zoneUnsubscribers = [];
   handle.zoneBandsState = null;
+  handle.zoneRenderKey = null;
   if (handle.zoneLayer) {
     handle.zoneLayer.remove?.();
     handle.zoneLayer = null;
@@ -719,8 +762,20 @@ export function renderZoneBands(handle) {
   const series = handle.series;
   if (!series || typeof series.priceToCoordinate !== "function") return;
   const layer = handle.zoneLayer;
-  const height = Number(handle.container?.clientHeight) || 0;
+  const timeScale = handle.chart?.timeScale?.();
+  const height = Math.max(0, (Number(handle.container?.clientHeight) || 0) - (timeScale?.height?.() || 0));
+  const width = timeScale?.width?.() ?? handle.container?.clientWidth ?? 0;
+  // Never paint bands/labels over the price axis or time axis.
+  layer.style.width = `${width}px`;
+  layer.style.height = `${height}px`;
   const { bands, onSelect } = handle.zoneBandsState || { bands: [], onSelect: undefined };
+  const coordinates = (band) => [series.priceToCoordinate(Number(band.band_high)), series.priceToCoordinate(Number(band.band_low))];
+  const renderKey = JSON.stringify([width, height, handle.setupBand,
+    handle.setupBand && [series.priceToCoordinate(handle.setupBand.high), series.priceToCoordinate(handle.setupBand.low)],
+    bands.map(coordinates)]);
+  // Preserve label DOM/focus while the pointer moves over an unchanged chart.
+  if (handle.zoneRenderKey === renderKey) return;
+  handle.zoneRenderKey = renderKey;
   layer.textContent = "";
   let offView = 0;
   const labels = [];
@@ -755,9 +810,9 @@ export function renderZoneBands(handle) {
     // Position is where the band sits relative to price; the style key is the display role.
     const styleKey = band.position === "below_price" ? "support" : band.position === "above_price" ? "resistance" : "price_inside";
     const style = ZONE_STYLE[styleKey];
-    const high = Number(band.band_high);
-    const low = Number(band.band_low);
-    if (!Number.isFinite(high) || !Number.isFinite(low)) continue;
+    const high = finiteNumber(band.band_high);
+    const low = finiteNumber(band.band_low);
+    if (high === null || low === null || low <= 0 || high < low) continue;
     const yHigh = series.priceToCoordinate(high);
     const yLow = series.priceToCoordinate(low);
     if (yHigh === null || yLow === null || yHigh === undefined || yLow === undefined) continue;
@@ -781,9 +836,11 @@ export function renderZoneBands(handle) {
   }
   // Label collision: stack labels that would overlap, keeping the nearest to its band edge first.
   labels.sort((a, b) => a.y - b.y);
+  const visibleLabels = labels.slice(0, Math.floor(height / ZONE_LABEL_MIN_GAP_PX));
   let previous = -Infinity;
-  for (const entry of labels) {
-    const y = Math.max(entry.y, previous + ZONE_LABEL_MIN_GAP_PX);
+  for (const [index, entry] of visibleLabels.entries()) {
+    const ceiling = height - (visibleLabels.length - index) * ZONE_LABEL_MIN_GAP_PX;
+    const y = Math.max(0, Math.min(ceiling, Math.max(entry.y, previous + ZONE_LABEL_MIN_GAP_PX)));
     previous = y;
     const { band, style } = entry;
     const label = document.createElement("button");

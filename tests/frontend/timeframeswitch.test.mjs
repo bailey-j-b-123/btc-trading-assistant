@@ -1005,3 +1005,23 @@ test("public Binance forming klines follow the 5M/15M/1H/4H chart view only, nev
     });
   } finally { Date.now = originalNow; }
 });
+
+
+test("non-engine support/resistance uses that timeframe's backend display bands", () => {
+  const zone_bands = { bands: [{ id: "5m-only", band_low: "62100", band_high: "62120" }], hidden_count: 0 };
+  const structure = { ...structurePayload("5m"), zone_bands };
+  const overlays = overlaysForViewedTimeframe({ dashboard: dashboardFixture(), viewedTimeframe: "5m", structure });
+  assert.equal(overlays.zone_bands, zone_bands);
+});
+
+test("switching immediately removes old candles and confirmed-close text before awaiting the new data", async () => {
+  await withDashboard({ dashboard: dashboardFixture(), forward: forwardFixture() }, async ({ view, chartState }) => {
+    await renderDashboard(view);
+    assert.ok(chartState.charts[0].candleData.length > 0);
+    click(switchButtons(view).find((button) => button.getAttribute("data-timeframe") === "5m"));
+    assert.equal(chartState.charts[0].candleData.length, 0, "the new heading must not sit above old timeframe candles");
+    assert.doesNotMatch(view.textContent, /LAST CONFIRMED 1H CLOSE/);
+    await flush();
+    assert.equal(chartState.charts[0].candleData.length, FIVE_MIN_ROWS.length);
+  });
+});

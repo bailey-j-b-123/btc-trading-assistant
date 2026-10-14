@@ -376,6 +376,9 @@ test("with no recorded plan the tracker says so and invents no levels", () => {
   const card = paperTrackerCard(forward(payload));
   const text = card.textContent;
   assert.match(text, /No paper trade recorded yet/);
+  assert.match(text, /NO PAPER TRADES/);
+  assert.doesNotMatch(text, /ALL SETTLED/);
+  assert.equal(card.dataset.trackerState, "empty");
   assert.match(text, /even when later assessments say No trade/);
   assert.doesNotMatch(text, /Entry reached|Latest outcome|83,916/);
 });
@@ -647,4 +650,14 @@ test("blocked polls pause without fetching and stop() cancels the pending timer"
     refresher.stop();
     assert.equal(scheduler.timers[1].cleared, true, "the pending poll timer is cancelled");
   });
+});
+
+
+test("an incomplete tracker cannot claim all settled or that no trades exist", () => {
+  const card = paperTrackerCard(forward(trackerPayload({
+    recorded_paper_plan_count: null, unresolved_paper_plan_count: null, tracked_plans: [],
+  })));
+  assert.equal(card.dataset.trackerState, "unknown");
+  assert.match(card.textContent, /Paper trade details unavailable/);
+  assert.doesNotMatch(card.textContent, /ALL SETTLED|No paper trade recorded yet/);
 });
