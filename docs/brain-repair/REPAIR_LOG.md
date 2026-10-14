@@ -26,3 +26,18 @@
 - Baseline evidence and resolved Python dependencies are in `evidence/`.
 - Added a disposable offline browser-server wrapper: accepts only existing databases under ignored `.cache/`, disables HTTP writes and external display-only quote/socket calls, allows sandbox framing without altering production security headers. Application market/evidence APIs are not mocked. Synthetic 600-candle DB seeded under `.cache/brain-repair/`; no genuine market data available.
 - Chromium initially failed to launch (missing system NSS/NSPR libraries). Extracted the optional Chromium package's bundled libraries into ignored `.cache/`; rerun uses `LD_LIBRARY_PATH`. No system package or application changes needed.
+
+### BRAIN-AUDIT-0001 — integration repair
+- #65 merged at `a51344db23a0ac0691afe0149bf5dde215b9add7`.
+- #66 merged with mechanical conflict resolution at **`f15cd1a558a56b1e62db2fd9b6ef6595a2de0ee6`**: retained `drawnModel`, `paintPatternAnnotation`, and the extracted `updateEvidenceMeta` called after both evidence and overlay updates. No entire-file replacement.
+- #67 merged cleanly at **`e07e4e6affcff4d742f336e6460e6451bb5a9583`**. All three source heads are ancestors, not cherry-picked duplicates.
+- Existing combined `npm test`: **464 passed / 0 failed**. Added a combined refresh/selection regression in `tests/frontend/dashboard.test.mjs`: all three S/R tallies agree after new overlays, pattern selection remains functional, chart instance and trade decision payloads are preserved.
+- Targeted regression passes. An isolated copy with the overlay-meta refresh removed fails the new assertion (see `evidence/0001-mutation.txt`); no tracked implementation was mutated for that negative control.
+- Baseline and combined Breakouts browser checks: all four sizes pass, zero page/console errors. Further combined Python/browser checks running.
+- Status: **READY FOR AUDITOR RECHECK** of implementation; final regression matrix still in progress.
+
+### Incoming queue
+- **BRAIN-AUDIT-0002 (P2)**: investigate existing PR #53 liveness repair; do not duplicate it.
+- **BRAIN-AUDIT-0003 (P2)**: residual wrong-timeframe swing fallback in #67, reproduced by audit probe; pending repair.
+- **BRAIN-AUDIT-0004 (P2)**: retest lifecycle outcome attached to observation candle; pending read-only UI repair/tests.
+- Sent new non-engine `zone_bands` omission observation to Agent 1 for independent confirmation/ID; not yet labelled verified.

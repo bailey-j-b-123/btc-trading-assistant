@@ -1860,3 +1860,46 @@ test("a timeframe with no stored candles empties the Chart Patterns cards and OH
     assert.ok(byClass(view, "pd-level").every((row) => /Unavailable/.test(row.textContent)));
   });
 });
+
+// BRAIN-AUDIT-0001: neither side of the rendering/accounting merge may be lost.
+test("integrated patterns survive S/R refresh with all three accounting surfaces in sync", async () => {
+  const dashboard = patternScreenDashboard();
+  const originalDecision = structuredClone({ plan: dashboard.plan, qualification: dashboard.qualification });
+  await withDashboard(dashboard, forwardPayload(), async ({ view, chartState }) => {
+    await renderDashboard(view);
+    const select = async (id) => {
+      press(findNodes(view, node => node.getAttribute?.("data-function") === id)[0]);
+      await drainMicrotasks();
+    };
+    await select("patterns");
+    assert.match(byClass(view, "pd-card--detection")[0].textContent, /Double Bottom/);
+    const chart = chartState.charts[0];
+    await select("support_resistance");
+    // A new response removes the previous band and supplies two on the same side:
+    // one is drawable, one is hidden by the client cap, plus five hidden by the API.
+    const first = dashboard.overlays.zone_bands.bands[0];
+    dashboard.overlays.zone_bands = {
+      ...dashboard.overlays.zone_bands,
+      bands: [first, { ...first, id: "farther", band_low: "61000", band_high: "61100", center: "61050" }],
+      hidden_count: 5,
+      total_stored: 7,
+    };
+    view.querySelectorAll = selector => {
+      assert.equal(selector, "details");
+      return findNodes(view, node => node.tagName === "DETAILS");
+    };
+    window.scrollTo = () => {};
+    await renderDashboard(view, { refresh: true });
+    await drainMicrotasks();
+    assert.match(byClass(view, "chart-function-status")[0].textContent, /1 band\(s\) shown.*6 further band\(s\) not drawn/);
+    assert.match(byClass(view, "chart-evidence-meta")[0].textContent, /S\/R bands: 1 drawn, 6 stored band\(s\) not drawn/);
+    assert.match(byClass(view, "chart-function-panel")[0].textContent, /Bands drawn1Further bands not drawn6/);
+    await select("patterns");
+    assert.match(byClass(view, "pd-card--detection")[0].textContent, /Double Bottom/);
+    press(byClass(view, "pd-other-button")[0]);
+    await drainMicrotasks();
+    assert.match(byClass(view, "pd-card--detection")[0].textContent, /Formed/);
+    assert.equal(chartState.charts[0], chart, "one chart instance, not a replacement");
+    assert.deepEqual({ plan: dashboard.plan, qualification: dashboard.qualification }, originalDecision);
+  });
+});
