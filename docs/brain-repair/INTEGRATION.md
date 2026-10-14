@@ -178,3 +178,22 @@
 ## Conflict handling
 
 Read-only `git merge-tree --write-tree ee6ab77 a5c9013` exits 1: one content conflict in dashboard.js. #65 filters legacy pattern shapes into `drawnModel` and paints annotations; #66 extracts the evidence-meta refresh so later overlay responses update the tally. These operations are compatible: retain the filtered drawnModel and annotation paint, followed by the extracted meta update and other existing rendering calls. No calculation/strategy/event/safety choice is required. This reproduces Agent 1 finding BRAIN-AUDIT-0001 (P2), audit commit fe0fa0dcc59027bb2d623c1eb8bbc4c169626467. Retain all independent assertions and behaviours.
+
+## Additional confirmed-defect dependency: PR #53
+
+Reviewed read-only liveness repair for BRAIN-AUDIT-0002; base main `9da1d3c`, head `cd0df0499a2d44dd8f0af397d2d9f05c3e17cca6`. Merged without conflicts or duplicate commits at `04b076db4d3fa3a73ea4848ea397454b3a57c58e`. No polling/execution/strategy change. Changed-file manifest:
+
+- `.env.example`
+- `README.md`
+- `docs/runner-health.md`
+- `src/trading_assistant/config.py`
+- `src/trading_assistant/forward_testing/parameters.py`
+- `src/trading_assistant/forward_testing/repository.py`
+- `src/trading_assistant/forward_testing/runner_health.py`
+- `src/trading_assistant/forward_testing/service.py`
+- `src/trading_assistant/web/static/js/topbar.js`
+- `tests/frontend/dashboard.test.mjs`
+- `tests/frontend/runner-heartbeat-health.test.mjs`
+- `tests/frontend/timeframeswitch.test.mjs`
+- `tests/frontend/topbar.test.mjs`
+- `tests/test_runner_heartbeat_health.py`

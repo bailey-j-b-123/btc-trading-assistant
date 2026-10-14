@@ -1047,3 +1047,38 @@ for (const timeframe of ["15m", "4h"]) {
     });
   }
 }
+
+// REPAIR-SR-001: reproduced in the actual S/R browser audit; sent to audit feed for an ID.
+test("viewed 4H bands retain their stored bounds and accounting after delayed structure arrives", async () => {
+  const zoneBands = {
+    timeframe: "4h", hidden_count: 2, merged_count: 0, total_stored: 3,
+    bands: [{ id: "4h-band", source_timeframe: "4h", band_low: "60000", band_high: "60100", center: "60050", position: "below_price", display_role: "support", touch_count: 2, distinct_test_timestamps: 2 }],
+  };
+  const source = { ...structurePayload("4h"), zone_bands: zoneBands };
+  const dashboard = dashboardFixture();
+  const mapped = overlaysForViewedTimeframe({ dashboard, viewedTimeframe: "4h", structure: source });
+  assert.equal(mapped.zone_bands, zoneBands, "passthrough, not client-side re-derivation or engine substitution");
+  assert.equal(overlaysForViewedTimeframe({ dashboard, viewedTimeframe: "15m", structure: source }).zone_bands, undefined);
+  await withDashboard({ dashboard, forward: forwardFixture(), market: { structure: { "4h": source } } }, async ({ view }) => {
+    const fetch = globalThis.fetch;
+    let release;
+    const delayed = new Promise(resolve => { release = resolve; });
+    globalThis.fetch = async (path, options) => {
+      const url = new URL(path, "http://test.invalid");
+      if (url.pathname === "/api/market/structure" && url.searchParams.get("timeframe") === "4h") await delayed;
+      return fetch(path, options);
+    };
+    await renderDashboard(view);
+    click(findOne(view, node => node.getAttribute?.("data-function") === "support_resistance"));
+    click(switchButtons(view).find(button => button.getAttribute("data-timeframe") === "4h"));
+    await flush();
+    const byClass = name => findOne(view, node => (node.className || "").split(" ").includes(name));
+    assert.doesNotMatch(byClass("chart-function-panel").textContent, /60,000\.00/);
+    release();
+    await flush();
+    assert.match(byClass("chart-function-panel").textContent, /60,000\.00 – 60,100\.00/);
+    assert.match(byClass("chart-function-panel").textContent, /4H zone/);
+    assert.match(byClass("chart-function-status").textContent, /1 band\(s\) shown.*2 further band\(s\) not drawn/);
+    assert.match(byClass("chart-evidence-meta").textContent, /S\/R bands: 1 drawn, 2 stored band\(s\) not drawn/);
+  });
+});

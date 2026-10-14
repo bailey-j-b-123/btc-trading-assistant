@@ -527,6 +527,10 @@ export function overlaysForViewedTimeframe({ dashboard, viewedTimeframe, structu
   return {
     equal_levels: [],
     zones: Array.isArray(structure.zones) ? structure.zones : [],
+    // The backend already presented these bands for this exact timeframe.
+    // Keep its bounds/counts/linkage; never rebuild them or borrow engine bands.
+    ...(structure.zone_bands && typeof structure.zone_bands === "object"
+      ? { zone_bands: structure.zone_bands } : {}),
     range: structure.range && typeof structure.range === "object" ? structure.range : null,
     swings: Array.isArray(structure.swings) ? structure.swings : [],
     setup_reference: null,
