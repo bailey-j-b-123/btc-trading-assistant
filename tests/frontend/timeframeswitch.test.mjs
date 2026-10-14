@@ -258,6 +258,7 @@ function forwardFixture() {
         expected_latest_closed_candle_open: AS_OF,
         missing_candle_count: 0,
       },
+      runner_liveness: { state: "CONFIRMED_ALIVE", alive_confirmed: true, age_seconds: 0, tolerance_seconds: 360 },
       runner: { status: "IDLE", recorded_at: AS_OF, latest_cycle_as_of: AS_OF, pending_boundaries: 0, last_error: null },
       sample: { paper_plans: 0, pending_catch_up_boundaries: 0 },
       current_state: { available: true, as_of: AS_OF, setup_state_counts: {}, plan_state_counts: {} },
@@ -665,12 +666,23 @@ test("compactHierarchyViewModel projects the backend payload without recomputing
 test("the compact strip sits next to the chart and shows every engine role", async () => {
   await withDashboard({ dashboard: dashboardFixture(), forward: forwardFixture() }, async ({ view }) => {
     await renderDashboard(view);
-    // The strip is the single multi-timeframe view, in the context column beside the chart (PR #38 redesign).
+    // Visual-correction pass: the Current Setup rail carries only the decision
+    // and the four setup rows (approved main design); the strip is Diagnostics
+    // material now. It stays mounted in the page, inside the Diagnostics panel.
     const stack = findOne(view, (node) => (node.className || "").split(" ").includes("dash-context"));
     assert.ok(stack);
-    assert.equal(stack.children[0].getAttribute("aria-label"), "Multi-timeframe status");
     const strip = stripNode(view);
     assert.ok(strip);
+    let ancestor = strip.parentNode;
+    let insideContext = false;
+    let insideDiagnostics = false;
+    while (ancestor) {
+      if (ancestor === stack) insideContext = true;
+      if ((ancestor.className || "").split(" ").includes("dash-tab-panel--diagnostics")) insideDiagnostics = true;
+      ancestor = ancestor.parentNode;
+    }
+    assert.equal(insideContext, false, "the multi-timeframe strip no longer crowds the Current Setup rail");
+    assert.ok(insideDiagnostics, "the multi-timeframe strip sits in the Diagnostics panel");
     const text = strip.textContent;
     for (const expected of [
       "Multi-timeframe status",
@@ -1004,4 +1016,69 @@ test("public Binance forming klines follow the 5M/15M/1H/4H chart view only, nev
       assert.equal(calls.filter((c) => c.method !== "GET").length, 0);
     });
   } finally { Date.now = originalNow; }
+});
+
+// BRAIN-AUDIT-0003: exercise the real caller and failed/empty timeframe-switch paths.
+for (const timeframe of ["15m", "4h"]) {
+  for (const unavailable of ["failure", "empty"]) {
+    test(`swing panel clears 1H bias on ${timeframe} candle ${unavailable}`, async () => {
+      const dashboard = dashboardFixture();
+      const trend = { direction: "bullish", reason: "higher_highs_and_higher_lows" };
+      dashboard.market_state = { available: true, trend };
+      dashboard.chart_evidence = { available: true, timeframe: "1h", trend, swings: [] };
+      await withDashboard({
+        dashboard, forward: forwardFixture(),
+        failCandles: unavailable === "failure" ? [timeframe] : [],
+        market: unavailable === "empty" ? { candles: { [timeframe]: candlesPayload(timeframe, []) } } : {},
+      }, async ({ view }) => {
+        await renderDashboard(view);
+        click(findOne(view, node => node.getAttribute?.("data-function") === "swings"));
+        await flush();
+        const panel = () => findOne(view, node => (node.className || "").split(" ").includes("chart-function-panel"));
+        assert.match(panel().textContent, /Current biasBullish/);
+        click(switchButtons(view).find(button => button.getAttribute("data-timeframe") === timeframe));
+        await flush();
+        assert.match(panel().textContent, /Current biasUNKNOWN/);
+        assert.doesNotMatch(panel().textContent, /Bullish/);
+        click(switchButtons(view).find(button => button.getAttribute("data-timeframe") === "1h"));
+        await flush();
+        assert.match(panel().textContent, /Current biasBullish/);
+      });
+    });
+  }
+}
+
+// REPAIR-SR-001: reproduced in the actual S/R browser audit; sent to audit feed for an ID.
+test("viewed 4H bands retain their stored bounds and accounting after delayed structure arrives", async () => {
+  const zoneBands = {
+    timeframe: "4h", hidden_count: 2, merged_count: 0, total_stored: 3,
+    bands: [{ id: "4h-band", source_timeframe: "4h", band_low: "60000", band_high: "60100", center: "60050", position: "below_price", display_role: "support", touch_count: 2, distinct_test_timestamps: 2 }],
+  };
+  const source = { ...structurePayload("4h"), zone_bands: zoneBands };
+  const dashboard = dashboardFixture();
+  const mapped = overlaysForViewedTimeframe({ dashboard, viewedTimeframe: "4h", structure: source });
+  assert.equal(mapped.zone_bands, zoneBands, "passthrough, not client-side re-derivation or engine substitution");
+  assert.equal(overlaysForViewedTimeframe({ dashboard, viewedTimeframe: "15m", structure: source }).zone_bands, undefined);
+  await withDashboard({ dashboard, forward: forwardFixture(), market: { structure: { "4h": source } } }, async ({ view }) => {
+    const fetch = globalThis.fetch;
+    let release;
+    const delayed = new Promise(resolve => { release = resolve; });
+    globalThis.fetch = async (path, options) => {
+      const url = new URL(path, "http://test.invalid");
+      if (url.pathname === "/api/market/structure" && url.searchParams.get("timeframe") === "4h") await delayed;
+      return fetch(path, options);
+    };
+    await renderDashboard(view);
+    click(findOne(view, node => node.getAttribute?.("data-function") === "support_resistance"));
+    click(switchButtons(view).find(button => button.getAttribute("data-timeframe") === "4h"));
+    await flush();
+    const byClass = name => findOne(view, node => (node.className || "").split(" ").includes(name));
+    assert.doesNotMatch(byClass("chart-function-panel").textContent, /60,000\.00/);
+    release();
+    await flush();
+    assert.match(byClass("chart-function-panel").textContent, /60,000\.00 – 60,100\.00/);
+    assert.match(byClass("chart-function-panel").textContent, /4H zone/);
+    assert.match(byClass("chart-function-status").textContent, /1 band\(s\) shown.*2 further band\(s\) not drawn/);
+    assert.match(byClass("chart-evidence-meta").textContent, /S\/R bands: 1 drawn, 2 stored band\(s\) not drawn/);
+  });
 });

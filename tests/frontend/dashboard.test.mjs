@@ -329,6 +329,7 @@ function forwardPayload(timestamp = "2026-10-06T12:00:00Z") {
         expected_latest_closed_candle_open: timestamp,
         missing_candle_count: 0,
       },
+      runner_liveness: { state: "CONFIRMED_ALIVE", alive_confirmed: true, age_seconds: 0, tolerance_seconds: 360 },
       runner: {
         status: "IDLE",
         recorded_at: timestamp,
@@ -1134,12 +1135,19 @@ test("the paper trade tracker is prominent, persistent, and ledger-driven", asyn
     await renderDashboard(view);
     const tracker = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("paper-tracker"))[0];
     assert.ok(tracker, "the tracker card renders on the dashboard");
-    // Prominent placement: directly after the decision hero, before the chart.
+    // Approved V2 placement: the tracker is the first thing in the Paper Trades
+    // panel, and that panel is the tab the dashboard opens on. The chart and the
+    // Current Setup panel sit above the tab strip, so the ledger never competes
+    // with the decision.
+    const paperPanel = findNodes(view, (node) => node.getAttribute && node.getAttribute("data-tab") === "paper")[0];
+    assert.ok(paperPanel, "the Paper Trades tab panel renders");
+    assert.equal(paperPanel.getAttribute("role"), "tabpanel");
+    assert.equal(paperPanel.hidden, false, "the dashboard opens on Paper Trades");
+    assert.equal(paperPanel.children[0], tracker, "the tracker is the first item in the Paper Trades panel");
     const hero = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("hero-card"))[0];
     const chart = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("dash-main"))[0];
-    const order = view.children.indexOf(hero) < view.children.indexOf(tracker)
-      && tracker ? view.children.indexOf(tracker) < view.children.indexOf(chart) : false;
-    assert.ok(order, "tracker sits between the decision hero and the chart");
+    assert.ok(hero && chart, "the decision and the chart still render");
+    assert.ok(view.children.indexOf(chart) < view.children.indexOf(byClass(view, "dash-bottom")[0]), "the chart area sits above the tabs");
     // The recorded plan shows every ledger fact, unresolved included.
     assert.match(tracker.textContent, /Paper trade tracker/);
     assert.match(tracker.textContent, /83,916\.01/);
@@ -1224,7 +1232,8 @@ test("tracker updates when the runner records STOPPED after the dashboard refres
     const cardBefore = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("paper-tracker"))[0];
     const heroBefore = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("hero-card"))[0];
     const chartWrapBefore = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("dash-chart"))[0];
-    assert.ok(cardBefore && heroBefore && chartWrapBefore);
+    const trackerSlotBefore = cardBefore ? cardBefore.parentNode : null;
+    assert.ok(cardBefore && heroBefore && chartWrapBefore && trackerSlotBefore);
     // The dashboard refreshed on the new candle while the plan was still open.
     assert.match(cardBefore.textContent, /Still open at cutoff/);
     assert.match(cardBefore.textContent, /Unresolved — still observing/);
@@ -1242,7 +1251,10 @@ test("tracker updates when the runner records STOPPED after the dashboard refres
     const cardAfter = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("paper-tracker"))[0];
     assert.ok(cardAfter, "the tracker card is still mounted");
     assert.notEqual(cardAfter, cardBefore, "the tracker card was replaced in place");
-    assert.equal(cardAfter.parentNode, view);
+    // Still swapped inside its own slot (the Paper Trades panel), never rebuilt
+    // into a new page: the same parent receives the new card at the same index.
+    assert.equal(cardAfter.parentNode, trackerSlotBefore, "the same slot receives the updated card");
+    assert.equal(cardAfter.parentNode.children[0], cardAfter);
     assert.equal(cardBefore.parentNode, null);
     assert.match(cardAfter.textContent, /Latest outcome\s*Stopped/);
     assert.match(cardAfter.textContent, /Plan state\s*Settled — final/);
@@ -1276,5 +1288,688 @@ test("tracker updates when the runner records STOPPED after the dashboard refres
     await drainMicrotasks();
     assert.equal(fetchTotal(fetchCounts, "/api/forward/paper-tracker"), trackerPolls, "no poll runs after navigation");
     assert.equal(findNodes(view, (node) => (node.className || "").split(/\s+/).includes("paper-tracker"))[0], stableCard);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Approved dashboard V2: trading bar, chart functions, summary cards, tabs
+// ---------------------------------------------------------------------------
+
+const T11 = Date.parse("2026-10-06T11:00:00Z");
+const T12 = Date.parse("2026-10-06T12:00:00Z");
+
+/** The backend fixture plus stored chart evidence on both of its candles. */
+function evidenceDashboard() {
+  const dashboard = backendDashboard({
+    planning: { state: "PLANNABLE", reasons: [], missing_inputs: [], state_detail: null },
+    plan: {
+      state: "PLANNABLE",
+      direction: "bullish",
+      entry: { value: "62100" },
+      stop: { value: "61900" },
+      invalidation: { value: "61900" },
+      targets: [{ level: { value: "62500" }, r_multiple: "2" }],
+    },
+    chart_evidence: {
+      available: true,
+      timeframe: "1h",
+      counts: { swings: 2, patterns: 2, breakouts: 1, failed_breakouts: 0, sweeps: 0, retests: 0 },
+      excluded_future_count: 1,
+      swings: [
+        { id: "swing:HH:1", kind: "high", label: "HH", price: "62100", time_ms: T11, known_at: "2026-10-06T11:00:00Z" },
+        { id: "swing:HL:1", kind: "low", label: "HL", price: "61500", time_ms: T12, known_at: "2026-10-06T12:00:00Z" },
+      ],
+      patterns: [
+        {
+          id: "pattern:db:1",
+          pattern_id: "db-1",
+          type: "double_bottom",
+          label: "DB",
+          side: "bottom",
+          state: "confirmed",
+          is_latest_state: true,
+          known_at: "2026-10-06T11:00:00Z",
+          anchor_time: "2026-10-06T11:00:00Z",
+          anchor_time_ms: T11,
+          neckline: "62200",
+          invalidation_level: "61500",
+          components: [{ time_ms: T12, price: "61500" }],
+        },
+        {
+          id: "pattern:hns:1",
+          pattern_id: "hns-1",
+          type: "head_and_shoulders",
+          label: "H&S",
+          side: "top",
+          state: "formed",
+          is_latest_state: true,
+          known_at: "2026-10-06T12:00:00Z",
+          anchor_time: "2026-10-06T12:00:00Z",
+          anchor_time_ms: T12,
+          components: [],
+        },
+      ],
+      breakouts: [
+        { id: "bo-1", direction: "bullish", state: "confirmed", time_ms: T12, known_at: "2026-10-06T12:00:00Z", band_low: "61500", band_high: "61600" },
+      ],
+      failed_breakouts: [],
+      sweeps: [],
+      retests: [],
+      zones: [],
+    },
+  });
+  dashboard.overlays = {
+    ...dashboard.overlays,
+    zone_bands: {
+      timeframe: "1h",
+      bands: [
+        {
+          id: "band-1",
+          display_role: "support",
+          position: "below_price",
+          band_low: "61500",
+          band_high: "61600",
+          center: "61550",
+          touch_count: 2,
+          distinct_test_timestamps: 2,
+          shared_candle_tests: 0,
+          faded: false,
+          isolated: false,
+          source_timeframe: "1h",
+          merged_zone_count: 1,
+          source_swing_timestamps: ["2026-10-06T12:00:00Z"],
+        },
+      ],
+      hidden_count: 3,
+      merged_count: 0,
+      total_stored: 4,
+      reason: null,
+    },
+  };
+  return dashboard;
+}
+
+function intoClass(node, name) {
+  return (node.className || "").split(/\s+/).includes(name);
+}
+
+function byClass(root, name) {
+  return findNodes(root, (node) => intoClass(node, name));
+}
+
+/** Press a button the way a browser would: every click listener, in order. */
+function press(node) {
+  assert.ok(node, "the control has to exist before it can be pressed");
+  const listeners = node.listeners.get("click") || [];
+  assert.ok(listeners.length, "the control has a click handler");
+  for (const listener of listeners) listener({ preventDefault() {}, stopPropagation() {} });
+}
+
+test("the trading bar carries the approved instrument, timeframe, mode and health facts", async () => {
+  await withDashboard(evidenceDashboard(), forwardPayload(), async ({ view, ids }) => {
+    await renderDashboard(view);
+    const bar = byClass(view, "dash-commandbar")[0];
+    assert.ok(bar, "the trading bar renders");
+    assert.equal(byClass(bar, "commandbar-symbol")[0].textContent, "BTC/USDT");
+    assert.match(bar.textContent, /PAPER MODE/);
+    assert.match(bar.textContent, /ENGINE 1H/);
+    const timeframeButtons = findNodes(bar, (node) => node.getAttribute?.("data-timeframe") || node.getAttribute?.("data-view-timeframe"));
+    assert.deepEqual(timeframeButtons.map((node) => node.textContent), ["5M", "15M", "1H", "4H", "1D"]);
+    assert.deepEqual(
+      timeframeButtons.filter((node) => node.getAttribute("aria-pressed") === "true").map((node) => node.textContent),
+      ["1H"],
+    );
+    assert.ok(byClass(bar, "live-quote").length, "the live price block is in the bar");
+    assert.match(byClass(bar, "commandbar-health-pill")[0].textContent, /^DATA CURRENT/);
+    assert.match(bar.textContent, /Last confirmed close 62,160\.00/);
+    assert.match(bar.textContent, /stored closed candles only/);
+    assert.equal(ids.get("topbar-price").textContent, "62,160.00");
+    // Four compact summary cards under the main area, then the three bottom tabs.
+    const summary = byClass(view, "dash-summary-grid")[0];
+    assert.ok(summary, "the summary grid renders");
+    const statCards = byClass(summary, "stat-card");
+    assert.deepEqual(
+      findNodes(summary, (node) => intoClass(node, "stat-label")).map((node) => node.textContent),
+      ["Active setups", "Qualified plans", "Settled paper trades", "Runner health"],
+    );
+    assert.equal(statCards.length, 4);
+    assert.match(statCards[3].textContent, /^◉Runner healthDATA CURRENT · RUNNER IDLE/);
+    // The four rows of the Current Setup column, from the backend's own facts.
+    const setup = byClass(view, "setup-rows")[0];
+    assert.deepEqual(
+      findNodes(setup, (node) => intoClass(node, "setup-row-label")).map((node) => node.textContent),
+      ["Market bias", "Setup status", "Confirmation", "Execution"],
+    );
+    assert.match(setup.textContent, /Market biasBullishStructure read: higher highs and higher lows\./);
+    assert.match(setup.textContent, /ExecutionNot armedDisabled by design/);
+    const tabs = byClass(view, "dash-tabs")[0];
+    assert.ok(tabs, "the bottom tabs render");
+    assert.deepEqual(
+      findNodes(tabs, (node) => node.getAttribute?.("data-tab-target")).map((node) => node.textContent),
+      ["Paper Trades", "Performance", "Diagnostics"],
+    );
+    assert.equal(findNodes(view, (node) => node.getAttribute?.("data-tab") === "diagnostics")[0].hidden, true, "diagnostics stay out of the way");
+    // The compact More menu keeps the read-only pages reachable without
+    // competing with the trading view.
+    const more = byClass(view, "more-menu")[0];
+    assert.ok(more, "the More menu renders in the trading bar");
+    assert.equal(more.tagName, "DETAILS", "closed by default, and keyboard-operable without script state");
+    assert.equal(more.open, false);
+    assert.equal(byClass(more, "more-summary")[0].textContent, "More");
+    const links = byClass(more, "more-link");
+    assert.deepEqual(links.map((node) => node.textContent), ["Journal", "Live / Paper", "Statistics", "Validation", "Settings"]);
+    assert.deepEqual(links.map((node) => node.getAttribute("href")), ["#/journal", "#/live", "#/statistics", "#/validation", "#/settings"]);
+    assert.equal(byClass(more, "more-list")[0].getAttribute("aria-label"), "More pages");
+  });
+});
+
+test("the five chart functions are switchable and Simple mode draws one at a time", async () => {
+  // A qualified setup with a plannable plan: the Trade Plan function only draws
+  // what the engine itself supplied.
+  const dashboard = evidenceDashboard();
+  dashboard.qualification = {
+    available: true,
+    state: "QUALIFIED",
+    reasons: [],
+    selected_setup_id: "setup-qualified-1",
+    setups: [{ id: "setup-qualified-1", state: "QUALIFIED", family: "breakout_retest_continuation", direction: "bullish" }],
+    snapshot: { setups: [{ id: "setup-qualified-1", state: "QUALIFIED", family: "breakout_retest_continuation", direction: "bullish", rules: [] }] },
+  };
+  await withDashboard(dashboard, forwardPayload(), async ({ view, chartState }) => {
+    await renderDashboard(view);
+    const buttons = findNodes(view, (node) => node.getAttribute?.("data-function"));
+    assert.deepEqual(
+      buttons.map((node) => node.getAttribute("data-function")),
+      ["support_resistance", "swings", "patterns", "breakouts", "trade_plan"],
+    );
+    assert.deepEqual(buttons.map((node) => node.textContent), ["S/R", "Swings", "Patterns", "Breakouts", "Plan"]);
+    assert.deepEqual(buttons.map((node) => node.getAttribute("aria-pressed")), ["false", "false", "false", "false", "true"]);
+    const status = byClass(view, "chart-function-status")[0];
+    assert.match(status.textContent, /^Trade Plan: /);
+    const drawnTitles = () => [...chartState.charts[0].lines].map((line) => line.options.title);
+    assert.ok(drawnTitles().includes("Stop / Invalidation"), "the plan's own lines are drawn by default");
+
+    press(buttons[1]); // Swing Highs / Lows
+    await drainMicrotasks();
+    assert.equal(buttons[1].getAttribute("aria-pressed"), "true");
+    assert.equal(buttons[4].getAttribute("aria-pressed"), "false", "one primary function at a time");
+    assert.match(status.textContent, /^Swing Highs \/ Lows: 2 stored confirmed swing\(s\)/);
+    assert.ok(
+      !drawnTitles().some((title) => title.includes("support") || title.includes("resistance")),
+      "no unrelated levels are drawn for the swing function",
+    );
+    assert.equal(byClass(view, "swing-connector-toggle")[0].getAttribute("aria-pressed"), "false");
+
+    press(buttons[0]); // Support / Resistance
+    await drainMicrotasks();
+    assert.match(status.textContent, /^Support \/ Resistance: 1 band\(s\) shown nearest price first · 3 further band\(s\) not drawn/);
+    // The panel beside the chart explains the selected function from the stored,
+    // presented bands: bounds and touch counts come straight from the detector.
+    const panel = byClass(view, "chart-function-panel")[0];
+    assert.equal(panel.dataset.function, "support_resistance");
+    assert.match(panel.textContent, /Support & Resistance/);
+    assert.match(panel.textContent, /Support61,500\.00 – 61,600\.00/);
+    // The panel states separate tests, and says what it did not draw.
+    assert.match(panel.textContent, /2 tests/);
+    assert.match(panel.textContent, /Only the nearest active zones are drawn; the count above says how many were not\./);
+    assert.match(panel.textContent, /Further bands not drawn3/);
+    // The line under the chart reports the same tally as the status line: the bands
+    // arrive with a later request than the evidence, and a stale "0 drawn" there
+    // would put two different totals on one screen.
+    const meta = byClass(view, "chart-evidence-meta")[0];
+    assert.match(meta.textContent, /S\/R bands: 1 drawn, 3 stored band\(s\) not drawn, 0 merged/);
+
+    press(buttons[3]); // Breakouts / Retests
+    await drainMicrotasks();
+    assert.match(status.textContent, /^Breakouts \/ Retests: 1 breakout\(s\) · 0 failed · 0 sweep\(s\) · 0 retest\(s\)/);
+    assert.match(status.textContent, /1 later-known item\(s\) excluded at this instant/);
+    // Continuation is one of the three steps, so it is named — but it is never
+    // claimed complete: the backend stores no continuation for this breakout.
+    assert.match(status.textContent, /3 Continuation: In Progress/);
+    assert.doesNotMatch(status.textContent, /3 Continuation: Confirmed/);
+  });
+});
+
+test("Simple and Detailed modes change what is drawn without changing the evidence", async () => {
+  await withDashboard(evidenceDashboard(), forwardPayload(), async ({ view, fetchCounts }) => {
+    await renderDashboard(view);
+    const modeButtons = findNodes(view, (node) => node.getAttribute?.("data-mode"));
+    assert.deepEqual(modeButtons.map((node) => node.getAttribute("data-mode")), ["simple", "detailed"]);
+    assert.equal(modeButtons[0].getAttribute("aria-pressed"), "true", "Simple is the default");
+    const legacy = byClass(view, "chart-layer-details")[0];
+    assert.equal(legacy.hidden, true, "the full layer list stays out of the way in Simple mode");
+    const dashboardCalls = fetchTotal(fetchCounts, "/api/dashboard");
+
+    press(modeButtons[1]);
+    await drainMicrotasks();
+    assert.equal(modeButtons[1].getAttribute("aria-pressed"), "true");
+    assert.equal(modeButtons[0].getAttribute("aria-pressed"), "false");
+    assert.equal(legacy.hidden, false, "Detailed mode exposes the operator's own layer switches");
+    assert.equal(fetchTotal(fetchCounts, "/api/dashboard"), dashboardCalls, "display mode never re-runs the analysis");
+  });
+});
+
+test("the bottom tabs switch panels without rebuilding the chart or refetching the dashboard", async () => {
+  await withDashboard(evidenceDashboard(), forwardPayload(), async ({ view, chartState, fetchCounts }) => {
+    await renderDashboard(view);
+    const tabs = findNodes(view, (node) => node.getAttribute?.("data-tab-target"));
+    const panels = findNodes(view, (node) => node.getAttribute?.("data-tab"));
+    const paper = panels.find((node) => node.getAttribute("data-tab") === "paper");
+    const performance = panels.find((node) => node.getAttribute("data-tab") === "performance");
+    const diagnostics = panels.find((node) => node.getAttribute("data-tab") === "diagnostics");
+    assert.equal(paper.hidden, false, "the dashboard opens on Paper Trades");
+    assert.equal(performance.hidden, true);
+    assert.equal(diagnostics.hidden, true);
+    assert.deepEqual(findNodes(view, (node) => node.getAttribute?.("aria-selected") === "true").map((node) => node.textContent), ["Paper Trades"]);
+    const calls = fetchTotal(fetchCounts, "/api/dashboard");
+    const chart = chartState.charts[0];
+
+    press(tabs[2]); // Diagnostics
+    await drainMicrotasks();
+    assert.equal(paper.hidden, true);
+    assert.equal(diagnostics.hidden, false);
+    assert.equal(tabs[2].getAttribute("aria-selected"), "true");
+    assert.equal(tabs[0].getAttribute("aria-selected"), "false");
+    assert.match(diagnostics.textContent, /Bot is watching/);
+    assert.ok(diagnostics.textContent.includes("System details") || byClass(diagnostics, "system-details").length, "system details stay reachable");
+    // The full presented band list lives here, with the detector's own bounds and
+    // test counts, so nothing that used to be on the page has been dropped.
+    assert.match(diagnostics.textContent, /Nearby zones/);
+    assert.match(diagnostics.textContent, /61,500\.00 – 61,600\.00/);
+    assert.match(diagnostics.textContent, /2 tests/);
+    // A band the chart did not draw is accounted for on the card, by position, not dropped.
+    assert.match(diagnostics.textContent, /1 of 4 stored zone\(s\) presented, 3 beyond the nearest-band selection/);
+    assert.equal(chartState.charts.length, 1, "no new chart instance is created");
+    assert.equal(chartState.charts[0], chart, "the chart is reused, so zoom and pan survive");
+    assert.equal(chart.removed, false, "switching tabs never disposes the chart");
+    assert.equal(fetchTotal(fetchCounts, "/api/dashboard"), calls, "no re-analysis on a tab switch");
+
+    press(tabs[1]); // Performance
+    await drainMicrotasks();
+    assert.equal(performance.hidden, false);
+    assert.match(performance.textContent, /Recorded outcome counts/);
+    // The approved design's two realised-performance tiles are in the layout, and this
+    // payload has no paper-performance block, so both state that plainly.
+    const headline = byClass(performance, "metric-tile--headline");
+    assert.deepEqual(headline.map((tile) => tile.dataset.metric), ["win_rate", "total_pnl"]);
+    assert.match(headline[0].textContent, /Win rate/);
+    assert.match(headline[1].textContent, /Total P&L/);
+    assert.equal(headline.filter((tile) => tile.textContent.includes("Not available yet")).length, 2);
+    assert.doesNotMatch(performance.textContent, /Total P&L[\s\S]{0,40}\+?\d/, "no figure is shown for P&L");
+    press(tabs[0]); // back to Paper Trades
+    await drainMicrotasks();
+    assert.equal(paper.hidden, false);
+    assert.equal(byClass(paper, "paper-tracker").length, 1, "the ledger card is still the first thing in the panel");
+  });
+});
+
+test("the pattern picker switches the drawn pattern and never shows a confidence", async () => {
+  await withDashboard(evidenceDashboard(), forwardPayload(), async ({ view }) => {
+    await renderDashboard(view);
+    const patternsButton = findNodes(view, (node) => node.getAttribute?.("data-function") === "patterns")[0];
+    assert.equal(byClass(view, "chart-pattern-picker")[0].hidden, true, "the picker appears with its function only");
+    press(patternsButton);
+    await drainMicrotasks();
+    const picker = byClass(view, "chart-pattern-picker")[0];
+    assert.equal(picker.hidden, false);
+    const choices = findNodes(picker, (node) => node.getAttribute?.("data-pattern-id"));
+    assert.deepEqual(choices.map((node) => node.textContent), ["H&S · formed · current", "DB · confirmed · current"]);
+    assert.deepEqual(
+      choices.map((node) => node.getAttribute("aria-pressed")),
+      ["true", "false"],
+      "the most recently known current state is highlighted until the operator picks another",
+    );
+    assert.doesNotMatch(picker.textContent, /confidence|probability|%/i);
+    press(choices[1]); // the other detected pattern
+    await drainMicrotasks();
+    const afterPress = findNodes(picker, (node) => node.getAttribute?.("data-pattern-id"));
+    assert.deepEqual(
+      afterPress.map((node) => node.getAttribute("aria-pressed")),
+      ["false", "true"],
+      "the other detected pattern is now the highlighted one",
+    );
+    assert.match(byClass(view, "chart-function-status")[0].textContent, /1 drawn/, "exactly the selected pattern is drawn");
+  });
+});
+
+test("desktop keeps Performance beside left tabs and restores narrow tab behaviour on resize", async () => {
+  let resize;
+  let removed = false;
+  const media = {
+    matches: true,
+    addEventListener(type, listener) { assert.equal(type, "change"); resize = listener; },
+    removeEventListener(type, listener) { assert.equal(type, "change"); assert.equal(listener, resize); removed = true; },
+  };
+  await withDashboard(evidenceDashboard(), forwardPayload(), async ({ view, chartState, fetchCounts }) => {
+    window.matchMedia = query => { assert.equal(query, "(min-width: 1181px)"); return media; };
+    await renderDashboard(view);
+    const bottom = byClass(view, "dash-bottom")[0];
+    const panels = findNodes(bottom, node => node.getAttribute?.("data-tab"));
+    const panel = id => panels.find(node => node.getAttribute("data-tab") === id);
+    const tabs = findNodes(bottom, node => node.getAttribute?.("data-tab-target"));
+    const tab = id => tabs.find(node => node.getAttribute("data-tab-target") === id);
+    const calls = fetchTotal(fetchCounts, "/api/dashboard");
+    const chart = chartState.charts[0];
+    assert.equal(panel("paper").hidden, false);
+    assert.equal(panel("performance").hidden, false);
+    assert.equal(panel("performance").getAttribute("role"), "region");
+    assert.equal(panel("performance").getAttribute("aria-labelledby"), null);
+    assert.equal(tab("performance").hidden, true);
+    press(tab("diagnostics"));
+    assert.equal(panel("paper").hidden, true);
+    assert.equal(panel("diagnostics").hidden, false);
+    assert.equal(panel("performance").hidden, false, "Diagnostics never hides desktop Performance");
+    assert.equal(byClass(panel("performance"), "metric-tile--headline").filter(tile => tile.textContent.includes("Not available yet")).length, 2);
+    media.matches = false;
+    resize();
+    assert.equal(tab("performance").hidden, false);
+    assert.equal(panel("performance").hidden, true);
+    assert.equal(panel("performance").getAttribute("role"), "tabpanel");
+    assert.equal(panel("performance").getAttribute("aria-labelledby"), "dash-tab-performance");
+    press(tab("performance"));
+    assert.equal(panel("performance").hidden, false);
+    assert.equal(panel("diagnostics").hidden, true);
+    media.matches = true;
+    resize();
+    assert.equal(panel("paper").hidden, false, "mobile Performance selection defaults the desktop left pane to Paper Trades");
+    assert.equal(panel("performance").hidden, false);
+    assert.equal(tab("paper").getAttribute("aria-selected"), "true");
+    media.matches = false;
+    resize();
+    assert.equal(panel("paper").hidden, true);
+    assert.equal(panel("performance").hidden, false, "narrow Performance selection survives desktop resize");
+    assert.equal(chartState.charts.length, 1);
+    assert.equal(chartState.charts[0], chart);
+    assert.equal(fetchTotal(fetchCounts, "/api/dashboard"), calls);
+  });
+  assert.equal(removed, true, "responsive listener is removed on dashboard disposal");
+});
+
+// ---------------------------------------------------------------------------
+// Chart Patterns — approved pattern-focused screen
+// ---------------------------------------------------------------------------
+
+const P_HOUR = 3_600_000;
+const P_LAST = 1791288000000;
+const P_COUNT = 200;
+const pTime = (index) => P_LAST - (P_COUNT - 1 - index) * P_HOUR;
+const pIso = (index) => new Date(pTime(index)).toISOString().replace(".000Z", "Z");
+
+/** 200 stored candles and two stored patterns: one on screen, one far in history. */
+function patternScreenDashboard() {
+  const dashboard = evidenceDashboard();
+  const candles = [];
+  for (let index = 0; index < P_COUNT; index += 1) {
+    let low = 61_800;
+    let high = 62_300;
+    if (index === 150 || index === 20) low = 61_500;
+    if (index === 172 || index === 44) low = 61_520;
+    if (index === 160 || index === 32) high = 62_400;
+    candles.push([pTime(index), "62000", String(high), String(low), "62100", "10"]);
+  }
+  dashboard.market = { ...dashboard.market, candles };
+  const record = (id, state, first, peak, second, anchor, latest) => ({
+    id,
+    pattern_id: `${id}-group`,
+    type: "double_bottom",
+    label: "DB",
+    side: "bottom",
+    state,
+    is_latest_state: latest,
+    known_at: pIso(anchor),
+    anchor_time: pIso(anchor),
+    anchor_time_ms: pTime(anchor),
+    neckline: "62400",
+    invalidation_level: "61500",
+    components: [
+      { kind: "low", time_ms: pTime(first), time: pIso(first), price: "61500" },
+      { kind: "high", time_ms: pTime(peak), time: pIso(peak), price: "62400" },
+      { kind: "low", time_ms: pTime(second), time: pIso(second), price: "61520" },
+    ],
+  });
+  dashboard.chart_evidence = {
+    ...dashboard.chart_evidence,
+    counts: { ...dashboard.chart_evidence.counts, patterns: 2 },
+    patterns: [
+      record("pattern:db:history", "formed", 20, 32, 44, 50, true),
+      record("pattern:db:recent", "confirmed", 150, 160, 172, 180, true),
+    ],
+  };
+  return dashboard;
+}
+
+/** Give the mock chart a real visible logical range, so zoom can be measured. */
+function measurableZoom(chartState) {
+  const state = { range: null, sets: [] };
+  const create = chartState.library.createChart;
+  chartState.library.createChart = (...args) => {
+    const chart = create(...args);
+    chart.timeScale = () => ({
+      getVisibleLogicalRange: () => (state.range ? { ...state.range } : null),
+      setVisibleLogicalRange: (next) => { state.range = { from: next.from, to: next.to }; state.sets.push(state.range); },
+      subscribeVisibleLogicalRangeChange() {},
+      unsubscribeVisibleLogicalRangeChange() {},
+      timeToCoordinate: () => null,
+      logicalToCoordinate: () => null,
+      coordinateToLogical: () => null,
+      height: () => 0,
+      width: () => 0,
+    });
+    return chart;
+  };
+  return state;
+}
+
+const span = (range) => range.to - range.from;
+
+test("Chart Patterns cards show stored records only, with the confidence not calculated", async () => {
+  await withDashboard(patternScreenDashboard(), forwardPayload(), async ({ view }) => {
+    await renderDashboard(view);
+    press(findNodes(view, (node) => node.getAttribute?.("data-function") === "patterns")[0]);
+    await drainMicrotasks();
+    const detection = byClass(view, "pd-card--detection")[0];
+    assert.match(detection.textContent, /Pattern Detection/);
+    assert.match(detection.textContent, /Double Bottom/);
+    assert.match(detection.textContent, /Confirmed/, "the newest current state, in the backend's own word");
+    assert.match(detection.textContent, /ConfidenceNot calculated/);
+    assert.doesNotMatch(detection.textContent, /\d+(\.\d+)?\s?%/, "no percentage anywhere on the card");
+    const others = byClass(view, "pd-other-button");
+    assert.deepEqual(others.map((node) => node.getAttribute("data-select-pattern")), ["pattern:db:history"], "only the other stored record");
+    assert.doesNotMatch(byClass(view, "pattern-panel")[0].textContent, /Bull Flag|Descending Triangle/);
+    const levels = byClass(view, "pd-level");
+    assert.deepEqual(levels.map((row) => row.dataset.level), ["neckline", "support", "resistance"]);
+    assert.match(levels[0].textContent, /62,400\.00/);
+    assert.match(levels[1].textContent, /61,500\.00/);
+    assert.match(levels[2].textContent, /Unavailable/, "no target is derived");
+    // The function switches sit in the header on this screen only.
+    assert.equal(byClass(view, "chart-header-controls")[0].children.length, 1);
+    assert.match(byClass(view, "pattern-chart-head")[0].textContent, /BTC\/USDT · 1H · BINANCE/);
+  });
+});
+
+test("selecting another detected pattern updates the cards and keeps the operator's zoom", async () => {
+  await withDashboard(patternScreenDashboard(), forwardPayload(), async ({ view, chartState }) => {
+    const zoom = measurableZoom(chartState);
+    await renderDashboard(view);
+    const opened = { ...zoom.range };
+    assert.equal(span(opened), 122, "the first-load window");
+    // The operator zooms in.
+    zoom.range = { from: 140.5, to: 190.5 };
+    press(findNodes(view, (node) => node.getAttribute?.("data-function") === "patterns")[0]);
+    await drainMicrotasks();
+    assert.deepEqual(zoom.range, { from: 140.5, to: 190.5 }, "the selected pattern is on screen: the window does not move");
+
+    press(byClass(view, "pd-other-button")[0]); // the pattern far in history
+    await drainMicrotasks();
+    assert.match(byClass(view, "pd-card--detection")[0].textContent, /Formed/, "the cards follow the selection");
+    assert.equal(span(zoom.range), 50, "the zoom (candles on screen) is unchanged");
+    assert.ok(zoom.range.from <= 32 && zoom.range.to >= 32, "the window moved to the stored pattern");
+    const choices = findNodes(byClass(view, "chart-pattern-picker")[0], (node) => node.getAttribute?.("data-pattern-id"));
+    assert.deepEqual(
+      choices.filter((node) => node.getAttribute("aria-pressed") === "true").map((node) => node.getAttribute("data-pattern-id")),
+      ["pattern:db:history"],
+      "the picker agrees",
+    );
+
+    const before = { ...zoom.range };
+    press(findNodes(view, (node) => node.getAttribute?.("data-function") === "breakouts")[0]);
+    await drainMicrotasks();
+    assert.equal(span(zoom.range), span(before), "a function switch keeps the zoom");
+    press(findNodes(view, (node) => node.getAttribute?.("data-function") === "patterns")[0]);
+    await drainMicrotasks();
+    assert.equal(span(zoom.range), span(before), "coming back keeps the zoom");
+  });
+});
+
+test("Breakouts & Retests is unaffected by the Chart Patterns screen", async () => {
+  await withDashboard(patternScreenDashboard(), forwardPayload(), async ({ view }) => {
+    await renderDashboard(view);
+    const fn = (id) => findNodes(view, (node) => node.getAttribute?.("data-function") === id)[0];
+    press(fn("breakouts"));
+    await drainMicrotasks();
+    const status = () => byClass(view, "chart-function-status")[0].textContent;
+    const panelText = () => byClass(view, "chart-function-panel")[0].textContent;
+    const first = { status: status(), panel: panelText(), header: byClass(view, "chart-header-controls")[0].children.length };
+    assert.equal(first.header, 0, "outside Chart Patterns the switches stay in the chart toolbar");
+    assert.equal(byClass(view, "pattern-panel").length, 0);
+    press(fn("patterns"));
+    await drainMicrotasks();
+    press(fn("breakouts"));
+    await drainMicrotasks();
+    assert.equal(status(), first.status);
+    assert.equal(panelText(), first.panel);
+    assert.equal(byClass(view, "chart-header-controls")[0].children.length, 0, "the switches went back to the toolbar");
+    assert.equal(byClass(byClass(view, "chart-control-home")[0], "chart-control-row").length, 1);
+  });
+});
+
+test("a timeframe with no stored candles empties the Chart Patterns cards and OHLC line", async () => {
+  await withDashboard(patternScreenDashboard(), forwardPayload(), async ({ view }) => {
+    await renderDashboard(view);
+    press(findNodes(view, (node) => node.getAttribute?.("data-function") === "patterns")[0]);
+    await drainMicrotasks();
+    assert.match(byClass(view, "pd-card--detection")[0].textContent, /Double Bottom/);
+    // The fixture server answers the 4H candle request with a non-4H payload, so
+    // the 4H chart is honestly unavailable.
+    press(findNodes(view, (node) => node.getAttribute?.("data-timeframe") === "4h")[0]);
+    await drainMicrotasks();
+    const head = byClass(view, "pattern-chart-head")[0].textContent;
+    assert.match(head, /BTC\/USDT · 4H · BINANCE/);
+    assert.match(head, /No stored candle/, "no 1H prices under the 4H label");
+    assert.doesNotMatch(byClass(view, "pattern-panel")[0].textContent, /Double Bottom|62,400/, "no 1H pattern under the 4H label");
+    assert.match(byClass(view, "pd-card--others")[0].textContent, /No other patterns recorded/);
+    assert.ok(byClass(view, "pd-level").every((row) => /Unavailable/.test(row.textContent)));
+  });
+});
+
+// BRAIN-AUDIT-0001: neither side of the rendering/accounting merge may be lost.
+test("integrated patterns survive S/R refresh with all three accounting surfaces in sync", async () => {
+  const dashboard = patternScreenDashboard();
+  const originalDecision = structuredClone({ plan: dashboard.plan, qualification: dashboard.qualification });
+  await withDashboard(dashboard, forwardPayload(), async ({ view, chartState }) => {
+    await renderDashboard(view);
+    const select = async (id) => {
+      press(findNodes(view, node => node.getAttribute?.("data-function") === id)[0]);
+      await drainMicrotasks();
+    };
+    await select("patterns");
+    assert.match(byClass(view, "pd-card--detection")[0].textContent, /Double Bottom/);
+    const chart = chartState.charts[0];
+    await select("support_resistance");
+    // A new response removes the previous band and supplies two on the same side:
+    // one is drawable, one is hidden by the client cap, plus five hidden by the API.
+    const first = dashboard.overlays.zone_bands.bands[0];
+    dashboard.overlays.zone_bands = {
+      ...dashboard.overlays.zone_bands,
+      bands: [first, { ...first, id: "farther", band_low: "61000", band_high: "61100", center: "61050" }],
+      hidden_count: 5,
+      total_stored: 7,
+    };
+    view.querySelectorAll = selector => {
+      assert.equal(selector, "details");
+      return findNodes(view, node => node.tagName === "DETAILS");
+    };
+    window.scrollTo = () => {};
+    await renderDashboard(view, { refresh: true });
+    await drainMicrotasks();
+    assert.match(byClass(view, "chart-function-status")[0].textContent, /1 band\(s\) shown.*6 further band\(s\) not drawn/);
+    assert.match(byClass(view, "chart-evidence-meta")[0].textContent, /S\/R bands: 1 drawn, 6 stored band\(s\) not drawn/);
+    assert.match(byClass(view, "chart-function-panel")[0].textContent, /Bands drawn1Further bands not drawn6/);
+    await select("patterns");
+    assert.match(byClass(view, "pd-card--detection")[0].textContent, /Double Bottom/);
+    press(byClass(view, "pd-other-button")[0]);
+    await drainMicrotasks();
+    assert.match(byClass(view, "pd-card--detection")[0].textContent, /Formed/);
+    assert.equal(chartState.charts[0], chart, "one chart instance, not a replacement");
+    assert.deepEqual({ plan: dashboard.plan, qualification: dashboard.qualification }, originalDecision);
+  });
+});
+
+// BRAIN-AUDIT-0006: the nearby-zones card must not drop a band's stored references, and must not
+// dress an overlapping, non-identical reference up as a link.
+test("nearby zone rows state overlapping references and keep the unsupported negative off them", async () => {
+  const dashboard = patternScreenDashboard();
+  const template = dashboard.overlays.zone_bands.bands[0];
+  const overlapping = {
+    ...template,
+    id: "band-overlap",
+    band_low: "61500",
+    band_high: "61600",
+    center: "61550",
+    linked_events: {
+      linked: false,
+      event_count: 0,
+      events: [],
+      counts: { breakout: 0, failed_breakout: 0, sweep: 0, retest: 0 },
+      reference_ids: [],
+      matched_band_bounds: [],
+      overlapping: true,
+      overlapping_count: 3,
+      overlapping_events: [],
+      overlapping_counts: { breakout: 1, failed_breakout: 0, sweep: 0, retest: 2 },
+      overlap_note: "stored events whose zone reference overlaps this band but is not identical to it",
+    },
+  };
+  const unreferenced = {
+    ...template,
+    id: "band-none",
+    band_low: "61000",
+    band_high: "61100",
+    center: "61050",
+    linked_events: {
+      linked: false,
+      event_count: 0,
+      events: [],
+      counts: { breakout: 0, failed_breakout: 0, sweep: 0, retest: 0 },
+      reference_ids: [],
+      matched_band_bounds: [],
+      overlapping: false,
+      overlapping_count: 0,
+      overlapping_events: [],
+      overlapping_counts: { breakout: 0, failed_breakout: 0, sweep: 0, retest: 0 },
+      overlap_note: null,
+    },
+  };
+  dashboard.overlays.zone_bands = {
+    ...dashboard.overlays.zone_bands,
+    bands: [overlapping, unreferenced],
+  };
+  await withDashboard(dashboard, forwardPayload(), async ({ view }) => {
+    await renderDashboard(view);
+    const metas = byClass(view, "zone-meta").map((node) => node.textContent);
+    assert.equal(metas.length, 2, "both presented bands are listed");
+    // Non-vacuous in both directions: the overlap is stated where it exists, and nothing is stated
+    // where it does not, so a row printed unconditionally cannot pass this test.
+    assert.equal(
+      metas.filter((text) => /3 event\(s\) overlap it at different bounds/.test(text)).length,
+      1,
+      `one row states the overlap: ${JSON.stringify(metas)}`,
+    );
+    assert.doesNotMatch(metas.join(" | "), /stored event\(s\) referenced it/, "no overlap is called a link");
+    assert.equal(
+      metas.filter((text) => /^1H zone · 2 tests$/.test(text)).length,
+      1,
+      `the unreferenced row keeps no reference claim at all: ${JSON.stringify(metas)}`,
+    );
   });
 });

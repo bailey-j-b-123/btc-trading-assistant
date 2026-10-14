@@ -10,14 +10,17 @@ const DOWN = "#e0565b";
 const GRID = "#1a2130";
 const TEXT = "#707b91";
 
+// Approved dashboard design: a trade plan reads blue entry, red stop / risk and
+// green targets / reward. These are display colours only — the plan's own levels
+// and the engine that produced them are untouched.
 export const OVERLAY_COLORS = {
   zones: "#5b9bd5",
   range: "#b58cf0",
   equalLevels: "#e8a33d",
-  entry: "#2fbf7f",
+  entry: "#5b9bd5",
   stop: "#e0565b",
   invalidation: "#e8a33d",
-  targets: "#5b9bd5",
+  targets: "#2fbf7f",
   swings: "#707b91",
   reference: "#8ea0bd",
 };
@@ -90,6 +93,23 @@ export function formatPriceAxis(price) {
 }
 
 const PRICE_AXIS_FORMAT = { type: "custom", minMove: 0.01, formatter: formatPriceAxis };
+
+/**
+ * Chart Patterns price axis, as in the approved design ("71,000", "67,498.1"):
+ * round values print without decimals, others keep their stored precision
+ * (up to 2 places) without trailing zeros. Display only: the OHLC line and the
+ * cards keep the full stored values.
+ */
+export function formatPatternPriceAxis(price) {
+  const value = Number(price);
+  if (!Number.isFinite(value)) return "";
+  return value.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+const PATTERN_PRICE_AXIS_FORMAT = { type: "custom", minMove: 0.01, formatter: formatPatternPriceAxis };
+/** Axis text on the Chart Patterns screen: the page's sans-serif face, larger, as in the design. */
+const PATTERN_AXIS_FONT_SIZE = 13;
+const PATTERN_AXIS_TEXT = "#8b96aa";
 
 export function createPriceChart(container, { height } = {}) {
   const library = typeof window === "undefined" ? null : window.LightweightCharts;
@@ -167,6 +187,8 @@ export function createPriceChart(container, { height } = {}) {
     formingSeries,
     volume,
     container,
+    // The axis text the chart was created with, restored when Chart Patterns closes.
+    defaultLayout: { textColor: TEXT, fontFamily: computedFont || "monospace", fontSize: 11 },
     priceLineHandles: [],
     // Chart evidence (markers + pattern line series) and event subscriptions are
     // tracked separately so a timeframe switch or refresh removes exactly them.
@@ -177,6 +199,9 @@ export function createPriceChart(container, { height } = {}) {
     zoneLayer: null,
     zoneBandsState: null,
     zoneUnsubscribers: [],
+    breakoutAnnoLayer: null,
+    breakoutAnnoState: null,
+    annoUnsubscribers: [],
     // Raw loaded rows (ascending). Older pages are merged into these, never replaced.
     loadedRows: [],
     historyUnsubscribe: null,
@@ -187,7 +212,16 @@ export function createPriceChart(container, { height } = {}) {
     const width = Number(container.clientWidth) || 0;
     const nextHeight = Number(container.clientHeight) || 0;
     if (width > 0 && nextHeight > 0) chart.resize(width, nextHeight);
+    // A deliberate layout change (the Chart Patterns screen widens or narrows
+    // the chart) keeps the same candles on screen: the library would otherwise
+    // keep the pixels per candle and silently change the window.
+    const hold = handle.windowHold;
+    if (hold && Date.now() <= hold.until) restoreLogicalView(handle, hold.view);
+    else handle.windowHold = null;
     renderZoneBands(handle);
+    renderBreakoutAnnotations(handle);
+    renderPatternAnnotation(handle);
+    renderPatternVolumeLabel(handle);
   };
 
   if (typeof ResizeObserver === "function") {
@@ -215,6 +249,8 @@ export const DEFAULT_VISIBLE_CANDLES_NARROW = 60;
 
 /** Tablets get an intermediate window. Each tier is a presentation choice; the data window is unchanged. */
 export const DEFAULT_VISIBLE_CANDLES_TABLET = 90;
+/** Empty space kept to the right of the newest candle, on first load and when restoring a window. */
+export const DEFAULT_EDGE_MARGIN = 3;
 
 function defaultVisibleCandles() {
   const matches = (query) => typeof globalThis.matchMedia === "function" && globalThis.matchMedia(query).matches;
@@ -239,7 +275,7 @@ export function setCandles(handle, payload) {
     if (typeof timeScale.setVisibleLogicalRange === "function") {
       const last = candles.length - 1;
       const visible = defaultVisibleCandles();
-      timeScale.setVisibleLogicalRange({ from: Math.max(0, last - visible + 1), to: last + 3 });
+      timeScale.setVisibleLogicalRange({ from: Math.max(0, last - visible + 1), to: last + DEFAULT_EDGE_MARGIN });
     }
     handle.initialRangeApplied = true;
   }
@@ -255,7 +291,10 @@ export function setCandles(handle, payload) {
     });
   }
   if (handle.volume && typeof handle.volume.setData === "function") handle.volume.setData(volumeRows);
+  // The newest stored volume, for the volume label of the Chart Patterns pane.
+  handle.lastVolume = volumeRows.length ? volumeRows[volumeRows.length - 1].value : null;
   renderZoneBands(handle);
+  renderPatternVolumeLabel(handle);
 }
 
 /**
@@ -310,6 +349,426 @@ export function restoreChartView(handle, captured) {
     return;
   }
   timeScale.setVisibleRange({ from: captured.from, to: captured.to });
+}
+
+/**
+ * The visible index window, expressed the only way that survives a change of series length:
+ * the number of candles on screen (the zoom) and how far the right edge sits from the newest
+ * loaded candle (the place).
+ *
+ * A timeframe switch loads a different time base, so the same instants no longer mean the same
+ * candles, and the candle count changes too (a 1H view may hold 500 candles where the 5M view
+ * held 200). Absolute indices therefore cannot be carried across: they would leave the operator
+ * staring at ancient history after a switch. The width and the distance from the live edge can.
+ * Used only for timeframe changes; refreshes use captureChartView.
+ */
+export function captureLogicalView(handle) {
+  const timeScale = handle && !handle.destroyed && handle.chart && typeof handle.chart.timeScale === "function"
+    ? handle.chart.timeScale()
+    : null;
+  if (!timeScale || typeof timeScale.getVisibleLogicalRange !== "function") return null;
+  const bars = Number.isFinite(handle.barCount) ? handle.barCount : 0;
+  if (bars <= 0) return null;
+  const range = timeScale.getVisibleLogicalRange();
+  if (!range || !Number.isFinite(range.from) || !Number.isFinite(range.to) || range.to <= range.from) return null;
+  return {
+    width: range.to - range.from,
+    // Positive at the live edge (the usual case), larger when the window is panned into history.
+    edgeOffset: range.to - (bars - 1),
+  };
+}
+
+/**
+ * Keep the current window (same candles on screen) through the resizes a
+ * layout change is about to cause. Only for a deliberate layout switch; the
+ * hold expires on its own, so an ordinary window resize is never affected.
+ */
+export function holdWindowThroughResize(handle, ms = 1500) {
+  if (!handle || handle.destroyed) return;
+  const view = captureLogicalView(handle);
+  handle.windowHold = view ? { view, until: Date.now() + ms } : null;
+}
+
+/** After the screen itself moved the window, an active hold keeps the new one. */
+export function refreshWindowHold(handle, range = null) {
+  if (!handle || !handle.windowHold) return;
+  // The library applies a new visible range lazily, so the range just set is
+  // used as given rather than read back (a read-back can still be the old one).
+  const bars = Number.isFinite(handle.barCount) ? handle.barCount : 0;
+  const view = range && bars > 0 && Number.isFinite(range.from) && Number.isFinite(range.to) && range.to > range.from
+    ? { width: range.to - range.from, edgeOffset: range.to - (bars - 1) }
+    : captureLogicalView(handle);
+  if (view) handle.windowHold = { ...handle.windowHold, view };
+}
+
+/**
+ * Put back a window captured by captureLogicalView on the series that is loaded now.
+ *
+ * The same zoom (candle count) and the same distance from the newest candle are restored, then
+ * clamped to what exists: the window never starts before the first candle and never runs more
+ * than a small margin past the newest one, exactly like the default view.
+ */
+export function restoreLogicalView(handle, captured) {
+  const timeScale = handle && !handle.destroyed && handle.chart && typeof handle.chart.timeScale === "function"
+    ? handle.chart.timeScale()
+    : null;
+  if (!captured || !timeScale || typeof timeScale.setVisibleLogicalRange !== "function") return;
+  const bars = Number.isFinite(handle.barCount) ? handle.barCount : 0;
+  if (bars <= 0) return;
+  const width = Math.min(Math.max(Number(captured.width) || 0, 1), bars);
+  const lastIndex = bars - 1;
+  const edgeOffset = Number.isFinite(Number(captured.edgeOffset)) ? Number(captured.edgeOffset) : 1;
+  const maxTo = lastIndex + DEFAULT_EDGE_MARGIN;
+  let to = Math.min(lastIndex + edgeOffset, maxTo);
+  let from = to - width;
+  if (from < 0) {
+    from = 0;
+    to = Math.min(width, maxTo);
+  }
+  timeScale.setVisibleLogicalRange({ from, to });
+}
+
+/**
+ * The visible-range API of a live chart, or null when there is nothing to move.
+ * Kept separate from the logical-view helpers above because those carry a view
+ * across a RELOAD; these move the view the operator is already looking at.
+ */
+function liveTimeScale(handle) {
+  return handle && !handle.destroyed && handle.chart && typeof handle.chart.timeScale === "function"
+    ? handle.chart.timeScale()
+    : null;
+}
+
+/** Empty candles kept either side of a framed span, so the last event is not on the edge. */
+export const FRAME_PAD_CANDLES = 6;
+
+/**
+ * Bring one bar into view, keeping the operator's current zoom.
+ *
+ * The number of candles on screen is read from the chart and put back around the
+ * requested bar, so jumping to a stored event never changes how far the operator
+ * is zoomed in — only where the window sits. Presentation only: no row,
+ * timeframe, layer or stored value is touched.
+ *
+ * @returns {{from: number, to: number}|null} the applied logical range.
+ */
+export function focusBarOnChart(handle, index) {
+  const timeScale = liveTimeScale(handle);
+  if (!timeScale || typeof timeScale.setVisibleLogicalRange !== "function") return null;
+  const bars = Number.isFinite(handle.barCount) ? handle.barCount : 0;
+  if (bars <= 0 || !Number.isFinite(index)) return null;
+  const current = typeof timeScale.getVisibleLogicalRange === "function"
+    ? timeScale.getVisibleLogicalRange()
+    : null;
+  const measured = current && Number.isFinite(current.from) && Number.isFinite(current.to) && current.to > current.from
+    ? current.to - current.from
+    : null;
+  const width = Math.min(Math.max(measured ?? defaultVisibleCandles(), 1), bars);
+  const maxTo = bars - 1 + DEFAULT_EDGE_MARGIN;
+  let from = Math.round(Number(index) - width / 2);
+  let to = from + width;
+  if (from < 0) {
+    from = 0;
+    to = Math.min(width, maxTo);
+  }
+  if (to > maxTo) {
+    to = maxTo;
+    from = Math.max(0, to - width);
+  }
+  const range = { from, to };
+  timeScale.setVisibleLogicalRange(range);
+  // A deliberate move: a layout hold in progress keeps this window, not the old one.
+  refreshWindowHold(handle, range);
+  return range;
+}
+
+/**
+ * Frame a span of bars: the one control that DOES change the zoom, because
+ * fitting the stored events is exactly what was asked for. Used by the
+ * Breakouts & Retests "frame events" control, never automatically.
+ *
+ * @returns {{from: number, to: number}|null} the applied logical range.
+ */
+export function frameBarsOnChart(handle, fromIndex, toIndex, { pad = FRAME_PAD_CANDLES } = {}) {
+  const timeScale = liveTimeScale(handle);
+  if (!timeScale || typeof timeScale.setVisibleLogicalRange !== "function") return null;
+  const bars = Number.isFinite(handle.barCount) ? handle.barCount : 0;
+  if (bars <= 0 || !Number.isFinite(fromIndex) || !Number.isFinite(toIndex)) return null;
+  const low = Math.min(fromIndex, toIndex);
+  const high = Math.max(fromIndex, toIndex);
+  const margin = Number.isFinite(pad) ? Math.max(0, Math.trunc(pad)) : 0;
+  const maxTo = bars - 1 + DEFAULT_EDGE_MARGIN;
+  let from = Math.max(0, Math.trunc(low) - margin);
+  let to = Math.min(maxTo, Math.trunc(high) + margin);
+  if (to <= from) {
+    from = Math.max(0, Math.min(from, maxTo - 1));
+    to = Math.min(maxTo, from + 1);
+  }
+  const range = { from, to };
+  timeScale.setVisibleLogicalRange(range);
+  // A deliberate move: a layout hold in progress keeps this window, not the old one.
+  refreshWindowHold(handle, range);
+  return range;
+}
+
+// ---------------------------------------------------------------------------
+// Breakout / Retest / Continuation callouts
+//
+// Three numbered callouts with an arrow to the candle each step belongs to.
+// They are drawn as DOM over the canvas, positioned from the chart's own
+// coordinates, exactly like the zone bands above: nothing here changes a
+// series, a candle or a stored value.
+// ---------------------------------------------------------------------------
+
+/**
+ * Where the callouts sit, following the approved layout:
+ *
+ *   1 Breakout     - above the breakout candle, arrow pointing down at it
+ *   2 Retest       - below and to the right of its candle, arrow back up at it
+ *   3 Continuation - above the later price action, arrow pointing down at it
+ *
+ * Each callout is placed against the candle its step belongs to, not in a fixed
+ * band across the top of the chart, so it stays visible with the candles it
+ * marks. Two callouts on the same side that would collide are stepped further
+ * from their candles until they clear each other.
+ */
+const ANNO_PLACE = Object.freeze({ above: "above", below: "below" });
+/** Clear space kept between a callout and the candle(ish) point it marks. */
+const ANNO_GAP = 26;
+/** How far to the right the retest callout is offset from its candle. */
+const ANNO_NUDGE_RIGHT = 92;
+/** Extra vertical step when two callouts on the same side would overlap. */
+const ANNO_STEP = 6;
+/** Gap between the arrowhead and the point it marks. */
+const ANNO_ARROW_GAP = 7;
+/** Keep every callout this far inside the pane so nothing is clipped. */
+const ANNO_EDGE_PAD = 6;
+
+/** Two boxes overlap when they share both a horizontal and a vertical span. */
+function annoOverlaps(a, b) {
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+}
+
+function createBreakoutAnnoLayer(handle) {
+  const container = handle.container;
+  if (typeof document === "undefined" || !container || handle.breakoutAnnoLayer || typeof container.appendChild !== "function") return;
+  if (typeof globalThis.getComputedStyle === "function" && globalThis.getComputedStyle(container).position === "static") {
+    container.style.position = "relative";
+  }
+  const layer = document.createElement("div");
+  layer.className = "breakout-anno-layer";
+  layer.setAttribute?.("aria-hidden", "true");
+  container.appendChild(layer);
+  handle.breakoutAnnoLayer = layer;
+  const timeScale = handle.chart?.timeScale?.();
+  const render = () => renderBreakoutAnnotations(handle);
+  if (timeScale && typeof timeScale.subscribeVisibleLogicalRangeChange === "function") {
+    timeScale.subscribeVisibleLogicalRangeChange(render);
+    handle.annoUnsubscribers.push(() => timeScale.unsubscribeVisibleLogicalRangeChange?.(render));
+  }
+  if (typeof handle.chart?.subscribeCrosshairMove === "function") {
+    handle.chart.subscribeCrosshairMove(render);
+    handle.annoUnsubscribers.push(() => handle.chart.unsubscribeCrosshairMove?.(render));
+  }
+}
+
+/**
+ * Draw the three numbered callouts. `stages` come from breakout_stages.js: each
+ * carries the exact candle (bar index and time) and price it belongs to, so a
+ * callout is drawn only on that candle and never snapped to a neighbour.
+ */
+export function setBreakoutAnnotations(handle, stages, { onSelect } = {}) {
+  if (!handle || handle.destroyed || !handle.container) return;
+  if (typeof handle.container.appendChild !== "function" || typeof document === "undefined") return;
+  createBreakoutAnnoLayer(handle);
+  handle.breakoutAnnoState = {
+    stages: (Array.isArray(stages) ? stages : []).filter((stage) => stage && typeof stage === "object"),
+    onSelect: typeof onSelect === "function" ? onSelect : null,
+  };
+  renderBreakoutAnnotations(handle);
+}
+
+/** Remove every callout and its listeners. Safe to call repeatedly. */
+export function clearBreakoutAnnotations(handle) {
+  if (!handle) return;
+  for (const unsubscribe of handle.annoUnsubscribers || []) {
+    try {
+      unsubscribe();
+    } catch {
+      // The chart may already be removed; nothing else to release.
+    }
+  }
+  handle.annoUnsubscribers = [];
+  handle.breakoutAnnoState = null;
+  if (handle.breakoutAnnoLayer) {
+    handle.breakoutAnnoLayer.remove?.();
+    handle.breakoutAnnoLayer = null;
+  }
+}
+
+/** Position every callout from the current coordinates. Pure reads; no data change. */
+export function renderBreakoutAnnotations(handle) {
+  if (!handle || handle.destroyed || !handle.breakoutAnnoLayer) return;
+  const { series, chart } = handle;
+  const timeScale = chart?.timeScale?.();
+  if (!series || typeof series.priceToCoordinate !== "function" || !timeScale) return;
+  if (typeof timeScale.timeToCoordinate !== "function") return;
+  const layer = handle.breakoutAnnoLayer;
+  const width = Number(handle.container?.clientWidth) || 0;
+  const height = Number(handle.container?.clientHeight) || 0;
+  const { stages, onSelect } = handle.breakoutAnnoState || { stages: [], onSelect: null };
+  layer.textContent = "";
+  const drawn = stages.filter((stage) => Number.isFinite(stage.barIndex) && stage.barIndex >= 0);
+  let offView = 0;
+  /** Boxes already placed, in layer coordinates, so the next callout can clear them. */
+  const placed = [];
+  drawn.forEach((stage) => {
+    const x = timeScale.timeToCoordinate(stage.timeSeconds);
+    const price = Number.isFinite(Number(stage.price)) ? Number(stage.price) : null;
+    const y = price === null ? null : series.priceToCoordinate(price);
+    if (x === null || x === undefined || y === null || y === undefined) {
+      offView += 1;
+      return;
+    }
+    if (x < 0 || x > width) {
+      offView += 1;
+      return;
+    }
+    const targetX = Math.min(Math.max(x, 2), Math.max(2, width - 2));
+    const targetY = Math.min(Math.max(y, 2), Math.max(2, height - 2));
+    // The retest callout sits to the right of its candle; the others sit over it.
+    const nudge = stage.nudge === "right" ? ANNO_NUDGE_RIGHT : 0;
+    const belowFirst = stage.place === ANNO_PLACE.below;
+
+    const badge = document.createElement("button");
+    badge.type = "button";
+    badge.className = "breakout-anno";
+    badge.dataset.stage = stage.key;
+    badge.dataset.tone = stage.tone || "neutral";
+    // An unrecorded step is drawn as an outline with a dashed leader line, so a
+    // pending continuation never looks like a confirmed one.
+    badge.dataset.recorded = String(stage.recorded === true);
+    badge.style.setProperty("--anno-tone", "var(--blue)");
+    badge.setAttribute?.("aria-label", `${stage.title}: ${stage.status}. ${stage.detail}`);
+    badge.title = `${stage.title} — ${stage.status}. ${stage.detail}`;
+    const numberBadge = document.createElement("span");
+    numberBadge.className = "breakout-anno-num";
+    numberBadge.textContent = String(stage.number);
+    badge.appendChild(numberBadge);
+    const title = document.createElement("span");
+    title.className = "breakout-anno-title";
+    title.textContent = stage.title;
+    badge.appendChild(title);
+    const status = document.createElement("span");
+    status.className = "breakout-anno-status";
+    status.textContent = stage.status;
+    badge.appendChild(status);
+    if (onSelect) badge.addEventListener("click", (event) => {
+      event.stopPropagation();
+      onSelect(stage);
+    });
+    // Hidden at the origin first: the real size is needed before it can be
+    // placed, and getting the size wrong is how a callout ends up clipped.
+    badge.style.left = "0px";
+    badge.style.top = "0px";
+    badge.style.visibility = "hidden";
+    layer.appendChild(badge);
+    const badgeW = badge.offsetWidth || 0;
+    const badgeH = badge.offsetHeight || 0;
+
+    const maxLeft = Math.max(ANNO_EDGE_PAD, width - badgeW - ANNO_EDGE_PAD);
+    const badgeX = Math.min(Math.max(targetX + nudge - badgeW / 2, ANNO_EDGE_PAD), maxLeft);
+    const restY = (side) => (side === ANNO_PLACE.below
+      ? targetY + ANNO_GAP
+      : targetY - ANNO_GAP - badgeH);
+
+    // Prefer the side the layout gives this step; if the callout cannot fit
+    // there without covering another one, use the other side.
+    const sides = belowFirst ? [ANNO_PLACE.below, ANNO_PLACE.above] : [ANNO_PLACE.above, ANNO_PLACE.below];
+    let side = sides[0];
+    let badgeY = restY(side);
+    let box = null;
+    for (const attemptSide of sides) {
+      let y = restY(attemptSide);
+      for (let guard = 0; guard < 24; guard += 1) {
+        const candidate = { left: badgeX, top: y, right: badgeX + badgeW, bottom: y + badgeH };
+        const hit = placed.find((other) => annoOverlaps(candidate, other));
+        if (!hit) break;
+        // Step further away from the candle the callout belongs to.
+        y = attemptSide === ANNO_PLACE.below
+          ? hit.bottom + ANNO_STEP
+          : hit.top - badgeH - ANNO_STEP;
+      }
+      const fits = y >= ANNO_EDGE_PAD && y + badgeH <= height - ANNO_EDGE_PAD;
+      if (fits) {
+        side = attemptSide;
+        badgeY = y;
+        box = { left: badgeX, top: y, right: badgeX + badgeW, bottom: y + badgeH };
+        break;
+      }
+    }
+    if (!box) {
+      // No clear space: sit it just inside the edge on the preferred side
+      // rather than dropping the callout.
+      side = sides[0];
+      badgeY = Math.min(Math.max(restY(side), ANNO_EDGE_PAD), Math.max(ANNO_EDGE_PAD, height - badgeH - ANNO_EDGE_PAD));
+      box = { left: badgeX, top: badgeY, right: badgeX + badgeW, bottom: badgeY + badgeH };
+    }
+    badge.style.left = `${badgeX}px`;
+    badge.style.top = `${badgeY}px`;
+    badge.style.visibility = "";
+    badge.dataset.place = side;
+    placed.push(box);
+
+    // The line starts on the edge of the callout facing its candle and ends
+    // just short of the candle itself, with the arrowhead on the end of it.
+    const startX = badgeX + badgeW / 2;
+    const startY = side === ANNO_PLACE.below ? badgeY : badgeY + badgeH;
+    const endY = side === ANNO_PLACE.below ? targetY + ANNO_ARROW_GAP : targetY - ANNO_ARROW_GAP;
+    const endX = targetX;
+    const length = Math.hypot(endX - startX, endY - startY);
+    if (length > 2) {
+      const angle = Math.atan2(endY - startY, endX - startX);
+      const line = document.createElement("div");
+      line.className = "breakout-anno-line";
+      line.style.left = `${startX}px`;
+      line.style.top = `${startY}px`;
+      line.style.width = `${length}px`;
+      line.style.transform = `rotate(${angle}rad)`;
+      if (stage.recorded !== true) line.dataset.pending = "true";
+      // The three callouts are blue by design; the status inside each one
+      // carries the tone of what the backend recorded.
+      line.style.setProperty("--anno-tone", "var(--blue)");
+      layer.appendChild(line);
+      const arrow = document.createElement("div");
+      arrow.className = "breakout-anno-arrow";
+      arrow.style.left = `${endX}px`;
+      arrow.style.top = `${endY}px`;
+      arrow.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
+      if (stage.recorded !== true) arrow.dataset.pending = "true";
+      arrow.style.setProperty("--anno-tone", "var(--blue)");
+      layer.appendChild(arrow);
+    }
+  });
+  if (offView) {
+    const note = document.createElement("div");
+    note.className = "breakout-anno-offview";
+    note.textContent = `${offView} callout${offView === 1 ? "" : "s"} outside the visible window`;
+    layer.appendChild(note);
+  }
+}
+
+/**
+ * Reposition both DOM overlays (zone bands and callouts) from the current
+ * coordinates. The chart library notifies its own subscribers when the operator
+ * pans or zooms, but not when the view is set programmatically — so a jump or a
+ * frame calls this directly instead of waiting for a notification that never
+ * comes.
+ */
+export function redrawOverlays(handle) {
+  renderZoneBands(handle);
+  renderBreakoutAnnotations(handle);
+  renderPatternAnnotation(handle);
 }
 
 /**
@@ -376,6 +835,10 @@ export function clearOverlays(handle) {
     handle.setupBand = null;
     renderZoneBands(handle);
   }
+  if (Array.isArray(handle.planAreas) && handle.planAreas.length) {
+    handle.planAreas = [];
+    renderZoneBands(handle);
+  }
   if (!Array.isArray(handle.priceLineHandles)) return;
   const lines = handle.priceLineHandles.splice(0);
   if (!handle.series || typeof handle.series.removePriceLine !== "function") return;
@@ -390,6 +853,11 @@ export function clearOverlays(handle) {
 }
 
 export function destroyPriceChart(handle) {
+  if (handle) {
+    clearBreakoutAnnotations(handle);
+    clearPatternAnnotation(handle);
+    setPatternPane(handle, false);
+  }
   if (!handle || handle.destroyed) return;
   clearOverlays(handle);
   clearEvidence(handle);
@@ -477,7 +945,12 @@ export function applyOverlays(handle, payload = {}) {
       band.low > 0 && band.high >= band.low
     ? { low: band.low, high: band.high }
     : null;
-  if (handle.setupBand) createZoneLayer(handle);
+  // Plan risk and reward areas: the region between entry and stop (what the plan
+  // risks) and between entry and the final target (what it targets). Shaded only
+  // from the plan's own levels — entry stays blue, risk red, reward green, in line
+  // with the approved design. No area is drawn when a level is missing.
+  handle.planAreas = prefs.planLevels !== false && plan ? planAreasFor(plan) : [];
+  if (handle.setupBand || handle.planAreas.length) createZoneLayer(handle);
   renderZoneBands(handle);
 
   if (prefs.swings === true) {
@@ -648,13 +1121,86 @@ export function addHigherTimeframeLines(handle, entries) {
 const ZONE_LABEL_MIN_GAP_PX = 16;
 /** The setup reference (backend reference bounds, display only): a neutral, unlabelled-by-role band. */
 const SETUP_BAND_STYLE = { fill: "rgba(143, 166, 255, 0.07)", edge: "#8fa6ff" };
+// Plan risk / reward shading. Same faintness convention as the bands above: the
+// fill marks the region, the price lines mark the exact levels.
+const PLAN_AREA_STYLE = {
+  risk: { fill: "rgba(224, 86, 91, 0.07)", edge: "#e0565b" },
+  reward: { fill: "rgba(47, 191, 127, 0.07)", edge: "#2fbf7f" },
+};
+
+/**
+ * The plan's own risk and reward regions, as {kind, low, high} rectangles.
+ *
+ * Risk is entry-to-stop and reward is entry-to-the-last-target, both measured
+ * from the levels the plan already carries. A region with a missing or equal
+ * bound is omitted rather than guessed, so a partial plan shades only what it
+ * really states. Display only: nothing here changes the plan.
+ */
+export function planAreasFor(plan) {
+  const entry = finiteNumber(plan?.entry?.value);
+  if (entry === null) return [];
+  const targets = Array.isArray(plan.targets) ? plan.targets : [];
+  const lastTarget = targets.length ? finiteNumber(targets[targets.length - 1]?.level?.value) : null;
+  const stop = finiteNumber(plan?.stop?.value);
+  const area = (kind, bound) => {
+    if (bound === null || bound === entry) return null;
+    return { kind, low: Math.min(entry, bound), high: Math.max(entry, bound) };
+  };
+  return [area("risk", stop), area("reward", lastTarget)].filter(Boolean);
+}
 // Fills are deliberately faint: candles must stay the focus (PR #38 follow-up). Edges are drawn at
 // reduced strength in CSS. Higher-timeframe bands use dashed edges and no fill (see styles.css).
 const ZONE_STYLE = {
   support: { fill: "rgba(46, 196, 182, 0.06)", edge: "#2ec4b6", short: "S" },
   resistance: { fill: "rgba(239, 83, 80, 0.06)", edge: "#ef5350", short: "R" },
   price_inside: { fill: "rgba(245, 166, 35, 0.08)", edge: "#f5a623", short: "IN" },
+  // The band the breakout sequence is read against: a neutral blue-grey wash
+  // rather than a directional colour. The step being described is the breakout,
+  // so the band it broke is a reference level, not a bullish or bearish zone.
+  reference: { fill: "rgba(122, 156, 196, 0.16)", edge: "#8fb4d9", short: "Z" },
 };
+
+//: A band taller than this share of the pane is drawn as a light wash, not a curtain: its exact
+//: edges stay where the detector put them, but candles underneath stay readable. The threshold is
+//: a readability rule, not a statement about the zone.
+const ZONE_TALL_BAND_PANE_SHARE = 0.35;
+//: Floor for the wash, so even a band filling the pane keeps a visible tint.
+const ZONE_TALL_BAND_MIN_FILL = 0.3;
+
+/**
+ * The same colour with its alpha scaled down. Used only for very tall bands, so the exact
+ * edges still define where the shading starts and ends. Unparsable input is returned unchanged.
+ */
+export function scaleFillAlpha(fill, scale) {
+  if (typeof fill !== "string" || !Number.isFinite(scale) || scale >= 1) return fill;
+  const match = /^rgba\(\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([\d.]+)\s*\)$/.exec(fill.trim());
+  if (!match) return fill;
+  const alpha = Math.max(0, Number(match[4]) * Math.max(ZONE_TALL_BAND_MIN_FILL, scale));
+  return `rgba(${match[1]}, ${match[2]}, ${match[3]}, ${Math.round(alpha * 1000) / 1000})`;
+}
+
+/**
+ * The test figure a band's label shows, and the evidence behind it.
+ *
+ * `distinct_test_timestamps` is how many separate instants actually tested the level.
+ * `touch_count` counts the confirmed swing extremes, and one candle can contribute two of them
+ * (a swing high and a swing low). The distinct figure is what the label reads as "tests"; the
+ * evidence count is stated separately whenever the two disagree, so a summed number is never
+ * presented as if every count were a separate test.
+ */
+export function bandTestLabel(band) {
+  const distinct = finiteNumber(band?.distinct_test_timestamps);
+  const evidences = finiteNumber(band?.touch_count);
+  const tests = distinct ?? evidences;
+  const testsText = tests === null ? "?" : String(tests);
+  const shared = tests !== null && evidences !== null ? Math.max(0, evidences - tests) : null;
+  const detail = shared
+    ? `${tests} distinct test instant${tests === 1 ? "" : "s"} from ${evidences} swing evidences (${shared} candle${shared === 1 ? "" : "s"} gave both a swing high and a swing low)`
+    : tests !== null
+      ? `${tests} distinct test instant${tests === 1 ? "" : "s"} from ${evidences ?? tests} swing evidences`
+      : "the number of tests is unknown";
+  return { testsText, tests, evidences, shared, detail };
+}
 
 function createZoneLayer(handle) {
   const container = handle.container;
@@ -724,6 +1270,26 @@ export function renderZoneBands(handle) {
   layer.textContent = "";
   let offView = 0;
   const labels = [];
+  // Plan risk / reward areas sit under the bands and their labels.
+  for (const area of Array.isArray(handle.planAreas) ? handle.planAreas : []) {
+    const style = PLAN_AREA_STYLE[area.kind];
+    if (!style) continue;
+    const yHigh = series.priceToCoordinate(area.high);
+    const yLow = series.priceToCoordinate(area.low);
+    if (yHigh === null || yLow === null || yHigh === undefined || yLow === undefined) continue;
+    const top = Math.min(yHigh, yLow);
+    const bottom = Math.max(yHigh, yLow);
+    if (bottom < 0 || top > height) continue;
+    const clampedTop = Math.max(0, top);
+    const node = document.createElement("div");
+    node.className = `plan-area plan-area--${area.kind}`;
+    node.setAttribute?.("aria-hidden", "true");
+    node.style.top = `${clampedTop}px`;
+    node.style.height = `${Math.max(2, Math.min(height || bottom, bottom) - clampedTop)}px`;
+    node.style.setProperty("--zone-fill", style.fill);
+    node.style.setProperty("--zone-edge", style.edge);
+    layer.appendChild(node);
+  }
   if (handle.setupBand) {
     const yHigh = series.priceToCoordinate(handle.setupBand.high);
     const yLow = series.priceToCoordinate(handle.setupBand.low);
@@ -753,7 +1319,14 @@ export function renderZoneBands(handle) {
   }
   for (const band of bands) {
     // Position is where the band sits relative to price; the style key is the display role.
-    const styleKey = band.position === "below_price" ? "support" : band.position === "above_price" ? "resistance" : "price_inside";
+    // `reference` is set by the caller for the band a sequence is read against.
+    const styleKey = band.tone === "reference"
+      ? "reference"
+      : band.position === "below_price"
+        ? "support"
+        : band.position === "above_price"
+          ? "resistance"
+          : "price_inside";
     const style = ZONE_STYLE[styleKey];
     const high = Number(band.band_high);
     const low = Number(band.band_low);
@@ -769,13 +1342,26 @@ export function renderZoneBands(handle) {
     }
     const clampedTop = Math.max(0, top);
     const clampedBottom = Math.min(height || bottom, bottom);
+    // A stored band keeps its own thickness; a band that is a single stored
+    // level is given a minimum so it still reads as a zone, not a hairline.
+    const minHeight = Number.isFinite(Number(band.minHeightPx)) ? Math.max(2, Math.trunc(Number(band.minHeightPx))) : 2;
+    const paintedHeight = Math.max(minHeight, clampedBottom - clampedTop);
+    const paneHeight = height || clampedBottom;
+    const paneShare = paneHeight > 0 ? paintedHeight / paneHeight : 0;
+    const tall = paneShare > ZONE_TALL_BAND_PANE_SHARE;
     const node = document.createElement("div");
-    node.className = `zone-band zone-band--${band.position || "price_inside"}${band.htf ? " zone-band--htf" : ""}${band.faded ? " zone-band--faded" : ""}`;
+    node.className = `zone-band zone-band--${band.position || "price_inside"}${band.tone === "reference" ? " zone-band--reference" : ""}${band.htf ? " zone-band--htf" : ""}${band.faded ? " zone-band--faded" : ""}${tall ? " zone-band--tall" : ""}`;
     node.setAttribute?.("aria-hidden", "true");
     node.style.top = `${clampedTop}px`;
-    node.style.height = `${Math.max(2, clampedBottom - clampedTop)}px`;
-    node.style.setProperty("--zone-fill", style.fill);
+    node.style.height = `${paintedHeight}px`;
+    // A band that fills a large part of the pane is drawn as a light wash so the candles
+    // underneath stay readable. The bounds are unchanged: the same edges, the same price.
+    const fill = tall
+      ? scaleFillAlpha(style.fill, ZONE_TALL_BAND_PANE_SHARE / paneShare)
+      : style.fill;
+    node.style.setProperty("--zone-fill", fill);
     node.style.setProperty("--zone-edge", style.edge);
+    node.style.setProperty("--zone-pane-share", String(Math.round(paneShare * 1000) / 1000));
     layer.appendChild(node);
     labels.push({ band, style, y: clampedTop + 2 });
   }
@@ -792,8 +1378,13 @@ export function renderZoneBands(handle) {
     label.style.top = `${y}px`;
     label.style.setProperty("--zone-edge", style.edge);
     const tf = band.source_timeframe ? String(band.source_timeframe).toUpperCase() : "";
-    label.textContent = `${style.short}${tf ? ` ${tf}` : ""} · ${band.touch_count ?? "?"}×`;
-    label.setAttribute("aria-label", `${band.display_role || band.position} zone ${band.band_low} to ${band.band_high}, ${tf || "viewed timeframe"}, ${band.touch_count ?? "unknown"} touches. Open explanation.`);
+    const tests = bandTestLabel(band);
+    label.textContent = band.label || `${style.short}${tf ? ` ${tf}` : ""} · ${tests.testsText}×`;
+    // The visible label is short; the exact basis stays on the control itself.
+    label.title = tests.detail;
+    label.setAttribute("aria-label", band.label
+      ? `${band.label} ${band.band_low} to ${band.band_high}, ${tf || "viewed timeframe"}, ${tests.detail}. Open explanation.`
+      : `${band.display_role || band.position} zone ${band.band_low} to ${band.band_high}, ${tf || "viewed timeframe"}, ${tests.detail}. Open explanation.`);
     label.addEventListener("click", (event) => {
       event.stopPropagation();
       onSelect?.(band);
@@ -806,4 +1397,629 @@ export function renderZoneBands(handle) {
     note.textContent = `${offView} zone${offView === 1 ? "" : "s"} outside the visible price range`;
     layer.appendChild(note);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Chart Patterns: the annotated pattern and the volume pane
+//
+// One stored record is drawn over the candles in the approved, restrained
+// style: a small arc at each stored extreme ("Bottom 1", "Head" ...), a thin
+// dashed neckline at the stored price that ends on the confirmation candle, a
+// dashed line at a double pattern's stored invalidation level, and an
+// outlined title ("Double Bottom - Confirmed") joined by a short connector to
+// the neckline. A range is drawn as its stored box. Other records may be drawn
+// in an understated grey where they do not overlap the selected one. The
+// geometry comes from pattern_view.js; this layer only turns times and prices
+// into pixels with the chart's own coordinate functions, exactly like the zone
+// bands and breakout callouts above. It never changes a series or a value.
+// ---------------------------------------------------------------------------
+
+const PATTERN_TONE_COLORS = Object.freeze({
+  green: "#2ad19d",
+  red: "#e0565b",
+  amber: "#e8a33d",
+  blue: "#5b9cf5",
+  neutral: "#8f9bb3",
+});
+/** The understated colour of the secondary (not selected) records. */
+const PATTERN_SECONDARY_COLOR = "#7d889c";
+const SVG_NS_CHART = "http://www.w3.org/2000/svg";
+/** Gap between the neckline and the bottom of the title box (approved layout). */
+const PATTERN_TITLE_GAP = 46;
+/** Candle pane / volume pane split used by the Chart Patterns screen. */
+const PATTERN_PANE = Object.freeze({
+  candles: { top: 0.15, bottom: 0.29 },
+  // Bars in the lower part of the volume pane, clear of its label (as designed).
+  volume: { top: 0.865, bottom: 0 },
+  separator: 0.8,
+});
+/** The library's own defaults, restored when the screen is left. */
+const DEFAULT_PANE = Object.freeze({
+  candles: { top: 0.2, bottom: 0.1 },
+  volume: { top: 0.85, bottom: 0 },
+});
+
+function svgEl(tag, attrs = {}) {
+  const node = document.createElementNS(SVG_NS_CHART, tag);
+  for (const [key, value] of Object.entries(attrs)) {
+    if (value !== null && value !== undefined) node.setAttribute(key, String(value));
+  }
+  return node;
+}
+
+/** The candle area (excluding the price axis and the time axis), in pixels. */
+function paneSize(handle) {
+  const width = Number(handle.container?.clientWidth) || 0;
+  const height = Number(handle.container?.clientHeight) || 0;
+  let axisWidth = 0;
+  let axisHeight = 0;
+  try {
+    axisWidth = Number(handle.chart?.priceScale?.("right")?.width?.()) || 0;
+  } catch {
+    axisWidth = 0;
+  }
+  try {
+    axisHeight = Number(handle.chart?.timeScale?.()?.height?.()) || 0;
+  } catch {
+    axisHeight = 0;
+  }
+  return { width: Math.max(0, width - axisWidth), height: Math.max(0, height - axisHeight) };
+}
+
+/**
+ * One arc around a stored extreme, in pixels: from its left end down (up, for
+ * a top) to the stored point and back to its right end. The turning point is
+ * the stored point with a flat tangent, and every control point lies between
+ * the ends and that point, so the arc never passes beyond the stored extreme.
+ */
+export function arcPath({ left, center, right }) {
+  if (!center || !Number.isFinite(center.x) || !Number.isFinite(center.y)) return "";
+  const f = (n) => n.toFixed(1);
+  let d = "";
+  if (left && Number.isFinite(left.x) && Number.isFinite(left.y) && center.x - left.x > 0.5) {
+    const w = center.x - left.x;
+    d += `M${f(left.x)},${f(left.y)} C${f(left.x + w * 0.12)},${f(left.y + (center.y - left.y) * 0.6)} ${f(center.x - w * 0.5)},${f(center.y)} ${f(center.x)},${f(center.y)}`;
+  } else {
+    d += `M${f(center.x)},${f(center.y)}`;
+  }
+  if (right && Number.isFinite(right.x) && Number.isFinite(right.y) && right.x - center.x > 0.5) {
+    const w = right.x - center.x;
+    d += ` C${f(center.x + w * 0.5)},${f(center.y)} ${f(right.x - w * 0.12)},${f(right.y + (center.y - right.y) * 0.6)} ${f(right.x)},${f(right.y)}`;
+  }
+  return d;
+}
+
+function createPatternLayer(handle) {
+  const container = handle.container;
+  if (typeof document === "undefined" || !container || handle.patternLayer || typeof container.appendChild !== "function") return;
+  if (typeof document.createElementNS !== "function") return;
+  if (typeof globalThis.getComputedStyle === "function" && globalThis.getComputedStyle(container).position === "static") {
+    container.style.position = "relative";
+  }
+  const layer = document.createElement("div");
+  layer.className = "pattern-anno-layer";
+  layer.setAttribute?.("aria-hidden", "true");
+  container.appendChild(layer);
+  handle.patternLayer = layer;
+  handle.patternUnsubscribers = handle.patternUnsubscribers || [];
+  const timeScale = handle.chart?.timeScale?.();
+  // The price scale re-fits a frame after the visible range moves, so the
+  // layer is drawn again on the next frame as well.
+  const render = () => {
+    renderPatternAnnotation(handle);
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => renderPatternAnnotation(handle));
+  };
+  if (timeScale && typeof timeScale.subscribeVisibleLogicalRangeChange === "function") {
+    timeScale.subscribeVisibleLogicalRangeChange(render);
+    handle.patternUnsubscribers.push(() => timeScale.unsubscribeVisibleLogicalRangeChange?.(render));
+  }
+}
+
+/**
+ * Draw one stored pattern record (see pattern_view.patternAnnotation), plus
+ * any understated secondary records (pattern_view.secondaryAnnotations).
+ * Passing null removes everything. The drawing is re-positioned on every pan,
+ * zoom and resize from the candle times and prices it carries, and each
+ * redraw replaces the previous one: nothing accumulates.
+ */
+export function setPatternAnnotation(handle, annotation, { secondary = [] } = {}) {
+  if (!handle || handle.destroyed) return;
+  if (!annotation) {
+    clearPatternAnnotation(handle);
+    return;
+  }
+  createPatternLayer(handle);
+  handle.patternAnnotation = annotation;
+  handle.patternSecondary = Array.isArray(secondary) ? secondary : [];
+  renderPatternAnnotation(handle);
+}
+
+/** Remove the drawn pattern and its listeners. Safe to call repeatedly. */
+export function clearPatternAnnotation(handle) {
+  if (!handle) return;
+  for (const unsubscribe of handle.patternUnsubscribers || []) {
+    try {
+      unsubscribe();
+    } catch {
+      // The chart may already be removed; nothing else to release.
+    }
+  }
+  handle.patternUnsubscribers = [];
+  handle.patternAnnotation = null;
+  handle.patternSecondary = [];
+  if (handle.patternLayer) {
+    handle.patternLayer.remove?.();
+    handle.patternLayer = null;
+  }
+}
+
+function patternLabel(layer, className, text, tone) {
+  const node = document.createElement("div");
+  node.className = className;
+  if (tone) node.dataset.tone = tone;
+  node.textContent = text;
+  node.style.left = "0px";
+  node.style.top = "0px";
+  node.style.visibility = "hidden";
+  layer.appendChild(node);
+  return node;
+}
+
+function placeLabel(node, left, top, { width, height }) {
+  const w = node.offsetWidth || 0;
+  const h = node.offsetHeight || 0;
+  const x = Math.min(Math.max(left, 4), Math.max(4, width - w - 4));
+  const y = Math.min(Math.max(top, 4), Math.max(4, height - h - 4));
+  node.style.left = `${x}px`;
+  node.style.top = `${y}px`;
+  node.style.visibility = "";
+  return { left: x, top: y, right: x + w, bottom: y + h };
+}
+
+/** Position the drawn pattern from the current coordinates. Pure reads. */
+export function renderPatternAnnotation(handle) {
+  if (!handle || handle.destroyed || !handle.patternLayer) return;
+  const annotation = handle.patternAnnotation;
+  const layer = handle.patternLayer;
+  // Every redraw starts from an empty layer: nothing is ever drawn twice.
+  layer.textContent = "";
+  if (!annotation) return;
+  const { series, chart } = handle;
+  const timeScale = chart?.timeScale?.();
+  if (!series || typeof series.priceToCoordinate !== "function" || !timeScale || typeof timeScale.timeToCoordinate !== "function") return;
+  const size = paneSize(handle);
+  if (size.width <= 0 || size.height <= 0) return;
+  layer.style.width = `${size.width}px`;
+  layer.style.height = `${size.height}px`;
+  const xOf = (time) => {
+    if (time === null || time === undefined) return null;
+    const x = timeScale.timeToCoordinate(time);
+    return x === null || x === undefined ? null : Number(x);
+  };
+  const yOf = (price) => {
+    if (price === null || price === undefined) return null;
+    const y = series.priceToCoordinate(price);
+    return y === null || y === undefined ? null : Number(y);
+  };
+  const point = (p) => (p ? { x: xOf(p.timeSeconds), y: yOf(p.price) } : null);
+  const floor = candleFloor(handle, size);
+  const ctx = { layer, size, floor, xOf, yOf, point, bars: visibleBarExtents(handle, size, xOf, yOf) };
+
+  layer.dataset.patternId = String(annotation.id ?? "");
+  layer.dataset.patternType = String(annotation.type ?? "");
+  layer.dataset.state = String(annotation.state ?? "");
+  layer.dataset.tone = annotation.tone;
+
+  const svg = svgEl("svg", { class: "pattern-anno-svg", width: size.width, height: size.height, viewBox: `0 0 ${size.width} ${size.height}` });
+  layer.appendChild(svg);
+  ctx.svg = svg;
+  // The understated records first, so the selected one is drawn over them.
+  for (const other of Array.isArray(handle.patternSecondary) ? handle.patternSecondary : []) drawSecondaryPattern(ctx, other);
+  if (annotation.drawing === "range") drawRangePattern(ctx, annotation);
+  else drawExtremePattern(ctx, annotation);
+}
+
+function dashedLine(svg, className, x1, x2, y, color, { width = 1.5, dash = "7 5", opacity = 0.95 } = {}) {
+  if (![x1, x2, y].every(Number.isFinite) || Math.abs(x2 - x1) < 1) return null;
+  const line = svgEl("line", {
+    class: className,
+    x1, y1: y, x2, y2: y,
+    stroke: color, "stroke-width": width, "stroke-dasharray": dash, "stroke-opacity": opacity,
+  });
+  svg.appendChild(line);
+  return line;
+}
+
+/**
+ * The on-screen extent of every visible candle (the closed series and the
+ * forming one): x and the y of its high and low. Read from the chart, so the
+ * title can be kept off the candles. Empty when the series cannot report it.
+ */
+function visibleBarExtents(handle, size, xOf, yOf) {
+  const bars = [];
+  for (const source of [handle.series, handle.formingSeries]) {
+    let data = [];
+    try {
+      data = typeof source?.data === "function" ? source.data() : [];
+    } catch {
+      data = [];
+    }
+    for (const bar of Array.isArray(data) ? data : []) {
+      if (!bar || bar.high === undefined || bar.low === undefined) continue;
+      const x = xOf(bar.time);
+      if (x === null || x < -20 || x > size.width + 20) continue;
+      const yHigh = yOf(bar.high);
+      const yLow = yOf(bar.low);
+      if (yHigh === null || yLow === null) continue;
+      bars.push({ x, yHigh, yLow });
+    }
+  }
+  return bars;
+}
+
+/** Whether a box would cover any candle's high-low range (wick included). */
+function boxCoversBars(bars, box, halfBar) {
+  return bars.some((bar) => bar.x + halfBar >= box.left && bar.x - halfBar <= box.right
+    && bar.yHigh < box.bottom + 3 && bar.yLow > box.top - 3);
+}
+
+/** The pattern's outlined title, outside its neckline (or top line) when it fits. */
+function placeTitle(ctx, annotation, { anchorX, lineY, below }) {
+  const title = patternLabel(ctx.layer, "pattern-anno-title", annotation.title, annotation.tone);
+  title.dataset.state = String(annotation.state ?? "");
+  const titleW = title.offsetWidth || 0;
+  const titleH = title.offsetHeight || 0;
+  const bounds = { width: ctx.size.width, height: ctx.floor };
+  const outsideTop = (gap) => (below ? lineY + gap : lineY - gap - titleH);
+  const fits = (y) => y >= 6 && y + titleH <= ctx.floor - 6;
+  let titleTop = [PATTERN_TITLE_GAP, 18].map(outsideTop).find(fits);
+  if (titleTop === undefined) {
+    // No room outside at all: just inside the line, never on the volume.
+    titleTop = below ? lineY - PATTERN_TITLE_GAP - titleH : lineY + PATTERN_TITLE_GAP;
+  }
+  // The approved box sits a little right of the central point.
+  let titleLeft = anchorX - titleW / 2 + Math.min(28, titleW * 0.1);
+
+  // Never over the candles: when the preferred spot covers any, take the
+  // nearest spot that covers none, sliding sideways first and then a little
+  // further from the line (so the connector stays short). Display only.
+  const bars = Array.isArray(ctx.bars) ? ctx.bars : [];
+  if (bars.length && titleW > 0 && titleH > 0) {
+    const spacing = bars.length > 1
+      ? Math.max(1, Math.min(...bars.slice(1).map((bar, index) => Math.abs(bar.x - bars[index].x)).filter((d) => d > 0)))
+      : 6;
+    const halfBar = Number.isFinite(spacing) ? spacing / 2 : 3;
+    const clamp = (left, top) => {
+      const x = Math.min(Math.max(left, 4), Math.max(4, bounds.width - titleW - 4));
+      const y = Math.min(Math.max(top, 4), Math.max(4, bounds.height - titleH - 4));
+      return { left: x, top: y, right: x + titleW, bottom: y + titleH };
+    };
+    if (boxCoversBars(bars, clamp(titleLeft, titleTop), halfBar)) {
+      const away = below ? 1 : -1;
+      const candidates = [];
+      // A little nearer the line (never closer than 14px), or further out.
+      // (Only when it sits outside the line; with no room outside it stays inside.)
+      const outside = (top) => (below ? top >= lineY + 14 : top + titleH <= lineY - 14);
+      const clearOfLine = outside(titleTop) ? outside : () => true;
+      for (const lift of [0, -12, -24, 16, 32, 48, 64]) {
+        for (const shift of [0, -40, 40, -80, 80, -120, 120, -160, 160, -200, 200]) {
+          const top = titleTop + away * lift;
+          if (!fits(top) || !clearOfLine(top)) continue;
+          candidates.push({ left: titleLeft + shift, top, cost: Math.abs(shift) + Math.abs(lift) * 2.5 });
+        }
+      }
+      candidates.sort((a, b) => a.cost - b.cost);
+      const clear = candidates.find((candidate) => !boxCoversBars(bars, clamp(candidate.left, candidate.top), halfBar));
+      if (clear) {
+        titleLeft = clear.left;
+        titleTop = clear.top;
+      }
+    }
+  }
+  return placeLabel(title, titleLeft, titleTop, bounds);
+}
+
+function drawExtremePattern(ctx, annotation) {
+  const { svg, layer, size, floor, xOf, yOf, point } = ctx;
+  const color = PATTERN_TONE_COLORS[annotation.tone] || PATTERN_TONE_COLORS.neutral;
+  const top = annotation.side === "top";
+  const yNeck = annotation.neckline ? yOf(annotation.neckline.price) : null;
+  const formed = annotation.state === "formed";
+
+  // Small arcs at the stored extremes, each with a faint wash inside it only.
+  for (const arc of annotation.arcs || []) {
+    const pixels = { left: point(arc.left), center: point(arc.center), right: point(arc.right) };
+    if (!pixels.center || pixels.center.x === null || pixels.center.y === null) continue;
+    const d = arcPath(pixels);
+    if (!d) continue;
+    const ends = [pixels.left, pixels.right].filter((p) => p && Number.isFinite(p.x) && Number.isFinite(p.y));
+    if (ends.length === 2) {
+      svg.appendChild(svgEl("path", {
+        class: "pattern-anno-arc-fill",
+        d: `${d} Z`,
+        fill: color,
+        "fill-opacity": annotation.tone === "neutral" ? 0.05 : 0.09,
+        stroke: "none",
+      }));
+    }
+    svg.appendChild(svgEl("path", {
+      class: "pattern-anno-arc",
+      d,
+      fill: "none",
+      stroke: color,
+      "stroke-width": 1.8,
+      "stroke-linecap": "round",
+      "stroke-dasharray": formed ? "5 4" : null,
+      "data-time": arc.center.timeSeconds,
+      "data-price": arc.center.price,
+    }));
+  }
+
+  // A type without arcs (a family BRAIN does not detect yet): a thin line
+  // through the record's own stored points.
+  if (!(annotation.arcs || []).length && (annotation.outline || []).length >= 2) {
+    const pts = annotation.outline.map(point).filter((p) => p.x !== null && p.y !== null);
+    if (pts.length >= 2) {
+      svg.appendChild(svgEl("polyline", {
+        class: "pattern-anno-outline",
+        points: pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "),
+        fill: "none", stroke: color, "stroke-width": 1.6, "stroke-linejoin": "round",
+      }));
+    }
+  }
+
+  let neckX1 = null;
+  let neckX2 = null;
+  if (yNeck !== null) {
+    neckX1 = xOf(annotation.neckline.fromSeconds);
+    neckX2 = xOf(annotation.neckline.toSeconds);
+    dashedLine(svg, "pattern-anno-neckline", neckX1, neckX2, yNeck, color);
+  }
+  let yExt = null;
+  if (annotation.extremeLine) {
+    yExt = yOf(annotation.extremeLine.price);
+    dashedLine(svg, "pattern-anno-extreme", xOf(annotation.extremeLine.fromSeconds), xOf(annotation.extremeLine.toSeconds), yExt, color, { width: 1.3, opacity: 0.7 });
+  }
+
+  // Labels on the record's own extremes, under a bottom / over a top.
+  for (const extreme of annotation.extremes || []) {
+    const x = xOf(extreme.timeSeconds);
+    const y = yOf(extreme.price);
+    if (x === null || y === null || x < 0 || x > size.width) continue;
+    const node = patternLabel(layer, "pattern-anno-point", extreme.label, annotation.tone);
+    node.dataset.time = String(extreme.timeSeconds);
+    node.dataset.price = String(extreme.price);
+    const w = node.offsetWidth || 0;
+    const h = node.offsetHeight || 0;
+    const yEdge = yExt === null ? y : top ? Math.min(y, yExt) : Math.max(y, yExt);
+    // Kept above the volume pane: a label never sits on the histogram.
+    placeLabel(node, x - w / 2, top ? yEdge - 8 - h : yEdge + 8, { width: size.width, height: floor });
+  }
+
+  if (yNeck === null) {
+    const anchorX = xOf(annotation.labelAnchorSeconds);
+    if (anchorX !== null) {
+      const yAnchor = yOf((annotation.outline || []).find((p) => p.timeSeconds === annotation.labelAnchorSeconds)?.price);
+      if (yAnchor !== null) placeTitle(ctx, annotation, { anchorX, lineY: yAnchor, below: top });
+    }
+    return;
+  }
+  const anchorX = xOf(annotation.labelAnchorSeconds) ?? ((neckX1 ?? 0) + (neckX2 ?? size.width)) / 2;
+  const titleBox = placeTitle(ctx, annotation, { anchorX, lineY: yNeck, below: top });
+
+  // "Neckline": just over the line (under it for a top), beside the central
+  // point — whose wick reaches the line — and clear of the title box.
+  const neckLabel = patternLabel(layer, "pattern-anno-neckline-label", "Neckline", annotation.tone);
+  const neckW = neckLabel.offsetWidth || 0;
+  const neckH = neckLabel.offsetHeight || 0;
+  const clampNeckX = (x) => Math.min(Math.max(x, neckW / 2 + 4), Math.max(neckW / 2 + 4, size.width - neckW / 2 - 4));
+  let neckX = clampNeckX(anchorX - neckW / 2 - 14);
+  let neckY = top ? yNeck + 5 : yNeck - 5 - neckH;
+  const overlapsTitle = (x, y) => x - neckW / 2 < titleBox.right + 4 && x + neckW / 2 > titleBox.left - 4
+    && y < titleBox.bottom + 2 && y + neckH > titleBox.top - 2;
+  if (overlapsTitle(neckX, neckY) && neckX1 !== null) neckX = clampNeckX(Math.max(neckX1, 0) + neckW / 2 + 6);
+  if (overlapsTitle(neckX, neckY)) neckY = top ? yNeck - 5 - neckH : yNeck + 5;
+  placeLabel(neckLabel, neckX - neckW / 2, neckY, size);
+
+  // A short connector from the title to the neckline, as in the approved design.
+  const startX = Math.min(Math.max(titleBox.left + (titleBox.right - titleBox.left) * 0.62, titleBox.left + 12), titleBox.right - 12);
+  const startY = top ? titleBox.top : titleBox.bottom;
+  const endY = top ? yNeck + 2 : yNeck - 2;
+  let endX = startX + Math.min(28, Math.abs(endY - startY) * 0.7);
+  if (neckX1 !== null && neckX2 !== null) endX = Math.min(Math.max(endX, Math.min(neckX1, neckX2)), Math.max(neckX1, neckX2));
+  if (Math.abs(endY - startY) > 4 && (top ? startY > endY : startY < endY)) {
+    svg.appendChild(svgEl("line", {
+      class: "pattern-anno-connector",
+      x1: startX, y1: startY, x2: endX, y2: endY,
+      stroke: color, "stroke-width": 1.4, "stroke-opacity": 0.9,
+    }));
+  }
+}
+
+function drawRangePattern(ctx, annotation) {
+  const { svg, layer, size, xOf, yOf } = ctx;
+  const box = annotation.rangeBox;
+  if (!box) return;
+  const color = PATTERN_TONE_COLORS[annotation.tone] || PATTERN_TONE_COLORS.neutral;
+  const x1 = xOf(box.fromSeconds);
+  const x2 = xOf(box.toSeconds);
+  const yHigh = yOf(box.high);
+  const yLow = yOf(box.low);
+  if (![x1, x2, yHigh, yLow].every(Number.isFinite)) return;
+  svg.appendChild(svgEl("rect", {
+    class: "pattern-anno-range",
+    x: Math.min(x1, x2), y: Math.min(yHigh, yLow), width: Math.abs(x2 - x1), height: Math.abs(yLow - yHigh),
+    fill: color, "fill-opacity": 0.06, stroke: "none",
+  }));
+  dashedLine(svg, "pattern-anno-range-high", x1, x2, yHigh, color);
+  dashedLine(svg, "pattern-anno-range-low", x1, x2, yLow, color);
+  for (const [text, y, above] of [["Range high", yHigh, true], ["Range low", yLow, false]]) {
+    const node = patternLabel(layer, "pattern-anno-neckline-label", text, annotation.tone);
+    const w = node.offsetWidth || 0;
+    const h = node.offsetHeight || 0;
+    placeLabel(node, Math.max(x1, 0) + 6, above ? y - 5 - h : y + 5, size);
+    void w;
+  }
+  placeTitle(ctx, annotation, { anchorX: xOf(annotation.labelAnchorSeconds) ?? (x1 + x2) / 2, lineY: yHigh, below: false });
+}
+
+/** An understated grey rendering of another stored record, with its name. */
+function drawSecondaryPattern(ctx, other) {
+  const { svg, layer, size, floor, xOf, yOf, point } = ctx;
+  const color = PATTERN_SECONDARY_COLOR;
+  let labelAt = null;
+  if (other.drawing === "range" && other.rangeBox) {
+    const x1 = xOf(other.rangeBox.fromSeconds);
+    const x2 = xOf(other.rangeBox.toSeconds);
+    const yHigh = yOf(other.rangeBox.high);
+    const yLow = yOf(other.rangeBox.low);
+    if (![x1, x2, yHigh, yLow].every(Number.isFinite)) return;
+    dashedLine(svg, "pattern-anno-secondary", x1, x2, yHigh, color, { width: 1.1, dash: "5 5", opacity: 0.6 });
+    dashedLine(svg, "pattern-anno-secondary", x1, x2, yLow, color, { width: 1.1, dash: "5 5", opacity: 0.6 });
+    labelAt = { x: (x1 + x2) / 2, y: yLow + 6, below: true };
+  } else {
+    const pts = (other.outline || []).map(point).filter((p) => p.x !== null && p.y !== null);
+    if (pts.length < 2) return;
+    svg.appendChild(svgEl("polyline", {
+      class: "pattern-anno-secondary",
+      points: pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "),
+      fill: "none", stroke: color, "stroke-width": 1.1, "stroke-opacity": 0.6, "stroke-linejoin": "round",
+    }));
+    if (other.neckline) {
+      dashedLine(svg, "pattern-anno-secondary", xOf(other.neckline.fromSeconds), xOf(other.neckline.toSeconds), yOf(other.neckline.price), color, { width: 1, dash: "5 5", opacity: 0.45 });
+    }
+    const below = other.side !== "top";
+    const ys = pts.map((p) => p.y);
+    labelAt = { x: (pts[0].x + pts[pts.length - 1].x) / 2, y: below ? Math.max(...ys) + 8 : Math.min(...ys) - 8, below };
+  }
+  if (!labelAt || labelAt.x < 0 || labelAt.x > size.width) return;
+  const node = patternLabel(layer, "pattern-anno-secondary-label", other.name || other.title || "", "neutral");
+  node.dataset.patternId = String(other.id ?? "");
+  const w = node.offsetWidth || 0;
+  const h = node.offsetHeight || 0;
+  placeLabel(node, labelAt.x - w / 2, labelAt.below ? labelAt.y : labelAt.y - h, { width: size.width, height: floor });
+}
+
+/** Lowest y of the candle area: the volume separator when the pattern pane is on. */
+function candleFloor(handle, size) {
+  return handle?.patternPaneOn ? Math.round(size.height * PATTERN_PANE.separator) : size.height;
+}
+
+/** "4.83K", "1.2M": a stored volume, compacted for the label only. */
+export function compactVolume(value) {
+  const number = Number(value);
+  if (value === null || value === undefined || !Number.isFinite(number)) return "—";
+  const abs = Math.abs(number);
+  if (abs >= 1e9) return `${(number / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${(number / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${(number / 1e3).toFixed(2)}K`;
+  return number.toFixed(2);
+}
+
+/**
+ * Split the chart into a candle pane and a volume pane for the Chart Patterns
+ * screen (approved layout: volume histogram along the bottom, its own label,
+ * candles above it), or restore the library defaults. Display only.
+ */
+export function setPatternPane(handle, on) {
+  if (!handle || !handle.chart) return;
+  const enable = on === true && !handle.destroyed;
+  if (Boolean(handle.patternPaneOn) === enable && (enable ? handle.patternVolumeLabel : true)) return;
+  handle.patternPaneOn = enable;
+  const margins = enable ? PATTERN_PANE : DEFAULT_PANE;
+  if (!handle.destroyed) {
+    try {
+      handle.series?.priceScale?.().applyOptions?.({ scaleMargins: margins.candles });
+      handle.chart.priceScale?.("volume")?.applyOptions?.({ scaleMargins: margins.volume });
+      // Axis typography and price format: Chart Patterns only, restored exactly
+      // to the chart's own defaults for every other function.
+      const priceFormat = enable ? PATTERN_PRICE_AXIS_FORMAT : PRICE_AXIS_FORMAT;
+      handle.series?.applyOptions?.({ priceFormat });
+      handle.formingSeries?.applyOptions?.({ priceFormat });
+      const base = handle.defaultLayout || { textColor: TEXT, fontFamily: "monospace", fontSize: 11 };
+      const sans = typeof getComputedStyle === "function" && typeof document !== "undefined" && document.body
+        ? getComputedStyle(document.body).fontFamily
+        : "";
+      handle.chart.applyOptions?.({
+        layout: enable
+          ? { textColor: PATTERN_AXIS_TEXT, fontFamily: sans || base.fontFamily, fontSize: PATTERN_AXIS_FONT_SIZE }
+          : { textColor: base.textColor, fontFamily: base.fontFamily, fontSize: base.fontSize },
+      });
+    } catch {
+      // A torn-down chart has nothing left to restyle.
+    }
+  }
+  if (!enable) {
+    handle.patternVolumeUnsubscribe?.();
+    handle.patternVolumeUnsubscribe = null;
+    handle.patternVolumeLabel?.remove?.();
+    handle.patternVolumeLabel = null;
+    handle.patternVolumeSeparator?.remove?.();
+    handle.patternVolumeSeparator = null;
+    handle.patternVolumeAxisMask?.remove?.();
+    handle.patternVolumeAxisMask = null;
+    return;
+  }
+  const container = handle.container;
+  if (typeof document === "undefined" || !container || typeof container.appendChild !== "function") return;
+  const separator = document.createElement("div");
+  separator.className = "pattern-volume-separator";
+  separator.setAttribute?.("aria-hidden", "true");
+  const label = document.createElement("div");
+  label.className = "pattern-volume-label";
+  // The candle price axis would keep printing prices beside the volume
+  // histogram; the volume pane has no price axis in the approved layout, so the
+  // axis strip beside it is covered (display only, no value is hidden that the
+  // candle pane does not show).
+  const axisMask = document.createElement("div");
+  axisMask.className = "pattern-volume-axis-mask";
+  axisMask.setAttribute?.("aria-hidden", "true");
+  container.appendChild(separator);
+  container.appendChild(axisMask);
+  container.appendChild(label);
+  handle.patternVolumeAxisMask = axisMask;
+  handle.patternVolumeSeparator = separator;
+  handle.patternVolumeLabel = label;
+  handle.patternHoverVolume = null;
+  if (typeof handle.chart.subscribeCrosshairMove === "function") {
+    const onMove = (param) => {
+      const bar = handle.volume ? param?.seriesData?.get?.(handle.volume) || null : null;
+      handle.patternHoverVolume = bar && Number.isFinite(Number(bar.value)) ? Number(bar.value) : null;
+      renderPatternVolumeLabel(handle);
+    };
+    handle.chart.subscribeCrosshairMove(onMove);
+    handle.patternVolumeUnsubscribe = () => handle.chart.unsubscribeCrosshairMove?.(onMove);
+  }
+  renderPatternVolumeLabel(handle);
+}
+
+/** Place the volume label and separator; show the hovered or newest stored volume. */
+export function renderPatternVolumeLabel(handle) {
+  if (!handle || handle.destroyed || !handle.patternVolumeLabel) return;
+  const size = paneSize(handle);
+  const y = Math.round(size.height * PATTERN_PANE.separator);
+  const separator = handle.patternVolumeSeparator;
+  if (separator) {
+    separator.style.top = `${y}px`;
+    separator.style.width = `${size.width}px`;
+  }
+  const axisMask = handle.patternVolumeAxisMask;
+  if (axisMask) {
+    // From a little above the separator, so no price tick is cut in half by it.
+    axisMask.style.top = `${y - 9}px`;
+    axisMask.style.left = `${size.width}px`;
+    axisMask.style.width = `${Math.max(0, (Number(handle.container?.clientWidth) || 0) - size.width)}px`;
+    axisMask.style.height = `${Math.max(0, size.height - y + 9)}px`;
+  }
+  const label = handle.patternVolumeLabel;
+  label.style.top = `${y + 8}px`;
+  label.textContent = "";
+  const name = document.createElement("span");
+  name.className = "pattern-volume-name";
+  name.textContent = "Volume";
+  const value = document.createElement("span");
+  value.className = "pattern-volume-value";
+  value.textContent = compactVolume(handle.patternHoverVolume ?? handle.lastVolume ?? null);
+  label.appendChild(name);
+  label.appendChild(value);
 }

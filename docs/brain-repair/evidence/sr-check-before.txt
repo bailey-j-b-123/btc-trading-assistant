@@ -1,0 +1,49 @@
+# Support & Resistance browser check — BEFORE the harness repair (exact outputs)
+
+## Run 1 (cold server, 2026-10-14): exit 1
+```
+support-resistance check FAILED (4):
+ - 1536x864: after switching to 4h the labels name 4H
+ - 1440x900: after switching to 4h every painted band is that timeframe's own zone
+ - 1920x1080: after switching to 4h every painted band is that timeframe's own zone
+ - 390-mobile: after switching to 4h every painted band is that timeframe's own zone
+```
+
+## Run 2 (cold server restarted): exit 1
+```
+support-resistance check FAILED (4):
+ - 1536x864: after switching to 4h every painted band is that timeframe's own zone
+ - 1440x900: after switching to 4h every painted band is that timeframe's own zone
+ - 1920x1080: after switching to 4h every painted band is that timeframe's own zone
+ - 390-mobile: after switching to 4h every painted band is that timeframe's own zone
+```
+
+## Geometry of the post-switch failure (from run 2's report JSON)
+```
+1536x864 (pane 674px) — API 4H bands: [(90227.9, 91022.4), (88363.8, 89574), (87180.3, 88340.1), (85958.6, 87052.5), (85158, 85158)]
+   painted 88363.8-88540.3 | touches pane edge: top=True bottom=False
+   painted 86484.1-87052.5 | touches pane edge: top=False bottom=True
+   painted 87180.4-88340.1 | touches pane edge: top=False bottom=False
+   labels: ['R 4H · 3×', 'IN 4H · 11×', 'S 4H · 7×']
+1440x900 (pane 702px) — API 4H bands: [(90227.9, 91022.4), (88363.8, 89574), (87180.3, 88340.1), (85958.6, 87052.5), (85158, 85158)]
+   painted 88363.8-88540.2 | touches pane edge: top=True bottom=False
+   painted 86487.8-87052.5 | touches pane edge: top=False bottom=True
+   painted 87180.4-88340.1 | touches pane edge: top=False bottom=False
+   labels: ['R 4H · 3×', 'IN 4H · 11×', 'S 4H · 7×']
+1920x1080 (pane 840px) — API 4H bands: [(90227.9, 91022.4), (88363.8, 89574), (87180.3, 88340.1), (85958.6, 87052.5), (85158, 85158)]
+   painted 88363.8-88540.1 | touches pane edge: top=True bottom=False
+   painted 86502.3-87052.5 | touches pane edge: top=False bottom=True
+   painted 87180.4-88340.1 | touches pane edge: top=False bottom=False
+   labels: ['R 4H · 3×', 'IN 4H · 11×', 'S 4H · 7×']
+390-mobile (pane 439px) — API 4H bands: [(90227.9, 91022.4), (88363.8, 89574), (87180.3, 88340.1), (85958.6, 87052.5), (85158, 85158)]
+   painted 88363.8-88459.6 | touches pane edge: top=True bottom=False
+   painted 86781.0-87052.5 | touches pane edge: top=False bottom=True
+   painted 87180.4-88340.2 | touches pane edge: top=False bottom=False
+   labels: ['R 4H · 3×', 'IN 4H · 11×', 'S 4H · 7×']
+```
+
+The painted bands ARE the 4H zones: each is the stored 4H band clipped by the visible price
+range at a pane edge, exactly the case the check's own default-view geometry assertion allows
+("A band that reaches the top or bottom of the pane is CLIPPED by the visible price range").
+The post-switch assertion compared the clipped extent to the full stored bounds, so it could
+never pass whenever a switched band reached a pane edge.

@@ -15,8 +15,8 @@ Explanation: check that the working tree is clean first. If `git status` lists f
 cd ~/btc-trading-assistant
 git status
 git fetch origin
-git checkout arena/3ee2f955-btc-trading-assistant
-git pull --ff-only origin arena/3ee2f955-btc-trading-assistant
+git checkout arena/79460ece-btc-trading-assistant
+git pull --ff-only origin arena/79460ece-btc-trading-assistant
 ls scripts/browser-audit
 ```
 
@@ -56,13 +56,29 @@ The `ls` must print the path. If it says "No such file", install Google Chrome o
 Explanation: the first dashboard load can take about 20 seconds on a large database, longer when cold. The script waits for the decision card and chart, not a fixed delay.
 
 ```
-node audit.mjs --url http://127.0.0.1:8040/ --out ~/brain-shots/desktop --width 1440 --height 900 --clip .terminal-chart-card --timeout 300
+node audit.mjs --url http://127.0.0.1:8040/ --out ~/brain-shots/desktop --width 1440 --height 900 --clip .chart-stage --functions --timeout 300
 node audit.mjs --url http://127.0.0.1:8040/ --out ~/brain-shots/tablet --width 834 --height 1112 --timeout 300
 node audit.mjs --url http://127.0.0.1:8040/ --out ~/brain-shots/phone --width 390 --height 844 --timeout 300
 node retry-check.mjs http://127.0.0.1:8040/ ~/brain-shots/retry
 ```
 
 Each `node audit.mjs` run prints a JSON report and exits 0 only when the dashboard is ready, there is no overflow, and there are no page or console errors.
+
+### 5. Compare with the approved pictures
+
+`--functions` writes one full-page shot per chart function, named after the button it pressed:
+
+```
+~/brain-shots/desktop-fn-support_resistance.png
+~/brain-shots/desktop-fn-swings.png
+~/brain-shots/desktop-fn-patterns.png
+~/brain-shots/desktop-fn-breakouts.png
+~/brain-shots/desktop-fn-trade_plan.png
+```
+
+Those five, plus `desktop-full.png`, are the views to hold against the approved dashboard pictures. The
+`--clip .chart-stage` shot is the main area on its own (chart plus the function panel beside it), which is
+the easiest one to check for labels overlapping price action.
 
 ## Troubleshooting
 
@@ -81,3 +97,76 @@ Each `node audit.mjs` run prints a JSON report and exits 0 only when the dashboa
 * `apiCalls`: status and duration of each `/api/` request, and any request the browser failed to complete.
 * `layout.overflowPx`: horizontal overflow in pixels (must be 0).
 * `pageErrors` and `consoleErrors`.
+
+## Mobile header/trading-bar regression
+
+Against an **isolated synthetic demo** server (see `scripts/seed_demo_dashboard.py`),
+run from the repository root:
+
+```
+node scripts/browser-audit/mobile-layout-check.mjs http://127.0.0.1:8123 /tmp/brain-mobile-shots
+```
+
+This checks 390 × 844 and 768 × 1024 in real Chrome/Chromium: header and
+trading-bar child containment, non-overlap, horizontal overflow, all five
+view-only timeframe controls, the More menu and refresh. It writes a full-page
+screenshot per width and exits nonzero on a failed assertion or page error.
+Use the same `CHROME_PATH` setup as above. No production database is needed.
+
+## Desktop bottom-section regression (follow-up to PR #60)
+
+Against the same **isolated synthetic demo** server, run from the repo root:
+
+```
+node scripts/browser-audit/desktop-bottom-check.mjs http://127.0.0.1:8123 /tmp/brain-desktop-shots
+```
+
+This checks 1440 × 1080 and 1920 × 1080 in real Chrome/Chromium: Paper Trades /
+Diagnostics on the left, persistent right-hand Performance, alignment,
+horizontal overflow, missing-metric labels, refresh and narrow/desktop resize.
+It writes full-page and bottom/Diagnostics viewport screenshots plus a JSON
+report. Layout assertions and uncaught page errors fail the check; console
+errors are separately recorded for review, not suppressed. Use `CHROME_PATH`
+as above, or the optional sandbox Chromium package. No production database or
+API mocks are needed. See `docs/desktop-bottom-signoff.md` for this run's evidence
+and known sandbox/baseline console warnings.
+
+## Breakouts & Retests layout regression
+
+Against the same **isolated synthetic demo** server, run from the repo root:
+
+```
+node scripts/browser-audit/breakouts-check.mjs http://127.0.0.1:8123 /tmp/brain-breakouts
+```
+
+This drives the real dashboard in Chromium at **1536 × 864 (primary),
+1440 × 900, 1920 × 1080 and 390 × 844**, and proves at each size that the
+screen is the annotated layout, from the seeded records only:
+
+* **the composition** — the chart is ~75 % of the row and the card column ~23 %,
+  the chart and the cards start on the same line, and the chart pane dominates
+  the card (width, height and area);
+* **the band** — a blue-grey translucent band labelled “Resistance Zone”,
+  at least 28 px thick on desktop (30 px in practice) and spanning the full
+  width of the pane, never the thin red strip it used to be;
+* **exactly three prominent callouts** — 1 Breakout, 2 Retest, 3 Continuation —
+  at least 13 px text on 26 px number circles, placed above / below-and-right /
+  above the candle each step belongs to, never overlapping each other, never
+  clipped, never covered by the sticky header, with each arrow's x compared
+  against the chart's own `timeToCoordinate` for that stored candle;
+* **pending steps drawn differently** — an unrecorded continuation is flagged
+  `recorded="false"` and drawn with an outline circle and a dashed leader line;
+* **the BTC/USDT card above the Breakout Logic panel** on the right, with the
+  three steps, their right-aligned status pills (`Completed` / `Held` /
+  `In Progress`), a Key Idea, no raw metadata rows and nothing smaller than
+  11 px in the column;
+* **volume bars** along the bottom of the pane, counted from real canvas pixels;
+* **the zoom is preserved** — switching to this function keeps the number of
+  candles on screen exactly (the window is only moved when not one stored step is
+  on screen), and switching away and back leaves the range untouched.
+
+It writes `breakouts-<size>-default.png`, `-framed.png`, `-full.png`,
+`-stage.png` and `breakouts-report.json` to the output directory, and exits
+nonzero on a failed assertion or an uncaught page error. Use `CHROME_PATH` as
+above, or the optional sandbox Chromium package. No production database or
+API mocks are needed. See `docs/breakouts-signoff.md` for this run's evidence.

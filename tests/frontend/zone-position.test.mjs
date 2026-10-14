@@ -152,9 +152,40 @@ test("the chart paints only the nearest band per side plus one containing price,
     band("in-a", "price_inside", 62000, 62200, 1),
     band("in-b", "price_inside", 62050, 62300, 4),
   ];
-  const { shown, hidden } = capBandsForDisplay(bands);
+  const { shown, hidden, hiddenBySide, countsBySide } = capBandsForDisplay(bands);
   assert.deepEqual(shown.map((b) => b.id), ["r-near", "s-near", "in-b"]);
   assert.equal(hidden, 3, "every band not drawn is counted, never silently dropped");
+  // A hidden band is accounted for on the side it actually sits, so the status line can say
+  // which evidence was left out instead of reporting a bare total.
+  assert.deepEqual(hiddenBySide, { above_price: 1, below_price: 1, price_inside: 1 });
+  assert.deepEqual(countsBySide, { above_price: 2, below_price: 2, price_inside: 2 });
   assert.equal(capBandsForDisplay(bands, { perSide: 2, inside: 3 }).hidden, 0);
-  assert.deepEqual(capBandsForDisplay(null), { shown: [], hidden: 0 });
+  assert.deepEqual(capBandsForDisplay(null), {
+    shown: [],
+    hidden: 0,
+    hiddenBySide: { above_price: 0, below_price: 0, price_inside: 0 },
+    countsBySide: { above_price: 0, below_price: 0, price_inside: 0 },
+    nearest: { above: null, below: null, inside: null },
+  });
+});
+
+test("nearest is measured from the viewed close once bands carry one", () => {
+  // Both bands sit above price; the farther one has the lower bounds, so a price-only
+  // ordering would pick the wrong one. The viewed distance decides.
+  const bands = [
+    { id: "far", position: "above_price", band_low: "100", band_high: "101", viewed_distance: 40 },
+    { id: "near", position: "above_price", band_low: "130", band_high: "131", viewed_distance: 10 },
+  ];
+  const { shown, nearest } = capBandsForDisplay(bands);
+  assert.deepEqual(shown.map((b) => b.id), ["near"]);
+  assert.equal(nearest.above.id, "near");
+});
+
+test("a band with a missing distance is ordered by its price, never treated as zero", () => {
+  const bands = [
+    { id: "no-distance", position: "below_price", band_low: "50000", band_high: "50100" },
+    { id: "nearest-by-price", position: "below_price", band_low: "61000", band_high: "61100" },
+  ];
+  const { shown } = capBandsForDisplay(bands);
+  assert.deepEqual(shown.map((b) => b.id), ["nearest-by-price"]);
 });

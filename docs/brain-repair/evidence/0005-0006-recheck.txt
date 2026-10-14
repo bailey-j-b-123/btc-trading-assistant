@@ -1,0 +1,137 @@
+# BRAIN-AUDIT-0005 / 0006 — recheck on the repaired head (2026-10-14)
+
+Disposable synthetic database: scripts/seed_sr_demo.py, the same generator the finding used
+(regenerated into .cache/brain-repair/sr.sqlite3; 2026-08-15 -> 2026-10-13, 5m/15m/1h/4h/1d rows).
+Nothing here touches an exchange, a credential or a production database.
+
+## 1. The auditor's own probe, after the repair (retests now carry their reference)
+```
+$ PYTHONPATH=src python .cache/audit/probes/zone-linkage-evidence.py
+
+######## 4h as_of=2026-10-14T00:00:00+00:00 ########
+current stored zones: 5
+current zone bounds: [('87180.3', '88340.1'), ('85958.6', '87052.5'), ('88363.8', '89574.0'), ('90227.9', '91022.4'), ('85158.0', '85158.0')]
+A. projected events consumed by the linkage:
+   breakout         projected= 15 carrying reference_type= 15
+   failed_breakout  projected=  3 carrying reference_type=  3
+   sweep            projected=  0 carrying reference_type=  0
+   retest           projected= 30 carrying reference_type= 30
+B. raw detector objects by reference type:
+   breakout         n= 15 {'swing_high': 8, 'zone': 5, 'range_high': 2}
+   failed_breakout  n=  3 {'zone': 1, 'swing_high': 2}
+   sweep            n=  0 {}
+   retest           n= 30 {'swing_high': 16, 'zone': 10, 'range_high': 4}
+C. presented bands and their linkage:
+   band 90227.9-91022.4 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('90227.9', '91022.4')]
+   band 88363.8-89574.0 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('88363.8', '89574.0')]
+   band 87180.3-88340.1 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('87180.3', '88340.1')]
+   band 85958.6-87052.5 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('85958.6', '87052.5')]
+   band 85158.0-85158.0 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('85158.0', '85158.0')]
+   -> bands with linked events: 0 of 5
+
+######## 4h as_of=2026-08-26T08:00:00+00:00 ########
+current stored zones: 3
+current zone bounds: [('87570.2', '87677.9'), ('85958.6', '86543.0'), ('85158.0', '85158.0')]
+A. projected events consumed by the linkage:
+   breakout         projected=  6 carrying reference_type=  6
+   failed_breakout  projected=  2 carrying reference_type=  2
+   sweep            projected=  0 carrying reference_type=  0
+   retest           projected=  8 carrying reference_type=  8
+B. raw detector objects by reference type:
+   breakout         n=  6 {'swing_high': 3, 'zone': 3}
+   failed_breakout  n=  2 {'zone': 1, 'swing_high': 1}
+   sweep            n=  0 {}
+   retest           n=  8 {'swing_high': 4, 'zone': 4}
+C. presented bands and their linkage:
+   band 87570.2-87677.9 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('87570.2', '87677.9')]
+   band 85958.6-86543.0 linked=True events=1 counts={'breakout': 1, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('85958.6', '86543.0')]
+   band 85158.0-85158.0 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('85158.0', '85158.0')]
+   -> bands with linked events: 1 of 3
+
+######## 1h as_of=2026-10-14T00:00:00+00:00 ########
+current stored zones: 1
+current zone bounds: [('87062.8', '88142.2')]
+A. projected events consumed by the linkage:
+   breakout         projected=  0 carrying reference_type=  0
+   failed_breakout  projected=  0 carrying reference_type=  0
+   sweep            projected=  0 carrying reference_type=  0
+   retest           projected=  0 carrying reference_type=  0
+B. raw detector objects by reference type:
+   breakout         n=  0 {}
+   failed_breakout  n=  0 {}
+   sweep            n=  0 {}
+   retest           n=  0 {}
+C. presented bands and their linkage:
+   band 87062.8-88142.2 linked=False events=0 counts={'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} members=[('87062.8', '88142.2')]
+   -> bands with linked events: 0 of 1
+```
+
+## 2. Per-band linkage at the finding's own end state (4h, as_of=2026-10-14T00:00:00Z)
+```
+$ PYTHONPATH=src python .cache/verify/zone-linkage-recheck.py 4h 2026-10-14T00:00:00+00:00
+=== 4h as_of=2026-10-14T00:00:00+00:00 ===
+projected events: {'breakout': 15, 'failed_breakout': 3, 'retest': 30}
+retest reference types: {'swing_high': 16, 'zone': 10, 'range_high': 4}
+retests WITHOUT a reference type (0005): 0
+  band 90227.9-91022.4: linked=False count=0 {'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} | overlapping=False overlapping_count=0 {'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0}
+  band 88363.8-89574.0: linked=False count=0 {'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} | overlapping=True overlapping_count=3 {'breakout': 1, 'failed_breakout': 0, 'sweep': 0, 'retest': 2}
+      overlap breakout        88363.8-89027.9 (contained_by)
+      overlap retest          88363.8-89027.9 (contained_by)
+      overlap retest          88363.8-89027.9 (contained_by)
+  band 87180.3-88340.1: linked=False count=0 {'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} | overlapping=True overlapping_count=3 {'breakout': 1, 'failed_breakout': 0, 'sweep': 0, 'retest': 2}
+      overlap breakout        87369.0-88340.1 (contained_by)
+      overlap retest          87369.0-88340.1 (contained_by)
+      overlap retest          87369.0-88340.1 (contained_by)
+  band 85958.6-87052.5: linked=False count=0 {'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} | overlapping=True overlapping_count=10 {'breakout': 3, 'failed_breakout': 1, 'sweep': 0, 'retest': 6}
+      overlap breakout        86543.0-86543.0 (contained_by)
+      overlap retest          86543.0-86543.0 (contained_by)
+      overlap retest          86543.0-86543.0 (contained_by)
+      overlap failed_breakout 86543.0-86543.0 (contained_by)
+      overlap breakout        86076.2-86543.0 (contained_by)
+      overlap retest          86076.2-86543.0 (contained_by)
+      overlap retest          86076.2-86543.0 (contained_by)
+      overlap breakout        85958.6-86543.0 (contained_by)
+      overlap retest          85958.6-86543.0 (contained_by)
+      overlap retest          85958.6-86543.0 (contained_by)
+  band 85158.0-85158.0: linked=False count=0 {'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} | overlapping=False overlapping_count=0 {'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0}
+linked retests reaching the linkage: 10 zone-referenced, 0 counted on bands
+total overlapping_count across bands: 16
+```
+
+## 3. Positive control (4h, as_of=2026-08-26T08:00:00Z) — an exact reference still links
+```
+$ PYTHONPATH=src python .cache/verify/zone-linkage-recheck.py 4h 2026-08-26T08:00:00+00:00
+=== 4h as_of=2026-08-26T08:00:00+00:00 ===
+projected events: {'breakout': 6, 'failed_breakout': 2, 'retest': 8}
+retest reference types: {'swing_high': 4, 'zone': 4}
+retests WITHOUT a reference type (0005): 0
+  band 87570.2-87677.9: linked=False count=0 {'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} | overlapping=False overlapping_count=0 {'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0}
+  band 85958.6-86543.0: linked=True count=1 {'breakout': 1, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} | overlapping=True overlapping_count=3 {'breakout': 1, 'failed_breakout': 0, 'sweep': 0, 'retest': 2}
+      overlap breakout        86076.2-86543.0 (contained_by)
+      overlap retest          86076.2-86543.0 (contained_by)
+      overlap retest          86076.2-86543.0 (contained_by)
+  band 85158.0-85158.0: linked=False count=0 {'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0} | overlapping=False overlapping_count=0 {'breakout': 0, 'failed_breakout': 0, 'sweep': 0, 'retest': 0}
+linked retests reaching the linkage: 4 zone-referenced, 0 counted on bands
+total overlapping_count across bands: 3
+```
+
+## 4. Decision-path invariance of the repair (deterministic synthetic series, 500 candles/1h)
+
+The dashboard payload before and after the repair, compared key by key:
+```
+ADDED keys (1487 occurrences, 7 distinct paths):
+    736  $.chart_evidence.retests[i].reference_id   e.g. "32991a531a72f1010b57b2015c150a783cb3644fc223b4f27fa0dc6c640cc122"
+    736  $.chart_evidence.retests[i].reference_type   e.g. "zone"
+      3  $.overlays.zone_bands.bands[i].linked_events.overlap_note   e.g. "stored events whose zone reference overlaps this band but is not identical to i
+      3  $.overlays.zone_bands.bands[i].linked_events.overlapping   e.g. true
+      3  $.overlays.zone_bands.bands[i].linked_events.overlapping_events   e.g. [{"band_high": "62714.08", "band_low": "62714.08", "close_at_event": "63154.59",
+      3  $.overlays.zone_bands.bands[i].linked_events.overlapping_counts   e.g. {"breakout": 10, "failed_breakout": 3, "retest": 20, "sweep": 5}
+      3  $.overlays.zone_bands.bands[i].linked_events.overlapping_count   e.g. 38
+
+REMOVED keys (0):
+
+CHANGED values (3):
+      1  $.overlays.zone_bands.bands[i].linked_events.events   e.g. [{"band_high": "63025.15", "band_low": "62573.55", "close_at -> [{"band_high": "63025.15", "band_low": "62573.55", "close_at
+      1  $.overlays.zone_bands.bands[i].linked_events.event_count   e.g. 2 -> 4
+      1  $.overlays.zone_bands.bands[i].linked_events.counts.retest   e.g. 0 -> 2
+```

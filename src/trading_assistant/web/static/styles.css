@@ -843,7 +843,20 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .looking-for-disclaimer { margin-top: 1px; color: var(--text-faint); font-size: 9px; font-style: italic; }
 .looking-for-details { margin-top: 1px; color: var(--text-muted); font-size: 10px; }
 .looking-for-details summary { cursor: pointer; }
-.looking-for-technical { display: grid; gap: 4px; max-height: 220px; overflow: auto; padding-top: 5px; }
+.looking-for-technical {
+  display: grid;
+  /* ``grid-template-columns`` must be explicit: the implicit ``auto`` track sizes to
+     max-content, so one long technical row (a rule id, a reference band) made the track
+     wider than the Current Setup rail and the rows were clipped 17px past the viewport
+     at 1440px, reachable only by scrolling inside this box. ``minmax(0, 1fr)`` plus
+     wrapping keeps every row inside the card. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  max-height: 220px;
+  overflow: auto;
+  padding-top: 5px;
+}
+.looking-for-technical .chart-note { overflow-wrap: anywhere; white-space: normal; }
 
 .chart-empty {
   background: linear-gradient(180deg, rgba(255,255,255,.018), rgba(255,255,255,.004)), var(--bg-elevated);
@@ -1393,10 +1406,71 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .zone-band-layer { position: absolute; inset: 0; pointer-events: none; z-index: 2; overflow: hidden; }
 .zone-band { position: absolute; left: 0; right: 0; background: var(--zone-fill); border-top: 1px solid var(--zone-edge); border-bottom: 1px solid var(--zone-edge); pointer-events: none; }
 .zone-band--htf { border-style: dashed; }
+/* The band a sequence is read against: a neutral blue-grey wash, never the
+   directional red/green of an S or R zone. */
+.zone-band--reference {
+  background: var(--zone-fill);
+  border-top: 1px solid var(--zone-edge);
+  border-bottom: 1px solid var(--zone-edge);
+}
 .zone-band--faded { opacity: 0.45; }
-.zone-band-label { position: absolute; right: 6px; pointer-events: auto; cursor: pointer; font-size: 10.5px; line-height: 1.2; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); background: rgba(7, 11, 22, 0.88); border: 1px solid var(--zone-edge); border-radius: 999px; padding: 2px 8px; max-width: 60%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A band wide enough to cover most of the price pane is painted as a light wash (its fill is
+   scaled down in chart.js) so the candles underneath stay readable. Its exact edges are kept and
+   drawn a touch heavier, because the edges are the stored price, not decoration.
+   Support & Resistance scoped: this rule is only ever applied to a zone band. */
+.zone-band--tall { border-top-width: 2px; border-bottom-width: 2px; }
+.zone-band-label { position: absolute; right: 6px; pointer-events: auto; cursor: pointer; font-size: 11.5px; line-height: 1.2; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); background: rgba(7, 11, 22, 0.88); border: 1px solid var(--zone-edge); border-radius: 999px; padding: 2px 8px; max-width: 60%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .zone-band-label:focus-visible { outline: 2px solid var(--zone-edge); outline-offset: 2px; }
 .zone-band-offview { position: absolute; left: 8px; bottom: 8px; font-size: 11px; color: var(--text-muted); background: rgba(7, 11, 22, 0.88); padding: 2px 6px; border-radius: 6px; pointer-events: none; }
+
+/* Breakouts & Retests: three numbered callouts, each with an arrow to the candle
+   its step belongs to. Blue by design; the status inside carries the tone. */
+/* No clipping: a callout near an edge must stay readable in full, and nothing
+   here is allowed to spill outside the chart pane. */
+.breakout-anno-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.breakout-anno {
+  position: absolute;
+  display: flex; align-items: center; gap: 9px;
+  padding: 5px 14px 5px 5px;
+  border: 1.5px solid var(--blue); border-radius: 999px;
+  background: rgba(10, 17, 33, 0.96); color: var(--text);
+  font-size: 13px; font-weight: 700; letter-spacing: 0.01em; line-height: 1.2;
+  white-space: nowrap; cursor: pointer; pointer-events: auto;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5), 0 8px 22px rgba(0, 0, 0, 0.38);
+}
+.breakout-anno:hover { border-color: #7fb6e8; }
+.breakout-anno:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.breakout-anno-num {
+  flex: none; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--blue); color: #06101f;
+  display: grid; place-items: center; font-size: 14px; font-weight: 800;
+}
+/* A step with no stored record (an unconfirmed continuation, a retest not yet
+   recorded) is drawn as an outline, so it never reads as a confirmed event. */
+.breakout-anno[data-recorded="false"] { border-style: dashed; }
+.breakout-anno[data-recorded="false"] .breakout-anno-num {
+  background: transparent; border: 2px solid var(--blue); color: var(--blue);
+}
+.breakout-anno-title { color: #fff; }
+.breakout-anno-status { color: var(--text-muted); font-weight: 700; font-size: 12px; }
+.breakout-anno[data-tone="green"] .breakout-anno-status { color: var(--green); }
+.breakout-anno[data-tone="red"] .breakout-anno-status { color: var(--red); }
+.breakout-anno[data-tone="amber"] .breakout-anno-status { color: var(--amber); }
+.breakout-anno[data-tone="neutral"] .breakout-anno-status { color: var(--text-muted); }
+.breakout-anno-line {
+  position: absolute; height: 1.5px; transform-origin: 0 50%;
+  background: linear-gradient(90deg, rgba(91, 155, 213, 0.3), rgba(91, 155, 213, 0.9));
+  pointer-events: none;
+}
+.breakout-anno-line[data-pending="true"] { background: repeating-linear-gradient(90deg, rgba(91, 155, 213, 0.85) 0 5px, rgba(91, 155, 213, 0.15) 5px 10px); }
+.breakout-anno-arrow {
+  position: absolute; width: 0; height: 0; transform: translate(-50%, -50%);
+  border-top: 5px solid transparent; border-bottom: 5px solid transparent;
+  border-left: 9px solid var(--anno-tone, var(--blue));
+  pointer-events: none;
+}
+.breakout-anno-arrow[data-pending="true"] { opacity: 0.7; }
+.breakout-anno-offview { position: absolute; left: 8px; top: 8px; font-size: 11px; color: var(--text-muted); background: rgba(7, 11, 22, 0.88); padding: 2px 6px; border-radius: 6px; pointer-events: none; }
 
 
 /* ==========================================================================
@@ -1411,7 +1485,12 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 /* --- The one decision ---------------------------------------------------- */
 .hero-card {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr);
+  /* Two columns only when the context rail is actually wide enough. A fixed
+     ``minmax(260px, 1fr)`` side column forced the verdict column down to ~100px on a
+     1440px laptop, which wrapped "No trade" one character per line. ``auto-fit``
+     collapses to a single column at that width and restores the two-column design on
+     wide screens, without a viewport media query (the rail, not the viewport, decides). */
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 18px 28px;
   padding: 26px 30px;
   border: 1px solid var(--border-strong);
@@ -1492,12 +1571,6 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .zone-note { margin-top: 6px; font-size: 13px; color: var(--text-dim); }
 
 /* --- What BRAIN waits for, plan, what it sees ----------------------------------- */
-.dash-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
-  align-items: start;
-}
 .waiting-card { display: flex; flex-direction: column; gap: 12px; }
 .waiting-blockers ul { margin: 6px 0 0; padding-left: 18px; color: var(--text-dim); }
 .waiting-blockers li { margin-bottom: 6px; }
@@ -1578,15 +1651,11 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   cursor: pointer; font-weight: 700; color: var(--text-dim);
   min-height: var(--touch); display: flex; align-items: center; padding: 4px 0;
 }
-.diagnostics-body { display: grid; gap: 18px; margin-top: 16px; }
-.diagnostics-body > * { min-width: 0; }
 
 /* --- Responsive ----------------------------------------------------------------- */
 @media (max-width: 1180px) {
   .dash-main { grid-template-columns: minmax(0, 1fr); }
   .dash-context { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
-  .dash-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .dash-row > :last-child { grid-column: 1 / -1; }
   .paper-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .paper-grid > :last-child { grid-column: 1 / -1; }
 }
@@ -1595,8 +1664,8 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
   .dash-context { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 760px) {
-  .dash-row, .paper-grid { grid-template-columns: minmax(0, 1fr); }
-  .dash-row > *, .paper-grid > * { grid-column: auto; }
+  .paper-grid { grid-template-columns: minmax(0, 1fr); }
+  .paper-grid > * { grid-column: auto; }
   .hero-state { font-size: 2.5rem; }
   .hero-reason { font-size: 16px; }
 }
@@ -1646,6 +1715,12 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .zone-band-setup-label { position: absolute; left: 6px; font-size: 10px; color: var(--zone-edge); pointer-events: none; }
 .zone-band--htf { background: transparent; border-style: dashed; border-width: 1px 0; }
 
+/* Plan risk / reward areas: what the plan risks (entry to stop) and targets
+   (entry to the final target). Fill only, using the same faintness as the S/R
+   bands — the plan's own price lines mark the exact levels, so no extra edge or
+   label competes with the candles. */
+.plan-area { position: absolute; left: 0; right: 0; background: var(--zone-fill); pointer-events: none; }
+
 /* Empty paper ledger: one statement, not a grid of zeros. */
 .paper-empty { max-width: 760px; display: flex; flex-direction: column; gap: 10px; }
 .paper-empty .card-title { margin: 0; font-size: 18px; }
@@ -1654,13 +1729,6 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 /* --- Live price and automatic updates --------------------------------------------- */
 /* Display only. These labels describe the quote and the stored-candle check; they never imply a
    trade signal. CURRENT / STALE / UNAVAILABLE are always shown in words, not colour alone. */
-.dash-live-strip {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 12px;
-  align-items: stretch;
-  margin-bottom: 12px;
-}
 .live-quote {
   display: flex; flex-direction: column; gap: 6px;
   padding: 14px 18px;
@@ -1696,7 +1764,1122 @@ details.expandable .detail-body { padding-top: 10px; font-size: 12.5px; color: v
 .dash-update-status[data-tone="updating"] .dash-update-label,
 .dash-update-status[data-tone="paused"] .dash-update-label { color: var(--blue); }
 @media (max-width: 760px) {
-  .dash-live-strip { grid-template-columns: minmax(0, 1fr); }
   .live-quote-value { font-size: 26px; }
 }
 @media (prefers-reduced-motion: reduce) { .live-quote * { transition: none; } }
+
+/* ==========================================================================
+   BRAIN Dashboard V2 — approved layout
+   --------------------------------------------------------------------------
+   One trading bar, one chart with the Current Setup panel beside it, four
+   compact summary cards, and three bottom tabs. Colours keep their meaning:
+   green = bullish / support / profit concept, red = bearish / resistance /
+   risk, blue = selected control and entry, amber = pending or warning. Every
+   card is a rounded panel on the dark navy canvas; nothing here changes data.
+   ========================================================================== */
+
+/* --- Brand lockup ---------------------------------------------------------- */
+.topbar-brand .brand-name { font-weight: 780; font-size: 15px; letter-spacing: 0.08em; }
+.topbar-brand .brand-sub { letter-spacing: 0.02em; }
+@media (max-width: 520px) {
+  .brand-text { display: flex; }
+  .brand-sub { display: none; }
+  .topbar-brand .brand-name { font-size: 12px; letter-spacing: 0.06em; }
+}
+
+/* --- Trading bar ----------------------------------------------------------- */
+.dash-commandbar {
+  position: sticky;
+  top: var(--topbar-h, 60px);
+  z-index: 20;
+  display: grid;
+  /* Only the first track may absorb free space. Giving the outer tracks an ``auto`` max
+     let them grow to max-content and starve the flexible middle track, which dropped to
+     0px and drew the timeframe controls on top of the live-quote card; giving them
+     ``max-content`` made the row 2 content (a wrapping health/status row) inflate the
+     same column to ~1700px and push the quote off-screen. ``1fr`` + ``max-content``
+     keeps both outer tracks at their natural width and lets the middle take the rest. */
+  grid-template-columns: minmax(0, 1fr) minmax(min-content, max-content) minmax(0, max-content);
+  grid-template-areas:
+    "identity timeframes quote"
+    "health asof more";
+  gap: 10px 18px;
+  align-items: center;
+  padding: 12px 16px;
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+}
+.commandbar-identity { grid-area: identity; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.commandbar-symbol { font-size: 20px; font-weight: 750; letter-spacing: -0.01em; }
+.commandbar-engine {
+  font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+  color: var(--text-dim); background: var(--neutral-chip);
+  border: 1px solid var(--border-strong); border-radius: 999px; padding: 3px 9px;
+}
+.chart-timeframe-controls { grid-area: timeframes; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.commandbar-quote { grid-area: quote; min-width: 0; }
+.commandbar-quote .live-quote {
+  padding: 6px 12px; gap: 2px; border-radius: var(--radius);
+  background: var(--panel-3); border-color: var(--border-strong);
+  align-items: flex-end; text-align: right;
+}
+.commandbar-quote .live-quote-kicker { justify-content: flex-end; gap: 8px; }
+.commandbar-quote .live-quote-title { font-size: 9px; letter-spacing: 0.09em; }
+.commandbar-quote .live-quote-value { font-size: 22px; }
+.commandbar-quote .live-quote-note { font-size: 10px; color: var(--text-faint); }
+.commandbar-health { grid-area: health; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
+.commandbar-health-pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--border-strong); background: var(--neutral-chip);
+  font-family: var(--mono); font-size: 10px; font-weight: 750; letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+.commandbar-health-pill[data-tone="green"] { color: var(--green); background: var(--green-dim); border-color: rgba(47, 191, 127, 0.4); }
+.commandbar-health-pill[data-tone="amber"] { color: var(--amber); background: var(--amber-dim); border-color: rgba(232, 163, 61, 0.4); }
+.commandbar-health-pill[data-tone="red"] { color: var(--red); background: var(--red-dim); border-color: rgba(224, 86, 91, 0.4); }
+.commandbar-health-detail { color: var(--text-muted); font-size: 11px; overflow-wrap: anywhere; }
+.commandbar-asof { grid-area: asof; color: var(--text-faint); font-size: 10px; text-align: right; }
+.control-caption {
+  color: var(--text-faint); font-size: 9px; font-weight: 750;
+  letter-spacing: 0.12em; text-transform: uppercase;
+}
+.tf-button {
+  min-height: 34px; min-width: 40px; padding: 5px 10px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: transparent; color: var(--text-dim);
+  font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.tf-button:hover { border-color: var(--border-strong); color: var(--text); }
+.tf-button[aria-pressed="true"] {
+  background: var(--blue-dim); border-color: var(--blue); color: var(--text);
+}
+.tf-button--daily { border-style: dashed; }
+.tf-button--daily[aria-pressed="true"] { border-style: solid; }
+
+/* --- Chart-function controls ---------------------------------------------- */
+.chart-control-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.chart-function-switch, .chart-mode-switch, .chart-pattern-list {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+}
+.chart-function-button, .chart-mode-button, .pattern-button, .swing-connector-toggle {
+  min-height: 34px; padding: 6px 11px;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: transparent; color: var(--text-muted);
+  font-size: 11px; font-weight: 650; letter-spacing: 0.02em;
+  cursor: pointer; white-space: nowrap;
+}
+.chart-function-button:hover, .chart-mode-button:hover, .pattern-button:hover, .swing-connector-toggle:hover {
+  border-color: var(--border-strong); color: var(--text);
+}
+.chart-function-button[aria-pressed="true"], .chart-mode-button[aria-pressed="true"] {
+  background: var(--blue-dim); border-color: var(--blue); color: var(--text);
+}
+.pattern-button[aria-pressed="true"] {
+  background: var(--amber-dim); border-color: var(--amber); color: var(--text);
+}
+.swing-connector-toggle { border-radius: 8px; }
+.swing-connector-toggle[aria-pressed="true"] { background: var(--panel-3); border-color: var(--border-strong); color: var(--text-dim); }
+.chart-function-status {
+  margin-top: 8px; padding: 8px 11px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--panel-2); color: var(--text-dim);
+  font-size: 12px; line-height: 1.4; overflow-wrap: anywhere;
+}
+.chart-function-status[data-tone="amber"] { border-color: rgba(232, 163, 61, 0.35); color: var(--text-muted); }
+.chart-pattern-picker[hidden] { display: none; }
+.chart-pattern-picker {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin-top: 8px; padding: 8px 11px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2);
+}
+
+.chart-layer-details { margin-top: 10px; }
+.chart-layer-details > summary {
+  cursor: pointer; color: var(--text-muted); font-size: 11px; font-weight: 650;
+  min-height: var(--touch); display: flex; align-items: center;
+}
+.chart-layer-details[hidden] { display: none; }
+.chart-layer-body { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0 2px; }
+.chart-layer-note { flex-basis: 100%; margin: 2px 0 0; color: var(--text-faint); font-size: 10px; line-height: 1.4; }
+
+/* --- Main area: chart + Current Setup -------------------------------------- */
+.dash-main { grid-template-columns: minmax(0, 1.75fr) minmax(300px, 0.85fr); }
+.dash-context { display: flex; flex-direction: column; gap: 14px; }
+.dash-context .hero-card { min-height: 0; }
+.setup-row-label { color: var(--text-faint); font-size: 10px; font-weight: 750; letter-spacing: 0.1em; text-transform: uppercase; }
+.setup-row-value { color: var(--text); font-size: 13px; font-weight: 650; }
+.setup-row-detail { color: var(--text-muted); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+
+/* --- Four compact summary cards -------------------------------------------- */
+.dash-summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.summary-card { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.summary-card-head { display: flex; flex-direction: column; gap: 3px; }
+.summary-card-title { font-size: 15px; font-weight: 700; line-height: 1.25; overflow-wrap: anywhere; }
+.summary-card[data-tone="green"] .summary-card-title { color: var(--green); }
+.summary-card[data-tone="red"] .summary-card-title { color: var(--red); }
+.summary-card[data-tone="amber"] .summary-card-title { color: var(--amber); }
+.summary-facts { display: grid; gap: 7px; }
+.summary-fact { display: grid; gap: 2px; padding: 7px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2); }
+.summary-fact[data-tone="green"] { border-left: 3px solid var(--green); }
+.summary-fact[data-tone="red"] { border-left: 3px solid var(--red); }
+.summary-fact[data-tone="amber"] { border-left: 3px solid var(--amber); }
+.summary-fact-label { color: var(--text-faint); font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.summary-fact-value { color: var(--text-dim); font-size: 13px; overflow-wrap: anywhere; }
+.summary-empty { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.45; }
+.summary-footer { margin: 0; color: var(--text-faint); font-size: 10px; line-height: 1.45; }
+
+/* --- Bottom tabs ----------------------------------------------------------- */
+.dash-tabs {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 6px; border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--panel);
+}
+.dash-tab {
+  min-height: var(--touch); padding: 8px 16px;
+  border: 1px solid transparent; border-radius: 10px;
+  background: transparent; color: var(--text-muted);
+  font-size: 13px; font-weight: 650; letter-spacing: 0.01em;
+  cursor: pointer;
+}
+.dash-tab:hover { color: var(--text); background: var(--panel-2); }
+.dash-tab[aria-selected="true"] {
+  background: var(--blue-dim); border-color: var(--blue); color: var(--text);
+}
+.dash-tab-panel { display: flex; flex-direction: column; gap: 16px; }
+.dash-tab-panel[hidden] { display: none !important; }
+.performance-section .paper-grid { grid-template-columns: minmax(0, 1fr); }
+.performance-section .paper-grid > :last-child { grid-column: auto; }
+
+/* --- Responsive ------------------------------------------------------------ */
+@media (max-width: 1180px) {
+  .dash-main { grid-template-columns: minmax(0, 1fr); }
+  .dash-context { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  .dash-context > .waiting-card, .dash-context > .evidence-explain { grid-column: 1 / -1; }
+  .dash-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-commandbar {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "identity" "timeframes" "quote" "health" "asof" "more";
+  }
+  .more-menu { justify-self: start; }
+  .commandbar-quote .live-quote { text-align: left; align-items: flex-start; }
+  .commandbar-quote .live-quote-kicker { justify-content: flex-start; }
+  .commandbar-asof { text-align: left; }
+}
+@media (max-width: 900px) {
+  .dash-context { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 1020px) {
+  /* The page header wraps here, so the trading bar scrolls with the page instead of
+     sticking to a height it cannot measure. */
+  .dash-commandbar { position: static; }
+}
+@media (max-width: 760px) {
+  .dash-summary-grid { grid-template-columns: minmax(0, 1fr); }
+  .chart-function-button, .chart-mode-button, .pattern-button, .swing-connector-toggle, .cfp-action, .tf-button { min-height: 40px; }
+}
+@media (max-width: 520px) {
+  .dash-tab { flex: 1 1 auto; text-align: center; padding: 8px 10px; }
+  .commandbar-symbol { font-size: 17px; }
+  .chart-function-button, .chart-mode-button, .pattern-button, .swing-connector-toggle, .cfp-action, .tf-button { min-height: var(--touch); }
+}
+
+/* ==========================================================================
+   BRAIN Dashboard V2 — approved chart-function designs and summary band
+   --------------------------------------------------------------------------
+   The chart keeps its candles readable: the explanation for the selected
+   function lives in its own column beside the chart, the four summary cards
+   carry a value and one line of detail, the ledger is a table, and nothing in
+   this block changes what any colour means (green bullish/support/profit,
+   red bearish/resistance/risk, blue selected/entry, amber pending/warning).
+   ========================================================================== */
+
+/* --- Chart stage: candles and the function panel --------------------------- */
+.chart-stage {
+  display: grid;
+  /* ~75 % candles, ~23 % the cards beside them, with one narrow gutter. The
+     chart is the subject of this screen; the panels are its reading. */
+  grid-template-columns: minmax(0, 75fr) minmax(200px, 23fr);
+  gap: 16px;
+  align-items: start;
+}
+.chart-stage > .terminal-chart-wrap { min-width: 0; }
+.chart-function-slot { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+
+/* BTC/USDT summary card, right of the chart on the Breakouts & Retests screen. */
+.market-summary-card {
+  padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--panel-2);
+}
+.msc-head { display: flex; align-items: center; gap: 10px; }
+.msc-head-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+/* The Bitcoin mark, so the card reads as the instrument at a glance. */
+.msc-icon {
+  flex: none; width: 30px; height: 30px; border-radius: 50%;
+  background: rgba(247, 147, 26, 0.16); color: #f7931a;
+  display: grid; place-items: center; font-size: 17px; font-weight: 800; line-height: 1;
+}
+.msc-symbol { font-family: var(--mono); font-size: 15px; font-weight: 800; color: var(--text); letter-spacing: 0.02em; }
+.msc-exchange { font-size: 11px; color: var(--text-faint); letter-spacing: 0.06em; text-transform: uppercase; }
+.msc-price {
+  margin-top: 12px; font-family: var(--mono); font-size: 26px; font-weight: 700;
+  letter-spacing: -0.01em; line-height: 1.1; color: var(--text); font-variant-numeric: tabular-nums;
+}
+.msc-rows {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 10px;
+  margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--border);
+}
+.msc-label { font-size: 11.5px; color: var(--text-faint); align-self: center; }
+.msc-value { margin: 0; font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--text); text-align: right; }
+/* A figure the payload does not carry is written, never guessed. */
+.msc-value[data-unavailable="true"] { color: var(--text-faint); font-weight: 600; font-style: italic; }
+.msc-value[data-tone="green"] { color: var(--green); }
+.msc-value[data-tone="red"] { color: var(--red); }
+.msc-value[data-tone="amber"] { color: var(--amber); }
+
+.chart-function-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  max-height: 100%;
+  overflow-y: auto;
+}
+.chart-function-panel[data-tone="green"] { border-left: 3px solid var(--green); }
+.chart-function-panel[data-tone="red"] { border-left: 3px solid var(--red); }
+.chart-function-panel[data-tone="amber"] { border-left: 3px solid var(--amber); }
+.chart-function-panel[data-tone="blue"] { border-left: 3px solid var(--blue); }
+.cfp-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.cfp-heading { margin: 0; font-size: 14px; font-weight: 700; letter-spacing: -0.01em; }
+.cfp-chip { font-size: 11px;
+  padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--border-strong); background: var(--neutral-chip);
+  font-family: var(--mono); font-size: 11px; font-weight: 750; letter-spacing: 0.06em;
+  color: var(--text-dim); text-transform: uppercase; text-align: right;
+}
+.cfp-title { display: flex; flex-direction: column; gap: 4px; }
+.cfp-title-name { font-size: 13px; font-weight: 650; color: var(--text); }
+.cfp-state {
+  align-self: flex-start; padding: 2px 8px; border-radius: 999px;
+  font-family: var(--mono); font-size: 11px; font-weight: 750; letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid var(--border-strong); background: var(--neutral-chip); color: var(--text-dim);
+}
+.cfp-state[data-tone="green"] { color: var(--green); background: var(--green-dim); border-color: rgba(47, 191, 127, 0.4); }
+.cfp-state[data-tone="red"] { color: var(--red); background: var(--red-dim); border-color: rgba(224, 86, 91, 0.4); }
+.cfp-state[data-tone="amber"] { color: var(--amber); background: var(--amber-dim); border-color: rgba(232, 163, 61, 0.4); }
+.cfp-block { display: flex; flex-direction: column; gap: 6px; }
+.cfp-block-title { color: var(--text-faint); font-size: 11px; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; }
+.cfp-legend, .cfp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.cfp-legend-row { display: grid; grid-template-columns: 10px minmax(0, auto); gap: 0 8px; align-items: baseline; }
+.cfp-legend-label { font-size: 11.5px; font-weight: 650; color: var(--text-dim); }
+.cfp-legend-meaning { grid-column: 2; color: var(--text-faint); font-size: 10.5px; line-height: 1.4; }
+.cfp-swatch { width: 10px; height: 10px; border-radius: 3px; background: var(--neutral-chip); align-self: center; }
+.cfp-legend-row[data-tone="green"] .cfp-swatch { background: var(--green); }
+.cfp-legend-row[data-tone="red"] .cfp-swatch { background: var(--red); }
+.cfp-legend-row[data-tone="amber"] .cfp-swatch { background: var(--amber); }
+.cfp-legend-row[data-tone="blue"] .cfp-swatch { background: var(--blue); }
+.cfp-facts { display: grid; grid-template-columns: minmax(90px, 115px) minmax(0, 1fr); gap: 6px 12px; margin: 0; }
+.cfp-fact-label { color: var(--text-faint); font-size: 11px; align-self: start; line-height: 1.35; overflow-wrap: normal; }
+.cfp-fact-value { margin: 0; display: flex; flex-direction: column; align-items: flex-end; text-align: right; font-size: 11.5px; line-height: 1.35; color: var(--text); overflow-wrap: break-word; }
+.cfp-fact-value[data-tone="green"] { color: var(--green); }
+.cfp-fact-value[data-tone="red"] { color: var(--red); }
+.cfp-fact-value[data-tone="amber"] { color: var(--amber); }
+.cfp-fact-value[data-tone="blue"] { color: var(--blue); }
+.cfp-fact-meta { color: var(--text-faint); font-size: 10px; }
+.cfp-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel); }
+.cfp-row-title { font-size: 11.5px; font-weight: 650; color: var(--text-dim); }
+.cfp-row-value { justify-self: end; font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--text); }
+.cfp-row-meta { grid-column: 1 / -1; color: var(--text-faint); font-size: 10px; line-height: 1.4; }
+
+/* Breakout Logic: three numbered steps down the card, joined by a soft vertical
+   line, each with one short sentence and its recorded status as a right-hand
+   pill. No raw record lists and no metadata below 11px in Simple mode — the
+   stored numbers stay on the row's tooltip and in Detailed / Diagnostics. */
+.cfp-stages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.cfp-stage { position: relative; padding-left: 42px; min-height: 30px; }
+.cfp-stage-num {
+  position: absolute; left: 0; top: 0;
+  width: 26px; height: 26px; border-radius: 50%; background: var(--blue); color: #06101f;
+  display: grid; place-items: center; font-size: 13px; font-weight: 800; flex: none;
+}
+/* The progression line: from under each circle to the top of the next one. */
+.cfp-stage:not(:last-child)::before {
+  content: ""; position: absolute; left: 12px; top: 30px; bottom: -18px; width: 2px; border-radius: 1px;
+  background: linear-gradient(180deg, rgba(91, 155, 213, 0.5), rgba(91, 155, 213, 0.16));
+}
+/* A step with no stored record: an outline circle, never a filled "done" one. */
+.cfp-stage[data-recorded="false"] .cfp-stage-num {
+  background: transparent; border: 2px solid var(--blue); color: var(--blue);
+}
+.cfp-stage-button {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 8px; align-items: start; width: 100%;
+  padding: 0; border: 0; background: none;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.cfp-stage-button:hover .cfp-stage-title { color: #fff; }
+.cfp-stage-button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 6px; }
+.cfp-stage:not(:has(.cfp-stage-button)) {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 8px; align-items: start;
+}
+/* The body's children sit in the row grid, so the sentence can span the full
+   width of the card under the title instead of being squeezed beside the pill. */
+.cfp-stage-body { display: contents; }
+.cfp-stage-title { grid-column: 1; grid-row: 1; font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.25; }
+.cfp-stage-summary { grid-column: 1 / -1; grid-row: 2; font-size: 12px; line-height: 1.45; color: var(--text-muted); }
+.cfp-stage-status {
+  grid-column: 2; grid-row: 1; justify-self: end; align-self: start;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.01em;
+  /* A long status wraps rather than pushing the step title out of the card. */
+  white-space: normal; text-align: center; max-width: 100%;
+  padding: 4px 10px; border-radius: 999px;
+  background: var(--neutral-chip); color: var(--text-dim);
+}
+.cfp-stage-status[data-tone="green"] { background: var(--green-dim); color: var(--green); }
+.cfp-stage-status[data-tone="red"] { background: var(--red-dim); color: var(--red); }
+.cfp-stage-status[data-tone="amber"] { background: var(--amber-dim); color: var(--amber); }
+/* Key Idea: the one sentence the whole three-step layout is saying. */
+.cfp-key-idea {
+  border: 1px solid var(--border); border-left: 3px solid var(--blue);
+  border-radius: var(--radius-sm); background: var(--panel);
+  padding: 10px 12px; margin-top: 2px;
+}
+.cfp-key-idea-text { margin: 4px 0 0; font-size: 12px; line-height: 1.55; color: var(--text-dim); }
+.cfp-action {
+  width: 100%; min-height: 34px; padding: 7px 11px;
+  border: 1px solid var(--border-strong); border-radius: 8px;
+  background: transparent; color: var(--text-muted);
+  font-size: 11px; font-weight: 650; letter-spacing: 0.02em; cursor: pointer;
+}
+.cfp-action:hover { color: var(--text); border-color: var(--blue); }
+
+.cfp-row[data-tone="green"] { border-left: 3px solid var(--green); }
+.cfp-row[data-tone="red"] { border-left: 3px solid var(--red); }
+.cfp-row[data-tone="amber"] { border-left: 3px solid var(--amber); }
+.cfp-row[data-tone="blue"] { border-left: 3px solid var(--blue); }
+.cfp-rr-bar { display: flex; height: 12px; border-radius: 999px; overflow: hidden; border: 1px solid var(--border-strong); }
+.cfp-rr-risk { background: var(--red); }
+.cfp-rr-reward { background: var(--green); }
+.cfp-rr-legend { display: flex; justify-content: space-between; font-size: 10px; }
+.cfp-rr-risk-label { color: var(--red); }
+.cfp-rr-reward-label { color: var(--green); }
+.cfp-rr-caption { color: var(--text-faint); font-size: 10px; }
+.cfp-rr-ratio { font-family: var(--mono); font-size: 14px; font-weight: 750; text-align: right; color: var(--text); }
+.cfp-note { margin: 0; color: var(--text-faint); font-size: 11px; line-height: 1.5; }
+
+/* --- Four summary cards ---------------------------------------------------- */
+.stat-card { flex-direction: row; align-items: center; gap: 12px; text-align: left; }
+.stat-card-link { cursor: pointer; }
+.stat-card-link:hover { border-color: var(--border-strong); }
+.stat-icon {
+  flex: 0 0 auto; display: grid; place-items: center;
+  width: 38px; height: 38px; border-radius: 10px;
+  background: var(--panel-3); border: 1px solid var(--border-strong);
+  font-size: 16px; color: var(--text-muted);
+}
+.summary-card[data-tone="green"] .stat-icon { color: var(--green); background: var(--green-dim); border-color: rgba(47, 191, 127, 0.4); }
+.summary-card[data-tone="red"] .stat-icon { color: var(--red); background: var(--red-dim); border-color: rgba(224, 86, 91, 0.4); }
+.summary-card[data-tone="amber"] .stat-icon { color: var(--amber); background: var(--amber-dim); border-color: rgba(232, 163, 61, 0.4); }
+.summary-card[data-tone="blue"] .stat-icon { color: var(--blue); background: var(--blue-dim); border-color: rgba(91, 155, 213, 0.4); }
+.stat-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stat-label { color: var(--text-faint); font-size: 10px; font-weight: 750; letter-spacing: 0.09em; text-transform: uppercase; }
+.stat-value { font-size: 20px; font-weight: 750; letter-spacing: -0.01em; color: var(--text); overflow-wrap: anywhere; }
+.stat-value[data-tone="green"] { color: var(--green); }
+.stat-value[data-tone="red"] { color: var(--red); }
+.stat-value[data-tone="amber"] { color: var(--amber); }
+.stat-value[data-tone="blue"] { color: var(--blue); }
+.stat-detail { color: var(--text-muted); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+.stat-chevron { margin-left: auto; color: var(--text-faint); font-size: 18px; line-height: 1; }
+
+/* --- Current Setup rows ---------------------------------------------------- */
+.setup-rows { display: flex; flex-direction: column; gap: 8px; }
+.setup-row { display: grid; grid-template-columns: 32px minmax(0, 1fr) minmax(0, 1.15fr); gap: 4px 10px; align-items: center; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2); }
+.setup-row-icon {
+  grid-row: 1 / 3; display: grid; place-items: center;
+  width: 32px; height: 32px; border-radius: 9px;
+  background: var(--panel-3); border: 1px solid var(--border-strong);
+  font-size: 14px; color: var(--text-muted);
+}
+.setup-row-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.setup-row-label { color: var(--text-faint); font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+.setup-row-value { font-size: 14px; font-weight: 700; color: var(--text); }
+.setup-row-detail { color: var(--text-muted); font-size: 11px; line-height: 1.4; text-align: right; overflow-wrap: anywhere; }
+.setup-row[data-tone="green"] .setup-row-icon, .setup-row[data-tone="green"] .setup-row-value { color: var(--green); }
+.setup-row[data-tone="red"] .setup-row-icon, .setup-row[data-tone="red"] .setup-row-value { color: var(--red); }
+.setup-row[data-tone="amber"] .setup-row-icon, .setup-row[data-tone="amber"] .setup-row-value { color: var(--amber); }
+.setup-row[data-tone="green"] .setup-row-icon { background: var(--green-dim); border-color: rgba(47, 191, 127, 0.4); }
+.setup-row[data-tone="red"] .setup-row-icon { background: var(--red-dim); border-color: rgba(224, 86, 91, 0.4); }
+.setup-row[data-tone="amber"] .setup-row-icon { background: var(--amber-dim); border-color: rgba(232, 163, 61, 0.4); }
+.waiting-card { border-left: 3px solid var(--amber); }
+.waiting-card .looking-for-title { font-size: 13px; }
+
+/* --- Recorded ledger table -------------------------------------------------- */
+.ledger-card { display: flex; flex-direction: column; gap: 10px; }
+.ledger-title { margin: 0; font-size: 14px; font-weight: 700; }
+.ledger-scroll { overflow-x: auto; }
+.ledger-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.ledger-table th {
+  text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border-strong);
+  color: var(--text-faint); font-size: 9.5px; font-weight: 750; letter-spacing: 0.09em; text-transform: uppercase; white-space: nowrap;
+}
+.ledger-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); color: var(--text-dim); white-space: nowrap; }
+.ledger-table tr[data-tone="green"] td:nth-child(5) { color: var(--green); font-weight: 650; }
+.ledger-table tr[data-tone="red"] td:nth-child(5) { color: var(--red); font-weight: 650; }
+.ledger-table tr[data-tone="amber"] td:nth-child(5) { color: var(--amber); font-weight: 650; }
+.ledger-note { margin: 0; color: var(--text-faint); font-size: 10.5px; line-height: 1.45; }
+
+/* --- Performance tiles ------------------------------------------------------ */
+.metric-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.metric-tile { display: flex; flex-direction: column; gap: 3px; }
+.metric-tile-label { color: var(--text-faint); font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.metric-tile-value { font-size: 22px; font-weight: 750; letter-spacing: -0.01em; }
+.metric-tile-detail { color: var(--text-faint); font-size: 10.5px; }
+
+/* Win rate and Total P&L: the approved design's two realised-performance tiles, kept in the
+   layout whether or not BRAIN can fill them in yet. */
+.performance-headline { display: grid; gap: 10px; }
+.performance-headline .metric-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.metric-tile--headline { gap: 5px; padding: 16px 18px; }
+.metric-tile--headline .metric-tile-value { font-size: 30px; font-variant-numeric: tabular-nums; }
+.metric-tile--headline[data-tone="green"] .metric-tile-value { color: var(--green); }
+.metric-tile--headline[data-tone="red"] .metric-tile-value { color: var(--red); }
+/* An unavailable figure is stated in words, at a size that reads as a statement rather than
+   as a blank value waiting to be filled in. */
+.metric-tile--unavailable .metric-tile-value { font-size: 19px; font-weight: 650; color: var(--text-muted); }
+.metric-tile-note { margin: 0; color: var(--text-faint); font-size: 11px; line-height: 1.5; max-width: 90ch; }
+
+/* --- Responsive ------------------------------------------------------------- */
+@media (max-width: 1180px) {
+  .chart-stage { grid-template-columns: minmax(0, 1fr); }
+  .chart-function-panel { max-height: none; }
+  .metric-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .setup-row { grid-template-columns: 32px minmax(0, 1fr); }
+  .setup-row-detail { grid-column: 2; text-align: left; }
+  .setup-row-icon { grid-row: 1 / 3; }
+  .metric-tiles { grid-template-columns: minmax(0, 1fr); }
+  /* The headline pair is two-up by default; on a phone it stacks like the counts above.
+     This rule is stated after the generic one because its selector is more specific. */
+  .performance-headline .metric-tiles { grid-template-columns: minmax(0, 1fr); }
+  .ledger-table td, .ledger-table th { white-space: normal; }
+}
+
+/* --- Compact "More" menu ---------------------------------------------------- */
+.more-menu { justify-self: end; align-self: center; position: relative; }
+.more-menu > summary {
+  list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  min-height: 32px; padding: 4px 12px; border: 1px solid var(--border-strong); border-radius: 999px;
+  background: var(--panel-3); color: var(--text-muted);
+  font-size: 11px; font-weight: 650; letter-spacing: 0.02em;
+}
+.more-menu > summary::-webkit-details-marker { display: none; }
+.more-menu > summary::after { content: "\25be"; font-size: 9px; color: var(--text-faint); }
+.more-menu[open] > summary { color: var(--text); border-color: var(--blue); background: var(--blue-dim); }
+.more-list {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
+  display: flex; flex-direction: column; gap: 2px; min-width: 190px; padding: 6px;
+  background: var(--panel-2); border: 1px solid var(--border-strong); border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.more-link {
+  display: flex; align-items: center; min-height: var(--touch); padding: 6px 10px;
+  border-radius: 8px; color: var(--text-dim); text-decoration: none; font-size: 12.5px;
+}
+.more-link:hover { background: var(--panel-3); color: var(--text); }
+@media (max-width: 1180px) {
+  .more-list { left: 0; right: auto; }
+}
+
+/* =============================================================================
+   Dashboard V2 visual-correction pass (against the six approved references).
+   The approved screens share one grammar: a slim header, one dominant chart
+   card, a compact status rail, quiet panels (#0d1526 family) with hairline
+   borders, coloured icon tiles, and almost no prose under the chart. The
+   sections below restyle the existing V2 structure to that grammar without
+   moving any data or changing what a value means. Detailed/Diagnostics keep
+   every technical line; Simple (the default) hides them, it never deletes
+   them — the nodes stay mounted and every value stays one switch away.
+   ========================================================================== */
+
+/* --- Slim chrome ------------------------------------------------------------ */
+.topbar { padding: 8px 18px; }
+.dash-commandbar {
+  grid-template-areas: "identity timeframes quote" "health asof more";
+  padding: 10px 14px;
+  gap: 6px 16px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: none;
+}
+/* The health sentence and the update-status prose are Diagnostics material;
+   the pill alone carries the state on the trading bar (approved header). */
+.commandbar-health-detail, .dash-update-status { display: none; }
+.commandbar-asof { font-size: 10px; opacity: 0.85; }
+
+/* --- Main area: chart dominant, Current Setup a compact rail ----------------- */
+.dash-main {
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 14px;
+  align-items: start;
+}
+.dash-context { gap: 12px; }
+.dash-context .card { border-radius: var(--radius); box-shadow: none; }
+
+/* Decision hero, compressed to the rail's headline block. */
+.dash-context .hero-card { padding: 16px 18px; display: block; }
+.dash-context .hero-kicker { font-size: 10px; letter-spacing: 0.12em; }
+.dash-context .hero-state { font-size: 30px; line-height: 1.1; margin: 6px 0 4px; }
+.dash-context .hero-reason { font-size: 13px; line-height: 1.5; margin: 6px 0 0; }
+.dash-context .hero-side { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.dash-context .hero-facts { gap: 6px 14px; }
+.dash-context .hero-data { font-size: 10.5px; }
+
+/* The four Current Setup rows, as in the approved main design: tinted icon
+   tile, small caps label, coloured value, and the plain-language detail. */
+.setup-rows { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.setup-row {
+  display: grid; grid-template-columns: 40px minmax(0, 1fr);
+  gap: 4px 12px; align-items: center;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+.setup-row-icon {
+  grid-row: 1 / 3; width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 10px; font-size: 17px;
+  background: var(--neutral-chip); color: var(--text-dim);
+}
+.setup-row[data-tone="green"] .setup-row-icon { background: var(--green-dim); color: var(--green); }
+.setup-row[data-tone="red"] .setup-row-icon { background: var(--red-dim); color: var(--red); }
+.setup-row[data-tone="amber"] .setup-row-icon { background: var(--amber-dim); color: var(--amber); }
+.setup-row[data-tone="blue"] .setup-row-icon { background: var(--blue-dim); color: var(--blue); }
+.setup-row-value[data-tone], .setup-row[data-tone="green"] .setup-row-value { color: var(--green); }
+.setup-row[data-tone="red"] .setup-row-value { color: var(--red); }
+.setup-row[data-tone="amber"] .setup-row-value { color: var(--amber); }
+.setup-row-detail { grid-column: 2; font-size: 11.5px; }
+
+/* --- Chart card: the visual focus ------------------------------------------- */
+.terminal-chart-card {
+  padding: 14px 16px 12px; box-shadow: none;
+  /* Anything scrolled to this card lands BELOW the sticky bars, so the header
+     never sits over the chart or its callouts. */
+  scroll-margin-top: calc(var(--topbar-h, 60px) + 60px);
+}
+.terminal-chart-card .card-head { margin-bottom: 6px; }
+.chart-heading-title { font-size: 15px; font-weight: 700; }
+.chart-toolbar { gap: 8px; }
+/* The chart and the cards beside it start on the same line: no offset, so the
+   two columns of the composition read as one band across the screen. */
+.terminal-chart-wrap { height: clamp(520px, 78vh, 840px); margin-top: 0; }
+.chart-stage { grid-template-columns: minmax(0, 75fr) minmax(200px, 23fr); gap: 16px; margin-top: 10px; }
+.chart-function-panel {
+  border-radius: var(--radius); background: var(--panel-2);
+  padding: 14px; font-size: 12.5px; align-self: start;
+}
+.cfp-heading { font-size: 15px; }
+.chart-ohlc { font-family: var(--mono); font-size: 11px; color: var(--text-dim); margin-top: 8px; }
+.forming-status { font-size: 9.5px; letter-spacing: 0.1em; margin-top: 8px; }
+.chart-function-status {
+  border: none; background: transparent; padding: 6px 2px 0; margin-top: 6px;
+  font-size: 12px; color: var(--text-dim);
+}
+/* Simple keeps the under-chart area clean (approved screens show none of this
+   prose under the candles); Detailed restores the catalogue, the marker key
+   and the window notes. Nothing is removed from the DOM. */
+.terminal-chart-card[data-mode="simple"] .chart-evidence-meta,
+.terminal-chart-card[data-mode="simple"] .chart-items,
+.terminal-chart-card[data-mode="simple"] .chart-marker-key,
+.terminal-chart-card[data-mode="simple"] .chart-view-note,
+.terminal-chart-card[data-mode="simple"] .chart-history-note,
+.terminal-chart-card[data-mode="simple"] .confirmed-status { display: none; }
+
+/* --- Summary cards + tabs ----------------------------------------------------- */
+.dash-summary-grid { gap: 12px; }
+.stat-card { box-shadow: none; border-radius: var(--radius); padding: 14px 16px; }
+.stat-value { font-size: 24px; }
+.dash-tabs { gap: 4px; }
+.ledger-table th { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-faint); }
+
+/* --- More menu: never opens off-screen ---------------------------------------
+   The menu is end-aligned in its bar at every width, so the panel must stay
+   right-anchored too. The earlier <=1180px left-flip (panel from the menu's
+   left edge) pushed the open panel up to 92px past phone/tablet viewports. */
+.more-menu { justify-self: end; }
+.more-list { left: auto; right: 0; }
+@media (max-width: 1180px) {
+  .more-list { left: auto; right: 0; }
+  .dash-main { grid-template-columns: minmax(0, 1fr) 320px; }
+}
+@media (max-width: 1020px) {
+  .dash-main { grid-template-columns: minmax(0, 1fr); }
+  .chart-stage { grid-template-columns: minmax(0, 1fr); }
+  .terminal-chart-wrap { height: clamp(380px, 52vh, 520px); }
+}
+
+/* --- Visual-correction refinements (from the 1560px reference comparison) ---- */
+/* Setup rows: label/value left, plain detail as its own column (approved row). */
+.setup-row { grid-template-columns: 40px minmax(105px, 0.8fr) minmax(0, 1.2fr); }
+.setup-row-icon { grid-row: 1 / 2; }
+.setup-row-detail { grid-column: 3; grid-row: 1 / 2; align-self: center; }
+/* The decision block keeps its verdict + reason; the paper-candidate/orders
+   facts repeat the setup rows and live in Diagnostics-grade detail. */
+.dash-context .hero-facts { display: none; }
+.dash-context .hero-side { border-top: none; margin-top: 8px; padding-top: 0; }
+/* Selected-evidence panel appears only once a candle/marker is selected. */
+.dash-context .evidence-explain:has(.evidence-explain-hint) { display: none; }
+/* Quiet chrome lines: one OHLC line is enough above the candles in Simple. */
+.terminal-chart-card[data-mode="simple"] .chart-heading-meta { display: none; }
+.commandbar-quote .live-quote-note { display: none; }
+.stat-value { font-size: 22px; line-height: 1.15; overflow-wrap: anywhere; }
+.cfp-facts { grid-template-columns: minmax(90px, 115px) minmax(0, 1fr); }
+.cfp-fact-label { overflow-wrap: normal; }
+
+/* Mobile sign-off follow-up: the slim-chrome rule above must not restore a
+   three-column area map on the narrow-screen single-column trading bar. */
+@media (max-width: 1020px) {
+  .dash-commandbar {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "identity" "timeframes" "quote" "health" "asof" "more";
+  }
+}
+
+/* Desktop bottom section only. Mobile/tablet retain PR #60's three-tab layout. */
+.dash-bottom { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+@media (min-width: 1181px) {
+  .dash-bottom {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    grid-template-rows: auto 1fr;
+    gap: 14px;
+    align-items: start;
+  }
+  .dash-bottom > .dash-tabs { grid-column: 1; grid-row: 1; }
+  .dash-bottom > .dash-tab-panel--paper,
+  .dash-bottom > .dash-tab-panel--diagnostics { grid-column: 1; grid-row: 2; min-width: 0; }
+  .dash-bottom > .dash-tab-panel--performance {
+    grid-column: 2; grid-row: 1 / 3; min-width: 0;
+    padding: 18px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+  }
+  .dash-tab[hidden] { display: none; }
+  .dash-bottom .performance-section .metric-tiles,
+  .dash-bottom .performance-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-bottom .metric-tile--headline { padding: 12px; }
+  .dash-bottom .metric-tile + .metric-tile { margin-top: 0; }
+}
+
+/* ==========================================================================
+   Chart Patterns — approved pattern-focused layout
+   (BRAIN_Approved_Chart_Patterns, 1672 × 941)
+
+   Active only while the Chart Patterns function is selected; every rule below
+   is scoped to that selection, except the two defaults that keep the new
+   header nodes hidden everywhere else. One slim navy header, then a single
+   large chart panel (~72 %) and a 15 px gutter before a column of three cards
+   (~27 %), top-aligned. Presentation only: no value is computed here.
+   ========================================================================== */
+.chart-header-controls, .commandbar-refresh, .pattern-chart-head { display: none; }
+.chart-control-home { display: contents; }
+
+body:has(.terminal-chart-card[data-chart-function="patterns"]) {
+  --pf-page: #090d16;
+  --pf-head: #0b1220;
+  --pf-panel: #0a101b;
+  --pf-card: #0d1421;
+  --pf-line: #1b2536;
+  --pf-line-soft: #161f2e;
+  --pf-text: #e7ecf3;
+  --pf-dim: #b4bdcc;
+  --pf-muted: #8b96aa;
+  --pf-green: #2ad19d;
+  --pf-blue: #0b4fc4;
+  background: var(--pf-page);
+}
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .topbar { display: none; }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .view.terminal-dashboard {
+  width: 100%; max-width: none; padding: 0 11px 24px; gap: 14px;
+}
+
+/* --- Header: one slim full-width navy toolbar ---------------------------- */
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .dash-commandbar {
+  position: sticky; top: 0; z-index: 30;
+  display: flex; flex-wrap: nowrap; align-items: center; gap: 10px;
+  min-height: 80px; margin: 0 -11px; padding: 0 18px;
+  background: var(--pf-head); border: 0; border-bottom: 1px solid var(--pf-line);
+  border-radius: 0; box-shadow: none;
+}
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-identity { display: contents; }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-symbol {
+  order: 1; flex: none;
+  display: inline-flex; align-items: center; gap: 12px;
+  height: 52px; padding: 0 15px 0 8px;
+  border: 1px solid var(--pf-line); border-radius: 10px; background: #0d1626;
+  font-size: 21px; font-weight: 600; letter-spacing: 0; color: var(--pf-text);
+}
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-symbol::before {
+  content: "\20bf"; display: inline-flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px; border-radius: 50%;
+  background: #f7931a; color: #fff; font-size: 22px; font-weight: 700;
+}
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-engine { display: none; }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-identity .mode-pill { order: 6; flex: none; margin-left: auto; }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-timeframe-controls {
+  order: 2; flex: none; gap: 2px; flex-wrap: nowrap;
+  height: 52px; padding: 0 6px; border: 1px solid var(--pf-line); border-radius: 10px; background: #0d1626;
+}
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-timeframe-controls .control-caption { display: none; }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-timeframe-switch { display: contents; }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-timeframe-controls .tf-button {
+  min-width: 0; height: 38px; padding: 0 12px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--pf-dim);
+  font-family: var(--font); font-size: 17px; font-weight: 500; letter-spacing: 0; text-transform: none;
+}
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-timeframe-controls .tf-button[aria-pressed="true"] {
+  background: var(--pf-blue); color: #fff; box-shadow: none;
+}
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-timeframe-controls .tf-button:hover:not([aria-pressed="true"]) { background: #142036; color: var(--pf-text); }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls {
+  order: 3; flex: none; min-width: 0;
+  display: flex; align-items: center; gap: 10px;
+  margin-left: 2px; padding-left: 12px; border-left: 1px solid var(--pf-line);
+}
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-control-row { flex-wrap: nowrap; gap: 10px; }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .control-caption { display: none; }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-function-switch,
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-mode-switch {
+  display: flex; flex-wrap: nowrap; gap: 2px; padding: 0; border: 0; background: transparent;
+}
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-mode-switch { padding-left: 10px; border-left: 1px solid var(--pf-line); }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-function-button,
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-mode-button {
+  height: 36px; padding: 0 8px; border: 1px solid transparent; border-radius: 8px;
+  background: transparent; color: var(--pf-dim);
+  font-size: 14.5px; font-weight: 500; letter-spacing: 0; text-transform: none; box-shadow: none; white-space: nowrap;
+}
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-function-button[aria-pressed="true"],
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-mode-button[aria-pressed="true"] {
+  color: var(--pf-text); background: #142036; border-color: #23314a;
+}
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-quote { order: 7; flex: none; }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-quote .live-quote {
+  flex-direction: row; align-items: center; gap: 10px; padding: 6px 12px;
+  background: transparent; border: 1px solid var(--pf-line); border-radius: 10px;
+}
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-quote .live-quote-title { display: none; }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-quote .live-quote-value { font-size: 18px; }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-health { order: 8; flex: none; }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-health-pill { font-size: 9px; letter-spacing: 0.04em; padding: 4px 8px; }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-asof { display: none; }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-refresh {
+  order: 9; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 46px; height: 52px; border: 1px solid var(--pf-line); border-radius: 10px;
+  background: #0d1626; color: var(--pf-dim); font-size: 20px; cursor: pointer;
+}
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-refresh:hover { color: var(--pf-text); background: #142036; }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .more-menu { order: 10; flex: none; }
+
+/* --- Main composition ------------------------------------------------------ */
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .dash-main { display: block; }
+/* The decision rail stays on the page, below the pattern composition. */
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .dash-context {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; margin-top: 14px; align-items: start;
+}
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-card {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 26.9%);
+  /* The card column spans every row down to a final flexible one, so its
+     height never stretches the chart's own rows (a tall Detailed column used
+     to push the candles down). */
+  grid-template-rows: repeat(12, auto) 1fr;
+  column-gap: 15px; row-gap: 0; align-items: start;
+  margin-top: 7px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none;
+}
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-card > * { grid-column: 1; min-width: 0; }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-card > .card-head,
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-card > .confirmed-status,
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-card > .chart-ohlc,
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-pattern-picker { display: none; }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-stage { display: contents; }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-card > .chart-toolbar { grid-row: 3; margin-top: 12px; }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-card[data-mode="simple"] > .chart-toolbar { display: none; }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-card[data-mode="simple"] .chart-function-status { display: none; }
+
+/* Chart panel: header line + candles, one box. */
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .pattern-chart-head {
+  grid-column: 1; grid-row: 1;
+  display: flex; align-items: center; gap: 40px; min-width: 0;
+  height: 46px; padding: 0 18px;
+  background: var(--pf-panel); border: 1px solid var(--pf-line); border-bottom: 0; border-radius: 8px 8px 0 0;
+  font-size: 18px; color: var(--pf-text); white-space: nowrap; overflow: hidden;
+}
+.pch-title { flex: none; font-weight: 500; }
+.pch-ohlc { display: flex; align-items: center; gap: 18px; min-width: 0; font-size: 16px; font-variant-numeric: tabular-nums; }
+.pch-field { display: inline-flex; gap: 5px; }
+.pch-key { color: #d5dbe5; }
+.pch-value[data-tone="green"], .pch-change[data-tone="green"] { color: var(--pf-green, #2ad19d); }
+.pch-value[data-tone="red"], .pch-change[data-tone="red"] { color: #ef5a62; }
+.pch-none { color: var(--pf-muted, #8b96aa); }
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-card > .forming-status {
+  grid-column: 1; grid-row: 1; justify-self: end; align-self: center; z-index: 1;
+  margin: 0 16px 0 0; max-width: 24%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 9px; letter-spacing: 0.08em; opacity: 0.8;
+}
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-wrap {
+  grid-column: 1; grid-row: 2;
+  height: clamp(420px, calc(100vh - 152px), 1040px); margin: 0;
+  background: var(--pf-panel); border: 1px solid var(--pf-line); border-top: 0; border-radius: 0 0 8px 8px;
+  overflow: hidden;
+}
+
+/* Right column: three stacked cards. */
+body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-function-slot {
+  grid-column: 2; grid-row: 1 / -1; align-self: start; margin-top: 7px; gap: 13px;
+}
+.chart-function-panel.pattern-panel,
+.chart-function-panel.pattern-panel[data-tone] { border: 0; max-height: none; overflow: visible; }
+.pattern-panel { display: flex; flex-direction: column; gap: 13px; padding: 0; background: transparent; border: 0; border-radius: 0; font-size: 16px; }
+.pd-card { background: var(--pf-card, #0d1421); border: 1px solid var(--pf-line, #1b2536); border-radius: 10px; overflow: hidden; }
+.pd-card-head { display: flex; align-items: center; gap: 14px; min-height: 62px; padding: 0 22px; border-bottom: 1px solid var(--pf-line, #1b2536); }
+.pd-head-icon { flex: none; width: 28px; height: 28px; color: #dfe6f0; }
+.pd-card-title { flex: 1 1 auto; margin: 0; font-size: 21px; font-weight: 600; letter-spacing: 0; color: var(--pf-text, #e7ecf3); text-transform: none; }
+.pd-card--others .pd-card-head { min-height: 58px; }
+.pd-card--others .pd-head-icon { width: 22px; height: 22px; color: #a8c4ec; }
+.pd-card--others .pd-card-title { font-size: 17px; font-weight: 500; color: #a8c4ec; }
+.pd-card--levels .pd-card-head { min-height: 56px; }
+.pd-card--levels .pd-head-icon { width: 24px; height: 24px; color: #dfe6f0; }
+.pd-card--levels .pd-card-title { font-size: 17px; font-weight: 500; }
+.pd-fit {
+  flex: none; height: 30px; padding: 0 11px; border: 1px solid var(--pf-line, #1b2536); border-radius: 7px;
+  background: transparent; color: var(--pf-dim, #b4bdcc); font-size: 13px; cursor: pointer;
+}
+.pd-fit:hover { color: var(--pf-text, #e7ecf3); background: #142036; }
+.pd-body { padding: 20px 22px 20px; }
+.pd-selected { display: flex; align-items: flex-start; gap: 20px; }
+.pd-icon-tile {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 124px; height: 84px; border: 1px solid #263546; border-radius: 6px; background: #0a111b;
+  color: var(--pf-muted, #8b96aa);
+}
+.pd-icon-tile[data-tone="green"] { color: var(--pf-green, #2ad19d); border-color: #24433f; }
+.pd-icon-tile[data-tone="red"] { color: #ef5a62; border-color: #4a2a31; }
+.pd-icon-tile[data-tone="amber"] { color: #e8a33d; border-color: #4a3a22; }
+.pd-icon-tile[data-tone="blue"] { color: #6aa6f8; border-color: #263a5a; }
+.pd-icon { width: 92px; height: 56px; }
+.pd-selected-text { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding-top: 6px; min-width: 0; }
+.pd-name { font-size: 21px; font-weight: 600; color: var(--pf-text, #e7ecf3); line-height: 1.2; }
+.pd-badge {
+  display: inline-flex; align-items: center; padding: 3px 11px; border-radius: 4px;
+  border: 1px solid #2a3647; background: #182231; color: #aeb8c8; font-size: 17px; font-weight: 500; line-height: 1.35;
+}
+.pd-badge[data-tone="green"] { color: var(--pf-green, #2ad19d); background: rgba(42, 209, 157, 0.14); border-color: rgba(42, 209, 157, 0.32); }
+.pd-badge[data-tone="red"] { color: #ef5a62; background: rgba(239, 90, 98, 0.13); border-color: rgba(239, 90, 98, 0.32); }
+.pd-badge[data-tone="amber"] { color: #e8a33d; background: rgba(232, 163, 61, 0.13); border-color: rgba(232, 163, 61, 0.32); }
+.pd-badge[data-tone="blue"] { color: #6aa6f8; background: rgba(91, 156, 245, 0.13); border-color: rgba(91, 156, 245, 0.32); }
+.pd-badge--small { padding: 2px 10px; font-size: 14px; }
+.pd-score { margin-top: 20px; }
+.pd-score-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.pd-score-label, .pd-explain-title { font-size: 16px; color: #c3cbd8; }
+.pd-score-value { font-size: 16px; color: var(--pf-muted, #8b96aa); }
+.pd-score-track { height: 8px; margin-top: 10px; border-radius: 4px; background: #172131; box-shadow: inset 0 0 0 1px #243044; }
+.pd-explain { margin-top: 24px; }
+.pd-explain-text { margin: 6px 0 0; font-size: 16px; line-height: 1.45; color: #aeb8c8; }
+.pd-record { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--pf-line, #1b2536); }
+.pd-record-facts { display: grid; grid-template-columns: minmax(100px, 0.9fr) minmax(0, 1.1fr); gap: 5px 12px; margin: 8px 0 0; font-size: 12.5px; }
+.pd-record-facts dt { color: var(--pf-muted, #8b96aa); overflow-wrap: anywhere; }
+.pd-record-facts dd { margin: 0; color: var(--pf-text, #e7ecf3); text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.pd-empty { margin: 0; padding: 18px 22px; font-size: 15px; color: var(--pf-muted, #8b96aa); }
+.pd-card--detection .pd-body .pd-empty { padding: 0; }
+.pd-others { list-style: none; margin: 0; padding: 4px 0; }
+.pd-other + .pd-other { border-top: 1px solid var(--pf-line-soft, #161f2e); }
+.pd-other-button {
+  display: grid; grid-template-columns: 46px minmax(0, 1fr) auto 14px; align-items: center; gap: 0 16px;
+  width: 100%; min-height: 56px; padding: 6px 18px 6px 24px;
+  border: 0; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer;
+}
+.pd-other-button:hover { background: #121b2a; }
+.pd-row-icon { width: 46px; height: 28px; color: #9aa6b8; }
+.pd-row-name { display: flex; flex-direction: column; min-width: 0; }
+.pd-row-title { font-size: 17px; color: var(--pf-text, #e7ecf3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pd-row-meta { font-size: 12px; color: var(--pf-muted, #8b96aa); }
+.pd-row-chevron { font-size: 22px; line-height: 1; color: #c3cbd8; }
+.pd-levels { margin: 0; padding: 0 22px 6px; }
+.pd-level { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
+.pd-level + .pd-level { border-top: 1px solid var(--pf-line-soft, #161f2e); }
+.pd-level-label { font-size: 16px; color: var(--pf-text, #e7ecf3); }
+.pd-level-qualifier { color: #aab4c4; }
+.pd-level-value { margin: 0; font-size: 16px; font-variant-numeric: tabular-nums; color: var(--pf-text, #e7ecf3); }
+.pd-level[data-tone="green"] .pd-level-value { color: var(--pf-green, #2ad19d); }
+.pd-level[data-tone="red"] .pd-level-value { color: #ef5a62; }
+.pd-level[data-tone="amber"] .pd-level-value { color: #e8a33d; }
+.pd-level[data-available="false"] .pd-level-value { color: var(--pf-muted, #8b96aa); font-style: italic; }
+
+/* --- Pattern annotation over the candles ------------------------------------ */
+.pattern-anno-layer { position: absolute; left: 0; top: 0; z-index: 3; overflow: hidden; pointer-events: none; }
+.pattern-anno-svg { position: absolute; left: 0; top: 0; overflow: visible; }
+.pattern-anno-point, .pattern-anno-neckline-label, .pattern-anno-title, .pattern-anno-secondary-label { position: absolute; white-space: nowrap; }
+.pattern-anno-secondary-label { font-size: 13px; color: #7d889c; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8); }
+.pattern-anno-point { font-size: 15px; color: #dfe5ee; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8); }
+.pattern-anno-neckline-label { font-size: 14px; color: #a9b3c3; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8); }
+.pattern-anno-title {
+  padding: 6px 20px; border: 1.5px solid #8f9bb3; border-radius: 8px;
+  background: rgba(8, 15, 23, 0.92); color: #8f9bb3; font-size: 19px; font-weight: 600; line-height: 1.35;
+}
+.pattern-anno-title[data-tone="green"] { color: #2ad19d; border-color: #2ad19d; }
+.pattern-anno-title[data-tone="red"] { color: #ef5a62; border-color: #ef5a62; }
+.pattern-anno-title[data-tone="amber"] { color: #e8a33d; border-color: #e8a33d; }
+.pattern-anno-title[data-tone="blue"] { color: #6aa6f8; border-color: #5b9cf5; }
+.pattern-volume-axis-mask { position: absolute; z-index: 2; background: var(--pf-panel, #0a101b); pointer-events: none; }
+.pattern-volume-separator { position: absolute; left: 0; height: 1px; background: #1b2536; z-index: 2; pointer-events: none; }
+.pattern-volume-label { position: absolute; left: 16px; z-index: 3; display: flex; gap: 10px; font-size: 15px; color: #dfe5ee; pointer-events: none; }
+.pattern-volume-value { color: #2ad19d; }
+
+/* --- Detailed mode adds the real "Connect swings" switch: two header rows --- */
+body:has(.terminal-chart-card[data-chart-function="patterns"][data-mode="detailed"]) .dash-commandbar { flex-wrap: wrap; gap: 8px 10px; padding: 10px 18px; }
+body:has(.terminal-chart-card[data-chart-function="patterns"][data-mode="detailed"]) .chart-header-controls { order: 20; flex: 1 1 100%; margin: 0; padding: 0; border: 0; }
+body:has(.terminal-chart-card[data-chart-function="patterns"][data-mode="detailed"]) .chart-header-controls .chart-function-button,
+body:has(.terminal-chart-card[data-chart-function="patterns"][data-mode="detailed"]) .chart-header-controls .chart-mode-button { height: 32px; }
+body:has(.terminal-chart-card[data-chart-function="patterns"][data-mode="detailed"]) .terminal-chart-wrap { height: clamp(420px, calc(100vh - 188px), 1040px); }
+
+/* --- Narrower desktops: the header keeps one row by compacting its pills ---- */
+@media (max-width: 1520px) {
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .dash-commandbar { flex-wrap: wrap; row-gap: 8px; gap: 8px 10px; padding: 10px 14px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-wrap { height: clamp(420px, calc(100vh - 190px), 1040px); }
+  /* Two rows: identity, timeframe and status first; the function switches below. */
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls { order: 20; flex: 1 1 100%; margin: 0; padding: 0; border: 0; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-function-button,
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-mode-button { height: 32px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-symbol { font-size: 19px; padding-right: 16px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-timeframe-controls .tf-button { padding: 0 11px; font-size: 15px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls { padding-left: 12px; margin-left: 2px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-function-button,
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-mode-button { padding: 0 8px; font-size: 14px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-quote .live-quote-title { display: none; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-card > .forming-status { grid-row: 3; justify-self: start; align-self: start; margin: 8px 0 0 2px; max-width: 100%; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-card > .chart-toolbar { grid-row: 4; }
+  .pd-card-title { font-size: 19px; white-space: nowrap; }
+  .pd-card-head { padding: 0 18px; gap: 12px; }
+  .pd-body { padding: 18px 18px 22px; }
+  .pd-levels { padding: 0 18px 6px; }
+  .pd-icon-tile { width: 108px; height: 76px; }
+  .pd-icon { width: 80px; height: 50px; }
+}
+
+/* --- Tablet / phone: header wraps, chart first, cards below ------------------ */
+@media (max-width: 1020px) {
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .view.terminal-dashboard { padding: 0 10px 20px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .dash-commandbar {
+    position: static; flex-wrap: wrap; gap: 8px; min-height: 0; margin: 0 -10px; padding: 10px;
+  }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-symbol { height: 44px; font-size: 18px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-symbol::before { width: 30px; height: 30px; font-size: 17px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-timeframe-controls { height: 44px; max-width: 100%; overflow-x: auto; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-timeframe-controls .tf-button { height: 34px; padding: 0 10px; font-size: 14px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls {
+    order: 20; flex: 1 1 100%; margin: 0; padding: 0; border: 0; overflow-x: auto;
+  }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-identity .mode-pill { margin-left: 0; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-refresh { width: 44px; height: 44px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-card { grid-template-columns: minmax(0, 1fr); }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-function-slot { grid-column: 1; grid-row: 3 / 4; margin-top: 12px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-card > .chart-toolbar { grid-row: 4; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-wrap,
+  body:has(.terminal-chart-card[data-chart-function="patterns"][data-mode="detailed"]) .terminal-chart-wrap { height: clamp(360px, 58vh, 520px); }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .pattern-chart-head {
+    height: auto; min-height: 44px; flex-wrap: wrap; gap: 4px 14px; padding: 8px 12px; font-size: 15px; white-space: normal;
+  }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .pch-ohlc { flex-wrap: wrap; gap: 4px 10px; font-size: 13px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-card > .forming-status { grid-row: 1; align-self: start; margin-top: 6px; max-width: 46%; }
+  .pattern-anno-title { font-size: 13px; padding: 3px 10px; border-radius: 6px; }
+  .pattern-anno-point { font-size: 13px; }
+}
+@media (max-width: 480px) {
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .dash-commandbar { gap: 6px; padding: 8px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-symbol { height: 40px; gap: 8px; padding: 0 10px 0 6px; font-size: 16px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-symbol::before { width: 26px; height: 26px; font-size: 15px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-timeframe-controls { height: 40px; padding: 0 3px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-timeframe-controls .tf-button { height: 32px; padding: 0 8px; font-size: 13px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-quote .live-quote { padding: 4px 8px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-refresh { width: 38px; height: 38px; font-size: 17px; }
+  /* The same runner status is the Runner health card further down the page. */
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-health { display: none; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls { overflow: visible; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-control-row { flex-wrap: wrap; row-gap: 4px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-mode-switch { padding-left: 0; border-left: 0; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-function-button,
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-mode-button { height: 30px; padding: 0 7px; font-size: 13px; }
+  .pd-icon-tile { width: 96px; height: 66px; }
+  .pd-icon { width: 72px; height: 44px; }
+  .pd-name { font-size: 19px; }
+  .pd-card-title { font-size: 19px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-card > .forming-status { display: none; }
+}
+
+/* Chart Patterns, desktop: the chart sets the height of the row and the card
+   column fills exactly that height (it never stretches the chart panel). When
+   more records are stored than fit, the Other Detected Patterns list scrolls
+   inside its own card, so Key Levels stays in view; Detailed mode's longer
+   record facts scroll inside the column. */
+@media (min-width: 1021px) {
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-function-slot {
+    align-self: stretch; contain: size; min-height: 0;
+  }
+  /* Simple mode: span the chart header and candles only, so the column ends
+     with the chart (the note below the chart at <=1520px is not covered). */
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-card[data-mode="simple"] .chart-function-slot {
+    grid-row: 1 / 3;
+  }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-function-slot > .pattern-panel {
+    flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+  }
+  .pattern-panel > .pd-card--detection,
+  .pattern-panel > .pd-card--levels { flex: none; }
+  .pattern-panel > .pd-card--others { flex: 0 1 auto; min-height: 118px; display: flex; flex-direction: column; }
+  .pattern-panel > .pd-card--others > .pd-others { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+}
+
+/* Chart Patterns, 1521–1700px (e.g. 1536×864): the approved single-row
+   toolbar. The same controls, a little tighter, so nothing is pushed off the
+   right edge; Card 1's title stays on one line and the chart's OHLC line
+   stays clear of the forming-candle note. */
+@media (min-width: 1521px) and (max-width: 1700px) {
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .dash-commandbar { gap: 7px; padding: 0 12px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-symbol { gap: 10px; padding: 0 12px 0 6px; font-size: 19px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-timeframe-controls .tf-button { padding: 0 9px; font-size: 16px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls { padding-left: 9px; gap: 6px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-control-row { gap: 6px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-mode-switch { padding-left: 7px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-function-button,
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-mode-button { padding: 0 6px; font-size: 14px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-quote .live-quote { gap: 8px; padding: 6px 9px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-health-pill { letter-spacing: 0.02em; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-refresh { width: 42px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .pattern-chart-head { gap: 28px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .pch-ohlc { gap: 14px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-card > .forming-status { max-width: 20%; }
+  .pd-card-head { min-height: 56px; padding: 0 18px; gap: 12px; }
+  .pd-card-title { font-size: 20px; white-space: nowrap; }
+  /* Card 1 at the reference's proportion (about 41% of the column), so the
+     "Other Detected Patterns" card shows two rows as in the reference. */
+  .pd-body { padding: 16px 20px 16px; }
+  .pd-icon-tile { width: 116px; height: 76px; }
+  .pd-icon { width: 86px; height: 52px; }
+  .pd-score { margin-top: 14px; }
+  .pd-explain { margin-top: 16px; }
+  .pd-explain-text { font-size: 15px; line-height: 1.4; }
+  .pd-name { font-size: 20px; }
+  .pd-others { padding: 2px 0; }
+  .pd-other-button { grid-template-columns: 40px minmax(0, 1fr) auto 12px; gap: 0 12px; min-height: 50px; padding: 4px 16px 4px 20px; }
+  .pd-row-icon { width: 40px; height: 26px; }
+  .pd-row-title { font-size: 16px; }
+  .pd-levels { padding: 0 20px 4px; }
+}

@@ -15,6 +15,7 @@
  *   --timeout SECONDS   maximum wait for the dashboard to become ready (default 240)
  *   --clip SELECTOR     also write <out>-clip.png for this element
  *   --no-full           skip the full-page screenshot
+ *   --functions         also write <out>-fn-<id>.png for each of the five chart functions
  *   --fail-dashboard    test hook: abort /api/dashboard so the app shows its error state
  *
  * Browser: set CHROME_PATH to a local Chrome/Chromium (for example on macOS:
@@ -29,7 +30,7 @@ import { dirname } from "node:path";
 import puppeteer from "puppeteer-core";
 
 function parseArgs(argv) {
-  const args = { timeout: 240, full: true, clip: null, url: null, out: null, width: 1440, height: 900, failDashboard: false };
+  const args = { timeout: 240, full: true, clip: null, url: null, out: null, width: 1440, height: 900, failDashboard: false, functions: false };
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
     const next = () => argv[(i += 1)];
@@ -40,6 +41,7 @@ function parseArgs(argv) {
     else if (key === "--timeout") args.timeout = Number(next());
     else if (key === "--clip") args.clip = next();
     else if (key === "--no-full") args.full = false;
+    else if (key === "--functions") args.functions = true;
     else if (key === "--fail-dashboard") args.failDashboard = true;
     else throw new Error(`unknown option ${key}`);
   }
@@ -178,6 +180,26 @@ async function main() {
     if (element) {
       await element.screenshot({ path: `${args.out}-clip.png` });
       screenshots.push(`${args.out}-clip.png`);
+    }
+  }
+  // Chart-function views: the approved design has one picture per function, so capture
+  // each one. Selecting a function only redraws the chart (session state, no request),
+  // so every shot is the same page load. A failure here is reported and skipped; it
+  // never masks the readiness, overflow or error result the run exits on.
+  if (args.functions) {
+    const ids = await page.evaluate(() =>
+      [...document.querySelectorAll("button.chart-function-button")].map((button) => button.getAttribute("data-function")),
+    );
+    for (const id of ids) {
+      try {
+        await page.click(`button.chart-function-button[data-function="${id}"]`);
+        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const shot = `${args.out}-fn-${id}.png`;
+        await page.screenshot({ path: shot, fullPage: true });
+        screenshots.push(shot);
+      } catch (error) {
+        console.error(`function screenshot skipped for ${id}: ${error.message}`);
+      }
     }
   }
 

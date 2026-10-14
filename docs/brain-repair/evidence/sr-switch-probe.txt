@@ -1,0 +1,32 @@
+# The application's own behaviour across the 1H -> 4H switch (application unmodified)
+
+Probe (session-local, deleted before commit) drove the real dashboard at 1536x864 through
+the Support & Resistance function and sampled the DOM while switching to 4H:
+```
++5108ms BEFORE {"bands":1,"labels":["IN 1H · 37×"],"pressed":"1H"}
++5123ms CLICKED 4h
++5147ms control state ready
++6048ms after 900ms settle {"bands":3,"labels":["R 4H · 3×","IN 4H · 11×","S 4H · 7×"],"pressed":"4H"}
++6071ms right after check fetch {"bands":3,"labels":["R 4H · 3×","IN 4H · 11×","S 4H · 7×"],"pressed":"4H"}
++6573ms {"bands":3,"labels":["R 4H · 3×","IN 4H · 11×","S 4H · 7×"],"pressed":"4H"}
++7076ms {"bands":3,"labels":["R 4H · 3×","IN 4H · 11×","S 4H · 7×"],"pressed":"4H"}
++7579ms {"bands":3,"labels":["R 4H · 3×","IN 4H · 11×","S 4H · 7×"],"pressed":"4H"}
++8081ms {"bands":3,"labels":["R 4H · 3×","IN 4H · 11×","S 4H · 7×"],"pressed":"4H"}
++8589ms {"bands":3,"labels":["R 4H · 3×","IN 4H · 11×","S 4H · 7×"],"pressed":"4H"}
++9092ms {"bands":3,"labels":["R 4H · 3×","IN 4H · 11×","S 4H · 7×"],"pressed":"4H"}
++9595ms {"bands":3,"labels":["R 4H · 3×","IN 4H · 11×","S 4H · 7×"],"pressed":"4H"}
++10098ms {"bands":3,"labels":["R 4H · 3×","IN 4H · 11×","S 4H · 7×"],"pressed":"4H"}
++5122ms REQ /market/candles?symbol=BTC%2FUSDT&timeframe=4h&limit=500&end_time=2026-10-14T00%3A00%3A00Z
++5158ms RES 200 /market/candles?symbol=BTC%2FUSDT&timeframe=4h&limit=500&end_time=2026-10-14T00%3A00%3A00Z
++5190ms REQ /market/annotations?symbol=BTC%2FUSDT&timeframe=4h&as_of=2026-10-14T00%3A00%3A00Z
++5206ms RES 200 /market/annotations?symbol=BTC%2FUSDT&timeframe=4h&as_of=2026-10-14T00%3A00%3A00Z
++5221ms REQ /market/structure?symbol=BTC%2FUSDT&timeframe=4h&as_of=2026-10-14T00%3A00%3A00Z
++5238ms RES 200 /market/structure?symbol=BTC%2FUSDT&timeframe=4h&as_of=2026-10-14T00%3A00%3A00Z
++6052ms REQ /market/structure?symbol=BTC%2FUSDT&timeframe=4h
++6070ms RES 200 /market/structure?symbol=BTC%2FUSDT&timeframe=4h
++6071ms CHECK-FETCH returned in 19ms bands=5
+```
+The labels, status line and painted bounds are the 4H zones; the API reports stored=5 for 4H.
+The application therefore re-derives the switched timeframe's own bands, and the earlier
+check failure came from the harness (fixed sleep after a control state that flips instantly,
+plus a comparison that ignored pane-edge clipping).

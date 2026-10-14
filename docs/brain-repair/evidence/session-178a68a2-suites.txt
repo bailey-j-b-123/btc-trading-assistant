@@ -1,0 +1,39 @@
+# Suites re-run on the integrated head by session 178a68a2 (2026-10-14)
+
+## Frontend
+```
+$ npm test   # node --test tests/frontend/*.test.mjs
+# tests 481 / pass 481 / fail 0  (20.2 s)   [before the BRAIN-AUDIT-0005/0006 repairs]
+
+$ npm test   # after the repairs
+# tests 485 / pass 485 / fail 0  (19.4 s)
+```
+
+## Python (full suite, isolated .venv)
+```
+$ .venv/bin/python -m pytest -q
+# 1254 passed, 1 xfailed, 1 warning in 300.74s   [before the BRAIN-AUDIT-0005/0006 repairs]
+
+$ .venv/bin/python -m pytest -q   # after the repairs (0005/0006 only; no other change)
+# 1272 passed, 1 xfailed, 1 warning in 277.47s
+# targeted: tests/test_zone_evidence.py tests/test_zone_linkage_end_to_end.py
+#           tests/test_decision_output_regression.py tests/test_zone_presentation.py
+#           tests/test_decision_invariance.py -> 73 passed, 1 xfailed  (53.85 s)
+# xfail = tests/test_decision_invariance.py::test_a_shallow_stored_start_does_not_change_live_setups_at_a_later_boundary
+#         (documented known defect, marker preserved unchanged)
+# warning = installed Starlette/httpx deprecation
+```
+
+## Browser (Chromium 133 via @sparticuz/chromium, LANG=en_US.UTF-8, synthetic demo DBs)
+```
+breakouts-check.mjs        vs :8123 -> exit 0 (1536x864, 1440x900, 1920x1080, 390-mobile)
+patterns-check.mjs         vs :8124 -> exit 0 (1536x864, 1672x941, 1440x900, 1920x1080, 390-mobile)
+support-resistance-check   vs :8125 -> exit 0 (4 viewports, 1H -> 4H switch) after the harness repair
+                           re-run after the 0005/0006 repairs: exit 0 in three consecutive runs
+zone-reference-check.mjs   vs :8126 -> exit 0 (4 viewports, 4H-engine demo DB, three consecutive runs)
+                           vs :8127 -> exit 0 (4 viewports, positive-control DB: a live link on screen)
+                           negative control (JS surfaces reverted) -> exit 1, 61 assertions
+                           negative control (overlap detector disabled) -> exit 1, 16 assertions
+mobile-layout-check.mjs    vs :8123 -> exit 0 (390, 768)
+desktop-bottom-check.mjs   vs :8123 -> exit 0 (1440, 1920)
+```
