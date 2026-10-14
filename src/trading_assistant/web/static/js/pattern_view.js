@@ -438,17 +438,33 @@ export function patternAnnotation(pattern, candles) {
 /**
  * Other records drawn in the understated secondary style, like the approved
  * design's grey shapes: only real records, only where they do not overlap the
- * selected one (or each other), at most `limit` of them. In the default order.
+ * selected one (or each other), at most `limit` of them. Nearest in time to
+ * the selected record first; ties keep the default order.
  */
 export function secondaryAnnotations(records, primary, candles, { limit = 2 } = {}) {
   const taken = primary ? [[primary.fromSeconds, primary.toSeconds]] : [];
   const seen = new Set(primary?.patternId ? [primary.patternId] : []);
+  // Nearest in time to the selected pattern first (ties keep the default
+  // order), so the records drawn are the ones beside it on screen rather than
+  // distant ones that would only be clipped.
+  const gap = (annotation) => {
+    if (!primary) return 0;
+    if (annotation.toSeconds < primary.fromSeconds) return primary.fromSeconds - annotation.toSeconds;
+    if (annotation.fromSeconds > primary.toSeconds) return annotation.fromSeconds - primary.toSeconds;
+    return 0;
+  };
+  const candidates = (Array.isArray(records) ? records : [])
+    .map((record, order) => {
+      if (!record || record.id === primary?.id || record.is_latest_state !== true) return null;
+      const annotation = patternAnnotation(record, candles);
+      return annotation ? { record, annotation, order, gap: gap(annotation) } : null;
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.gap - right.gap || left.order - right.order);
   const result = [];
-  for (const record of Array.isArray(records) ? records : []) {
+  for (const { record, annotation } of candidates) {
     if (result.length >= limit) break;
-    if (!record || record.id === primary?.id || record.is_latest_state !== true) continue;
-    const annotation = patternAnnotation(record, candles);
-    if (!annotation || seen.has(annotation.patternId)) continue;
+    if (seen.has(annotation.patternId)) continue;
     const overlaps = taken.some(([from, to]) => annotation.fromSeconds <= to && annotation.toSeconds >= from);
     if (overlaps) continue;
     taken.push([annotation.fromSeconds, annotation.toSeconds]);

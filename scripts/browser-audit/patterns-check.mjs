@@ -24,8 +24,9 @@ const [url, out] = process.argv.slice(2);
 if (!url || !out) throw new Error("URL and screenshot directory are required");
 mkdirSync(out, { recursive: true });
 
-/** The approved image's own size first, then the three other sign-off sizes. */
+/** The exact-comparison size (1536x864) and the approved image's own size, then the three other sign-off sizes. */
 const VIEWPORTS = [
+  { label: "1536x864", width: 1536, height: 864, primary: true },
   { label: "1672x941", width: 1672, height: 941, primary: true },
   { label: "1440x900", width: 1440, height: 900 },
   { label: "1920x1080", width: 1920, height: 1080 },
@@ -45,6 +46,35 @@ const TITLES = {
   inverse_head_and_shoulders: "Inverse Head and Shoulders",
   trading_range: "Trading Range",
 };
+
+/**
+ * Candles the pattern title box covers: any candle whose high-low range (wick
+ * included) intersects the title's box. Read from the chart's own series data
+ * and price scale, so it measures what is on screen.
+ */
+async function titleOverCandles(page) {
+  return page.evaluate(() => {
+    const layer = document.querySelector(".pattern-anno-layer");
+    const title = document.querySelector(".pattern-anno-title");
+    const chart = window.__brainCharts.at(-1);
+    const series = window.__brainSeries.at(-2) || window.__brainSeries.at(-1);
+    if (!layer || !title || !chart || !series || typeof series.data !== "function") return null;
+    const origin = layer.getBoundingClientRect();
+    const box = title.getBoundingClientRect();
+    const rect = { left: box.left - origin.left, right: box.right - origin.left, top: box.top - origin.top, bottom: box.bottom - origin.top };
+    const spacing = chart.timeScale().options().barSpacing || 6;
+    const covered = [];
+    for (const bar of series.data()) {
+      const x = chart.timeScale().timeToCoordinate(bar.time);
+      if (x === null || x + spacing / 2 < rect.left || x - spacing / 2 > rect.right) continue;
+      const high = series.priceToCoordinate(bar.high);
+      const low = series.priceToCoordinate(bar.low);
+      if (high === null || low === null) continue;
+      if (high < rect.bottom && low > rect.top) covered.push(bar.time);
+    }
+    return { rect, covered };
+  });
+}
 
 /** The stored extremes a pattern's arcs mark: the lows of a bottom, the highs of a top. */
 const extremeCount = (record) => record.components
@@ -338,7 +368,8 @@ try {
     await shot("default");
 
     // --- Select the confirmed double bottom (the reference's subject) from Card 2.
-    const target = stored.patterns.find((item) => item.type === "double_bottom" && item.isLatest) || stored.patterns[0];
+    const target = stored.patterns.find((item) => item.type === "double_bottom" && item.isLatest && item.state === "confirmed")
+      || stored.patterns.find((item) => item.type === "double_bottom" && item.isLatest) || stored.patterns[0];
     const beforeSelect = await logicalRange();
     if (screen.others.some((row) => row.id === target.id)) {
       await clickControl(`[data-select-pattern="${target.id}"]`);
@@ -373,6 +404,8 @@ try {
     assert.equal(screen.titles, 1, "exactly one title (no duplicates from redraws)");
     assert.ok(screen.oversizedFill !== null && screen.oversizedFill <= 6, `no large shaded area (${screen.oversizedFill}% of the pane)`);
     const title = screen.labels.find((item) => item.cls === "pattern-anno-title");
+    const titleCover = await titleOverCandles(page);
+    if (titleCover) assert.deepEqual(titleCover.covered, [], `${viewport.label}: the title box covers no candle`);
     const expectedTitle = `${TITLES[target.type] || target.type} - ${target.state[0].toUpperCase()}${target.state.slice(1)}`;
     if (title) assert.equal(title.text, expectedTitle, "the label carries the stored lifecycle state");
     checks.push({
@@ -385,6 +418,7 @@ try {
       arcs: screen.arcs,
       oversizedFillPct: screen.oversizedFill,
       title,
+      titleCoversCandles: titleCover ? titleCover.covered.length : null,
     });
 
     // Cards: lifecycle badge, confidence placeholder, stored-only lists, levels.
@@ -480,6 +514,9 @@ try {
         assert.equal(view.titles, 1, `${type}: one title`);
         assert.equal(view.layers, 1, `${type}: one annotation layer`);
         assert.ok(view.oversizedFill !== null && view.oversizedFill <= 6, `${type}: no large shaded area`);
+        const cover = await titleOverCandles(page);
+        entry.titleCoversCandles = cover ? cover.covered.length : null;
+        if (cover) assert.deepEqual(cover.covered, [], `${viewport.label} ${type}: the title box covers no candle`);
         if (record) {
           for (const label of view.labels.filter((item) => item.cls === "pattern-anno-point")) {
             const component = record.components.find((point) => point.seconds === label.time);

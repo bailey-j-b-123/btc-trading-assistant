@@ -6,7 +6,9 @@
 breakout and a retest. This companion series exists so the Chart Patterns
 screen can be reviewed against the OTHER pattern types BRAIN's real detector
 records (`pattern_liquidity.classical_patterns`): an inverse head and
-shoulders, a head and shoulders and an active trading range. It only inserts
+shoulders and a head and shoulders, and, inside the newest screen of candles,
+a double bottom beside a later double top (so a selected pattern and a
+secondary one can be seen together, as in the approved design). It only inserts
 candles. Nothing is labelled here: every pattern on screen is whatever the
 unchanged detectors find in these candles when the dashboard asks for chart
 evidence. If the detectors find nothing, nothing is drawn.
@@ -60,8 +62,10 @@ CONTROL = [
     (326, 86150),                                              # neckline low 2
     (346, 87400),                                              # right shoulder (high)
     (372, 85300), (395, 84800),                                # breakdown
-    (420, 85900), (445, 85200), (470, 85950), (495, 85250),   # sideways
-    (520, 85900), (545, 85300), (570, 85850), (599, 85500),
+    (420, 85350), (445, 84850), (470, 85300),                  # pause
+    (500, 83000), (512, 84000), (524, 83050), (538, 84450),   # two lows, then above the high between them
+    (548, 85200), (556, 84250), (564, 85230), (572, 84800),   # two highs that hold for a while
+    (586, 85900), (599, 86150),                                # rally through those highs
 ]
 
 

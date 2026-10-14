@@ -94,6 +94,23 @@ export function formatPriceAxis(price) {
 
 const PRICE_AXIS_FORMAT = { type: "custom", minMove: 0.01, formatter: formatPriceAxis };
 
+/**
+ * Chart Patterns price axis, as in the approved design ("71,000", "67,498.1"):
+ * round values print without decimals, others keep their stored precision
+ * (up to 2 places) without trailing zeros. Display only: the OHLC line and the
+ * cards keep the full stored values.
+ */
+export function formatPatternPriceAxis(price) {
+  const value = Number(price);
+  if (!Number.isFinite(value)) return "";
+  return value.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+const PATTERN_PRICE_AXIS_FORMAT = { type: "custom", minMove: 0.01, formatter: formatPatternPriceAxis };
+/** Axis text on the Chart Patterns screen: the page's sans-serif face, larger, as in the design. */
+const PATTERN_AXIS_FONT_SIZE = 13;
+const PATTERN_AXIS_TEXT = "#8b96aa";
+
 export function createPriceChart(container, { height } = {}) {
   const library = typeof window === "undefined" ? null : window.LightweightCharts;
   if (!library || !container) return null;
@@ -170,6 +187,8 @@ export function createPriceChart(container, { height } = {}) {
     formingSeries,
     volume,
     container,
+    // The axis text the chart was created with, restored when Chart Patterns closes.
+    defaultLayout: { textColor: TEXT, fontFamily: computedFont || "monospace", fontSize: 11 },
     priceLineHandles: [],
     // Chart evidence (markers + pattern line series) and event subscriptions are
     // tracked separately so a timeframe switch or refresh removes exactly them.
@@ -1355,7 +1374,8 @@ const PATTERN_TITLE_GAP = 46;
 /** Candle pane / volume pane split used by the Chart Patterns screen. */
 const PATTERN_PANE = Object.freeze({
   candles: { top: 0.15, bottom: 0.29 },
-  volume: { top: 0.82, bottom: 0 },
+  // Bars in the lower part of the volume pane, clear of its label (as designed).
+  volume: { top: 0.865, bottom: 0 },
   separator: 0.8,
 });
 /** The library's own defaults, restored when the screen is left. */
@@ -1528,7 +1548,7 @@ export function renderPatternAnnotation(handle) {
   };
   const point = (p) => (p ? { x: xOf(p.timeSeconds), y: yOf(p.price) } : null);
   const floor = candleFloor(handle, size);
-  const ctx = { layer, size, floor, xOf, yOf, point };
+  const ctx = { layer, size, floor, xOf, yOf, point, bars: visibleBarExtents(handle, size, xOf, yOf) };
 
   layer.dataset.patternId = String(annotation.id ?? "");
   layer.dataset.patternType = String(annotation.type ?? "");
@@ -1555,12 +1575,46 @@ function dashedLine(svg, className, x1, x2, y, color, { width = 1.5, dash = "7 5
   return line;
 }
 
+/**
+ * The on-screen extent of every visible candle (the closed series and the
+ * forming one): x and the y of its high and low. Read from the chart, so the
+ * title can be kept off the candles. Empty when the series cannot report it.
+ */
+function visibleBarExtents(handle, size, xOf, yOf) {
+  const bars = [];
+  for (const source of [handle.series, handle.formingSeries]) {
+    let data = [];
+    try {
+      data = typeof source?.data === "function" ? source.data() : [];
+    } catch {
+      data = [];
+    }
+    for (const bar of Array.isArray(data) ? data : []) {
+      if (!bar || bar.high === undefined || bar.low === undefined) continue;
+      const x = xOf(bar.time);
+      if (x === null || x < -20 || x > size.width + 20) continue;
+      const yHigh = yOf(bar.high);
+      const yLow = yOf(bar.low);
+      if (yHigh === null || yLow === null) continue;
+      bars.push({ x, yHigh, yLow });
+    }
+  }
+  return bars;
+}
+
+/** Whether a box would cover any candle's high-low range (wick included). */
+function boxCoversBars(bars, box, halfBar) {
+  return bars.some((bar) => bar.x + halfBar >= box.left && bar.x - halfBar <= box.right
+    && bar.yHigh < box.bottom + 3 && bar.yLow > box.top - 3);
+}
+
 /** The pattern's outlined title, outside its neckline (or top line) when it fits. */
 function placeTitle(ctx, annotation, { anchorX, lineY, below }) {
   const title = patternLabel(ctx.layer, "pattern-anno-title", annotation.title, annotation.tone);
   title.dataset.state = String(annotation.state ?? "");
   const titleW = title.offsetWidth || 0;
   const titleH = title.offsetHeight || 0;
+  const bounds = { width: ctx.size.width, height: ctx.floor };
   const outsideTop = (gap) => (below ? lineY + gap : lineY - gap - titleH);
   const fits = (y) => y >= 6 && y + titleH <= ctx.floor - 6;
   let titleTop = [PATTERN_TITLE_GAP, 18].map(outsideTop).find(fits);
@@ -1569,7 +1623,45 @@ function placeTitle(ctx, annotation, { anchorX, lineY, below }) {
     titleTop = below ? lineY - PATTERN_TITLE_GAP - titleH : lineY + PATTERN_TITLE_GAP;
   }
   // The approved box sits a little right of the central point.
-  return placeLabel(title, anchorX - titleW / 2 + Math.min(28, titleW * 0.1), titleTop, { width: ctx.size.width, height: ctx.floor });
+  let titleLeft = anchorX - titleW / 2 + Math.min(28, titleW * 0.1);
+
+  // Never over the candles: when the preferred spot covers any, take the
+  // nearest spot that covers none, sliding sideways first and then a little
+  // further from the line (so the connector stays short). Display only.
+  const bars = Array.isArray(ctx.bars) ? ctx.bars : [];
+  if (bars.length && titleW > 0 && titleH > 0) {
+    const spacing = bars.length > 1
+      ? Math.max(1, Math.min(...bars.slice(1).map((bar, index) => Math.abs(bar.x - bars[index].x)).filter((d) => d > 0)))
+      : 6;
+    const halfBar = Number.isFinite(spacing) ? spacing / 2 : 3;
+    const clamp = (left, top) => {
+      const x = Math.min(Math.max(left, 4), Math.max(4, bounds.width - titleW - 4));
+      const y = Math.min(Math.max(top, 4), Math.max(4, bounds.height - titleH - 4));
+      return { left: x, top: y, right: x + titleW, bottom: y + titleH };
+    };
+    if (boxCoversBars(bars, clamp(titleLeft, titleTop), halfBar)) {
+      const away = below ? 1 : -1;
+      const candidates = [];
+      // A little nearer the line (never closer than 14px), or further out.
+      // (Only when it sits outside the line; with no room outside it stays inside.)
+      const outside = (top) => (below ? top >= lineY + 14 : top + titleH <= lineY - 14);
+      const clearOfLine = outside(titleTop) ? outside : () => true;
+      for (const lift of [0, -12, -24, 16, 32, 48, 64]) {
+        for (const shift of [0, -40, 40, -80, 80, -120, 120, -160, 160, -200, 200]) {
+          const top = titleTop + away * lift;
+          if (!fits(top) || !clearOfLine(top)) continue;
+          candidates.push({ left: titleLeft + shift, top, cost: Math.abs(shift) + Math.abs(lift) * 2.5 });
+        }
+      }
+      candidates.sort((a, b) => a.cost - b.cost);
+      const clear = candidates.find((candidate) => !boxCoversBars(bars, clamp(candidate.left, candidate.top), halfBar));
+      if (clear) {
+        titleLeft = clear.left;
+        titleTop = clear.top;
+      }
+    }
+  }
+  return placeLabel(title, titleLeft, titleTop, bounds);
 }
 
 function drawExtremePattern(ctx, annotation) {
@@ -1784,6 +1876,20 @@ export function setPatternPane(handle, on) {
     try {
       handle.series?.priceScale?.().applyOptions?.({ scaleMargins: margins.candles });
       handle.chart.priceScale?.("volume")?.applyOptions?.({ scaleMargins: margins.volume });
+      // Axis typography and price format: Chart Patterns only, restored exactly
+      // to the chart's own defaults for every other function.
+      const priceFormat = enable ? PATTERN_PRICE_AXIS_FORMAT : PRICE_AXIS_FORMAT;
+      handle.series?.applyOptions?.({ priceFormat });
+      handle.formingSeries?.applyOptions?.({ priceFormat });
+      const base = handle.defaultLayout || { textColor: TEXT, fontFamily: "monospace", fontSize: 11 };
+      const sans = typeof getComputedStyle === "function" && typeof document !== "undefined" && document.body
+        ? getComputedStyle(document.body).fontFamily
+        : "";
+      handle.chart.applyOptions?.({
+        layout: enable
+          ? { textColor: PATTERN_AXIS_TEXT, fontFamily: sans || base.fontFamily, fontSize: PATTERN_AXIS_FONT_SIZE }
+          : { textColor: base.textColor, fontFamily: base.fontFamily, fontSize: base.fontSize },
+      });
     } catch {
       // A torn-down chart has nothing left to restyle.
     }

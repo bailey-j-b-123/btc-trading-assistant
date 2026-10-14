@@ -2794,7 +2794,7 @@ body:has(.terminal-chart-card[data-chart-function="patterns"][data-mode="detaile
   }
   body:has(.terminal-chart-card[data-chart-function="patterns"]) .pch-ohlc { flex-wrap: wrap; gap: 4px 10px; font-size: 13px; }
   body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-card > .forming-status { grid-row: 1; align-self: start; margin-top: 6px; max-width: 46%; }
-  .pattern-anno-title { font-size: 15px; padding: 4px 12px; }
+  .pattern-anno-title { font-size: 13px; padding: 3px 10px; border-radius: 6px; }
   .pattern-anno-point { font-size: 13px; }
 }
 @media (max-width: 480px) {
@@ -2840,4 +2840,41 @@ body:has(.terminal-chart-card[data-chart-function="patterns"][data-mode="detaile
   .pattern-panel > .pd-card--levels { flex: none; }
   .pattern-panel > .pd-card--others { flex: 0 1 auto; min-height: 118px; display: flex; flex-direction: column; }
   .pattern-panel > .pd-card--others > .pd-others { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+}
+
+/* Chart Patterns, 1521–1700px (e.g. 1536×864): the approved single-row
+   toolbar. The same controls, a little tighter, so nothing is pushed off the
+   right edge; Card 1's title stays on one line and the chart's OHLC line
+   stays clear of the forming-candle note. */
+@media (min-width: 1521px) and (max-width: 1700px) {
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .dash-commandbar { gap: 7px; padding: 0 12px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-symbol { gap: 10px; padding: 0 12px 0 6px; font-size: 19px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-timeframe-controls .tf-button { padding: 0 9px; font-size: 16px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls { padding-left: 9px; gap: 6px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-control-row { gap: 6px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-mode-switch { padding-left: 7px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-function-button,
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .chart-header-controls .chart-mode-button { padding: 0 6px; font-size: 14px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-quote .live-quote { gap: 8px; padding: 6px 9px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-health-pill { letter-spacing: 0.02em; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .commandbar-refresh { width: 42px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .pattern-chart-head { gap: 28px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .pch-ohlc { gap: 14px; }
+  body:has(.terminal-chart-card[data-chart-function="patterns"]) .terminal-chart-card > .forming-status { max-width: 20%; }
+  .pd-card-head { min-height: 56px; padding: 0 18px; gap: 12px; }
+  .pd-card-title { font-size: 20px; white-space: nowrap; }
+  /* Card 1 at the reference's proportion (about 41% of the column), so the
+     "Other Detected Patterns" card shows two rows as in the reference. */
+  .pd-body { padding: 16px 20px 16px; }
+  .pd-icon-tile { width: 116px; height: 76px; }
+  .pd-icon { width: 86px; height: 52px; }
+  .pd-score { margin-top: 14px; }
+  .pd-explain { margin-top: 16px; }
+  .pd-explain-text { font-size: 15px; line-height: 1.4; }
+  .pd-name { font-size: 20px; }
+  .pd-others { padding: 2px 0; }
+  .pd-other-button { grid-template-columns: 40px minmax(0, 1fr) auto 12px; gap: 0 12px; min-height: 50px; padding: 4px 16px 4px 20px; }
+  .pd-row-icon { width: 40px; height: 26px; }
+  .pd-row-title { font-size: 16px; }
+  .pd-levels { padding: 0 20px 4px; }
 }

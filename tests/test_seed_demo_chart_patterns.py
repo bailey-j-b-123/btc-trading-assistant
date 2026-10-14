@@ -58,7 +58,24 @@ def test_detectors_find_each_supported_type_in_the_review_series():
     assert {p["type"] for p in payload["patterns"]} <= {
         "double_top", "double_bottom", "head_and_shoulders", "inverse_head_and_shoulders",
     }
-    assert payload["range"] is not None and payload["range"]["active"] is True
+    # Inside the newest 122 candles (the dashboard's default window): a double
+    # bottom that confirms, then a later double top that the rally invalidates.
+    newest = [p for p in payload["patterns"] if p["is_latest_state"]]
+    (bottom,) = (
+        p for p in newest
+        if p["type"] == "double_bottom" and p["state"] == "confirmed"
+    )
+    (top,) = (
+        p for p in newest
+        if p["type"] == "double_top" and p["state"] == "invalidated"
+        and p["components"][0]["time"] > bottom["known_at"]
+    )
+    window_start = candles[-122].timestamp.isoformat().replace("+00:00", "Z")
+    assert bottom["components"][0]["time"] >= window_start
+    assert top["known_at"] > bottom["known_at"]
+    # The confirmed double bottom is the newest record still standing.
+    standing = [p for p in newest if p["state"] != "invalidated"]
+    assert max(standing, key=lambda p: p["known_at"])["id"] == bottom["id"]
     for pattern in payload["patterns"]:
         assert not any("confidence" in key or "probability" in key for key in pattern)
 

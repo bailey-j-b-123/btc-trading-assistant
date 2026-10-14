@@ -449,6 +449,28 @@ test("secondary drawings are other current records only, never overlapping the s
   });
 });
 
+test("secondary drawings take the records nearest the selected one first, so those beside it are drawn", () => {
+  const rows = shoulderCandles(true);
+  const primary = patternAnnotation(HEAD_AND_SHOULDERS, rows);
+  // The drawn span: the first arc's left end (6 bars before LS at h20) .. the confirmation (h118).
+  assert.equal(primary.fromSeconds, (T0 + 14 * HOUR_MS) / 1000);
+  assert.equal(primary.toSeconds, HS_CONFIRM / 1000);
+  const rangeAt = (id, fromHour, toHour) => rangeRecord({ range: {
+    ...ACTIVE_RANGE, id, start_time: isoOf(T0 + fromHour * HOUR_MS), end_time: isoOf(T0 + toHour * HOUR_MS),
+    current_time: isoOf(T0 + toHour * HOUR_MS), known_at: isoOf(T0 + toHour * HOUR_MS),
+  } });
+  const far = rangeAt("range:far", 140, 159); // 22 h after the confirmation
+  const before = rangeAt("range:before", 0, 4); // 10 h before the drawn span
+  const near = rangeAt("range:near", 122, 130); // 4 h after the confirmation
+  // Default order lists the far record first; the nearest is still drawn first.
+  assert.deepEqual(secondaryAnnotations([far, before, near], primary, rows, { limit: 1 }).map((item) => item.id), ["range:near"]);
+  assert.deepEqual(secondaryAnnotations([far, before, near], primary, rows).map((item) => item.id), ["range:near", "range:before"]);
+  assert.deepEqual(secondaryAnnotations([far, before, near], primary, rows, { limit: 3 }).map((item) => item.id), ["range:near", "range:before", "range:far"]);
+  // Deterministic: the input order of equally distant records decides.
+  const twin = rangeAt("range:twin", 122, 130);
+  assert.deepEqual(secondaryAnnotations([twin, near], primary, rows, { limit: 1 }).map((item) => item.id), ["range:twin"]);
+});
+
 test("a pattern family BRAIN does not detect is drawn only from a real record of it, through its own points", () => {
   assert.deepEqual(chartPatternRecords({ available: true, patterns: [] }), [], "a name in the registry creates nothing");
   const model = functionPanelModel({ functionId: "patterns", evidence: { available: true, patterns: [] } });

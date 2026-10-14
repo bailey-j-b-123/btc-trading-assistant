@@ -1,5 +1,11 @@
 # Chart Patterns: exact design + multi-pattern presentation (frontend only)
 
+> **Superseded in part by `../reference-1536/REPORT.md`** (the 1536×864
+> PICTURE 1 comparison). The multi-pattern demo seed has since changed: its
+> default is now a confirmed Double Bottom, so the multi-pattern demo
+> screenshots in this folder show the earlier DEMO series. The support matrix (§1), the default rule (§2)
+> and the engine proposal (§8) below still apply.
+
 Follow-up to draft PR #65 (`70402fe`). **Not approved until reviewed.**
 Strategy, detector, threshold, signal, risk, execution, schema, API and event
 contracts are unchanged. No detector was added: the types that are not
