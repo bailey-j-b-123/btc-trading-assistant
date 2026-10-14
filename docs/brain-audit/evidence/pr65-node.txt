@@ -1,0 +1,2824 @@
+TAP version 13
+# (node:2359) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/api.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: dashboard decision request has a fixed client time limit of 180 seconds
+ok 1 - dashboard decision request has a fixed client time limit of 180 seconds
+  ---
+  duration_ms: 6.13449
+  type: 'test'
+  ...
+# Subtest: a request with no response inside the limit is a typed timeout
+ok 2 - a request with no response inside the limit is a typed timeout
+  ---
+  duration_ms: 26.914662
+  type: 'test'
+  ...
+# Subtest: a request that never gets a response is typed as a network error, not a timeout
+ok 3 - a request that never gets a response is typed as a network error, not a timeout
+  ---
+  duration_ms: 0.451722
+  type: 'test'
+  ...
+# Subtest: a successful response returns the parsed payload and clears the timer
+ok 4 - a successful response returns the parsed payload and clears the timer
+  ---
+  duration_ms: 0.798467
+  type: 'test'
+  ...
+# Subtest: a server error keeps its HTTP status and code
+ok 5 - a server error keeps its HTTP status and code
+  ---
+  duration_ms: 0.246368
+  type: 'test'
+  ...
+# Subtest: timeout is described as still calculating, with a retry
+ok 6 - timeout is described as still calculating, with a retry
+  ---
+  duration_ms: 0.247645
+  type: 'test'
+  ...
+# Subtest: network failure is described as unreachable, with a retry
+ok 7 - network failure is described as unreachable, with a retry
+  ---
+  duration_ms: 0.11382
+  type: 'test'
+  ...
+# Subtest: server 500 is described with its status, with a retry
+ok 8 - server 500 is described with its status, with a retry
+  ---
+  duration_ms: 0.303642
+  type: 'test'
+  ...
+# Subtest: a rejected request (4xx) is not offered as retryable
+ok 9 - a rejected request (4xx) is not offered as retryable
+  ---
+  duration_ms: 0.258498
+  type: 'test'
+  ...
+# Subtest: no failure text ever uses the generic 'Something went wrong' wording
+ok 10 - no failure text ever uses the generic 'Something went wrong' wording
+  ---
+  duration_ms: 0.475226
+  type: 'test'
+  ...
+# (node:2384) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/chart.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: stream symbol and URL follow the Binance raw-stream path subscription
+ok 11 - stream symbol and URL follow the Binance raw-stream path subscription
+  ---
+  duration_ms: 8.463991
+  type: 'test'
+  ...
+# Subtest: a forming Binance kline parses for every hierarchy timeframe with shared UTC buckets
+ok 12 - a forming Binance kline parses for every hierarchy timeframe with shared UTC buckets
+  ---
+  duration_ms: 0.932687
+  type: 'test'
+  ...
+# Subtest: final klines, wrong symbol/interval/bucket and invalid OHLC never yield a ghost candle
+ok 13 - final klines, wrong symbol/interval/bucket and invalid OHLC never yield a ghost candle
+  ---
+  duration_ms: 0.494889
+  type: 'test'
+  ...
+# Subtest: two independent chart series: live kline can change but stored confirmed history cannot
+ok 14 - two independent chart series: live kline can change but stored confirmed history cannot
+  ---
+  duration_ms: 1.115897
+  type: 'test'
+  ...
+# Subtest: one public stream per view; updates vary the ghost, boundary never promotes it
+ok 15 - one public stream per view; updates vary the ghost, boundary never promotes it
+  ---
+  duration_ms: 0.755021
+  type: 'test'
+  ...
+# Subtest: a final kline event removes the ghost: closed history is never drawn from this socket
+ok 16 - a final kline event removes the ghost: closed history is never drawn from this socket
+  ---
+  duration_ms: 0.246239
+  type: 'test'
+  ...
+# Subtest: stale, malformed and disconnected streams remove the ghost; retry is bounded
+ok 17 - stale, malformed and disconnected streams remove the ghost; retry is bounded
+  ---
+  duration_ms: 0.457226
+  type: 'test'
+  ...
+# Subtest: disconnect before a first valid Binance kline is unavailable, not a guessed price
+ok 18 - disconnect before a first valid Binance kline is unavailable, not a guessed price
+  ---
+  duration_ms: 0.206888
+  type: 'test'
+  ...
+# Subtest: forming module has no API or persistence path into engine decisions
+ok 19 - forming module has no API or persistence path into engine decisions
+  ---
+  duration_ms: 8.040253
+  type: 'test'
+  ...
+# (node:2406) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/bot-watching.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: many candidates render one primary summary plus at most three grouped rows
+ok 20 - many candidates render one primary summary plus at most three grouped rows
+  ---
+  duration_ms: 49.956892
+  type: 'test'
+  ...
+# Subtest: the engine's selected setup id is the primary shown
+ok 21 - the engine's selected setup id is the primary shown
+  ---
+  duration_ms: 3.856225
+  type: 'test'
+  ...
+# Subtest: with no engine selection, the backend's single-subject looking_for setup is the primary
+ok 22 - with no engine selection, the backend's single-subject looking_for setup is the primary
+  ---
+  duration_ms: 0.350772
+  type: 'test'
+  ...
+# Subtest: multiple WATCH candidates with no backend selection show an honest state and no primary
+ok 23 - multiple WATCH candidates with no backend selection show an honest state and no primary
+  ---
+  duration_ms: 31.758424
+  type: 'test'
+  ...
+# Subtest: a lone WATCH candidate is never promoted without the backend's own resolution
+ok 24 - a lone WATCH candidate is never promoted without the backend's own resolution
+  ---
+  duration_ms: 0.934376
+  type: 'test'
+  ...
+# Subtest: a backend-named setup with missing data is never substituted by another candidate
+ok 25 - a backend-named setup with missing data is never substituted by another candidate
+  ---
+  duration_ms: 1.005022
+  type: 'test'
+  ...
+# Subtest: group rows and counts mirror the backend candidate collection exactly
+ok 26 - group rows and counts mirror the backend candidate collection exactly
+  ---
+  duration_ms: 38.892612
+  type: 'test'
+  ...
+# Subtest: groups containing QUALIFIED candidates are labelled, others are not upgraded
+ok 27 - groups containing QUALIFIED candidates are labelled, others are not upgraded
+  ---
+  duration_ms: 0.761337
+  type: 'test'
+  ...
+# Subtest: projection, grouping and rendering never mutate the backend payload
+ok 28 - projection, grouping and rendering never mutate the backend payload
+  ---
+  duration_ms: 2.846727
+  type: 'test'
+  ...
+# Subtest: raw setup ids and rule ids appear only inside the collapsed disclosure
+ok 29 - raw setup ids and rule ids appear only inside the collapsed disclosure
+  ---
+  duration_ms: 30.708921
+  type: 'test'
+  ...
+# Subtest: the collapsed Technical details / All setups disclosure keeps every audit fact
+ok 30 - the collapsed Technical details / All setups disclosure keeps every audit fact
+  ---
+  duration_ms: 1.515928
+  type: 'test'
+  ...
+# Subtest: a WATCH primary is labelled Watching and never upgraded
+ok 31 - a WATCH primary is labelled Watching and never upgraded
+  ---
+  duration_ms: 0.955306
+  type: 'test'
+  ...
+# Subtest: a QUALIFIED primary with a plan keeps hierarchy-gated wording
+ok 32 - a QUALIFIED primary with a plan keeps hierarchy-gated wording
+  ---
+  duration_ms: 33.774013
+  type: 'test'
+  ...
+# Subtest: a QUALIFIED setup without a plannable plan never reads as plan-ready
+ok 33 - a QUALIFIED setup without a plannable plan never reads as plan-ready
+  ---
+  duration_ms: 18.183902
+  type: 'test'
+  ...
+# Subtest: unavailable facts render as unavailable, never filled in
+ok 34 - unavailable facts render as unavailable, never filled in
+  ---
+  duration_ms: 0.978827
+  type: 'test'
+  ...
+# Subtest: invalidation falls back to the plan level only for the selected plannable setup
+ok 35 - invalidation falls back to the plan level only for the selected plannable setup
+  ---
+  duration_ms: 0.255193
+  type: 'test'
+  ...
+# Subtest: unavailable qualification and scenario sections stay honestly unavailable
+ok 36 - unavailable qualification and scenario sections stay honestly unavailable
+  ---
+  duration_ms: 0.486153
+  type: 'test'
+  ...
+# Subtest: an unavailable scenario section still shows the backend-selected primary and qualification-based groups
+ok 37 - an unavailable scenario section still shows the backend-selected primary and qualification-based groups
+  ---
+  duration_ms: 0.722618
+  type: 'test'
+  ...
+# Subtest: group row order is count-only and never implies trading priority
+ok 38 - group row order is count-only and never implies trading priority
+  ---
+  duration_ms: 0.186776
+  type: 'test'
+  ...
+# (node:2444) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/breakout_stages.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: the three steps are always returned, in the order they happen
+ok 39 - the three steps are always returned, in the order they happen
+  ---
+  duration_ms: 9.31666
+  type: 'test'
+  ...
+# Subtest: each step is anchored to the candle the backend recorded it on
+ok 40 - each step is anchored to the candle the backend recorded it on
+  ---
+  duration_ms: 0.637445
+  type: 'test'
+  ...
+# Subtest: a step whose candle is not loaded is never snapped to a neighbour
+ok 41 - a step whose candle is not loaded is never snapped to a neighbour
+  ---
+  duration_ms: 1.568205
+  type: 'test'
+  ...
+# Subtest: the breakout is reported as failed when the backend recorded the failure
+ok 42 - the breakout is reported as failed when the backend recorded the failure
+  ---
+  duration_ms: 0.538936
+  type: 'test'
+  ...
+# Subtest: the retest status is the backend's own state, and Awaiting Confirmation when none is stored
+ok 43 - the retest status is the backend's own state, and Awaiting Confirmation when none is stored
+  ---
+  duration_ms: 0.687822
+  type: 'test'
+  ...
+# Subtest: continuation stays In Progress until the backend records one
+ok 44 - continuation stays In Progress until the backend records one
+  ---
+  duration_ms: 0.495374
+  type: 'test'
+  ...
+# Subtest: a continuation the backend did record is confirmed
+ok 45 - a continuation the backend did record is confirmed
+  ---
+  duration_ms: 0.391742
+  type: 'test'
+  ...
+# Subtest: a step with no stored record is flagged unrecorded, so it is never drawn as confirmed
+ok 46 - a step with no stored record is flagged unrecorded, so it is never drawn as confirmed
+  ---
+  duration_ms: 0.517334
+  type: 'test'
+  ...
+# Subtest: the layout keeps its three steps when nothing is stored
+ok 47 - the layout keeps its three steps when nothing is stored
+  ---
+  duration_ms: 0.563742
+  type: 'test'
+  ...
+# Subtest: the newest breakout with a stored retest is the one the sequence is told from
+ok 48 - the newest breakout with a stored retest is the one the sequence is told from
+  ---
+  duration_ms: 0.594809
+  type: 'test'
+  ...
+# Subtest: the frame spans the first and last loaded bar that carries a step
+ok 49 - the frame spans the first and last loaded bar that carries a step
+  ---
+  duration_ms: 0.527423
+  type: 'test'
+  ...
+# Subtest: a step that is still in progress points at how far price has reached
+ok 50 - a step that is still in progress points at how far price has reached
+  ---
+  duration_ms: 0.235394
+  type: 'test'
+  ...
+# (node:2466) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/chart_functions.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: the five approved chart functions exist with their own evidence group
+ok 51 - the five approved chart functions exist with their own evidence group
+  ---
+  duration_ms: 3.097961
+  type: 'test'
+  ...
+# Subtest: every chart function reads only the stored groups it draws
+ok 52 - every chart function reads only the stored groups it draws
+  ---
+  duration_ms: 0.317992
+  type: 'test'
+  ...
+# Subtest: an unknown or missing function id falls back to the calm default
+ok 53 - an unknown or missing function id falls back to the calm default
+  ---
+  duration_ms: 0.184897
+  type: 'test'
+  ...
+# Subtest: Simple mode switches every layer off except the selected function's own
+ok 54 - Simple mode switches every layer off except the selected function's own
+  ---
+  duration_ms: 0.255912
+  type: 'test'
+  ...
+# Subtest: Detailed mode keeps the operator's own switches and forces the selected layer on
+ok 55 - Detailed mode keeps the operator's own switches and forces the selected layer on
+  ---
+  duration_ms: 0.293157
+  type: 'test'
+  ...
+# Subtest: liquidity (equal levels) is never derived from a layer and stays off in Simple mode
+ok 56 - liquidity (equal levels) is never derived from a layer and stays off in Simple mode
+  ---
+  duration_ms: 0.284343
+  type: 'test'
+  ...
+# Subtest: support/resistance draws the zone overlay; the other functions do not
+ok 57 - support/resistance draws the zone overlay; the other functions do not
+  ---
+  duration_ms: 0.218377
+  type: 'test'
+  ...
+# Subtest: Simple mode empties the groups the selected function does not own
+ok 58 - Simple mode empties the groups the selected function does not own
+  ---
+  duration_ms: 0.285962
+  type: 'test'
+  ...
+# Subtest: Detailed mode returns the stored payload untouched
+ok 59 - Detailed mode returns the stored payload untouched
+  ---
+  duration_ms: 0.334614
+  type: 'test'
+  ...
+# Subtest: Chart Patterns draws exactly one detected shape at a time
+ok 60 - Chart Patterns draws exactly one detected shape at a time
+  ---
+  duration_ms: 0.669138
+  type: 'test'
+  ...
+# Subtest: an empty or unavailable selection still draws nothing rather than something invented
+ok 61 - an empty or unavailable selection still draws nothing rather than something invented
+  ---
+  duration_ms: 0.259119
+  type: 'test'
+  ...
+# Subtest: the pattern catalogue carries no confidence figure and keeps the backend's states
+ok 62 - the pattern catalogue carries no confidence figure and keeps the backend's states
+  ---
+  duration_ms: 0.14647
+  type: 'test'
+  ...
+# Subtest: the highlighted pattern is the operator's choice when it exists, else the current state
+ok 63 - the highlighted pattern is the operator's choice when it exists, else the current state
+  ---
+  duration_ms: 0.146035
+  type: 'test'
+  ...
+# Subtest: no chart function hint promises a probability or a percentage
+ok 64 - no chart function hint promises a probability or a percentage
+  ---
+  duration_ms: 0.378173
+  type: 'test'
+  ...
+# Subtest: a swing referenced by a stored zone is major, everything else is minor context
+ok 65 - a swing referenced by a stored zone is major, everything else is minor context
+  ---
+  duration_ms: 0.29024
+  type: 'test'
+  ...
+# Subtest: a swing used as a pattern component is major, and stored times may be seconds or ISO
+ok 66 - a swing used as a pattern component is major, and stored times may be seconds or ISO
+  ---
+  duration_ms: 0.228284
+  type: 'test'
+  ...
+# Subtest: the swing catalogue labels every stored swing and marks the referenced ones
+ok 67 - the swing catalogue labels every stored swing and marks the referenced ones
+  ---
+  duration_ms: 7.213303
+  type: 'test'
+  ...
+# Subtest: swing connectors use the stored swing prices, split by kind
+ok 68 - swing connectors use the stored swing prices, split by kind
+  ---
+  duration_ms: 0.359789
+  type: 'test'
+  ...
+# Subtest: the event catalogue merges the four stored groups, newest first, with the backend's states
+ok 69 - the event catalogue merges the four stored groups, newest first, with the backend's states
+  ---
+  duration_ms: 0.37564
+  type: 'test'
+  ...
+# Subtest: the level catalogue keeps the detector's role, bounds and touch counts
+ok 70 - the level catalogue keeps the detector's role, bounds and touch counts
+  ---
+  duration_ms: 0.274327
+  type: 'test'
+  ...
+# Subtest: a trade plan is announced only when the engine supplied a plannable one
+ok 71 - a trade plan is announced only when the engine supplied a plannable one
+  ---
+  duration_ms: 0.417757
+  type: 'test'
+  ...
+# Subtest: support/resistance reports the same counts the backend presented
+ok 72 - support/resistance reports the same counts the backend presented
+  ---
+  duration_ms: 0.153613
+  type: 'test'
+  ...
+# Subtest: an unavailable evidence payload is reported with the backend's reason
+ok 73 - an unavailable evidence payload is reported with the backend's reason
+  ---
+  duration_ms: 0.127295
+  type: 'test'
+  ...
+# Subtest: status lines count stored records and never invent a number
+ok 74 - status lines count stored records and never invent a number
+  ---
+  duration_ms: 0.1745
+  type: 'test'
+  ...
+# Subtest: a function with nothing stored says so instead of showing a fabricated figure
+ok 75 - a function with nothing stored says so instead of showing a fabricated figure
+  ---
+  duration_ms: 0.113419
+  type: 'test'
+  ...
+# (node:2486) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/chart_history.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: page size is the documented chart page, not a whole-series read
+ok 76 - page size is the documented chart page, not a whole-series read
+  ---
+  duration_ms: 1.111697
+  type: 'test'
+  ...
+# Subtest: isoFromMs produces the backend's Z form
+ok 77 - isoFromMs produces the backend's Z form
+  ---
+  duration_ms: 0.394757
+  type: 'test'
+  ...
+# Subtest: historyState: older history exists when the store is earlier than the oldest loaded row
+ok 78 - historyState: older history exists when the store is earlier than the oldest loaded row
+  ---
+  duration_ms: 0.326439
+  type: 'test'
+  ...
+# Subtest: historyState: earliest reached when nothing is stored before the cursor
+ok 79 - historyState: earliest reached when nothing is stored before the cursor
+  ---
+  duration_ms: 0.164122
+  type: 'test'
+  ...
+# Subtest: historyState: an empty page moves the cursor back to its window start, so paging always progresses
+ok 80 - historyState: an empty page moves the cursor back to its window start, so paging always progresses
+  ---
+  duration_ms: 0.275815
+  type: 'test'
+  ...
+# Subtest: historyState: unknown span never claims older history
+ok 81 - historyState: unknown span never claims older history
+  ---
+  duration_ms: 0.136225
+  type: 'test'
+  ...
+# Subtest: shouldLoadOlder fires only near the left edge, when idle and with history
+ok 82 - shouldLoadOlder fires only near the left edge, when idle and with history
+  ---
+  duration_ms: 0.238604
+  type: 'test'
+  ...
+# Subtest: mergeOlderRows keeps only strictly older rows and never duplicates the boundary candle
+ok 83 - mergeOlderRows keeps only strictly older rows and never duplicates the boundary candle
+  ---
+  duration_ms: 0.883701
+  type: 'test'
+  ...
+# Subtest: mergeOlderRows drops invalid rows and returns the existing rows unchanged when nothing is older
+ok 84 - mergeOlderRows drops invalid rows and returns the existing rows unchanged when nothing is older
+  ---
+  duration_ms: 6.160892
+  type: 'test'
+  ...
+# Subtest: mergeOlderRows with no existing rows keeps every valid incoming row
+ok 85 - mergeOlderRows with no existing rows keeps every valid incoming row
+  ---
+  duration_ms: 0.412871
+  type: 'test'
+  ...
+# Subtest: utcLabel and historyNote state the stored span in plain English
+ok 86 - utcLabel and historyNote state the stored span in plain English
+  ---
+  duration_ms: 0.376885
+  type: 'test'
+  ...
+# Subtest: setCandlesPreservingView shifts the visible range by the prepended count, keeping the same candles on screen
+ok 87 - setCandlesPreservingView shifts the visible range by the prepended count, keeping the same candles on screen
+  ---
+  duration_ms: 10.813907
+  type: 'test'
+  ...
+# Subtest: setCandlesPreservingView with nothing added leaves the view alone
+ok 88 - setCandlesPreservingView with nothing added leaves the view alone
+  ---
+  duration_ms: 1.857943
+  type: 'test'
+  ...
+# Subtest: setHistoryListener registers one listener, replaces it, and releases it
+ok 89 - setHistoryListener registers one listener, replaces it, and releases it
+  ---
+  duration_ms: 1.933817
+  type: 'test'
+  ...
+# (node:2502) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/chart.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: capturing records the zoom and the distance from the live edge, never bare indices
+ok 90 - capturing records the zoom and the distance from the live edge, never bare indices
+  ---
+  duration_ms: 8.140678
+  type: 'test'
+  ...
+# Subtest: a longer series keeps the operator at the live edge with the same zoom
+ok 91 - a longer series keeps the operator at the live edge with the same zoom
+  ---
+  duration_ms: 0.38776
+  type: 'test'
+  ...
+# Subtest: a coarser-to-finer switch with the same edge distance behaves the same way
+ok 92 - a coarser-to-finer switch with the same edge distance behaves the same way
+  ---
+  duration_ms: 0.162742
+  type: 'test'
+  ...
+# Subtest: a window panned into history keeps its distance from the live edge
+ok 93 - a window panned into history keeps its distance from the live edge
+  ---
+  duration_ms: 0.202631
+  type: 'test'
+  ...
+# Subtest: a shorter series brings the window back to the live edge without changing the zoom
+ok 94 - a shorter series brings the window back to the live edge without changing the zoom
+  ---
+  duration_ms: 0.201431
+  type: 'test'
+  ...
+# Subtest: the restored window is clamped exactly like the default view
+ok 95 - the restored window is clamped exactly like the default view
+  ---
+  duration_ms: 0.265608
+  type: 'test'
+  ...
+# Subtest: restoring is a no-op when there is nothing to restore onto
+ok 96 - restoring is a no-op when there is nothing to restore onto
+  ---
+  duration_ms: 0.211512
+  type: 'test'
+  ...
+# Subtest: a degenerate capture still yields a usable window
+ok 97 - a degenerate capture still yields a usable window
+  ---
+  duration_ms: 0.145222
+  type: 'test'
+  ...
+# Subtest: jumping to a stored event keeps the zoom and centres that event
+ok 98 - jumping to a stored event keeps the zoom and centres that event
+  ---
+  duration_ms: 0.530928
+  type: 'test'
+  ...
+# Subtest: framing the stored events fits them with a margin and stays inside the series
+ok 99 - framing the stored events fits them with a margin and stays inside the series
+  ---
+  duration_ms: 0.685386
+  type: 'test'
+  ...
+# Subtest: a jump never touches the frame helper's job: framing is the only zoom change
+ok 100 - a jump never touches the frame helper's job: framing is the only zoom change
+  ---
+  duration_ms: 0.259238
+  type: 'test'
+  ...
+# (node:2521) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/chart.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: toChartCandles maps backend rows without recomputing values
+ok 101 - toChartCandles maps backend rows without recomputing values
+  ---
+  duration_ms: 1.8004
+  type: 'test'
+  ...
+# Subtest: empty payload stays empty — no demo candles are invented
+ok 102 - empty payload stays empty — no demo candles are invented
+  ---
+  duration_ms: 0.211833
+  type: 'test'
+  ...
+# Subtest: the chart module never calls the nonexistent series.priceLines() API
+ok 103 - the chart module never calls the nonexistent series.priceLines() API
+  ---
+  duration_ms: 1.575365
+  type: 'test'
+  ...
+# Subtest: applyOverlays draws only levels present in the payload
+ok 104 - applyOverlays draws only levels present in the payload
+  ---
+  duration_ms: 5.391001
+  type: 'test'
+  ...
+# Subtest: short chart labels preserve exact numeric levels and compact collocated labels
+ok 105 - short chart labels preserve exact numeric levels and compact collocated labels
+  ---
+  duration_ms: 0.438468
+  type: 'test'
+  ...
+# Subtest: overlay apply and clear work without a priceLines() enumeration method
+ok 106 - overlay apply and clear work without a priceLines() enumeration method
+  ---
+  duration_ms: 0.240311
+  type: 'test'
+  ...
+# Subtest: clearOverlays removes only lines this dashboard created
+ok 107 - clearOverlays removes only lines this dashboard created
+  ---
+  duration_ms: 0.289382
+  type: 'test'
+  ...
+# Subtest: repeated dashboard renders never duplicate or leak overlay lines
+ok 108 - repeated dashboard renders never duplicate or leak overlay lines
+  ---
+  duration_ms: 0.599167
+  type: 'test'
+  ...
+# Subtest: missing plan or overlays create zero lines
+ok 109 - missing plan or overlays create zero lines
+  ---
+  duration_ms: 6.305488
+  type: 'test'
+  ...
+# Subtest: disabled overlay groups stay hidden
+ok 110 - disabled overlay groups stay hidden
+  ---
+  duration_ms: 0.392812
+  type: 'test'
+  ...
+# Subtest: confirmed swing overlays remain optional and use only returned levels
+ok 111 - confirmed swing overlays remain optional and use only returned levels
+  ---
+  duration_ms: 0.209129
+  type: 'test'
+  ...
+# Subtest: the chart accepts the real market-candles API envelope
+ok 112 - the chart accepts the real market-candles API envelope
+  ---
+  duration_ms: 0.206241
+  type: 'test'
+  ...
+# Subtest: malformed or missing candle payloads stay empty
+ok 113 - malformed or missing candle payloads stay empty
+  ---
+  duration_ms: 0.113449
+  type: 'test'
+  ...
+# Subtest: chart data refreshes replace overlay handles and chart disposal releases resources
+ok 114 - chart data refreshes replace overlay handles and chart disposal releases resources
+  ---
+  duration_ms: 1.76153
+  type: 'test'
+  ...
+# Subtest: a zero-size container at mount no longer kills the chart: fallback now, real layout on resize
+ok 115 - a zero-size container at mount no longer kills the chart: fallback now, real layout on resize
+  ---
+  duration_ms: 0.496188
+  type: 'test'
+  ...
+# Subtest: createPriceChart still returns null only when recovery is impossible
+ok 116 - createPriceChart still returns null only when recovery is impossible
+  ---
+  duration_ms: 0.216805
+  type: 'test'
+  ...
+# Subtest: real backend row bytes convert and reach setData in order
+ok 117 - real backend row bytes convert and reach setData in order
+  ---
+  duration_ms: 0.500048
+  type: 'test'
+  ...
+# Subtest: first load shows the recent candles once; refreshes keep the user's zoom
+ok 118 - first load shows the recent candles once; refreshes keep the user's zoom
+  ---
+  duration_ms: 11.228949
+  type: 'test'
+  ...
+# Subtest: a short series is never given a negative default range
+ok 119 - a short series is never given a negative default range
+  ---
+  duration_ms: 0.192897
+  type: 'test'
+  ...
+# Subtest: price-axis labels use two decimals with thousands separators (display only)
+ok 120 - price-axis labels use two decimals with thousands separators (display only)
+  ---
+  duration_ms: 21.435758
+  type: 'test'
+  ...
+# Subtest: Chart Patterns price axis drops trailing decimals but never rounds a stored price away
+ok 121 - Chart Patterns price axis drops trailing decimals but never rounds a stored price away
+  ---
+  duration_ms: 0.470572
+  type: 'test'
+  ...
+# Subtest: the pattern axis style applies only while Chart Patterns is open and is restored exactly afterwards
+ok 122 - the pattern axis style applies only while Chart Patterns is open and is restored exactly afterwards
+  ---
+  duration_ms: 0.408172
+  type: 'test'
+  ...
+# (node:2543) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/views/dashboard.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: WATCH renders with backend evidence and missing confirmation
+ok 123 - WATCH renders with backend evidence and missing confirmation
+  ---
+  duration_ms: 128.403214
+  type: 'test'
+  ...
+# Subtest: compact LOOKING FOR keeps its complete backend facts behind collapsed technical details
+ok 124 - compact LOOKING FOR keeps its complete backend facts behind collapsed technical details
+  ---
+  duration_ms: 48.412803
+  type: 'test'
+  ...
+# Subtest: NO TRADE is rendered from NO_SETUP and its backend reason
+ok 125 - NO TRADE is rendered from NO_SETUP and its backend reason
+  ---
+  duration_ms: 26.635064
+  type: 'test'
+  ...
+# Subtest: unavailable qualification data never becomes a zero count or a NO TRADE verdict
+ok 126 - unavailable qualification data never becomes a zero count or a NO TRADE verdict
+  ---
+  duration_ms: 0.20292
+  type: 'test'
+  ...
+# Subtest: PLANNABLE requires the backend plan state and renders its supplied levels
+ok 127 - PLANNABLE requires the backend plan state and renders its supplied levels
+  ---
+  duration_ms: 55.24467
+  type: 'test'
+  ...
+# Subtest: non-plannable payload values never leak into a guessed plan
+ok 128 - non-plannable payload values never leak into a guessed plan
+  ---
+  duration_ms: 35.746969
+  type: 'test'
+  ...
+# Subtest: missing valid-plan fields remain UNKNOWN rather than being filled in
+ok 129 - missing valid-plan fields remain UNKNOWN rather than being filled in
+  ---
+  duration_ms: 23.588896
+  type: 'test'
+  ...
+# Subtest: missing candle data renders an unavailable state without creating a chart
+ok 130 - missing candle data renders an unavailable state without creating a chart
+  ---
+  duration_ms: 11.400664
+  type: 'test'
+  ...
+# Subtest: repeated dashboard renders dispose old charts and replace, not stack, overlays
+ok 131 - repeated dashboard renders dispose old charts and replace, not stack, overlays
+  ---
+  duration_ms: 49.092959
+  type: 'test'
+  ...
+# Subtest: healthy system details collapse to one compact DATA CURRENT indicator
+ok 132 - healthy system details collapse to one compact DATA CURRENT indicator
+  ---
+  duration_ms: 14.277201
+  type: 'test'
+  ...
+# Subtest: performance only exposes recorded counts and leaves unavailable metrics unknown
+ok 133 - performance only exposes recorded counts and leaves unavailable metrics unknown
+  ---
+  duration_ms: 0.247165
+  type: 'test'
+  ...
+# Subtest: version-separated forward reports never expose combined performance totals
+ok 134 - version-separated forward reports never expose combined performance totals
+  ---
+  duration_ms: 0.209066
+  type: 'test'
+  ...
+# Subtest: measured outcome observations preserve exact denominators and backend definitions
+ok 135 - measured outcome observations preserve exact denominators and backend definitions
+  ---
+  duration_ms: 34.962037
+  type: 'test'
+  ...
+# Subtest: desktop and narrow layouts use the same one-page dashboard without navigation tabs
+ok 136 - desktop and narrow layouts use the same one-page dashboard without navigation tabs
+  ---
+  duration_ms: 51.633824
+  type: 'test'
+  ...
+# Subtest: market now and scenario render backend facts in plain English
+ok 137 - market now and scenario render backend facts in plain English
+  ---
+  duration_ms: 7.585959
+  type: 'test'
+  ...
+# Subtest: missing market-state and scenario sections stay honestly unavailable
+ok 138 - missing market-state and scenario sections stay honestly unavailable
+  ---
+  duration_ms: 21.340632
+  type: 'test'
+  ...
+# Subtest: the paper trade tracker is prominent, persistent, and ledger-driven
+ok 139 - the paper trade tracker is prominent, persistent, and ledger-driven
+  ---
+  duration_ms: 29.404842
+  type: 'test'
+  ...
+# Subtest: with no tracker payload the dashboard keeps an explicit unavailable state
+ok 140 - with no tracker payload the dashboard keeps an explicit unavailable state
+  ---
+  duration_ms: 21.853733
+  type: 'test'
+  ...
+# Subtest: tracker updates when the runner records STOPPED after the dashboard refreshed — no new candle, no re-analysis
+ok 141 - tracker updates when the runner records STOPPED after the dashboard refreshed — no new candle, no re-analysis
+  ---
+  duration_ms: 13.150633
+  type: 'test'
+  ...
+# Subtest: the trading bar carries the approved instrument, timeframe, mode and health facts
+ok 142 - the trading bar carries the approved instrument, timeframe, mode and health facts
+  ---
+  duration_ms: 7.369403
+  type: 'test'
+  ...
+# Subtest: the five chart functions are switchable and Simple mode draws one at a time
+ok 143 - the five chart functions are switchable and Simple mode draws one at a time
+  ---
+  duration_ms: 35.114031
+  type: 'test'
+  ...
+# Subtest: Simple and Detailed modes change what is drawn without changing the evidence
+ok 144 - Simple and Detailed modes change what is drawn without changing the evidence
+  ---
+  duration_ms: 21.518401
+  type: 'test'
+  ...
+# Subtest: the bottom tabs switch panels without rebuilding the chart or refetching the dashboard
+ok 145 - the bottom tabs switch panels without rebuilding the chart or refetching the dashboard
+  ---
+  duration_ms: 26.71632
+  type: 'test'
+  ...
+# Subtest: the pattern picker switches the drawn pattern and never shows a confidence
+ok 146 - the pattern picker switches the drawn pattern and never shows a confidence
+  ---
+  duration_ms: 12.00773
+  type: 'test'
+  ...
+# Subtest: desktop keeps Performance beside left tabs and restores narrow tab behaviour on resize
+ok 147 - desktop keeps Performance beside left tabs and restores narrow tab behaviour on resize
+  ---
+  duration_ms: 5.887946
+  type: 'test'
+  ...
+# Subtest: Chart Patterns cards show stored records only, with the confidence not calculated
+ok 148 - Chart Patterns cards show stored records only, with the confidence not calculated
+  ---
+  duration_ms: 27.646072
+  type: 'test'
+  ...
+# Subtest: selecting another detected pattern updates the cards and keeps the operator's zoom
+ok 149 - selecting another detected pattern updates the cards and keeps the operator's zoom
+  ---
+  duration_ms: 22.499813
+  type: 'test'
+  ...
+# Subtest: Breakouts & Retests is unaffected by the Chart Patterns screen
+ok 150 - Breakouts & Retests is unaffected by the Chart Patterns screen
+  ---
+  duration_ms: 14.557293
+  type: 'test'
+  ...
+# Subtest: a timeframe with no stored candles empties the Chart Patterns cards and OHLC line
+ok 151 - a timeframe with no stored candles empties the Chart Patterns cards and OHLC line
+  ---
+  duration_ms: 12.352703
+  type: 'test'
+  ...
+# (node:2599) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/decision.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: there is no default decision
+ok 152 - there is no default decision
+  ---
+  duration_ms: 0.957962
+  type: 'test'
+  ...
+# Subtest: a valid request pins the decision to the displayed snapshot
+ok 153 - a valid request pins the decision to the displayed snapshot
+  ---
+  duration_ms: 0.635928
+  type: 'test'
+  ...
+# Subtest: requests without a snapshot or setup are refused
+ok 154 - requests without a snapshot or setup are refused
+  ---
+  duration_ms: 0.176399
+  type: 'test'
+  ...
+# Subtest: availability mirrors the backend can_decide verdict
+ok 155 - availability mirrors the backend can_decide verdict
+  ---
+  duration_ms: 1.416802
+  type: 'test'
+  ...
+# Subtest: confirmation summary preserves raw level values
+ok 156 - confirmation summary preserves raw level values
+  ---
+  duration_ms: 0.312432
+  type: 'test'
+  ...
+# (node:2617) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/evidence.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: layer defaults keep the chart calm and expose every requested layer
+ok 157 - layer defaults keep the chart calm and expose every requested layer
+  ---
+  duration_ms: 1.876366
+  type: 'test'
+  ...
+# Subtest: normalizeLayers drops unknown keys and fills missing switches with defaults
+ok 158 - normalizeLayers drops unknown keys and fills missing switches with defaults
+  ---
+  duration_ms: 0.268587
+  type: 'test'
+  ...
+# Subtest: layer switches map onto the legacy overlay keys; liquidity and price-line swings are not layer-driven
+ok 159 - layer switches map onto the legacy overlay keys; liquidity and price-line swings are not layer-driven
+  ---
+  duration_ms: 0.199097
+  type: 'test'
+  ...
+# Subtest: swing labels are drawn at their candle and only once known
+ok 160 - swing labels are drawn at their candle and only once known
+  ---
+  duration_ms: 1.547823
+  type: 'test'
+  ...
+# Subtest: a swing is never drawn before its known_at instant
+ok 161 - a swing is never drawn before its known_at instant
+  ---
+  duration_ms: 2.927072
+  type: 'test'
+  ...
+# Subtest: evidence never draws at a candle time that is not in the stored series
+ok 162 - evidence never draws at a candle time that is not in the stored series
+  ---
+  duration_ms: 0.271722
+  type: 'test'
+  ...
+# Subtest: unavailable or empty evidence produces an empty model, never invented markers
+ok 163 - unavailable or empty evidence produces an empty model, never invented markers
+  ---
+  duration_ms: 0.308877
+  type: 'test'
+  ...
+# Subtest: switching the structure layer off removes its labels entirely
+ok 164 - switching the structure layer off removes its labels entirely
+  ---
+  duration_ms: 0.216966
+  type: 'test'
+  ...
+# Subtest: a formed pattern draws a dashed zigzag, neckline and invalidation at backend levels
+ok 165 - a formed pattern draws a dashed zigzag, neckline and invalidation at backend levels
+  ---
+  duration_ms: 8.162982
+  type: 'test'
+  ...
+# Subtest: a confirmed pattern ends its neckline at the confirmation candle and labels the state
+ok 166 - a confirmed pattern ends its neckline at the confirmation candle and labels the state
+  ---
+  duration_ms: 0.679082
+  type: 'test'
+  ...
+# Subtest: only the latest state of a pattern is drawn; history stays in the explanation
+ok 167 - only the latest state of a pattern is drawn; history stays in the explanation
+  ---
+  duration_ms: 0.443652
+  type: 'test'
+  ...
+# Subtest: invalidated patterns use the muted dotted zigzag and never claim confirmation
+ok 168 - invalidated patterns use the muted dotted zigzag and never claim confirmation
+  ---
+  duration_ms: 0.307623
+  type: 'test'
+  ...
+# Subtest: pattern components unknown to the candle series are dropped rather than bridged
+ok 169 - pattern components unknown to the candle series are dropped rather than bridged
+  ---
+  duration_ms: 0.295812
+  type: 'test'
+  ...
+# Subtest: breakouts, failed breakouts, sweeps and retests get their own labelled markers
+ok 170 - breakouts, failed breakouts, sweeps and retests get their own labelled markers
+  ---
+  duration_ms: 1.262754
+  type: 'test'
+  ...
+# Subtest: candle shapes are opt-in and show one primary marker per candle by priority
+ok 171 - candle shapes are opt-in and show one primary marker per candle by priority
+  ---
+  duration_ms: 0.572804
+  type: 'test'
+  ...
+# Subtest: clicking a candle returns its evidence in priority order
+ok 172 - clicking a candle returns its evidence in priority order
+  ---
+  duration_ms: 0.304508
+  type: 'test'
+  ...
+# Subtest: findItem resolves backend ids across groups and never invents a match
+ok 173 - findItem resolves backend ids across groups and never invents a match
+  ---
+  duration_ms: 0.203177
+  type: 'test'
+  ...
+# Subtest: candleTimes accepts only rows with a usable timestamp
+ok 174 - candleTimes accepts only rows with a usable timestamp
+  ---
+  duration_ms: 0.108378
+  type: 'test'
+  ...
+# Subtest: breakout and sweep markers are limited to the recent window and one marker per candle
+ok 175 - breakout and sweep markers are limited to the recent window and one marker per candle
+  ---
+  duration_ms: 0.485072
+  type: 'test'
+  ...
+# Subtest: candle-shape markers outside the recent window are not drawn but are counted
+ok 176 - candle-shape markers outside the recent window are not drawn but are counted
+  ---
+  duration_ms: 0.299316
+  type: 'test'
+  ...
+# Subtest: breakout arrows point the way their label says; retests use a circle
+ok 177 - breakout arrows point the way their label says; retests use a circle
+  ---
+  duration_ms: 0.231957
+  type: 'test'
+  ...
+# Subtest: a confirmation on the latest stored candle keeps its marker even though known_at is the close boundary
+ok 178 - a confirmation on the latest stored candle keeps its marker even though known_at is the close boundary
+  ---
+  duration_ms: 0.340459
+  type: 'test'
+  ...
+# Subtest: a newly formed pattern on the latest candle keeps its marker, anchored on its last swing
+ok 179 - a newly formed pattern on the latest candle keeps its marker, anchored on its last swing
+  ---
+  duration_ms: 0.242224
+  type: 'test'
+  ...
+# Subtest: an invalidation label is placed on the invalidating candle, not at formation
+ok 180 - an invalidation label is placed on the invalidating candle, not at formation
+  ---
+  duration_ms: 0.361879
+  type: 'test'
+  ...
+# Subtest: an invalidated pattern's level stops at the invalidating candle
+ok 181 - an invalidated pattern's level stops at the invalidating candle
+  ---
+  duration_ms: 0.452044
+  type: 'test'
+  ...
+# Subtest: a formed pattern's level still runs to the latest candle
+ok 182 - a formed pattern's level still runs to the latest candle
+  ---
+  duration_ms: 0.383403
+  type: 'test'
+  ...
+# Subtest: legacy payloads without anchor_time still anchor formed patterns, and never guess a confirmed anchor from a boundary
+ok 183 - legacy payloads without anchor_time still anchor formed patterns, and never guess a confirmed anchor from a boundary
+  ---
+  duration_ms: 0.393233
+  type: 'test'
+  ...
+# Subtest: pattern labels use short names with the lifecycle state
+ok 184 - pattern labels use short names with the lifecycle state
+  ---
+  duration_ms: 0.105746
+  type: 'test'
+  ...
+# Subtest: gateMarkerLabels keeps the highest-priority label and removes only conflicting neighbours on the same side
+ok 185 - gateMarkerLabels keeps the highest-priority label and removes only conflicting neighbours on the same side
+  ---
+  duration_ms: 0.140076
+  type: 'test'
+  ...
+# Subtest: gateMarkerLabels is deterministic: the same input gives the same output
+ok 186 - gateMarkerLabels is deterministic: the same input gives the same output
+  ---
+  duration_ms: 0.290088
+  type: 'test'
+  ...
+# Subtest: dense swings keep a bounded number of readable labels on the chart
+ok 187 - dense swings keep a bounded number of readable labels on the chart
+  ---
+  duration_ms: 0.698057
+  type: 'test'
+  ...
+# Subtest: the item list names every drawn item, including those whose chart label was hidden
+ok 188 - the item list names every drawn item, including those whose chart label was hidden
+  ---
+  duration_ms: 0.578605
+  type: 'test'
+  ...
+# Subtest: the dashboard renders the evidence item list and the marker key names the pattern abbreviations
+ok 189 - the dashboard renders the evidence item list and the marker key names the pattern abbreviations
+  ---
+  duration_ms: 2.087546
+  type: 'test'
+  ...
+# (node:2635) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/explain.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: a swing explanation states exact price, candle time, confirmation instant and label meaning
+ok 190 - a swing explanation states exact price, candle time, confirmation instant and label meaning
+  ---
+  duration_ms: 12.398277
+  type: 'test'
+  ...
+# Subtest: influence is 'No' when no setup is selected, and says why
+ok 191 - influence is 'No' when no setup is selected, and says why
+  ---
+  duration_ms: 0.647755
+  type: 'test'
+  ...
+# Subtest: influence is 'Yes' only when the selected setup's rule cites the same id
+ok 192 - influence is 'Yes' only when the selected setup's rule cites the same id
+  ---
+  duration_ms: 0.261981
+  type: 'test'
+  ...
+# Subtest: rule evidence ids link precisely: a rule citing a different event does not link
+ok 193 - rule evidence ids link precisely: a rule citing a different event does not link
+  ---
+  duration_ms: 0.150948
+  type: 'test'
+  ...
+# Subtest: unavailable qualification never claims influence
+ok 194 - unavailable qualification never claims influence
+  ---
+  duration_ms: 0.129174
+  type: 'test'
+  ...
+# Subtest: pattern explanations show each lifecycle state with its own wording and times
+ok 195 - pattern explanations show each lifecycle state with its own wording and times
+  ---
+  duration_ms: 4.337533
+  type: 'test'
+  ...
+# Subtest: candle shape explanations are explicitly descriptive and never call themselves signals
+ok 196 - candle shape explanations are explicitly descriptive and never call themselves signals
+  ---
+  duration_ms: 0.311234
+  type: 'test'
+  ...
+# Subtest: candle shape explanation picks its wording from the backend shape kind
+ok 197 - candle shape explanation picks its wording from the backend shape kind
+  ---
+  duration_ms: 0.331818
+  type: 'test'
+  ...
+# Subtest: swing dispatch works from the backend's high/low kind even without evidence_kind
+ok 198 - swing dispatch works from the backend's high/low kind even without evidence_kind
+  ---
+  duration_ms: 0.39382
+  type: 'test'
+  ...
+# Subtest: missing backend fields are called UNKNOWN, never filled in
+ok 199 - missing backend fields are called UNKNOWN, never filled in
+  ---
+  duration_ms: 0.565343
+  type: 'test'
+  ...
+# Subtest: unknown evidence kinds return null rather than a guessed explanation
+ok 200 - unknown evidence kinds return null rather than a guessed explanation
+  ---
+  duration_ms: 0.166062
+  type: 'test'
+  ...
+# Subtest: plan-level explanations state that no order is placed
+ok 201 - plan-level explanations state that no order is placed
+  ---
+  duration_ms: 0.338176
+  type: 'test'
+  ...
+# Subtest: plan levels claim influence only when a backend plan supplied them
+ok 202 - plan levels claim influence only when a backend plan supplied them
+  ---
+  duration_ms: 0.164632
+  type: 'test'
+  ...
+# Subtest: a band that contains the close is explained as inside, never as resistance, and says why the detector differed
+ok 203 - a band that contains the close is explained as inside, never as resistance, and says why the detector differed
+  ---
+  duration_ms: 0.738102
+  type: 'test'
+  ...
+# Subtest: the explanation states touches, origin, last test and that influence is not claimed
+ok 204 - the explanation states touches, origin, last test and that influence is not claimed
+  ---
+  duration_ms: 0.222281
+  type: 'test'
+  ...
+# Subtest: a single-swing band says it has not been tested by a second swing
+ok 205 - a single-swing band says it has not been tested by a second swing
+  ---
+  duration_ms: 0.154612
+  type: 'test'
+  ...
+# Subtest: a merged display band reports how many detector zones it combines
+ok 206 - a merged display band reports how many detector zones it combines
+  ---
+  duration_ms: 0.137983
+  type: 'test'
+  ...
+# Subtest: a support band below price reads as support with the close above it
+ok 207 - a support band below price reads as support with the close above it
+  ---
+  duration_ms: 0.236925
+  type: 'test'
+  ...
+# Subtest: a faded band is described as last tested long ago
+ok 208 - a faded band is described as last tested long ago
+  ---
+  duration_ms: 0.144965
+  type: 'test'
+  ...
+# Subtest: missing or non-object bands produce no explanation rather than a guessed one
+ok 209 - missing or non-object bands produce no explanation rather than a guessed one
+  ---
+  duration_ms: 0.085324
+  type: 'test'
+  ...
+# Subtest: evidence zone items with a display position use the band wording, not the raw detector label
+ok 210 - evidence zone items with a display position use the band wording, not the raw detector label
+  ---
+  duration_ms: 0.197821
+  type: 'test'
+  ...
+# Subtest: head and shoulders wording matches the detector geometry (five alternating swings)
+ok 211 - head and shoulders wording matches the detector geometry (five alternating swings)
+  ---
+  duration_ms: 0.282663
+  type: 'test'
+  ...
+# (node:2656) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/format.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: formatDecimalText groups thousands without altering digits
+ok 212 - formatDecimalText groups thousands without altering digits
+  ---
+  duration_ms: 1.187774
+  type: 'test'
+  ...
+# Subtest: formatDecimalText refuses to invent numbers
+ok 213 - formatDecimalText refuses to invent numbers
+  ---
+  duration_ms: 13.705229
+  type: 'test'
+  ...
+# Subtest: displayOrUnknown never substitutes zero for missing values
+ok 214 - displayOrUnknown never substitutes zero for missing values
+  ---
+  duration_ms: 0.235368
+  type: 'test'
+  ...
+# Subtest: displayPrice keeps the raw authoritative spelling
+ok 215 - displayPrice keeps the raw authoritative spelling
+  ---
+  duration_ms: 0.164655
+  type: 'test'
+  ...
+# Subtest: formatUtc renders stored timestamps or UNKNOWN
+ok 216 - formatUtc renders stored timestamps or UNKNOWN
+  ---
+  duration_ms: 0.399448
+  type: 'test'
+  ...
+# Subtest: familyLabel falls back to the raw value, never blank
+ok 217 - familyLabel falls back to the raw value, never blank
+  ---
+  duration_ms: 0.144323
+  type: 'test'
+  ...
+# Subtest: isMissing treats only null/undefined/empty as missing
+ok 218 - isMissing treats only null/undefined/empty as missing
+  ---
+  duration_ms: 0.260319
+  type: 'test'
+  ...
+# Subtest: roundDecimalText rounds decimal strings without float error
+ok 219 - roundDecimalText rounds decimal strings without float error
+  ---
+  duration_ms: 0.541924
+  type: 'test'
+  ...
+# Subtest: displayRounded groups the rounded figure and keeps the exact raw
+ok 220 - displayRounded groups the rounded figure and keeps the exact raw
+  ---
+  duration_ms: 1.005206
+  type: 'test'
+  ...
+# (node:2671) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/forming-display.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: forming display buckets align to UTC for 5m, 15m, 1h and 4h
+ok 221 - forming display buckets align to UTC for 5m, 15m, 1h and 4h
+  ---
+  duration_ms: 1.576414
+  type: 'test'
+  ...
+# Subtest: forming display requires recent, aligned history strictly before the current bucket
+ok 222 - forming display requires recent, aligned history strictly before the current bucket
+  ---
+  duration_ms: 0.231059
+  type: 'test'
+  ...
+# Subtest: shared forming-display rules have no exchange, network, storage or engine path
+ok 223 - shared forming-display rules have no exchange, network, storage or engine path
+  ---
+  duration_ms: 0.533066
+  type: 'test'
+  ...
+# Subtest: the one-page dashboard reuses read-only forward data without primary-page navigation
+ok 224 - the one-page dashboard reuses read-only forward data without primary-page navigation
+  ---
+  duration_ms: 23.769755
+  type: 'test'
+  ...
+# Subtest: live/paper UI keeps both comparison sides labelled and denominated
+ok 225 - live/paper UI keeps both comparison sides labelled and denominated
+  ---
+  duration_ms: 10.787957
+  type: 'test'
+  ...
+# Subtest: the dashboard exposes no order, account, or sizing surface
+ok 226 - the dashboard exposes no order, account, or sizing surface
+  ---
+  duration_ms: 5.974241
+  type: 'test'
+  ...
+# (node:2703) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/freshness.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: CURRENT badge only when the backend says CURRENT
+ok 227 - CURRENT badge only when the backend says CURRENT
+  ---
+  duration_ms: 0.916196
+  type: 'test'
+  ...
+# Subtest: STALE badge carries the exact staleness count
+ok 228 - STALE badge carries the exact staleness count
+  ---
+  duration_ms: 0.167697
+  type: 'test'
+  ...
+# Subtest: HISTORICAL data is never labelled live/current
+ok 229 - HISTORICAL data is never labelled live/current
+  ---
+  duration_ms: 0.189131
+  type: 'test'
+  ...
+# Subtest: UNKNOWN badge for missing data
+ok 230 - UNKNOWN badge for missing data
+  ---
+  duration_ms: 0.149641
+  type: 'test'
+  ...
+# Subtest: the word LIVE is never used anywhere in badge output
+ok 231 - the word LIVE is never used anywhere in badge output
+  ---
+  duration_ms: 0.175323
+  type: 'test'
+  ...
+# (node:2723) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/breakout_stages.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: the support/resistance panel lists the stored bands with their own bounds and touches
+ok 232 - the support/resistance panel lists the stored bands with their own bounds and touches
+  ---
+  duration_ms: 2.611021
+  type: 'test'
+  ...
+# Subtest: the support/resistance panel has an honest empty state
+ok 233 - the support/resistance panel has an honest empty state
+  ---
+  duration_ms: 0.249992
+  type: 'test'
+  ...
+# Subtest: the swings panel reports the last stored swing, the bias and the levels around price
+ok 234 - the swings panel reports the last stored swing, the bias and the levels around price
+  ---
+  duration_ms: 0.914534
+  type: 'test'
+  ...
+# Subtest: the swings panel marks a referenced swing and never calls it a strength score
+ok 235 - the swings panel marks a referenced swing and never calls it a strength score
+  ---
+  duration_ms: 0.452976
+  type: 'test'
+  ...
+# Subtest: the swings panel says nothing rather than guessing when there is no evidence
+ok 236 - the swings panel says nothing rather than guessing when there is no evidence
+  ---
+  duration_ms: 0.204958
+  type: 'test'
+  ...
+# Subtest: the patterns panel shows the detected shape, its state and its own geometry
+ok 237 - the patterns panel shows the detected shape, its state and its own geometry
+  ---
+  duration_ms: 1.446736
+  type: 'test'
+  ...
+# Subtest: without a selection the patterns panel draws the newest current state
+ok 238 - without a selection the patterns panel draws the newest current state
+  ---
+  duration_ms: 0.36151
+  type: 'test'
+  ...
+# Subtest: no panel anywhere exposes a confidence, probability or percentage score
+ok 239 - no panel anywhere exposes a confidence, probability or percentage score
+  ---
+  duration_ms: 1.268564
+  type: 'test'
+  ...
+# Subtest: the patterns panel lists the other stored states and never re-labels them
+ok 240 - the patterns panel lists the other stored states and never re-labels them
+  ---
+  duration_ms: 8.852683
+  type: 'test'
+  ...
+# Subtest: an unavailable or empty pattern window keeps the empty sentence
+ok 241 - an unavailable or empty pattern window keeps the empty sentence
+  ---
+  duration_ms: 0.443332
+  type: 'test'
+  ...
+# Subtest: the Breakout Logic panel shows the three steps with the status the backend recorded
+ok 242 - the Breakout Logic panel shows the three steps with the status the backend recorded
+  ---
+  duration_ms: 1.453526
+  type: 'test'
+  ...
+# Subtest: the Breakout Logic panel keeps its three steps when nothing is stored
+ok 243 - the Breakout Logic panel keeps its three steps when nothing is stored
+  ---
+  duration_ms: 0.325358
+  type: 'test'
+  ...
+# Subtest: the trade plan panel keeps the absolute prices in their own fields
+ok 244 - the trade plan panel keeps the absolute prices in their own fields
+  ---
+  duration_ms: 0.248255
+  type: 'test'
+  ...
+# Subtest: the risk/reward panel shows entry-to-stop and entry-to-target distances, not prices
+ok 245 - the risk/reward panel shows entry-to-stop and entry-to-target distances, not prices
+  ---
+  duration_ms: 0.237773
+  type: 'test'
+  ...
+# Subtest: a short-side plan measures its distances from entry as well
+ok 246 - a short-side plan measures its distances from entry as well
+  ---
+  duration_ms: 0.186253
+  type: 'test'
+  ...
+# Subtest: no plan means no levels and no ratio, only the engine's reason
+ok 247 - no plan means no levels and no ratio, only the engine's reason
+  ---
+  duration_ms: 0.207115
+  type: 'test'
+  ...
+# Subtest: missing plan fields stay explicit UNKNOWN values
+ok 248 - missing plan fields stay explicit UNKNOWN values
+  ---
+  duration_ms: 0.217697
+  type: 'test'
+  ...
+# Subtest: a plan whose targets carry no price shows the risk distance and an UNKNOWN reward
+ok 249 - a plan whose targets carry no price shows the risk distance and an UNKNOWN reward
+  ---
+  duration_ms: 0.255195
+  type: 'test'
+  ...
+# Subtest: a null r_multiple never becomes a 0.00 ratio
+ok 250 - a null r_multiple never becomes a 0.00 ratio
+  ---
+  duration_ms: 0.194886
+  type: 'test'
+  ...
+# Subtest: the ratio comes from the plan's levels when both distances are measurable
+ok 251 - the ratio comes from the plan's levels when both distances are measurable
+  ---
+  duration_ms: 0.177969
+  type: 'test'
+  ...
+# Subtest: the plan's own R multiple is used, and marked, when the distances cannot be measured
+ok 252 - the plan's own R multiple is used, and marked, when the distances cannot be measured
+  ---
+  duration_ms: 0.148193
+  type: 'test'
+  ...
+# Subtest: the levels win over a stated R multiple, so the ratio always matches the distances
+ok 253 - the levels win over a stated R multiple, so the ratio always matches the distances
+  ---
+  duration_ms: 0.168097
+  type: 'test'
+  ...
+# Subtest: a missing r_multiple on the final target is not replaced by an earlier target's
+ok 254 - a missing r_multiple on the final target is not replaced by an earlier target's
+  ---
+  duration_ms: 0.138887
+  type: 'test'
+  ...
+# Subtest: a non-positive or unparseable r_multiple is not a ratio
+ok 255 - a non-positive or unparseable r_multiple is not a ratio
+  ---
+  duration_ms: 0.264301
+  type: 'test'
+  ...
+# Subtest: an unknown or missing chart function falls back to the calm default panel
+ok 256 - an unknown or missing chart function falls back to the calm default panel
+  ---
+  duration_ms: 0.116966
+  type: 'test'
+  ...
+# (node:2755) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/live-updates.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: boundary check cadence backs off on failure and stays bounded
+ok 257 - boundary check cadence backs off on failure and stays bounded
+  ---
+  duration_ms: 5.330037
+  type: 'test'
+  ...
+# Subtest: refresh cooldown doubles after each failed analysis refresh and is capped
+ok 258 - refresh cooldown doubles after each failed analysis refresh and is capped
+  ---
+  duration_ms: 0.265634
+  type: 'test'
+  ...
+# Subtest: boundaryChanged refreshes only when both instants parse and differ
+ok 259 - boundaryChanged refreshes only when both instants parse and differ
+  ---
+  duration_ms: 0.241045
+  type: 'test'
+  ...
+# Subtest: dataStatus labels CURRENT, STALE, UNKNOWN and failed checks honestly
+ok 260 - dataStatus labels CURRENT, STALE, UNKNOWN and failed checks honestly
+  ---
+  duration_ms: 0.72363
+  type: 'test'
+  ...
+# Subtest: pendingStatus never claims CURRENT while the page is behind the server
+ok 261 - pendingStatus never claims CURRENT while the page is behind the server
+  ---
+  duration_ms: 3.013614
+  type: 'test'
+  ...
+# Subtest: mergeCandleRows keeps older pages, lets the newer snapshot win, and drops invalid rows
+ok 262 - mergeCandleRows keeps older pages, lets the newer snapshot win, and drops invalid rows
+  ---
+  duration_ms: 0.965459
+  type: 'test'
+  ...
+# Subtest: updater: unchanged boundary never reruns the expensive refresh
+ok 263 - updater: unchanged boundary never reruns the expensive refresh
+  ---
+  duration_ms: 34.044573
+  type: 'test'
+  ...
+# Subtest: updater: a newer stored boundary triggers one refresh, then the page is current
+ok 264 - updater: a newer stored boundary triggers one refresh, then the page is current
+  ---
+  duration_ms: 1.547925
+  type: 'test'
+  ...
+# Subtest: updater: a failed refresh shows UNAVAILABLE, keeps the last good page, and waits out the cooldown
+ok 265 - updater: a failed refresh shows UNAVAILABLE, keeps the last good page, and waits out the cooldown
+  ---
+  duration_ms: 1.758879
+  type: 'test'
+  ...
+# Subtest: updater: a dialog or hidden tab pauses the refresh; the next check resumes it
+ok 266 - updater: a dialog or hidden tab pauses the refresh; the next check resumes it
+  ---
+  duration_ms: 1.497328
+  type: 'test'
+  ...
+# Subtest: updater: fetch failures back off and report UNAVAILABLE with the last successful check time
+ok 267 - updater: fetch failures back off and report UNAVAILABLE with the last successful check time
+  ---
+  duration_ms: 1.497544
+  type: 'test'
+  ...
+# Subtest: updater: checkNow never duplicates a check already in flight
+ok 268 - updater: checkNow never duplicates a check already in flight
+  ---
+  duration_ms: 1.249307
+  type: 'test'
+  ...
+# Subtest: updater: stop ends the schedule and discards an in-flight result
+ok 269 - updater: stop ends the schedule and discards an in-flight result
+  ---
+  duration_ms: 0.996618
+  type: 'test'
+  ...
+# Subtest: live quote model: CURRENT only for a fresh valid Binance quote; never a fabricated price
+ok 270 - live quote model: CURRENT only for a fresh valid Binance quote; never a fabricated price
+  ---
+  duration_ms: 0.368017
+  type: 'test'
+  ...
+# Subtest: live quote view: plain labels, and the value is blank whenever the quote is not current
+ok 271 - live quote view: plain labels, and the value is blank whenever the quote is not current
+  ---
+  duration_ms: 28.260345
+  type: 'test'
+  ...
+# Subtest: contract: the live modules import nothing from forming, engine, analysis, planning or journal code
+ok 272 - contract: the live modules import nothing from forming, engine, analysis, planning or journal code
+  ---
+  duration_ms: 0.844477
+  type: 'test'
+  ...
+# (node:2777) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/chart.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: clean defaults hide historical diagnostics but retain an actual scenario band and plan
+ok 273 - clean defaults hide historical diagnostics but retain an actual scenario band and plan
+  ---
+  duration_ms: 3.144533
+  type: 'test'
+  ...
+# Subtest: LOOKING FOR is a compact projection of backend setup and hierarchy facts
+ok 274 - LOOKING FOR is a compact projection of backend setup and hierarchy facts
+  ---
+  duration_ms: 14.196564
+  type: 'test'
+  ...
+# Subtest: missing or mismatched facts draw no scenario; no future coordinates or probabilities
+ok 275 - missing or mismatched facts draw no scenario; no future coordinates or probabilities
+  ---
+  duration_ms: 0.327999
+  type: 'test'
+  ...
+# Subtest: public quote is validated and becomes visibly stale; it is never a candle
+ok 276 - public quote is validated and becomes visibly stale; it is never a candle
+  ---
+  duration_ms: 1.128786
+  type: 'test'
+  ...
+# Subtest: chart-only preference migration preserves the engine timeframe and later manual toggles
+ok 277 - chart-only preference migration preserves the engine timeframe and later manual toggles
+  ---
+  duration_ms: 0.584172
+  type: 'test'
+  ...
+# Subtest: browser disconnect immediately labels the last valid quote stale without drawing a candle
+ok 278 - browser disconnect immediately labels the last valid quote stale without drawing a candle
+  ---
+  duration_ms: 67.881517
+  type: 'test'
+  ...
+# (node:2805) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/views/dashboard.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: ladderViewModel returns null when the hierarchy is unavailable
+ok 279 - ladderViewModel returns null when the hierarchy is unavailable
+  ---
+  duration_ms: 2.213626
+  type: 'test'
+  ...
+# Subtest: ladderViewModel maps the four ladder rows in hierarchy order
+ok 280 - ladderViewModel maps the four ladder rows in hierarchy order
+  ---
+  duration_ms: 0.993123
+  type: 'test'
+  ...
+# Subtest: ladderViewModel flags a counter-trend hierarchy explicitly
+ok 281 - ladderViewModel flags a counter-trend hierarchy explicitly
+  ---
+  duration_ms: 0.235993
+  type: 'test'
+  ...
+# Subtest: multiTimeframeCard renders the ladder with arrows and the overall row
+ok 282 - multiTimeframeCard renders the ladder with arrows and the overall row
+  ---
+  duration_ms: 9.974917
+  type: 'test'
+  ...
+# Subtest: multiTimeframeCard marks a counter-trend overall row
+ok 283 - multiTimeframeCard marks a counter-trend overall row
+  ---
+  duration_ms: 0.634566
+  type: 'test'
+  ...
+# Subtest: multiTimeframeCard renders an explicit unavailable state
+ok 284 - multiTimeframeCard renders an explicit unavailable state
+  ---
+  duration_ms: 0.272042
+  type: 'test'
+  ...
+# Subtest: multiTimeframeCard tolerates a missing payload entirely
+ok 285 - multiTimeframeCard tolerates a missing payload entirely
+  ---
+  duration_ms: 0.234592
+  type: 'test'
+  ...
+# (node:2826) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/views/dashboard.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: with zero paper plans the ledger is one plain statement, not a grid of zero metrics
+ok 286 - with zero paper plans the ledger is one plain statement, not a grid of zero metrics
+  ---
+  duration_ms: 1.631205
+  type: 'test'
+  ...
+# Subtest: with recorded plans the three-panel ledger is still rendered
+ok 287 - with recorded plans the three-panel ledger is still rendered
+  ---
+  duration_ms: 1.858758
+  type: 'test'
+  ...
+# (node:2847) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/paper-performance.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: with no supplied metrics both tiles say Not available yet
+ok 288 - with no supplied metrics both tiles say Not available yet
+  ---
+  duration_ms: 1.31
+  type: 'test'
+  ...
+# Subtest: no dash, no N/A, no invented zero stands in for a missing figure
+ok 289 - no dash, no N/A, no invented zero stands in for a missing figure
+  ---
+  duration_ms: 0.415669
+  type: 'test'
+  ...
+# Subtest: the ledger's own outcome counts are never turned into a win rate
+ok 290 - the ledger's own outcome counts are never turned into a win rate
+  ---
+  duration_ms: 0.144312
+  type: 'test'
+  ...
+# Subtest: a hypothetical R measure is never shown as P&L
+ok 291 - a hypothetical R measure is never shown as P&L
+  ---
+  duration_ms: 0.154642
+  type: 'test'
+  ...
+# Subtest: the ledger's proposed levels and risk_per_unit are never multiplied into money
+ok 292 - the ledger's proposed levels and risk_per_unit are never multiplied into money
+  ---
+  duration_ms: 0.203279
+  type: 'test'
+  ...
+# Subtest: a fully provenanced report is shown: formatted rate and a signed total
+ok 293 - a fully provenanced report is shown: formatted rate and a signed total
+  ---
+  duration_ms: 0.756529
+  type: 'test'
+  ...
+# Subtest: available: false suppresses every number, even numbers carried in the block
+ok 294 - available: false suppresses every number, even numbers carried in the block
+  ---
+  duration_ms: 5.880969
+  type: 'test'
+  ...
+# Subtest: available: false keeps the backend's own reason and reports the figures as withdrawn
+ok 295 - available: false keeps the backend's own reason and reports the figures as withdrawn
+  ---
+  duration_ms: 0.199964
+  type: 'test'
+  ...
+# Subtest: an absent or non-true available flag is not an available report
+ok 296 - an absent or non-true available flag is not an available report
+  ---
+  duration_ms: 3.930278
+  type: 'test'
+  ...
+# Subtest: a rate without a sample size is not shown
+ok 297 - a rate without a sample size is not shown
+  ---
+  duration_ms: 0.545658
+  type: 'test'
+  ...
+# Subtest: a figure without an observation time is not shown
+ok 298 - a figure without an observation time is not shown
+  ---
+  duration_ms: 0.241781
+  type: 'test'
+  ...
+# Subtest: an unparseable observation time is not a boundary
+ok 299 - an unparseable observation time is not a boundary
+  ---
+  duration_ms: 0.199152
+  type: 'test'
+  ...
+# Subtest: an impossible sample size is refused
+ok 300 - an impossible sample size is refused
+  ---
+  duration_ms: 0.173576
+  type: 'test'
+  ...
+# Subtest: a zero sample cannot carry a rate, and says so
+ok 301 - a zero sample cannot carry a rate, and says so
+  ---
+  duration_ms: 0.165793
+  type: 'test'
+  ...
+# Subtest: a gross total is captioned gross and never described as net
+ok 302 - a gross total is captioned gross and never described as net
+  ---
+  duration_ms: 0.17131
+  type: 'test'
+  ...
+# Subtest: only an explicit net basis produces the net-of-costs wording
+ok 303 - only an explicit net basis produces the net-of-costs wording
+  ---
+  duration_ms: 0.116982
+  type: 'test'
+  ...
+# Subtest: the basis is read case-insensitively and any other word is refused
+ok 304 - the basis is read case-insensitively and any other word is refused
+  ---
+  duration_ms: 0.172592
+  type: 'test'
+  ...
+# Subtest: a total with no stated basis is withheld and explains why
+ok 305 - a total with no stated basis is withheld and explains why
+  ---
+  duration_ms: 0.109934
+  type: 'test'
+  ...
+# Subtest: the cost basis gate applies to the total only, not to a rate over the same report
+ok 306 - the cost basis gate applies to the total only, not to a rate over the same report
+  ---
+  duration_ms: 0.108825
+  type: 'test'
+  ...
+# Subtest: a win rate may arrive as a number or a string, and both render the same
+ok 307 - a win rate may arrive as a number or a string, and both render the same
+  ---
+  duration_ms: 0.155557
+  type: 'test'
+  ...
+# Subtest: a supplied total P&L is shown with its sign and currency
+ok 308 - a supplied total P&L is shown with its sign and currency
+  ---
+  duration_ms: 0.191624
+  type: 'test'
+  ...
+# Subtest: a zero P&L is a real figure and reads as neither a gain nor a loss
+ok 309 - a zero P&L is a real figure and reads as neither a gain nor a loss
+  ---
+  duration_ms: 0.117281
+  type: 'test'
+  ...
+# Subtest: the two tiles fill in independently
+ok 310 - the two tiles fill in independently
+  ---
+  duration_ms: 0.1023
+  type: 'test'
+  ...
+# Subtest: an explicit null from the backend stays unavailable rather than becoming zero
+ok 311 - an explicit null from the backend stays unavailable rather than becoming zero
+  ---
+  duration_ms: 0.09097
+  type: 'test'
+  ...
+# Subtest: malformed values are refused rather than rendered
+ok 312 - malformed values are refused rather than rendered
+  ---
+  duration_ms: 0.220521
+  type: 'test'
+  ...
+# Subtest: the backend's own reason is shown verbatim when it supplies one
+ok 313 - the backend's own reason is shown verbatim when it supplies one
+  ---
+  duration_ms: 0.136533
+  type: 'test'
+  ...
+# Subtest: with no backend reason the tile explains why the figure cannot exist yet
+ok 314 - with no backend reason the tile explains why the figure cannot exist yet
+  ---
+  duration_ms: 0.150616
+  type: 'test'
+  ...
+# Subtest: the note states that no example figure is shown and where the plan lives
+ok 315 - the note states that no example figure is shown and where the plan lives
+  ---
+  duration_ms: 0.080787
+  type: 'test'
+  ...
+# Subtest: a payload with no paper_performance key at all is safe
+ok 316 - a payload with no paper_performance key at all is safe
+  ---
+  duration_ms: 0.108767
+  type: 'test'
+  ...
+# Subtest: the model reads exactly one payload key and invents no aliases
+ok 317 - the model reads exactly one payload key and invents no aliases
+  ---
+  duration_ms: 0.086635
+  type: 'test'
+  ...
+# (node:2868) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/paper-tracker.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: stored confirmation presentation requires matching recorded proof
+ok 318 - stored confirmation presentation requires matching recorded proof
+  ---
+  duration_ms: 1.869705
+  type: 'test'
+  ...
+# Subtest: trade-history provenance column follows Direction and labels every older row
+ok 319 - trade-history provenance column follows Direction and labels every older row
+  ---
+  duration_ms: 3.287015
+  type: 'test'
+  ...
+# Subtest: settled STOPPED trade shows levels, entry reached, outcome, timestamp and SETTLED
+ok 320 - settled STOPPED trade shows levels, entry reached, outcome, timestamp and SETTLED
+  ---
+  duration_ms: 0.976088
+  type: 'test'
+  ...
+# Subtest: a recorded plan stays on the tracker when the latest assessment says No trade
+ok 321 - a recorded plan stays on the tracker when the latest assessment says No trade
+  ---
+  duration_ms: 0.497247
+  type: 'test'
+  ...
+# Subtest: an unresolved plan without an outcome shows UNKNOWN entry reach and ACTIVE state
+ok 322 - an unresolved plan without an outcome shows UNKNOWN entry reach and ACTIVE state
+  ---
+  duration_ms: 15.100284
+  type: 'test'
+  ...
+# Subtest: earlier recorded plans stay listed below the featured one
+ok 323 - earlier recorded plans stay listed below the featured one
+  ---
+  duration_ms: 0.53431
+  type: 'test'
+  ...
+# Subtest: with no recorded plan the tracker says so and invents no levels
+ok 324 - with no recorded plan the tracker says so and invents no levels
+  ---
+  duration_ms: 0.317754
+  type: 'test'
+  ...
+# Subtest: a missing tracker payload stays explicit instead of guessing
+ok 325 - a missing tracker payload stays explicit instead of guessing
+  ---
+  duration_ms: 0.274561
+  type: 'test'
+  ...
+# Subtest: live and display prices never reach the tracker: identical ledger text
+ok 326 - live and display prices never reach the tracker: identical ledger text
+  ---
+  duration_ms: 0.861785
+  type: 'test'
+  ...
+# Subtest: view model keeps ledger facts without live data
+ok 327 - view model keeps ledger facts without live data
+  ---
+  duration_ms: 0.493289
+  type: 'test'
+  ...
+# Subtest: tracker ledger signature changes only when ledger facts change
+ok 328 - tracker ledger signature changes only when ledger facts change
+  ---
+  duration_ms: 0.448252
+  type: 'test'
+  ...
+# Subtest: nextTrackerDelay backs off exponentially and caps
+ok 329 - nextTrackerDelay backs off exponentially and caps
+  ---
+  duration_ms: 0.125816
+  type: 'test'
+  ...
+# Subtest: refresher seeds its signature, applies a change once, and ignores repeats
+ok 330 - refresher seeds its signature, applies a change once, and ignores repeats
+  ---
+  duration_ms: 0.715707
+  type: 'test'
+  ...
+# Subtest: refresher keeps the last recorded state on failure and backs off without inventing data
+ok 331 - refresher keeps the last recorded state on failure and backs off without inventing data
+  ---
+  duration_ms: 0.570503
+  type: 'test'
+  ...
+# Subtest: a slow in-flight poll is never duplicated and a late response after stop is discarded
+ok 332 - a slow in-flight poll is never duplicated and a late response after stop is discarded
+  ---
+  duration_ms: 0.288927
+  type: 'test'
+  ...
+# Subtest: blocked polls pause without fetching and stop() cancels the pending timer
+ok 333 - blocked polls pause without fetching and stop() cancels the pending timer
+  ---
+  duration_ms: 0.212056
+  type: 'test'
+  ...
+# (node:2896) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/pattern_view.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: the drawn bottoms, neckline and confirmation are the stored record's own times and prices
+ok 334 - the drawn bottoms, neckline and confirmation are the stored record's own times and prices
+  ---
+  duration_ms: 3.329073
+  type: 'test'
+  ...
+# Subtest: a component on a candle that is not loaded draws nothing, never a neighbouring candle
+ok 335 - a component on a candle that is not loaded draws nothing, never a neighbouring candle
+  ---
+  duration_ms: 7.519893
+  type: 'test'
+  ...
+# Subtest: the arcs are small: their ends are real loaded candles, never past the stored bottom or the neckline, never labelled
+ok 336 - the arcs are small: their ends are real loaded candles, never past the stored bottom or the neckline, never labelled
+  ---
+  duration_ms: 1.382242
+  type: 'test'
+  ...
+# Subtest: an arc never passes beyond the stored extreme it marks
+ok 337 - an arc never passes beyond the stored extreme it marks
+  ---
+  duration_ms: 0.400427
+  type: 'test'
+  ...
+# Subtest: the chart overlay puts each label over its stored candle, the neckline at the stored price, and a short connector to it
+ok 338 - the chart overlay puts each label over its stored candle, the neckline at the stored price, and a short connector to it
+  ---
+  duration_ms: 7.148167
+  type: 'test'
+  ...
+# Subtest: head and shoulders: three caps at the stored shoulders and head, its own neckline, no invented support line
+ok 339 - head and shoulders: three caps at the stored shoulders and head, its own neckline, no invented support line
+  ---
+  duration_ms: 2.131774
+  type: 'test'
+  ...
+# Subtest: inverse head and shoulders: three troughs at the stored lows, the head's level as support, no target
+ok 340 - inverse head and shoulders: three troughs at the stored lows, the head's level as support, no target
+  ---
+  duration_ms: 1.29753
+  type: 'test'
+  ...
+# Subtest: the trading range is the range detector's own active range, drawn as its stored box
+ok 341 - the trading range is the range detector's own active range, drawn as its stored box
+  ---
+  duration_ms: 11.161781
+  type: 'test'
+  ...
+# Subtest: the default record is the newest current state still standing; the operator's choice wins when present
+ok 342 - the default record is the newest current state still standing; the operator's choice wins when present
+  ---
+  duration_ms: 9.531117
+  type: 'test'
+  ...
+# Subtest: secondary drawings are other current records only, never overlapping the selected one
+ok 343 - secondary drawings are other current records only, never overlapping the selected one
+  ---
+  duration_ms: 2.10049
+  type: 'test'
+  ...
+# Subtest: secondary drawings take the records nearest the selected one first, so those beside it are drawn
+ok 344 - secondary drawings take the records nearest the selected one first, so those beside it are drawn
+  ---
+  duration_ms: 8.57214
+  type: 'test'
+  ...
+# Subtest: a pattern family BRAIN does not detect is drawn only from a real record of it, through its own points
+ok 345 - a pattern family BRAIN does not detect is drawn only from a real record of it, through its own points
+  ---
+  duration_ms: 1.166913
+  type: 'test'
+  ...
+# Subtest: the lifecycle word and colour are the backend's own state
+ok 346 - the lifecycle word and colour are the backend's own state
+  ---
+  duration_ms: 0.540807
+  type: 'test'
+  ...
+# Subtest: the Pattern Detection card carries the stored state for every record
+ok 347 - the Pattern Detection card carries the stored state for every record
+  ---
+  duration_ms: 2.298662
+  type: 'test'
+  ...
+# Subtest: confidence is never calculated: no number, no percentage, no fill
+ok 348 - confidence is never calculated: no number, no percentage, no fill
+  ---
+  duration_ms: 1.24832
+  type: 'test'
+  ...
+# Subtest: Other Detected Patterns lists only stored records, never a Bull Flag or Descending Triangle
+ok 349 - Other Detected Patterns lists only stored records, never a Bull Flag or Descending Triangle
+  ---
+  duration_ms: 0.628044
+  type: 'test'
+  ...
+# Subtest: Key Levels show the stored neckline and bottoms; the target is always unavailable
+ok 350 - Key Levels show the stored neckline and bottoms; the target is always unavailable
+  ---
+  duration_ms: 0.203543
+  type: 'test'
+  ...
+# Subtest: the window moves only when the pattern is not wholly on screen
+ok 351 - the window moves only when the pattern is not wholly on screen
+  ---
+  duration_ms: 0.126864
+  type: 'test'
+  ...
+# (node:2948) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/plain.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: humanizeToken never returns raw snake, steps, or empties
+ok 352 - humanizeToken never returns raw snake, steps, or empties
+  ---
+  duration_ms: 1.540728
+  type: 'test'
+  ...
+# Subtest: state labels translate every setup and verdict state
+ok 353 - state labels translate every setup and verdict state
+  ---
+  duration_ms: 0.251482
+  type: 'test'
+  ...
+# Subtest: hierarchy readiness wording requires the evaluated backend PLANNABLE state
+ok 354 - hierarchy readiness wording requires the evaluated backend PLANNABLE state
+  ---
+  duration_ms: 1.904462
+  type: 'test'
+  ...
+# Subtest: snapshot and terminal reasons become sentences
+ok 355 - snapshot and terminal reasons become sentences
+  ---
+  duration_ms: 0.41085
+  type: 'test'
+  ...
+# Subtest: trend, transition, and momentum vocabularies map fully
+ok 356 - trend, transition, and momentum vocabularies map fully
+  ---
+  duration_ms: 0.317171
+  type: 'test'
+  ...
+# Subtest: unavailability reasons never surface None or snake
+ok 357 - unavailability reasons never surface None or snake
+  ---
+  duration_ms: 0.191323
+  type: 'test'
+  ...
+# Subtest: health, evidence, and decision labels map
+ok 358 - health, evidence, and decision labels map
+  ---
+  duration_ms: 0.379309
+  type: 'test'
+  ...
+# Subtest: structure rule translation is direction-aware
+ok 359 - structure rule translation is direction-aware
+  ---
+  duration_ms: 0.672506
+  type: 'test'
+  ...
+# Subtest: volume and volatility rules translate numbers and None fragments
+ok 360 - volume and volatility rules translate numbers and None fragments
+  ---
+  duration_ms: 3.073758
+  type: 'test'
+  ...
+# Subtest: location, range, and confirmation rules translate
+ok 361 - location, range, and confirmation rules translate
+  ---
+  duration_ms: 1.011942
+  type: 'test'
+  ...
+# Subtest: optional rules never block and say so
+ok 362 - optional rules never block and say so
+  ---
+  duration_ms: 0.365646
+  type: 'test'
+  ...
+# Subtest: unknown rules degrade to humanized titles, clean prose, never raw
+ok 363 - unknown rules degrade to humanized titles, clean prose, never raw
+  ---
+  duration_ms: 0.369633
+  type: 'test'
+  ...
+# Subtest: plan states and all thirty reason codes translate
+ok 364 - plan states and all thirty reason codes translate
+  ---
+  duration_ms: 0.253692
+  type: 'test'
+  ...
+# Subtest: runner, outcome, and metric statuses translate
+ok 365 - runner, outcome, and metric statuses translate
+  ---
+  duration_ms: 0.13606
+  type: 'test'
+  ...
+# Subtest: level sources translate without step numbers
+ok 366 - level sources translate without step numbers
+  ---
+  duration_ms: 0.189268
+  type: 'test'
+  ...
+# Subtest: journal disabled reasons rebuild Step 6 refusals in plain words
+ok 367 - journal disabled reasons rebuild Step 6 refusals in plain words
+  ---
+  duration_ms: 0.379345
+  type: 'test'
+  ...
+# Subtest: unavailable backend notices map to fixed plain sentences
+ok 368 - unavailable backend notices map to fixed plain sentences
+  ---
+  duration_ms: 0.211002
+  type: 'test'
+  ...
+# Subtest: doing-now paragraph composes from structured facts with rounded numbers
+ok 369 - doing-now paragraph composes from structured facts with rounded numbers
+  ---
+  duration_ms: 4.473474
+  type: 'test'
+  ...
+# Subtest: aggregate and meta lines translate states and vetoes
+ok 370 - aggregate and meta lines translate states and vetoes
+  ---
+  duration_ms: 0.297411
+  type: 'test'
+  ...
+# Subtest: hasValidTradePlan reads only the backend's own plan states
+ok 371 - hasValidTradePlan reads only the backend's own plan states
+  ---
+  duration_ms: 0.148346
+  type: 'test'
+  ...
+# (node:2982) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/chart.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: risk and reward come from the plan's own entry, stop and final target
+ok 372 - risk and reward come from the plan's own entry, stop and final target
+  ---
+  duration_ms: 4.651596
+  type: 'test'
+  ...
+# Subtest: reward uses the LAST target, not an earlier one
+ok 373 - reward uses the LAST target, not an earlier one
+  ---
+  duration_ms: 0.463844
+  type: 'test'
+  ...
+# Subtest: a plan with no stop shades only the reward region
+ok 374 - a plan with no stop shades only the reward region
+  ---
+  duration_ms: 0.194656
+  type: 'test'
+  ...
+# Subtest: a plan with no targets shades only the risk region
+ok 375 - a plan with no targets shades only the risk region
+  ---
+  duration_ms: 0.274283
+  type: 'test'
+  ...
+# Subtest: no entry means no regions at all — nothing is measured from a missing level
+ok 376 - no entry means no regions at all — nothing is measured from a missing level
+  ---
+  duration_ms: 0.233279
+  type: 'test'
+  ...
+# Subtest: a level equal to entry is skipped rather than drawn as a zero-height region
+ok 377 - a level equal to entry is skipped rather than drawn as a zero-height region
+  ---
+  duration_ms: 0.117014
+  type: 'test'
+  ...
+# Subtest: null and blank levels are never coerced to zero
+ok 378 - null and blank levels are never coerced to zero
+  ---
+  duration_ms: 0.222987
+  type: 'test'
+  ...
+# Subtest: a short (bearish) plan still yields an ordered region
+ok 379 - a short (bearish) plan still yields an ordered region
+  ---
+  duration_ms: 0.16009
+  type: 'test'
+  ...
+# Subtest: applyOverlays puts the plan's regions on the handle and draws them
+ok 380 - applyOverlays puts the plan's regions on the handle and draws them
+  ---
+  duration_ms: 1.378708
+  type: 'test'
+  ...
+# Subtest: each region is positioned at the coordinates of its two levels
+ok 381 - each region is positioned at the coordinates of its two levels
+  ---
+  duration_ms: 0.552374
+  type: 'test'
+  ...
+# Subtest: regions are decorative: hidden from assistive tech and click-through
+ok 382 - regions are decorative: hidden from assistive tech and click-through
+  ---
+  duration_ms: 1.651223
+  type: 'test'
+  ...
+# Subtest: the plan-levels switch turns the regions off with the lines
+ok 383 - the plan-levels switch turns the regions off with the lines
+  ---
+  duration_ms: 0.19755
+  type: 'test'
+  ...
+# Subtest: no plan means no regions
+ok 384 - no plan means no regions
+  ---
+  duration_ms: 0.115853
+  type: 'test'
+  ...
+# Subtest: a plan the engine does not consider PLANNABLE is not drawn
+ok 385 - a plan the engine does not consider PLANNABLE is not drawn
+  ---
+  duration_ms: 0.109562
+  type: 'test'
+  ...
+# Subtest: clearing overlays removes the regions
+ok 386 - clearing overlays removes the regions
+  ---
+  duration_ms: 0.253667
+  type: 'test'
+  ...
+# Subtest: re-applying overlays never accumulates regions
+ok 387 - re-applying overlays never accumulates regions
+  ---
+  duration_ms: 1.708658
+  type: 'test'
+  ...
+# Subtest: approved design colours: blue entry, red stop, green targets
+ok 388 - approved design colours: blue entry, red stop, green targets
+  ---
+  duration_ms: 3.86571
+  type: 'test'
+  ...
+# Subtest: the three plan colours stay distinct from each other
+ok 389 - the three plan colours stay distinct from each other
+  ---
+  duration_ms: 0.119645
+  type: 'test'
+  ...
+# Subtest: every shipped dashboard module parses as an ES module
+ok 390 - every shipped dashboard module parses as an ES module
+  ---
+  duration_ms: 2151.548485
+  type: 'test'
+  ...
+# (node:3634) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/chart.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: the chart offers 5m, 15m, 1H and 4H view-only controls
+ok 391 - the chart offers 5m, 15m, 1H and 4H view-only controls
+  ---
+  duration_ms: 39.083361
+  type: 'test'
+  ...
+# Subtest: selecting 5m requests and renders stored 5m candles and 5m structure
+ok 392 - selecting 5m requests and renders stored 5m candles and 5m structure
+  ---
+  duration_ms: 13.769906
+  type: 'test'
+  ...
+# Subtest: selecting 15m requests and renders stored 15m candles and 15m structure
+ok 393 - selecting 15m requests and renders stored 15m candles and 15m structure
+  ---
+  duration_ms: 24.845392
+  type: 'test'
+  ...
+# Subtest: selecting 4H requests and renders stored 4h candles and 4h structure
+ok 394 - selecting 4H requests and renders stored 4h candles and 4h structure
+  ---
+  duration_ms: 20.51003
+  type: 'test'
+  ...
+# Subtest: selecting 1H restores the engine snapshot and its exact overlays
+ok 395 - selecting 1H restores the engine snapshot and its exact overlays
+  ---
+  duration_ms: 24.32291
+  type: 'test'
+  ...
+# Subtest: switching clears the setup scenario before new data arrives
+ok 396 - switching clears the setup scenario before new data arrives
+  ---
+  duration_ms: 7.470039
+  type: 'test'
+  ...
+# Subtest: plan levels persist across chart switches, governed by the trade plan
+ok 397 - plan levels persist across chart switches, governed by the trade plan
+  ---
+  duration_ms: 24.917889
+  type: 'test'
+  ...
+# Subtest: switching chart timeframe cannot alter hierarchy, verdict, plan, or journal state
+ok 398 - switching chart timeframe cannot alter hierarchy, verdict, plan, or journal state
+  ---
+  duration_ms: 13.584433
+  type: 'test'
+  ...
+# Subtest: compactHierarchyViewModel projects the backend payload without recomputing
+ok 399 - compactHierarchyViewModel projects the backend payload without recomputing
+  ---
+  duration_ms: 0.653724
+  type: 'test'
+  ...
+# Subtest: the compact strip sits next to the chart and shows every engine role
+ok 400 - the compact strip sits next to the chart and shows every engine role
+  ---
+  duration_ms: 6.516178
+  type: 'test'
+  ...
+# Subtest: the compact strip reports an unavailable hierarchy honestly
+ok 401 - the compact strip reports an unavailable hierarchy honestly
+  ---
+  duration_ms: 11.524449
+  type: 'test'
+  ...
+# Subtest: the detailed ladder stays available but collapsed
+ok 402 - the detailed ladder stays available but collapsed
+  ---
+  duration_ms: 2.487311
+  type: 'test'
+  ...
+# Subtest: overlaysForViewedTimeframe keeps engine overlays only on the engine view
+ok 403 - overlaysForViewedTimeframe keeps engine overlays only on the engine view
+  ---
+  duration_ms: 0.344605
+  type: 'test'
+  ...
+# Subtest: the liquidity toggle is disabled off the engine timeframe with an honest reason
+ok 404 - the liquidity toggle is disabled off the engine timeframe with an honest reason
+  ---
+  duration_ms: 24.714441
+  type: 'test'
+  ...
+# Subtest: a timeframe with no stored candles renders honestly empty, never fabricated
+ok 405 - a timeframe with no stored candles renders honestly empty, never fabricated
+  ---
+  duration_ms: 3.611213
+  type: 'test'
+  ...
+# Subtest: a candles failure leaves the chart empty with the backend message
+ok 406 - a candles failure leaves the chart empty with the backend message
+  ---
+  duration_ms: 17.319027
+  type: 'test'
+  ...
+# Subtest: a structure failure still shows candles but hides levels honestly
+ok 407 - a structure failure still shows candles but hides levels honestly
+  ---
+  duration_ms: 32.067636
+  type: 'test'
+  ...
+# Subtest: mismatched backend timeframes are never rendered as the requested view
+ok 408 - mismatched backend timeframes are never rendered as the requested view
+  ---
+  duration_ms: 7.558066
+  type: 'test'
+  ...
+# Subtest: existing dashboard behaviour still works alongside the new UI
+ok 409 - existing dashboard behaviour still works alongside the new UI
+  ---
+  duration_ms: 5.382211
+  type: 'test'
+  ...
+# Subtest: chart shows one forming-feed status; the separate REST quote is display-only and never reaches the chart
+ok 410 - chart shows one forming-feed status; the separate REST quote is display-only and never reaches the chart
+  ---
+  duration_ms: 9.131703
+  type: 'test'
+  ...
+# Subtest: manual S/R toggle reveals the stored structure without changing setup or hierarchy
+ok 411 - manual S/R toggle reveals the stored structure without changing setup or hierarchy
+  ---
+  duration_ms: 2.762459
+  type: 'test'
+  ...
+# Subtest: public Binance forming klines follow the 5M/15M/1H/4H chart view only, never the engine or stored series
+ok 412 - public Binance forming klines follow the 5M/15M/1H/4H chart view only, never the engine or stored series
+  ---
+  duration_ms: 55.350648
+  type: 'test'
+  ...
+# (node:3664) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/topbar.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: updateTopbar populates every header field from backend facts
+ok 413 - updateTopbar populates every header field from backend facts
+  ---
+  duration_ms: 2.413383
+  type: 'test'
+  ...
+# Subtest: missing backend facts stay UNKNOWN instead of inventing a header
+ok 414 - missing backend facts stay UNKNOWN instead of inventing a header
+  ---
+  duration_ms: 0.402326
+  type: 'test'
+  ...
+# Subtest: refreshTopbar fetches the same truth other routes render without
+ok 415 - refreshTopbar fetches the same truth other routes render without
+  ---
+  duration_ms: 1.147344
+  type: 'test'
+  ...
+# Subtest: a stale overlapping refresh never overwrites a newer header
+ok 416 - a stale overlapping refresh never overwrites a newer header
+  ---
+  duration_ms: 0.889564
+  type: 'test'
+  ...
+# Subtest: a failed header fetch falls back to the warning header
+ok 417 - a failed header fetch falls back to the warning header
+  ---
+  duration_ms: 0.453082
+  type: 'test'
+  ...
+# Subtest: runner details distinguish unavailable, never-run, and reported
+ok 418 - runner details distinguish unavailable, never-run, and reported
+  ---
+  duration_ms: 0.413622
+  type: 'test'
+  ...
+# Subtest: system verdict needs every health conjunct; age alone never warns
+ok 419 - system verdict needs every health conjunct; age alone never warns
+  ---
+  duration_ms: 0.427791
+  type: 'test'
+  ...
+# Subtest: health labels are specific: no generic SYSTEM OK or SYSTEM WARNING can be produced
+ok 420 - health labels are specific: no generic SYSTEM OK or SYSTEM WARNING can be produced
+  ---
+  duration_ms: 0.431275
+  type: 'test'
+  ...
+# Subtest: each failing condition is listed with its component, most severe first
+ok 421 - each failing condition is listed with its component, most severe first
+  ---
+  duration_ms: 1.356481
+  type: 'test'
+  ...
+# Subtest: a stale series names the stored end, the candle that should exist, and how far behind
+ok 422 - a stale series names the stored end, the candle that should exist, and how far behind
+  ---
+  duration_ms: 0.805377
+  type: 'test'
+  ...
+# (node:3681) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/util.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: a node passed as text throws instead of rendering [object HTMLDivElement]
+ok 423 - a node passed as text throws instead of rendering [object HTMLDivElement]
+  ---
+  duration_ms: 1.364588
+  type: 'test'
+  ...
+# Subtest: cross-realm nodes are appended as children, never stringified
+ok 424 - cross-realm nodes are appended as children, never stringified
+  ---
+  duration_ms: 0.340554
+  type: 'test'
+  ...
+# Subtest: ordinary strings still render as text
+ok 425 - ordinary strings still render as text
+  ---
+  duration_ms: 0.860665
+  type: 'test'
+  ...
+# Subtest: historical validation remains read-only and is available from the one-page performance section
+ok 426 - historical validation remains read-only and is available from the one-page performance section
+  ---
+  duration_ms: 14.093322
+  type: 'test'
+  ...
+# (node:3706) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/chart.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: each display band is a shaded element at the coordinates of its edges
+ok 427 - each display band is a shaded element at the coordinates of its edges
+  ---
+  duration_ms: 3.730735
+  type: 'test'
+  ...
+# Subtest: bands above price, containing price and htf bands get distinct classes
+ok 428 - bands above price, containing price and htf bands get distinct classes
+  ---
+  duration_ms: 0.590944
+  type: 'test'
+  ...
+# Subtest: labels that would overlap are stacked at least 16px apart
+ok 429 - labels that would overlap are stacked at least 16px apart
+  ---
+  duration_ms: 0.38506
+  type: 'test'
+  ...
+# Subtest: clicking a band's label reports that band and does not propagate to the chart
+ok 430 - clicking a band's label reports that band and does not propagate to the chart
+  ---
+  duration_ms: 1.096915
+  type: 'test'
+  ...
+# Subtest: bands entirely outside the visible range are counted, not drawn
+ok 431 - bands entirely outside the visible range are counted, not drawn
+  ---
+  duration_ms: 0.300559
+  type: 'test'
+  ...
+# Subtest: re-rendering replaces the previous bands instead of accumulating them
+ok 432 - re-rendering replaces the previous bands instead of accumulating them
+  ---
+  duration_ms: 0.247833
+  type: 'test'
+  ...
+# Subtest: invalid or non-object entries are ignored rather than drawn
+ok 433 - invalid or non-object entries are ignored rather than drawn
+  ---
+  duration_ms: 0.212174
+  type: 'test'
+  ...
+# Subtest: clearing removes the layer, releases the chart subscriptions and is safe to repeat
+ok 434 - clearing removes the layer, releases the chart subscriptions and is safe to repeat
+  ---
+  duration_ms: 0.324145
+  type: 'test'
+  ...
+# Subtest: a destroyed chart never receives bands
+ok 435 - a destroyed chart never receives bands
+  ---
+  duration_ms: 0.377244
+  type: 'test'
+  ...
+# Subtest: renderZoneBands is a pure read: it does not change the stored band state
+ok 436 - renderZoneBands is a pure read: it does not change the stored band state
+  ---
+  duration_ms: 0.623691
+  type: 'test'
+  ...
+# Subtest: CSS keeps candles clickable under the bands: only labels take pointer events
+ok 437 - CSS keeps candles clickable under the bands: only labels take pointer events
+  ---
+  duration_ms: 1.765845
+  type: 'test'
+  ...
+# (node:3714) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/audit-snapshots/pr-65/src/trading_assistant/web/static/js/zone-position.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/audit-snapshots/pr-65/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: positionAgainstPrice classifies above, below, inside (edges inclusive) and rejects unusable input
+ok 438 - positionAgainstPrice classifies above, below, inside (edges inclusive) and rejects unusable input
+  ---
+  duration_ms: 1.545615
+  type: 'test'
+  ...
+# Subtest: a 4H band that is support on the 4H close is relocated to resistance on a 1H chart priced below it
+ok 439 - a 4H band that is support on the 4H close is relocated to resistance on a 1H chart priced below it
+  ---
+  duration_ms: 0.298702
+  type: 'test'
+  ...
+# Subtest: the source evidence (position, close, timestamps, touches) is preserved on the relocated band
+ok 440 - the source evidence (position, close, timestamps, touches) is preserved on the relocated band
+  ---
+  duration_ms: 0.79508
+  type: 'test'
+  ...
+# Subtest: a band the viewed price is inside is labelled inside, even though its source close put it on one side
+ok 441 - a band the viewed price is inside is labelled inside, even though its source close put it on one side
+  ---
+  duration_ms: 0.233393
+  type: 'test'
+  ...
+# Subtest: when the source and viewed positions agree, nothing is marked as changed
+ok 442 - when the source and viewed positions agree, nothing is marked as changed
+  ---
+  duration_ms: 0.568542
+  type: 'test'
+  ...
+# Subtest: without a usable viewed close the band keeps its source position and is never presented as verified
+ok 443 - without a usable viewed close the band keeps its source position and is never presented as verified
+  ---
+  duration_ms: 0.175988
+  type: 'test'
+  ...
+# Subtest: relocateBands handles lists, a non-array, and a band-less input without throwing
+ok 444 - relocateBands handles lists, a non-array, and a band-less input without throwing
+  ---
+  duration_ms: 0.513243
+  type: 'test'
+  ...
+# Subtest: lastConfirmedClose reads the close of the last API candle row and rejects malformed rows
+ok 445 - lastConfirmedClose reads the close of the last API candle row and rejects malformed rows
+  ---
+  duration_ms: 0.2227
+  type: 'test'
+  ...
+# Subtest: the explanation states the viewed-chart position and keeps the source-timeframe close as evidence
+ok 446 - the explanation states the viewed-chart position and keeps the source-timeframe close as evidence
+  ---
+  duration_ms: 1.964184
+  type: 'test'
+  ...
+# Subtest: an unverified band explanation says the position is the source timeframe's own
+ok 447 - an unverified band explanation says the position is the source timeframe's own
+  ---
+  duration_ms: 1.874324
+  type: 'test'
+  ...
+# Subtest: selecting a zone band explains it against the viewed close, not the source close
+ok 448 - selecting a zone band explains it against the viewed close, not the source close
+  ---
+  duration_ms: 1.997858
+  type: 'test'
+  ...
+# Subtest: the chart paints only the nearest band per side plus one containing price, and counts the rest
+ok 449 - the chart paints only the nearest band per side plus one containing price, and counts the rest
+  ---
+  duration_ms: 0.459595
+  type: 'test'
+  ...
+1..449
+# tests 449
+# suites 0
+# pass 449
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 23865.857491

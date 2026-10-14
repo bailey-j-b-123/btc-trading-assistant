@@ -34,8 +34,8 @@ GitHub PR metadata, bodies, changed paths, checks and commits are preserved in `
 
 - `npm test`: **425 passed, 0 failed**, 19.087 seconds (full log saved).
 - `.venv/bin/ruff check --isolated --select E4,E7,E9,F src tests`: **15 findings**, exit 1 (full log saved). No fixes applied.
-- `.venv/bin/python -m pytest -q`: running; result not yet claimed.
-- Documented shallow-history expected failure preserved unchanged; independent reproduction pending.
+- `.venv/bin/python -m pytest -q`: **1182 passed, 1 xfailed, 1 warning in 276.80 seconds**, exit 0 (`evidence/baseline-pytest.txt`).
+- Documented shallow-history expected failure preserved unchanged; independently reproduced again with targeted test: **1 xfailed in 17.55 seconds**.
 
 ## Publication setup correction
 

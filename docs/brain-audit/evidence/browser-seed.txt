@@ -1,0 +1,3 @@
+[DEMO] synthetic candles inserted=600 already_present=0 (2026-09-19T08:00:00+00:00 .. 2026-10-14T07:00:00+00:00) — DEMONSTRATION DATA, not market history
+[DEMO] setups=2 qualified=0
+[DEMO] no QUALIFIED setup at the newest boundary; chart evidence still renders. Nothing journaled.
