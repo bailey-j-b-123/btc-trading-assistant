@@ -44,7 +44,12 @@ planned=7 refused=0 invariant failures=0
 
 ## Lint (unchanged by every branch audited)
 # .venv/bin/ruff check --isolated --select E4,E7,E9,F src tests
-# base a0f1faf   -> 
-# PR #69 09f5ee2 -> 
-# base a0f1faf   -> 
-# PR #69 09f5ee2 -> 
+# base a0f1faf   -> Found 15 errors.
+# PR #69 09f5ee2 -> Found 15 errors.
+
+## The lookahead-critical test that PASSES (name matters)
+# tests/test_decision_invariance.py:200 test_candles_after_as_of_never_change_the_decision_at_as_of -> PASSED
+# tests/test_decision_invariance.py:195 test_decision_is_identical_when_stored_history_starts_well_before_the_boundary -> PASSED
+# tests/test_decision_invariance.py:225 test_plan_eligibility_shrinks_with_a_shallow_start_without_inventing_a_setup -> PASSED
+# tests/test_decision_invariance.py:252 test_a_shallow_record_never_plans_on_a_level_it_cannot_account_for -> PASSED
+# tests/test_decision_invariance.py:220 test_a_shallow_stored_start_does_not_change_live_setups_at_a_later_boundary -> XFAIL (documented, pinned)
