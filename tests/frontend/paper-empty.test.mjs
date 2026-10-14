@@ -29,7 +29,7 @@ globalThis.Node = ShimNode;
 globalThis.document = { createElement: (tag) => new ShimNode(tag), createTextNode: (text) => Object.assign(new ShimNode("#text"), { _text: String(text) }) };
 globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 
-const { paperSection } = await import("../../src/trading_assistant/web/static/js/views/dashboard.js");
+const { paperSection, performanceSection } = await import("../../src/trading_assistant/web/static/js/views/dashboard.js");
 
 const zeroForward = {
   paper_label: "PAPER OBSERVATION — NO REAL ORDER",
@@ -54,8 +54,10 @@ test("with recorded plans the three-panel ledger is still rendered", () => {
     observations: { paper_plans: [], observations: [] },
     report: { metrics: { paper_plan_count: 2 } },
   };
-  const text = paperSection({ meta: {} }, withPlans).textContent;
-  // Recorded (or counted) plans keep the full three-panel ledger; the empty-ledger card is not used.
+  // The approved dashboard splits the ledger across two bottom tabs (Paper
+  // Trades and Performance), so the union of the two sections must still carry
+  // every recorded panel. No panel was dropped and no metric was invented.
+  const text = `${paperSection({ meta: {} }, withPlans).textContent}${performanceSection({ meta: {} }, withPlans).textContent}`;
   assert.match(text, /Paper observations/);
   assert.match(text, /Recent decisions/);
   assert.match(text, /Measured performance/);

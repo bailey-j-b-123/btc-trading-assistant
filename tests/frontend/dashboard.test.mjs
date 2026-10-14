@@ -1134,12 +1134,19 @@ test("the paper trade tracker is prominent, persistent, and ledger-driven", asyn
     await renderDashboard(view);
     const tracker = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("paper-tracker"))[0];
     assert.ok(tracker, "the tracker card renders on the dashboard");
-    // Prominent placement: directly after the decision hero, before the chart.
+    // Approved V2 placement: the tracker is the first thing in the Paper Trades
+    // panel, and that panel is the tab the dashboard opens on. The chart and the
+    // Current Setup panel sit above the tab strip, so the ledger never competes
+    // with the decision.
+    const paperPanel = findNodes(view, (node) => node.getAttribute && node.getAttribute("data-tab") === "paper")[0];
+    assert.ok(paperPanel, "the Paper Trades tab panel renders");
+    assert.equal(paperPanel.getAttribute("role"), "tabpanel");
+    assert.equal(paperPanel.hidden, false, "the dashboard opens on Paper Trades");
+    assert.equal(paperPanel.children[0], tracker, "the tracker is the first item in the Paper Trades panel");
     const hero = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("hero-card"))[0];
     const chart = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("dash-main"))[0];
-    const order = view.children.indexOf(hero) < view.children.indexOf(tracker)
-      && tracker ? view.children.indexOf(tracker) < view.children.indexOf(chart) : false;
-    assert.ok(order, "tracker sits between the decision hero and the chart");
+    assert.ok(hero && chart, "the decision and the chart still render");
+    assert.ok(view.children.indexOf(chart) < view.children.indexOf(byClass(view, "dash-bottom")[0]), "the chart area sits above the tabs");
     // The recorded plan shows every ledger fact, unresolved included.
     assert.match(tracker.textContent, /Paper trade tracker/);
     assert.match(tracker.textContent, /83,916\.01/);
@@ -1224,7 +1231,8 @@ test("tracker updates when the runner records STOPPED after the dashboard refres
     const cardBefore = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("paper-tracker"))[0];
     const heroBefore = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("hero-card"))[0];
     const chartWrapBefore = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("dash-chart"))[0];
-    assert.ok(cardBefore && heroBefore && chartWrapBefore);
+    const trackerSlotBefore = cardBefore ? cardBefore.parentNode : null;
+    assert.ok(cardBefore && heroBefore && chartWrapBefore && trackerSlotBefore);
     // The dashboard refreshed on the new candle while the plan was still open.
     assert.match(cardBefore.textContent, /Still open at cutoff/);
     assert.match(cardBefore.textContent, /Unresolved — still observing/);
@@ -1242,7 +1250,10 @@ test("tracker updates when the runner records STOPPED after the dashboard refres
     const cardAfter = findNodes(view, (node) => (node.className || "").split(/\s+/).includes("paper-tracker"))[0];
     assert.ok(cardAfter, "the tracker card is still mounted");
     assert.notEqual(cardAfter, cardBefore, "the tracker card was replaced in place");
-    assert.equal(cardAfter.parentNode, view);
+    // Still swapped inside its own slot (the Paper Trades panel), never rebuilt
+    // into a new page: the same parent receives the new card at the same index.
+    assert.equal(cardAfter.parentNode, trackerSlotBefore, "the same slot receives the updated card");
+    assert.equal(cardAfter.parentNode.children[0], cardAfter);
     assert.equal(cardBefore.parentNode, null);
     assert.match(cardAfter.textContent, /Latest outcome\s*Stopped/);
     assert.match(cardAfter.textContent, /Plan state\s*Settled — final/);
@@ -1277,4 +1288,387 @@ test("tracker updates when the runner records STOPPED after the dashboard refres
     assert.equal(fetchTotal(fetchCounts, "/api/forward/paper-tracker"), trackerPolls, "no poll runs after navigation");
     assert.equal(findNodes(view, (node) => (node.className || "").split(/\s+/).includes("paper-tracker"))[0], stableCard);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Approved dashboard V2: trading bar, chart functions, summary cards, tabs
+// ---------------------------------------------------------------------------
+
+const T11 = Date.parse("2026-10-06T11:00:00Z");
+const T12 = Date.parse("2026-10-06T12:00:00Z");
+
+/** The backend fixture plus stored chart evidence on both of its candles. */
+function evidenceDashboard() {
+  const dashboard = backendDashboard({
+    planning: { state: "PLANNABLE", reasons: [], missing_inputs: [], state_detail: null },
+    plan: {
+      state: "PLANNABLE",
+      direction: "bullish",
+      entry: { value: "62100" },
+      stop: { value: "61900" },
+      invalidation: { value: "61900" },
+      targets: [{ level: { value: "62500" }, r_multiple: "2" }],
+    },
+    chart_evidence: {
+      available: true,
+      timeframe: "1h",
+      counts: { swings: 2, patterns: 2, breakouts: 1, failed_breakouts: 0, sweeps: 0, retests: 0 },
+      excluded_future_count: 1,
+      swings: [
+        { id: "swing:HH:1", kind: "high", label: "HH", price: "62100", time_ms: T11, known_at: "2026-10-06T11:00:00Z" },
+        { id: "swing:HL:1", kind: "low", label: "HL", price: "61500", time_ms: T12, known_at: "2026-10-06T12:00:00Z" },
+      ],
+      patterns: [
+        {
+          id: "pattern:db:1",
+          pattern_id: "db-1",
+          type: "double_bottom",
+          label: "DB",
+          side: "bottom",
+          state: "confirmed",
+          is_latest_state: true,
+          known_at: "2026-10-06T11:00:00Z",
+          anchor_time: "2026-10-06T11:00:00Z",
+          anchor_time_ms: T11,
+          neckline: "62200",
+          invalidation_level: "61500",
+          components: [{ time_ms: T12, price: "61500" }],
+        },
+        {
+          id: "pattern:hns:1",
+          pattern_id: "hns-1",
+          type: "head_and_shoulders",
+          label: "H&S",
+          side: "top",
+          state: "formed",
+          is_latest_state: true,
+          known_at: "2026-10-06T12:00:00Z",
+          anchor_time: "2026-10-06T12:00:00Z",
+          anchor_time_ms: T12,
+          components: [],
+        },
+      ],
+      breakouts: [
+        { id: "bo-1", direction: "bullish", state: "confirmed", time_ms: T12, known_at: "2026-10-06T12:00:00Z", band_low: "61500", band_high: "61600" },
+      ],
+      failed_breakouts: [],
+      sweeps: [],
+      retests: [],
+      zones: [],
+    },
+  });
+  dashboard.overlays = {
+    ...dashboard.overlays,
+    zone_bands: {
+      timeframe: "1h",
+      bands: [
+        {
+          id: "band-1",
+          display_role: "support",
+          position: "below_price",
+          band_low: "61500",
+          band_high: "61600",
+          center: "61550",
+          touch_count: 2,
+          faded: false,
+          isolated: false,
+          source_timeframe: "1h",
+          merged_zone_count: 1,
+          source_swing_timestamps: ["2026-10-06T12:00:00Z"],
+        },
+      ],
+      hidden_count: 3,
+      merged_count: 0,
+      total_stored: 4,
+      reason: null,
+    },
+  };
+  return dashboard;
+}
+
+function intoClass(node, name) {
+  return (node.className || "").split(/\s+/).includes(name);
+}
+
+function byClass(root, name) {
+  return findNodes(root, (node) => intoClass(node, name));
+}
+
+/** Press a button the way a browser would: every click listener, in order. */
+function press(node) {
+  assert.ok(node, "the control has to exist before it can be pressed");
+  const listeners = node.listeners.get("click") || [];
+  assert.ok(listeners.length, "the control has a click handler");
+  for (const listener of listeners) listener({ preventDefault() {}, stopPropagation() {} });
+}
+
+test("the trading bar carries the approved instrument, timeframe, mode and health facts", async () => {
+  await withDashboard(evidenceDashboard(), forwardPayload(), async ({ view, ids }) => {
+    await renderDashboard(view);
+    const bar = byClass(view, "dash-commandbar")[0];
+    assert.ok(bar, "the trading bar renders");
+    assert.equal(byClass(bar, "commandbar-symbol")[0].textContent, "BTC/USDT");
+    assert.match(bar.textContent, /PAPER MODE/);
+    assert.match(bar.textContent, /ENGINE 1H/);
+    const timeframeButtons = findNodes(bar, (node) => node.getAttribute?.("data-timeframe") || node.getAttribute?.("data-view-timeframe"));
+    assert.deepEqual(timeframeButtons.map((node) => node.textContent), ["5M", "15M", "1H", "4H", "1D"]);
+    assert.deepEqual(
+      timeframeButtons.filter((node) => node.getAttribute("aria-pressed") === "true").map((node) => node.textContent),
+      ["1H"],
+    );
+    assert.ok(byClass(bar, "live-quote").length, "the live price block is in the bar");
+    assert.match(byClass(bar, "commandbar-health-pill")[0].textContent, /^DATA CURRENT/);
+    assert.match(bar.textContent, /Last confirmed close 62,160\.00/);
+    assert.match(bar.textContent, /stored closed candles only/);
+    assert.equal(ids.get("topbar-price").textContent, "62,160.00");
+    // Four compact summary cards under the main area, then the three bottom tabs.
+    const summary = byClass(view, "dash-summary-grid")[0];
+    assert.ok(summary, "the summary grid renders");
+    const statCards = byClass(summary, "stat-card");
+    assert.deepEqual(
+      findNodes(summary, (node) => intoClass(node, "stat-label")).map((node) => node.textContent),
+      ["Active setups", "Qualified plans", "Settled paper trades", "Runner health"],
+    );
+    assert.equal(statCards.length, 4);
+    assert.match(statCards[3].textContent, /^◉Runner healthDATA CURRENT · RUNNER IDLE/);
+    // The four rows of the Current Setup column, from the backend's own facts.
+    const setup = byClass(view, "setup-rows")[0];
+    assert.deepEqual(
+      findNodes(setup, (node) => intoClass(node, "setup-row-label")).map((node) => node.textContent),
+      ["Market bias", "Setup status", "Confirmation", "Execution"],
+    );
+    assert.match(setup.textContent, /Market biasBullishStructure read: higher highs and higher lows\./);
+    assert.match(setup.textContent, /ExecutionNot armedDisabled by design/);
+    const tabs = byClass(view, "dash-tabs")[0];
+    assert.ok(tabs, "the bottom tabs render");
+    assert.deepEqual(
+      findNodes(tabs, (node) => node.getAttribute?.("data-tab-target")).map((node) => node.textContent),
+      ["Paper Trades", "Performance", "Diagnostics"],
+    );
+    assert.equal(findNodes(view, (node) => node.getAttribute?.("data-tab") === "diagnostics")[0].hidden, true, "diagnostics stay out of the way");
+    // The compact More menu keeps the read-only pages reachable without
+    // competing with the trading view.
+    const more = byClass(view, "more-menu")[0];
+    assert.ok(more, "the More menu renders in the trading bar");
+    assert.equal(more.tagName, "DETAILS", "closed by default, and keyboard-operable without script state");
+    assert.equal(more.open, false);
+    assert.equal(byClass(more, "more-summary")[0].textContent, "More");
+    const links = byClass(more, "more-link");
+    assert.deepEqual(links.map((node) => node.textContent), ["Journal", "Live / Paper", "Statistics", "Validation", "Settings"]);
+    assert.deepEqual(links.map((node) => node.getAttribute("href")), ["#/journal", "#/live", "#/statistics", "#/validation", "#/settings"]);
+    assert.equal(byClass(more, "more-list")[0].getAttribute("aria-label"), "More pages");
+  });
+});
+
+test("the five chart functions are switchable and Simple mode draws one at a time", async () => {
+  // A qualified setup with a plannable plan: the Trade Plan function only draws
+  // what the engine itself supplied.
+  const dashboard = evidenceDashboard();
+  dashboard.qualification = {
+    available: true,
+    state: "QUALIFIED",
+    reasons: [],
+    selected_setup_id: "setup-qualified-1",
+    setups: [{ id: "setup-qualified-1", state: "QUALIFIED", family: "breakout_retest_continuation", direction: "bullish" }],
+    snapshot: { setups: [{ id: "setup-qualified-1", state: "QUALIFIED", family: "breakout_retest_continuation", direction: "bullish", rules: [] }] },
+  };
+  await withDashboard(dashboard, forwardPayload(), async ({ view, chartState }) => {
+    await renderDashboard(view);
+    const buttons = findNodes(view, (node) => node.getAttribute?.("data-function"));
+    assert.deepEqual(
+      buttons.map((node) => node.getAttribute("data-function")),
+      ["support_resistance", "swings", "patterns", "breakouts", "trade_plan"],
+    );
+    assert.deepEqual(buttons.map((node) => node.textContent), ["S/R", "Swings", "Patterns", "Breakouts", "Plan"]);
+    assert.deepEqual(buttons.map((node) => node.getAttribute("aria-pressed")), ["false", "false", "false", "false", "true"]);
+    const status = byClass(view, "chart-function-status")[0];
+    assert.match(status.textContent, /^Trade Plan: /);
+    const drawnTitles = () => [...chartState.charts[0].lines].map((line) => line.options.title);
+    assert.ok(drawnTitles().includes("Stop / Invalidation"), "the plan's own lines are drawn by default");
+
+    press(buttons[1]); // Swing Highs / Lows
+    await drainMicrotasks();
+    assert.equal(buttons[1].getAttribute("aria-pressed"), "true");
+    assert.equal(buttons[4].getAttribute("aria-pressed"), "false", "one primary function at a time");
+    assert.match(status.textContent, /^Swing Highs \/ Lows: 2 stored confirmed swing\(s\)/);
+    assert.ok(
+      !drawnTitles().some((title) => title.includes("support") || title.includes("resistance")),
+      "no unrelated levels are drawn for the swing function",
+    );
+    assert.equal(byClass(view, "swing-connector-toggle")[0].getAttribute("aria-pressed"), "false");
+
+    press(buttons[0]); // Support / Resistance
+    await drainMicrotasks();
+    assert.match(status.textContent, /^Support \/ Resistance: 1 band\(s\) shown nearest price first · 3 further band\(s\) hidden/);
+    // The panel beside the chart explains the selected function from the stored,
+    // presented bands: bounds and touch counts come straight from the detector.
+    const panel = byClass(view, "chart-function-panel")[0];
+    assert.equal(panel.dataset.function, "support_resistance");
+    assert.match(panel.textContent, /Support & Resistance/);
+    assert.match(panel.textContent, /Support61,500\.00 – 61,600\.00/);
+    assert.match(panel.textContent, /2 touches/);
+    assert.match(panel.textContent, /Only the nearest active zones are drawn\./);
+
+    press(buttons[3]); // Breakouts / Retests
+    await drainMicrotasks();
+    assert.match(status.textContent, /^Breakouts \/ Retests: 1 breakout\(s\) · 0 failed · 0 sweep\(s\) · 0 retest\(s\)/);
+    assert.match(status.textContent, /1 later-known item\(s\) excluded at this instant/);
+    // Continuation is one of the three steps, so it is named — but it is never
+    // claimed complete: the backend stores no continuation for this breakout.
+    assert.match(status.textContent, /3 Continuation: In Progress/);
+    assert.doesNotMatch(status.textContent, /3 Continuation: Confirmed/);
+  });
+});
+
+test("Simple and Detailed modes change what is drawn without changing the evidence", async () => {
+  await withDashboard(evidenceDashboard(), forwardPayload(), async ({ view, fetchCounts }) => {
+    await renderDashboard(view);
+    const modeButtons = findNodes(view, (node) => node.getAttribute?.("data-mode"));
+    assert.deepEqual(modeButtons.map((node) => node.getAttribute("data-mode")), ["simple", "detailed"]);
+    assert.equal(modeButtons[0].getAttribute("aria-pressed"), "true", "Simple is the default");
+    const legacy = byClass(view, "chart-layer-details")[0];
+    assert.equal(legacy.hidden, true, "the full layer list stays out of the way in Simple mode");
+    const dashboardCalls = fetchTotal(fetchCounts, "/api/dashboard");
+
+    press(modeButtons[1]);
+    await drainMicrotasks();
+    assert.equal(modeButtons[1].getAttribute("aria-pressed"), "true");
+    assert.equal(modeButtons[0].getAttribute("aria-pressed"), "false");
+    assert.equal(legacy.hidden, false, "Detailed mode exposes the operator's own layer switches");
+    assert.equal(fetchTotal(fetchCounts, "/api/dashboard"), dashboardCalls, "display mode never re-runs the analysis");
+  });
+});
+
+test("the bottom tabs switch panels without rebuilding the chart or refetching the dashboard", async () => {
+  await withDashboard(evidenceDashboard(), forwardPayload(), async ({ view, chartState, fetchCounts }) => {
+    await renderDashboard(view);
+    const tabs = findNodes(view, (node) => node.getAttribute?.("data-tab-target"));
+    const panels = findNodes(view, (node) => node.getAttribute?.("data-tab"));
+    const paper = panels.find((node) => node.getAttribute("data-tab") === "paper");
+    const performance = panels.find((node) => node.getAttribute("data-tab") === "performance");
+    const diagnostics = panels.find((node) => node.getAttribute("data-tab") === "diagnostics");
+    assert.equal(paper.hidden, false, "the dashboard opens on Paper Trades");
+    assert.equal(performance.hidden, true);
+    assert.equal(diagnostics.hidden, true);
+    assert.deepEqual(findNodes(view, (node) => node.getAttribute?.("aria-selected") === "true").map((node) => node.textContent), ["Paper Trades"]);
+    const calls = fetchTotal(fetchCounts, "/api/dashboard");
+    const chart = chartState.charts[0];
+
+    press(tabs[2]); // Diagnostics
+    await drainMicrotasks();
+    assert.equal(paper.hidden, true);
+    assert.equal(diagnostics.hidden, false);
+    assert.equal(tabs[2].getAttribute("aria-selected"), "true");
+    assert.equal(tabs[0].getAttribute("aria-selected"), "false");
+    assert.match(diagnostics.textContent, /Bot is watching/);
+    assert.ok(diagnostics.textContent.includes("System details") || byClass(diagnostics, "system-details").length, "system details stay reachable");
+    // The full presented band list lives here, with the detector's own bounds and
+    // touch counts, so nothing that used to be on the page has been dropped.
+    assert.match(diagnostics.textContent, /Nearby zones/);
+    assert.match(diagnostics.textContent, /61,500\.00 – 61,600\.00/);
+    assert.match(diagnostics.textContent, /2 touches/);
+    assert.equal(chartState.charts.length, 1, "no new chart instance is created");
+    assert.equal(chartState.charts[0], chart, "the chart is reused, so zoom and pan survive");
+    assert.equal(chart.removed, false, "switching tabs never disposes the chart");
+    assert.equal(fetchTotal(fetchCounts, "/api/dashboard"), calls, "no re-analysis on a tab switch");
+
+    press(tabs[1]); // Performance
+    await drainMicrotasks();
+    assert.equal(performance.hidden, false);
+    assert.match(performance.textContent, /Recorded outcome counts/);
+    // The approved design's two realised-performance tiles are in the layout, and this
+    // payload has no paper-performance block, so both state that plainly.
+    const headline = byClass(performance, "metric-tile--headline");
+    assert.deepEqual(headline.map((tile) => tile.dataset.metric), ["win_rate", "total_pnl"]);
+    assert.match(headline[0].textContent, /Win rate/);
+    assert.match(headline[1].textContent, /Total P&L/);
+    assert.equal(headline.filter((tile) => tile.textContent.includes("Not available yet")).length, 2);
+    assert.doesNotMatch(performance.textContent, /Total P&L[\s\S]{0,40}\+?\d/, "no figure is shown for P&L");
+    press(tabs[0]); // back to Paper Trades
+    await drainMicrotasks();
+    assert.equal(paper.hidden, false);
+    assert.equal(byClass(paper, "paper-tracker").length, 1, "the ledger card is still the first thing in the panel");
+  });
+});
+
+test("the pattern picker switches the drawn pattern and never shows a confidence", async () => {
+  await withDashboard(evidenceDashboard(), forwardPayload(), async ({ view }) => {
+    await renderDashboard(view);
+    const patternsButton = findNodes(view, (node) => node.getAttribute?.("data-function") === "patterns")[0];
+    assert.equal(byClass(view, "chart-pattern-picker")[0].hidden, true, "the picker appears with its function only");
+    press(patternsButton);
+    await drainMicrotasks();
+    const picker = byClass(view, "chart-pattern-picker")[0];
+    assert.equal(picker.hidden, false);
+    const choices = findNodes(picker, (node) => node.getAttribute?.("data-pattern-id"));
+    assert.deepEqual(choices.map((node) => node.textContent), ["H&S · formed · current", "DB · confirmed · current"]);
+    assert.deepEqual(
+      choices.map((node) => node.getAttribute("aria-pressed")),
+      ["true", "false"],
+      "the most recently known current state is highlighted until the operator picks another",
+    );
+    assert.doesNotMatch(picker.textContent, /confidence|probability|%/i);
+    press(choices[1]); // the other detected pattern
+    await drainMicrotasks();
+    const afterPress = findNodes(picker, (node) => node.getAttribute?.("data-pattern-id"));
+    assert.deepEqual(
+      afterPress.map((node) => node.getAttribute("aria-pressed")),
+      ["false", "true"],
+      "the other detected pattern is now the highlighted one",
+    );
+    assert.match(byClass(view, "chart-function-status")[0].textContent, /1 drawn/, "exactly the selected pattern is drawn");
+  });
+});
+
+test("desktop keeps Performance beside left tabs and restores narrow tab behaviour on resize", async () => {
+  let resize;
+  let removed = false;
+  const media = {
+    matches: true,
+    addEventListener(type, listener) { assert.equal(type, "change"); resize = listener; },
+    removeEventListener(type, listener) { assert.equal(type, "change"); assert.equal(listener, resize); removed = true; },
+  };
+  await withDashboard(evidenceDashboard(), forwardPayload(), async ({ view, chartState, fetchCounts }) => {
+    window.matchMedia = query => { assert.equal(query, "(min-width: 1181px)"); return media; };
+    await renderDashboard(view);
+    const bottom = byClass(view, "dash-bottom")[0];
+    const panels = findNodes(bottom, node => node.getAttribute?.("data-tab"));
+    const panel = id => panels.find(node => node.getAttribute("data-tab") === id);
+    const tabs = findNodes(bottom, node => node.getAttribute?.("data-tab-target"));
+    const tab = id => tabs.find(node => node.getAttribute("data-tab-target") === id);
+    const calls = fetchTotal(fetchCounts, "/api/dashboard");
+    const chart = chartState.charts[0];
+    assert.equal(panel("paper").hidden, false);
+    assert.equal(panel("performance").hidden, false);
+    assert.equal(panel("performance").getAttribute("role"), "region");
+    assert.equal(panel("performance").getAttribute("aria-labelledby"), null);
+    assert.equal(tab("performance").hidden, true);
+    press(tab("diagnostics"));
+    assert.equal(panel("paper").hidden, true);
+    assert.equal(panel("diagnostics").hidden, false);
+    assert.equal(panel("performance").hidden, false, "Diagnostics never hides desktop Performance");
+    assert.equal(byClass(panel("performance"), "metric-tile--headline").filter(tile => tile.textContent.includes("Not available yet")).length, 2);
+    media.matches = false;
+    resize();
+    assert.equal(tab("performance").hidden, false);
+    assert.equal(panel("performance").hidden, true);
+    assert.equal(panel("performance").getAttribute("role"), "tabpanel");
+    assert.equal(panel("performance").getAttribute("aria-labelledby"), "dash-tab-performance");
+    press(tab("performance"));
+    assert.equal(panel("performance").hidden, false);
+    assert.equal(panel("diagnostics").hidden, true);
+    media.matches = true;
+    resize();
+    assert.equal(panel("paper").hidden, false, "mobile Performance selection defaults the desktop left pane to Paper Trades");
+    assert.equal(panel("performance").hidden, false);
+    assert.equal(tab("paper").getAttribute("aria-selected"), "true");
+    media.matches = false;
+    resize();
+    assert.equal(panel("paper").hidden, true);
+    assert.equal(panel("performance").hidden, false, "narrow Performance selection survives desktop resize");
+    assert.equal(chartState.charts.length, 1);
+    assert.equal(chartState.charts[0], chart);
+    assert.equal(fetchTotal(fetchCounts, "/api/dashboard"), calls);
+  });
+  assert.equal(removed, true, "responsive listener is removed on dashboard disposal");
 });
