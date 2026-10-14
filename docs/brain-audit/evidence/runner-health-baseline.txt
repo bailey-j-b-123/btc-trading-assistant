@@ -1,0 +1,4 @@
+{"case":"recent control","age":5,"recorded":"2026-10-14T08:00:00Z","healthy":true,"label":"DATA CURRENT · RUNNER IDLE","tone":"green","primary":null,"issues":[]}
+{"case":"seven days stale","age":604800,"recorded":"2026-10-07T08:00:00Z","healthy":true,"label":"DATA CURRENT · RUNNER IDLE","tone":"green","primary":null,"issues":[]}
+{"case":"missing heartbeat","age":null,"recorded":null,"healthy":true,"label":"DATA CURRENT · RUNNER IDLE","tone":"green","primary":null,"issues":[]}
+{"case":"future heartbeat","age":-3600,"recorded":"2026-10-14T09:00:00Z","healthy":true,"label":"DATA CURRENT · RUNNER IDLE","tone":"green","primary":null,"issues":[]}

@@ -1,0 +1,55 @@
+{
+  "provenance": "SYNTHETIC detector-generated fixture, not market history",
+  "records": [
+    {
+      "id": "04f6cd18d73d9bc4eb2608f2dddcd19cb0454613bbd6db1f56ce00c40765b3ab",
+      "evidence_kind": "retest",
+      "kind": "retest",
+      "known_at": "2024-01-01T07:00:00Z",
+      "state": "observed",
+      "breakout_id": "c726cef93c1dc4b6698ba622d00d6400fd837f04e39a258027e166ecef0680ed",
+      "direction": "bullish",
+      "band_low": "110",
+      "band_high": "110",
+      "time_ms": 1704088800000,
+      "time": "2024-01-01T06:00:00Z",
+      "distance_from_band": "0",
+      "elapsed_candles": 1,
+      "candle_interval_seconds": 3600
+    },
+    {
+      "id": "594a39872a041eb204e98ef2a1d59c51b6139fb1aace55360c2fa1306c1c822e",
+      "evidence_kind": "retest",
+      "kind": "retest",
+      "known_at": "2024-01-01T08:00:00Z",
+      "state": "held",
+      "breakout_id": "c726cef93c1dc4b6698ba622d00d6400fd837f04e39a258027e166ecef0680ed",
+      "direction": "bullish",
+      "band_low": "110",
+      "band_high": "110",
+      "time_ms": 1704092400000,
+      "time": "2024-01-01T07:00:00Z",
+      "distance_from_band": "1",
+      "elapsed_candles": 2,
+      "candle_interval_seconds": 3600
+    }
+  ],
+  "renderedRetest": {
+    "key": "retest",
+    "number": 2,
+    "title": "Retest",
+    "status": "Held",
+    "tone": "green",
+    "place": "below",
+    "nudge": "right",
+    "summary": "Price came back to the band and the retest held.",
+    "recorded": true,
+    "timeSeconds": 1704088800,
+    "timeText": "2024-01-01 06:00 UTC",
+    "price": 109,
+    "barIndex": 6,
+    "onLoadedCandles": true,
+    "detail": "2 retest records are stored for this breakout and 1 of 2 held the band",
+    "meta": "2024-01-01 06:00 UTC · 0.00 from the band · 1 candle(s) after the breakout"
+  }
+}

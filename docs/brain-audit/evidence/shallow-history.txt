@@ -1,0 +1,4 @@
+x                                                                        [100%]
+=========================== short test summary info ============================
+XFAIL tests/test_decision_invariance.py::test_a_shallow_stored_start_does_not_change_live_setups_at_a_later_boundary - Known defect: a shorter stored history misses live setups whose reference level formed before the stored start. The 131-close depth gate does not cover reference age, and the reference-provenance gate bounds what such a record may *plan*, not what it can see — so under-reporting near the stored start persists. See docs/decision-invariance.md and docs/reference-provenance.md. Remove this marker when the defect is fixed.
+1 xfailed in 17.55s
