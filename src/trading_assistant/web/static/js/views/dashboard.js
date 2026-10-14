@@ -1059,13 +1059,13 @@ function chartCard(initialDashboard) {
   };
 
   /**
-   * A timeframe with no stored candles: the Chart Patterns screen must not keep
-   * the previous timeframe's OHLC line or pattern cards under the new label.
+   * A timeframe with no stored candles must not retain the previous frame's
+   * OHLC, pattern cards or swing bias under the new label.
    */
-  const clearStalePatternScreen = () => {
+  const clearUnavailableChartScreen = () => {
     viewed.candleRows = [];
     paintChartHead(null);
-    if (patternFocus()) paintFunctionPanel();
+    paintFunctionPanel();
   };
 
   /** Bar span of the drawn pattern on the loaded series, or null. */
@@ -1306,7 +1306,9 @@ function chartCard(initialDashboard) {
       plan: hasValidTradePlan(dashboard) ? dashboard.plan : null,
       planState: dashboard?.planning?.state_detail || null,
       planReason: planningReason(dashboard),
-      marketState: dashboard?.market_state || null,
+      marketState: viewed.timeframe === engineTimeframe && dashboard?.market_state
+        ? { ...dashboard.market_state, timeframe: engineTimeframe }
+        : null,
       selectedPatternId,
       stages: viewed.stages,
     }), {
@@ -1920,7 +1922,7 @@ function chartCard(initialDashboard) {
       viewed.overlays = emptyOverlays();
       viewed.evidence = { available: false, reason: "no candles for this timeframe" };
       if (handleRef.current) setCandles(handleRef.current, []);
-      clearStalePatternScreen();
+      clearUnavailableChartScreen();
       const detail = candlesError
         ? `${candlesError.message} No substitute data is shown.`
         : `The backend returned ${timeframeEcho || "unlabelled"} data for a ${label} request; it is not shown.`;
@@ -1933,7 +1935,7 @@ function chartCard(initialDashboard) {
       viewed.overlays = emptyOverlays();
       viewed.evidence = { available: false, reason: "no stored closed candles at this decision time" };
       if (handleRef.current) setCandles(handleRef.current, []);
-      clearStalePatternScreen();
+      clearUnavailableChartScreen();
       const returned = Number.isInteger(candlesPayload.returned_count) ? candlesPayload.returned_count : fetchedRows.length;
       showChartOverlay(chartEmpty(
         `${label} data unavailable`,

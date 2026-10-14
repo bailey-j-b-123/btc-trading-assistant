@@ -97,6 +97,7 @@ const EVIDENCE = {
 
 const MARKET_STATE = {
   available: true,
+  timeframe: "1h",
   trend: { direction: "bullish", reason: "higher_highs_and_higher_lows" },
 };
 
@@ -255,7 +256,7 @@ test("the swings panel prefers viewed timeframe trend from evidence over engine 
   assert.equal(model.facts[1].tone, "red");
 });
 
-test("the swings panel falls back to marketState trend when evidence has no trend", () => {
+test("the swings panel falls back only to an explicitly matching available engine timeframe", () => {
   const evidenceWithoutTrend = { ...EVIDENCE, trend: null };
   const model = functionPanelModel({
     functionId: "swings",
@@ -584,4 +585,21 @@ test("an unknown or missing chart function falls back to the calm default panel"
   assert.equal(functionPanelModel({ functionId: "made_up" }).id, "trade_plan");
   assert.equal(functionPanelModel({}).id, "trade_plan");
   assert.equal(functionPanelModel().id, "trade_plan");
+});
+
+// BRAIN-AUDIT-0003: a missing chart trend is not permission to borrow another timeframe.
+test("swing bias rejects unavailable, malformed and wrong-timeframe fallback evidence", () => {
+  const engine = { ...MARKET_STATE, timeframe: "1h" };
+  for (const evidence of [
+    { available: false, timeframe: "15m" },
+    { available: false, timeframe: "1h", trend: engine.trend },
+    { available: true, timeframe: "4h", trend: null },
+    { available: true, timeframe: "15m", trend: { direction: "invented" } },
+    { available: true, trend: null },
+  ]) {
+    const model = functionPanelModel({ functionId: "swings", evidence, marketState: engine });
+    assert.equal(model.chip, null, JSON.stringify(evidence));
+    assert.equal(model.facts[1].value, "UNKNOWN");
+    assert.equal(model.facts[1].tone, "neutral");
+  }
 });

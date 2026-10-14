@@ -234,9 +234,16 @@ function swingsModel({ evidence, bands, marketState }) {
     patterns: Array.isArray(evidence?.patterns) ? evidence.patterns : [],
   });
   const levels = nearestBands(bands);
-  const trend = (evidence?.trend && typeof evidence.trend === "object" && evidence.trend.direction)
-    ? evidence.trend
-    : (marketState?.available === true ? marketState.trend || null : null);
+  const validTrend = (value) => value && typeof value === "object"
+    && ["bullish", "bearish", "neutral"].includes(value.direction);
+  // Legacy same-frame fallback requires explicit identity and available evidence.
+  // An unavailable chart must never inherit the engine's bias under another label.
+  const sameFrame = typeof evidence?.timeframe === "string" && evidence.timeframe.length > 0
+    && evidence.timeframe === marketState?.timeframe;
+  const trend = evidence?.available !== true ? null
+    : validTrend(evidence.trend) ? evidence.trend
+      : sameFrame && marketState?.available === true && validTrend(marketState.trend)
+        ? marketState.trend : null;
   const latest = rows.reduce((newest, row) => (
     Number.isFinite(row.timeMs) && (!newest || row.timeMs > Number(newest.timeMs)) ? row : newest
   ), null);

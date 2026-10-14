@@ -1016,3 +1016,33 @@ test("public Binance forming klines follow the 5M/15M/1H/4H chart view only, nev
     });
   } finally { Date.now = originalNow; }
 });
+
+// BRAIN-AUDIT-0003: exercise the real caller and failed/empty timeframe-switch paths.
+for (const timeframe of ["15m", "4h"]) {
+  for (const unavailable of ["failure", "empty"]) {
+    test(`swing panel clears 1H bias on ${timeframe} candle ${unavailable}`, async () => {
+      const dashboard = dashboardFixture();
+      const trend = { direction: "bullish", reason: "higher_highs_and_higher_lows" };
+      dashboard.market_state = { available: true, trend };
+      dashboard.chart_evidence = { available: true, timeframe: "1h", trend, swings: [] };
+      await withDashboard({
+        dashboard, forward: forwardFixture(),
+        failCandles: unavailable === "failure" ? [timeframe] : [],
+        market: unavailable === "empty" ? { candles: { [timeframe]: candlesPayload(timeframe, []) } } : {},
+      }, async ({ view }) => {
+        await renderDashboard(view);
+        click(findOne(view, node => node.getAttribute?.("data-function") === "swings"));
+        await flush();
+        const panel = () => findOne(view, node => (node.className || "").split(" ").includes("chart-function-panel"));
+        assert.match(panel().textContent, /Current biasBullish/);
+        click(switchButtons(view).find(button => button.getAttribute("data-timeframe") === timeframe));
+        await flush();
+        assert.match(panel().textContent, /Current biasUNKNOWN/);
+        assert.doesNotMatch(panel().textContent, /Bullish/);
+        click(switchButtons(view).find(button => button.getAttribute("data-timeframe") === "1h"));
+        await flush();
+        assert.match(panel().textContent, /Current biasBullish/);
+      });
+    });
+  }
+}
