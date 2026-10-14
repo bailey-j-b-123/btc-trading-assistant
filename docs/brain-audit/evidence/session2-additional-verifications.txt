@@ -1,0 +1,50 @@
+# BRAIN AUDIT session 2 — additional independent verifications (2026-10-14 UTC)
+
+## Lookahead-critical invariance direction: do LATER candles change an EARLIER decision?
+# command: .venv/bin/python -m pytest tests/test_decision_invariance.py -v -q  (dev base a0f1faf)
+collected 5 items
+
+tests/test_decision_invariance.py ..x..                                  [100%]
+
+=========================== short test summary info ============================
+XFAIL tests/test_decision_invariance.py::test_a_shallow_stored_start_does_not_change_live_setups_at_a_later_boundary - Known defect: a shorter stored history misses live setups whose reference level formed before the stored start. The 131-close depth gate does not cover reference age, and the reference-provenance gate bounds what such a record may *plan*, not what it can see — so under-reporting near the stored start persists. See docs/decision-invariance.md and docs/reference-provenance.md. Remove this marker when the defect is fixed.
+======================== 4 passed, 1 xfailed in 16.32s =========================
+
+## Live HTTP smoke check of the integrated app (PR #69 head 09f5ee2, synthetic demo DB)
+# command: PYTHONPATH=src python -m trading_assistant.web --host 0.0.0.0 --port 8123
+# GET /            -> 200 (3148 bytes)
+# GET /api/meta    -> 200
+# GET /api/dashboard?symbol=BTC/USDT&timeframe=1h -> 200 (339427 bytes)
+# Host header spoofed to a preview-style host -> 200 (no TrustedHost rejection)
+
+## Plan arithmetic re-derivation (probes/plan-math-invariants.py, PR #69 head)
+[OK] rich continuation: dir=bullish entry=110.5 stop=110 risk=0.5 targets=[(Decimal('114'), Decimal('3.5'), Decimal('7.00000000'))]
+
+no-future-evidence check (entry anchor closed by the plan as_of):
+  [OK] continuation long: anchor closes 2024-01-01 07:00:00+00:00 <= plan as_of 2024-01-01 07:00:00+00:00
+  [OK] continuation short: anchor closes 2024-01-01 07:00:00+00:00 <= plan as_of 2024-01-01 07:00:00+00:00
+  [OK] reversal long: anchor closes 2024-01-01 07:00:00+00:00 <= plan as_of 2024-01-01 07:00:00+00:00
+  [OK] reversal short: anchor closes 2024-01-01 07:00:00+00:00 <= plan as_of 2024-01-01 07:00:00+00:00
+  [OK] failed-breakout reversal: anchor closes 2024-01-01 08:00:00+00:00 <= plan as_of 2024-01-01 08:00:00+00:00
+  [OK] range long: anchor closes 2024-01-01 07:00:00+00:00 <= plan as_of 2024-01-01 07:00:00+00:00
+  [OK] rich continuation: anchor closes 2024-01-01 09:00:00+00:00 <= plan as_of 2024-01-01 09:00:00+00:00
+
+planned=7 refused=0 invariant failures=0
+
+## Timeframe boundary math (latest_closed_candle_open_time, dev base)
+  ok  1h   at 2026-10-14T00:00:00Z -> 2026-10-13T23:00:00+00:00
+  ok  1h   at 2026-10-14T00:59:59Z -> 2026-10-13T23:00:00+00:00
+  ok  1h   at 2026-10-14T01:00:00Z -> 2026-10-14T00:00:00+00:00
+  ok  4h   at 2026-10-14T03:59:00Z -> 2026-10-13T20:00:00+00:00
+  ok  4h   at 2026-10-14T04:00:00Z -> 2026-10-14T00:00:00+00:00
+  ok  1d   at 2026-10-14T00:00:00Z -> 2026-10-13T00:00:00+00:00
+  ok  15m  at 2026-10-14T00:15:00Z -> 2026-10-14T00:00:00+00:00
+  ok  1m   at 2026-10-14T00:01:00Z -> 2026-10-14T00:00:00+00:00
+  failures: 0
+
+## Lint (unchanged by every branch audited)
+# .venv/bin/ruff check --isolated --select E4,E7,E9,F src tests
+# base a0f1faf   -> 
+# PR #69 09f5ee2 -> 
+# base a0f1faf   -> 
+# PR #69 09f5ee2 -> 
