@@ -250,6 +250,12 @@ def _event_item(event: Any, kind: str, interval: timedelta) -> dict[str, Any]:
                 "state": event.state,
                 "breakout_id": event.breakout.id,
                 "direction": event.breakout.direction,
+                # A retest borrows the reference of the breakout it follows, so it carries that
+                # reference's own type and id exactly as the breakout branch does. Without them the
+                # zone linkage could never consider a retest, although the linkage advertises
+                # retests (BRAIN-AUDIT-0005).
+                "reference_type": event.breakout.reference.type,
+                "reference_id": event.breakout.reference.id,
                 "band_low": _dec(event.breakout.reference.band_low),
                 "band_high": _dec(event.breakout.reference.band_high),
                 "time_ms": _ms(event.candle.timestamp),
@@ -295,6 +301,17 @@ def _zone_item(zone: Any, index: int, interval: timedelta) -> dict[str, Any]:
         "known_at": _iso(zone.as_of),
         "candle_interval_seconds": int(interval.total_seconds()),
     }
+
+
+def project_event(event: Any, kind: str, interval: timedelta) -> dict[str, Any]:
+    """Public projection of one stored event for read-only consumers.
+
+    Same payload :func:`build_chart_evidence` uses for its own event groups, so a
+    zone-relationship read (see ``web.zone_evidence``) reports the identical
+    stored fields the chart does.
+    """
+
+    return _event_item(event, kind, interval)
 
 
 def build_chart_evidence(
@@ -456,6 +473,7 @@ __all__ = [
     "CHART_EVIDENCE_RULES_VERSION",
     "CHART_EVIDENCE_WINDOW",
     "build_chart_evidence",
+    "project_event",
     "swing_labels",
     "unavailable_chart_evidence",
 ]

@@ -1,0 +1,72 @@
+TAP version 13
+# (node:6172) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/user/btc-trading-assistant/src/trading_assistant/web/static/js/chart.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/user/btc-trading-assistant/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: viewed 4H bands retain their stored bounds and accounting after delayed structure arrives
+not ok 1 - viewed 4H bands retain their stored bounds and accounting after delayed structure arrives
+  ---
+  duration_ms: 4.57773
+  type: 'test'
+  location: '/home/user/btc-trading-assistant/tests/frontend/timeframeswitch.test.mjs:1052:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    passthrough, not client-side re-derivation or engine substitution
+    + actual - expected
+    
+    + undefined
+    - {
+    -   bands: [
+    -     {
+    -       band_high: '60100',
+    -       band_low: '60000',
+    -       center: '60050',
+    -       display_role: 'support',
+    -       distinct_test_timestamps: 2,
+    -       id: '4h-band',
+    -       position: 'below_price',
+    -       source_timeframe: '4h',
+    -       touch_count: 2
+    -     }
+    -   ],
+    -   hidden_count: 2,
+    -   merged_count: 0,
+    -   timeframe: '4h',
+    -   total_stored: 3
+    - }
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    timeframe: '4h'
+    hidden_count: 2
+    merged_count: 0
+    total_stored: 3
+    bands:
+      0:
+        id: '4h-band'
+        source_timeframe: '4h'
+        band_low: '60000'
+        band_high: '60100'
+        center: '60050'
+        position: 'below_price'
+        display_role: 'support'
+        touch_count: 2
+        distinct_test_timestamps: 2
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/user/btc-trading-assistant/tests/frontend/timeframeswitch.test.mjs:1060:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 102.970154

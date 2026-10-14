@@ -37,6 +37,21 @@ export function timeframeLabel(timeframe) {
  *   server-computed heartbeat_age_seconds (recorded_at vs the backend
  *   clock), never the browser clock.
  */
+export function runnerLivenessViewModel(forward) {
+  const value = forward?.status?.runner_liveness;
+  const states = ["CONFIRMED_ALIVE", "STALE_UNCONFIRMED", "CLOCK_INCONSISTENT", "FAILED", "STOPPED", "NEVER_RUN", "UNCONFIRMED"];
+  let state = states.includes(value?.state) ? value.state : "UNREPORTED";
+  const age = typeof value?.age_seconds === "number" && Number.isFinite(value.age_seconds) ? value.age_seconds : null;
+  const tolerance = typeof value?.tolerance_seconds === "number" && Number.isFinite(value.tolerance_seconds) ? value.tolerance_seconds : null;
+  const aliveConfirmed = state === "CONFIRMED_ALIVE" && value?.alive_confirmed === true &&
+    age !== null && age >= 0 && tolerance !== null && tolerance > 0 && age <= tolerance;
+  if (state === "CONFIRMED_ALIVE" && !aliveConfirmed) state = "UNCONFIRMED";
+  return {
+    state, aliveConfirmed, ageSeconds: age,
+    detail: typeof value?.detail === "string" ? value.detail : "The server has not confirmed runner liveness.",
+  };
+}
+
 export function runnerDetailsViewModel(forward) {
   const status = forward?.status;
   if (!status || typeof status !== "object" || !("runner" in status)) {
@@ -69,16 +84,19 @@ export function runnerDetailsViewModel(forward) {
       lastError: "not applicable (the runner has never run)",
     };
   }
-  const age = integerOrNull(runner.heartbeat_age_seconds);
+  const liveness = runnerLivenessViewModel(forward);
+  const age = liveness.ageSeconds ?? integerOrNull(runner.heartbeat_age_seconds);
   const heartbeatTime = runner.recorded_at ? formatUtc(runner.recorded_at) : null;
   return {
     presence: "reported",
     state: runnerStatusLabel(runner.status),
-    detail: runner.detail || "no detail recorded",
+    detail: `${runner.detail || "no detail recorded"} · ${liveness.detail}`,
+    livenessState: liveness.state,
     pending: pendingText,
     latestCycle: runner.latest_cycle_as_of ? formatUtc(runner.latest_cycle_as_of) : "none recorded yet",
     heartbeat: heartbeatTime
-      ? (age === null ? heartbeatTime : `${heartbeatTime} (${age}s ago)`)
+      ? (age === null ? heartbeatTime : age < 0
+        ? `${heartbeatTime} (${-age}s ahead of server)` : `${heartbeatTime} (${age}s ago)`)
       : "UNKNOWN",
     lastError: runner.last_error || "No errors reported",
   };
@@ -144,6 +162,18 @@ export function systemHealthViewModel(dashboard, forward) {
   } else if (!["STARTED", "PROCESSED", "IDLE"].includes(runner.status)) {
     issues.push({ severity: 1, component: "Forward runner", condition: `Status ${runner.status || "UNKNOWN"}`,
       detail: runner.detail || "The runner reported a status that is not a running state." });
+  } else {
+    const liveness = runnerLivenessViewModel(forward);
+    if (!liveness.aliveConfirmed) {
+      const conditions = {
+        STALE_UNCONFIRMED: "Heartbeat stale — unconfirmed",
+        CLOCK_INCONSISTENT: "Heartbeat in the future",
+        FAILED: "Processing failure",
+        STOPPED: "Runner stopped",
+      };
+      issues.push({ severity: 1, component: "Forward runner",
+        condition: conditions[liveness.state] || "Liveness unknown", detail: liveness.detail });
+    }
   }
   if (pending === null) {
     issues.push({ severity: 2, component: "Forward runner", condition: "Catch-up unknown",

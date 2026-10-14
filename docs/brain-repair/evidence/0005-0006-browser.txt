@@ -1,0 +1,102 @@
+# BRAIN-AUDIT-0005 / 0006 — browser evidence on the repaired head (2026-10-14)
+
+New check: `scripts/browser-audit/zone-reference-check.mjs`. Servers:
+`scripts/browser-audit/offline_server.py` over disposable synthetic databases (.cache only,
+regenerated with `scripts/seed_sr_demo.py`; no exchange, credential or production database).
+Chromium 133 via @sparticuz/chromium, 4 viewports (1536x864, 1440x900, 1920x1080, 390-mobile).
+
+## A. End-state database — the finding's own end state, three consecutive runs
+
+Engine timeframe set to 4h because the linkage is evaluated on the engine's own frame and the
+demo series stores its zone-referenced events on 4h (the 1h frame of this series stores none).
+```
+$ TRADING_ASSISTANT_DEFAULT_TIMEFRAME=4h python scripts/browser-audit/offline_server.py --db .cache/brain-repair/sr.sqlite3 --port 8126
+$ node scripts/browser-audit/zone-reference-check.mjs http://127.0.0.1:8126/ <out> --timeframe 4h
+--- run 1 ---
+1920x1080: failures=0
+    overlapping=3 linked=0 retests=30/10 zone-referenced
+390-mobile: failures=0
+    overlapping=3 linked=0 retests=30/10 zone-referenced
+non-vacuity: {"overlappingFactsChecked":12,"overlapWordingShown":12,"linkedBandsChecked":0,"unreferencedBandsChecked":8,"overlappingBandsOffered":12,"linkedBandsOffered":0,"retests":{"total":30,"withReference":30,"zoneReferences":10},"requirement":"a genuinely unreferenced band must be checked; if the view offers an overlapping non-identical reference the overlap wording must be shown, and if it offers an identical one the link wording must be shown","satisfied":true,"unmet":[]}
+zone-reference check passed at 4 viewports; report: .cache/verify/browser/zone-reference-endstate/zone-reference-report.json
+--- run 2 ---
+1920x1080: failures=0
+    overlapping=3 linked=0 retests=30/10 zone-referenced
+390-mobile: failures=0
+    overlapping=3 linked=0 retests=30/10 zone-referenced
+non-vacuity: {"overlappingFactsChecked":12,"overlapWordingShown":12,"linkedBandsChecked":0,"unreferencedBandsChecked":8,"overlappingBandsOffered":12,"linkedBandsOffered":0,"retests":{"total":30,"withReference":30,"zoneReferences":10},"requirement":"a genuinely unreferenced band must be checked; if the view offers an overlapping non-identical reference the overlap wording must be shown, and if it offers an identical one the link wording must be shown","satisfied":true,"unmet":[]}
+zone-reference check passed at 4 viewports; report: .cache/verify/browser/zone-reference-endstate/zone-reference-report.json
+--- run 3 ---
+1920x1080: failures=0
+    overlapping=3 linked=0 retests=30/10 zone-referenced
+390-mobile: failures=0
+    overlapping=3 linked=0 retests=30/10 zone-referenced
+non-vacuity: {"overlappingFactsChecked":12,"overlapWordingShown":12,"linkedBandsChecked":0,"unreferencedBandsChecked":8,"overlappingBandsOffered":12,"linkedBandsOffered":0,"retests":{"total":30,"withReference":30,"zoneReferences":10},"requirement":"a genuinely unreferenced band must be checked; if the view offers an overlapping non-identical reference the overlap wording must be shown, and if it offers an identical one the link wording must be shown","satisfied":true,"unmet":[]}
+zone-reference check passed at 4 viewports; report: .cache/verify/browser/zone-reference-endstate/zone-reference-report.json
+```
+
+## B. Positive-control database — an identical reference is on screen and states its link
+
+Built by truncating the demo series at the instant of the 85958.6-86543.0 breakout
+(as_of=2026-08-26T08:00:00Z, the finding's own positive control), so the band still holds the
+exact reference an event was detected with. It shows both branches at once: one linked band and
+12 genuinely unreferenced band checks.
+```
+$ node scripts/browser-audit/zone-reference-check.mjs http://127.0.0.1:8127/ <out> --timeframe 4h
+1920x1080: failures=0
+    overlapping=1 linked=1 retests=12/6 zone-referenced
+390-mobile: failures=0
+    overlapping=1 linked=1 retests=12/6 zone-referenced
+non-vacuity: {"overlappingFactsChecked":4,"overlapWordingShown":0,"linkedBandsChecked":4,"unreferencedBandsChecked":12,"overlappingBandsOffered":0,"linkedBandsOffered":4,"retests":{"total":12,"withReference":12,"zoneReferences":6},"requirement":"a genuinely unreferenced band must be checked; if the view offers an overlapping non-identical reference the overlap wording must be shown, and if it offers an identical one the link wording must be shown","satisfied":true,"unmet":[]}
+zone-reference check passed at 4 viewports; report: .cache/verify/browser/zone-reference-linked/zone-reference-report.json
+```
+
+## C. Negative control 1 — the three repaired JS surfaces reverted to their pre-repair wording
+
+Working tree only, restored with git checkout-equivalent copies afterwards (never committed).
+```
+    FAIL the explanation of 88363.8-89574.0 does not state an absolute negative :: Resistance · 4H · 88,363.80 – 89,574.00TestedSupport / resistance zone · 4H timeframeResistance band 88,363.80 – 89,574.00 on the 4H chart. The band is above the latest close 87,900, so price would have to rise into it.Why, timing and influenceWhy it was detectedBuilt by clustering 3 confirmed swing
+    FAIL the explanation of 88363.8-89574.0 states the overlapping, non-identical reference :: overlapping_count=3
+    FAIL the explanation of 87180.3-88340.1 does not state an absolute negative :: Price inside zone · 4H · 87,180.30 – 88,340.10Price insideSupport / resistance zone · 4H timeframePrice inside zone band 87,180.30 – 88,340.10 on the 4H chart. The latest close 87,900 is inside this band.Why, timing and influenceWhy it was detectedBuilt by clustering 11 confirmed swing extremes whos
+    FAIL the explanation of 87180.3-88340.1 states the overlapping, non-identical reference :: overlapping_count=3
+    FAIL the explanation of 85958.6-87052.5 does not state an absolute negative :: Support · 4H · 85,958.60 – 87,052.50TestedSupport / resistance zone · 4H timeframeSupport band 85,958.60 – 87,052.50 on the 4H chart. The band is below the latest close 87,900, so price would have to fall into it.Why, timing and influenceWhy it was detectedBuilt by clustering 7 confirmed swing extre
+    FAIL the explanation of 85958.6-87052.5 states the overlapping, non-identical reference :: overlapping_count=10
+non-vacuity: {"overlappingFactsChecked":12,"overlapWordingShown":0,"linkedBandsChecked":0,"unreferencedBandsChecked":8,"overlappingBandsOffered":12,"linkedBandsOffered":0,"retests":{"total":30,"withReference":30,"zoneReferences":10},"requirement":"a genuinely unreferenced band must be checked; if the view offers an overlapping non-identical reference the overlap wording must be shown, and if it offers an identical one the link wording must be shown","satisfied":false,"unmet":["the view offers an overlapping non-identical reference but no surface stated it"]}
+zone-reference check FAILED (61 assertion(s)); report: .cache/verify/browser/zone-reference-mutation-js/zone-reference-report.json
+    (60 assertion failures across the 4 viewports + the unsatisfied non-vacuity requirement)
+```
+
+## D. Negative control 2 — the overlap detector in the payload disabled (working tree only)
+
+The check does not trust `linked_events.overlapping_count`: it re-derives the expectation from
+the zone-referenced events the same payload serves and compares. With the detector disabled the
+two disagree and the check fails, so a payload that stops reporting overlaps cannot pass.
+```
+    FAIL zone-referenced retests reach the linkage as counted facts (BRAIN-AUDIT-0005) :: overlapping retests counted across bands: 0; zone-referenced retests served: 10
+    FAIL the linkage of 88363.8-89574.0 accounts for every zone-referenced event the payload serves :: reported=0 re-derived from the served events=3 [breakout:88363.8-89027.9, retest:88363.8-89027.9, retest:88363.8-89027.9]
+    FAIL the linkage of 87180.3-88340.1 accounts for every zone-referenced event the payload serves :: reported=0 re-derived from the served events=3 [breakout:87369.0-88340.1, retest:87369.0-88340.1, retest:87369.0-88340.1]
+    FAIL the linkage of 85958.6-87052.5 accounts for every zone-referenced event the payload serves :: reported=0 re-derived from the served events=10 [breakout:86543.0-86543.0, breakout:86076.2-86543.0, breakout:85958.6-86543.0, failed_breakout:86543.0-86543.0, retest:86543.0-86543.0, retest:86543.0-86543.0, retest:86076.2-86543.0, retest:86076.2-86543.0, retest:85958.6-86543.0, retest:85958.6-86543.0]
+non-vacuity: {"overlappingFactsChecked":0,"overlapWordingShown":0,"linkedBandsChecked":0,"unreferencedBandsChecked":32,"overlappingBandsOffered":0,"linkedBandsOffered":0,"retests":{"total":30,"withReference":30,"zoneReferences":10},"requirement":"a genuinely unreferenced band must be checked; if the view offers an overlapping non-identical reference the overlap wording must be shown, and if it offers an identical one the link wording must be shown","satisfied":true,"unmet":[]}
+zone-reference check FAILED (16 assertion(s)); report: .cache/verify/browser/zone-reference-mutation-payload/zone-reference-report.json
+```
+
+## E. The existing S/R timeframe-switch check, on its documented configuration
+
+Three consecutive runs against the 1H-engine demo server (the configuration its usage documents):
+```
+$ node scripts/browser-audit/support-resistance-check.mjs http://127.0.0.1:8125/ <out> --timeframe 1h --switch 4h
+support-resistance check passed at 4 viewports; report: /home/user/btc-trading-assistant/.cache/verify/browser/sr-repair-run1/support-resistance-report.json
+support-resistance check passed at 4 viewports; report: /home/user/btc-trading-assistant/.cache/verify/browser/sr-repair-run2/support-resistance-report.json
+support-resistance check passed at 4 viewports; report: /home/user/btc-trading-assistant/.cache/verify/browser/sr-repair-run3/support-resistance-report.json
+```
+
+Configuration trap, recorded so it is not mistaken for an application defect later: that check's
+first phase reads the painted bands as soon as the timeframe button reports pressed, which on a
+server whose ENGINE timeframe differs from the `--timeframe` it is given (e.g. `--timeframe 1h`
+against the 4H-engine server on port 8126) happens before the newly requested view has applied.
+It then compares the previous view's bands with the requested timeframe's API bands and fails 29
+assertions. An independent probe of the same server and view shows the application is correct:
+once the 1H view has settled it paints the 1H band alone (`IN 1H · 37×` at
+87,062.80 – 88,142.20, equal to `/api/market/structure?timeframe=1h`), and the engine-timeframe
+card lists the engine's own 4H bands, exactly as designed. Run that check against a server whose
+engine timeframe matches its `--timeframe`, as its own usage block does.

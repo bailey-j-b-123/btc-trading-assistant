@@ -1,0 +1,33 @@
+# Support & Resistance browser check — AFTER the harness repair
+
+## Clean run, exit 0 (three consecutive runs identical)
+```
+support-resistance check passed at 4 viewports; report: /home/user/btc-trading-assistant/.cache/verify/browser/sr-fixed/support-resistance-report.json
+support-resistance check passed at 4 viewports; report: /home/user/btc-trading-assistant/.cache/verify/browser/sr-run1/support-resistance-report.json
+support-resistance check passed at 4 viewports; report: /home/user/btc-trading-assistant/.cache/verify/browser/sr-run2/support-resistance-report.json
+```
+
+## Post-switch facts recorded by the repaired check (run 2)
+```
+failures: 0
+1536x864: settle=True painted=3 labels=['R 4H · 3×', 'IN 4H · 11×', 'S 4H · 7×']
+    painted 88363.8-88540.3
+    painted 86484.1-87052.5
+    painted 87180.4-88340.1
+    api 4H bands: [(90227.9, 91022.4), (88363.8, 89574), (87180.3, 88340.1), (85958.6, 87052.5), (85158, 85158)] stored=5
+1440x900: settle=True painted=3 labels=['R 4H · 3×', 'IN 4H · 11×', 'S 4H · 7×']
+    painted 88363.8-88540.2
+    painted 86487.8-87052.5
+    painted 87180.4-88340.1
+    api 4H bands: [(90227.9, 91022.4), (88363.8, 89574), (87180.3, 88340.1), (85958.6, 87052.5), (85158, 85158)] stored=5
+1920x1080: settle=True painted=3 labels=['R 4H · 3×', 'IN 4H · 11×', 'S 4H · 7×']
+    painted 88363.8-88540.1
+    painted 86502.3-87052.5
+    painted 87180.4-88340.1
+    api 4H bands: [(90227.9, 91022.4), (88363.8, 89574), (87180.3, 88340.1), (85958.6, 87052.5), (85158, 85158)] stored=5
+390-mobile: settle=True painted=3 labels=['R 4H · 3×', 'IN 4H · 11×', 'S 4H · 7×']
+    painted 88363.8-88459.6
+    painted 86781.0-87052.5
+    painted 87180.4-88340.2
+    api 4H bands: [(90227.9, 91022.4), (88363.8, 89574), (87180.3, 88340.1), (85958.6, 87052.5), (85158, 85158)] stored=5
+```
