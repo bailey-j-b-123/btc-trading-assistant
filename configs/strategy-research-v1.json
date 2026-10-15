@@ -1,0 +1,69 @@
+{
+  "version": "bounded-hypotheses-v1",
+  "frozen_at_utc": "2026-10-15T16:36:01.452637+00:00",
+  "instrument": "Binance Spot BTCUSDT cash LONG ONLY",
+  "candidate_count": 4,
+  "timeframe": "1h",
+  "warmup": 121,
+  "candidates": {
+    "trend_pullback": {
+      "rationale": "Test resumption after a pullback inside an established rising trend, rather than repeated direction-only momentum.",
+      "rules": "SMA20>SMA100, SMA100 now>SMA100 five bars earlier; previous close<=previous SMA20; current close>current SMA20 AND current open. Stop=min(last3lows)-0.25*ATR14; target=close+2R; maxhold48h."
+    },
+    "breakout_retest": {
+      "rationale": "Test a pullback to a frozen broken range high; do not buy every new channel high.",
+      "rules": "Most recent breakout among previous6bars: breakout close>max20 preceding highs AND preceding close<=that fixed level. All subsequent lows (including current) >=level-0.5*ATR14current. Current low<=level+0.25*ATR AND current close>level AND open. Stop=min(lows from first bar after breakout through current)-0.25ATR; target=close+2R; maxhold48h; source identity fixed breakout timestamp+level, used once per wallet."
+    },
+    "compression_expansion": {
+      "rationale": "Test a range breakout only after unusually compressed realised close dispersion.",
+      "rules": "Previous20close populationSD <0.75*mean(previous100 rolling20 populationSDs). Currentclose>max(previous20highs) AND currenthigh-low>1.5*ATR14current. Stop=close-2ATR; target=close+3R; maxhold48h."
+    },
+    "range_sweep_reclaim": {
+      "rationale": "Test observable failed range-low excursion and recovery to the mean in a mechanically flat context; not evidence of actual order-book liquidity.",
+      "rules": "Absolute currentSMA100 minus SMA100 five bars earlier <0.5ATR14current. Currentlow<min(previous20lows), currentclose>that fixed low AND currentopen, currentclose<currentSMA20. Stop=currentlow-0.25ATR; target=currentSMA20; require reward/risk>=1.5; maxhold24h."
+    }
+  },
+  "shared": "Strictly closed contiguous121barwindow; existingATR14 Wilder primitive; no synthetic historicalfills; nextopen adverse execution; unchanged cash simulator; oneposition;10000USDT;0.5%risk/25%exposure; quantitystep0.00001;minnotional10;maxentrygap50bp; stop-first ambiguity; activegap unresolved/frozen; no favourabletargetgap; no forced finalexit.",
+  "costs": {
+    "base": {
+      "fee_bps": 10,
+      "full_spread_bps": 2,
+      "slippage_bps": 3
+    },
+    "stress": {
+      "fee_bps": 20,
+      "full_spread_bps": 4,
+      "slippage_bps": 9
+    }
+  },
+  "periods": [
+    [
+      "development",
+      "2023-04-01",
+      "2024-01-01"
+    ],
+    [
+      "diagnostic_gap_2023",
+      "2023-01-01",
+      "2024-01-01"
+    ],
+    [
+      "reused_validation_1",
+      "2024-01-01",
+      "2024-05-01"
+    ],
+    [
+      "reused_validation_2",
+      "2024-05-01",
+      "2024-09-01"
+    ],
+    [
+      "reused_validation_3",
+      "2024-09-01",
+      "2025-01-01"
+    ]
+  ],
+  "budget": "40wallet experiments total; no parameter variants or retuning after results; diagnostic not selection. Independently reset wallets and121bar coldstart in each period; no crossfoldposition carry.",
+  "gates": "REJECTED if any primary development or reused validation wallet has nonpositive net return/mean netR, drawdown>20%, ambiguity>10%, unresolvedgap, or any known positive-economics failure. Otherwise INSUFFICIENT EVIDENCE if open/pending or <100development/<20eachfold completed trades or no positive lower-tail circular-block bootstrap bound. ELIGIBLE FOR FURTHER VALIDATION only if both costs meet all gates and99.75% (0.05/20 ever tested configs) lower-tail block5 bootstrap meanR>0 on each stage.2000 deterministic resamples/seed173. Exploratory reuse/correlation/regime limits remain even if eligible;20modelconfigs includes prior16. Costvariants/folds/analystdiscretion are extra effective tests, correction not a statistical guarantee.",
+  "forbidden": "2025prices (endexclusive2025-01-01 permitted using last2024close);2026selection;2020\u201322mixing;orders/accounts/shorts/leverage;dashboard;production records; automaticapproval/promotion."
+}
