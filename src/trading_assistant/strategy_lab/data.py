@@ -213,7 +213,8 @@ def dataset(store, start, end, timeframe="1h"):
                 r
                 for r in receipts
                 if r["timeframe"] == timeframe
-                and start.strftime("%Y-%m") <= r["month"] <= end.strftime("%Y-%m")
+                and start.strftime("%Y-%m") <= r["month"]
+                and datetime.strptime(r["month"], "%Y-%m").replace(tzinfo=UTC) < end
             ],
         }
         if not manifest["source_receipts"]:
