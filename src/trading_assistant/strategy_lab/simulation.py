@@ -133,8 +133,15 @@ def step(
         stop = D(pending["stop"])
         target = D(pending["target"])
         debit = qty * fill * (1 + execution.fee)
-        if fill > D(pending["entry_ceiling"]) or fill <= stop or fill >= target:
+        if (
+            c.open <= stop
+            or fill > D(pending["entry_ceiling"])
+            or fill <= stop
+            or fill >= target
+        ):
             reject(state, "entry_gap_or_invalid_levels", pending, events)
+        elif qty * fill < execution.minimum_notional:
+            reject(state, "entry_below_minimum_notional", pending, events)
         elif (
             debit > D(state["cash"])
             or qty * fill > D(pending["equity_at_decision"]) * execution.max_exposure

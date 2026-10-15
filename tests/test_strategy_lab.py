@@ -210,6 +210,64 @@ def test_stop_target_same_candle_uses_adverse_fill_with_costs():
     assert D(trade["net_pnl"]) < 0 and new["position"] is None
 
 
+def test_actual_signal_rejects_open_below_invalidation_even_if_adverse_ask_exceeds_stop():
+    c = list(candles(160))
+    s, e = Strategy(), Execution()
+    state = initial_state(e)
+    for i in range(len(c) - 1):
+        state, _ = step(state, c, i, s, e)
+        if state["pending"]:
+            stop = D(state["pending"]["stop"])
+            opened = stop * (1 - D(".0002"))
+            assert opened < stop < opened * (1 + e.impact)
+            c[i + 1] = replace(
+                c[i + 1],
+                open=opened,
+                high=opened + D(".1"),
+                low=opened - D(".1"),
+                close=opened,
+            )
+            new, events = step(state, c, i + 1, s, e)
+            assert new["filled"] == 0 and new["cash"] == state["cash"]
+            assert new["rejections"]["entry_gap_or_invalid_levels"] == 1
+            assert not any(r["kind"] == "trade" for r in events)
+            return
+    pytest.fail("actual detector must produce the test signal")
+
+
+def test_actual_signal_checks_minimum_notional_at_fill_not_only_sizing_ceiling():
+    c = [
+        replace(x, high=x.close + D(".3"), low=x.close - D(".3")) for x in candles(160)
+    ]
+    s, e = Strategy(), Execution(initial_capital=D("40.5"))
+    state = initial_state(e)
+    for i in range(len(c) - 1):
+        state, _ = step(state, c, i, s, e)
+        if state["pending"]:
+            p = state["pending"]
+            qty = D(p["quantity"])
+            opened = e.minimum_notional / qty / (1 + e.impact) - D(".001")
+            assert opened > D(p["stop"])
+            assert (
+                qty * D(p["entry_ceiling"])
+                >= e.minimum_notional
+                > qty * opened * (1 + e.impact)
+            )
+            c[i + 1] = replace(
+                c[i + 1],
+                open=opened,
+                high=opened + D(".01"),
+                low=opened - D(".01"),
+                close=opened,
+            )
+            new, events = step(state, c, i + 1, s, e)
+            assert new["filled"] == 0 and new["cash"] == state["cash"]
+            assert new["rejections"]["entry_below_minimum_notional"] == 1
+            assert not any(r["kind"] == "trade" for r in events)
+            return
+    pytest.fail("actual detector must produce the small-wallet test signal")
+
+
 def test_gap_rejects_entry_and_active_gap_never_fabricates_a_profitable_exit():
     e = Execution()
     s = Strategy()

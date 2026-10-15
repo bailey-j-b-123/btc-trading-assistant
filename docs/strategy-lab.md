@@ -114,6 +114,9 @@ notional10 are explicit research assumptions, not verified historical venue filt
 Size is frozen at the decision using the50bps entry-gap ceiling, stop impact and
 roundtrip fees, then rounded down. Unfilled gaps, invalid levels, unavailable cash,
 occupied slots and small lots are explicit refusals. Stops gapping adversely use
+the raw opening price to refuse a new entry at/below invalidation, regardless of
+adverse ask impact. Minimum notional is checked again at the actual hypothetical
+fill, not just the sizing ceiling. Existing open positions still resolve stops at
 the open; target gaps get no favourable improvement. Both stop/target in one bar
 use adverse stop first. A stop gap can exceed planned risk. No minute-bar ordering
 or limit fill is invented. Equity/drawdown use liquidation-costed close marks;
