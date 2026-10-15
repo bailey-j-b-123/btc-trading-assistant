@@ -919,7 +919,11 @@ def _apply_minimum_r(context: _PlanContext) -> None:
                 f"{decimal_text(target.level.value)}: unknown R cannot meet "
                 f"minimum_r_multiple {decimal_text(threshold)}"
             )
-        elif target.r_multiple < threshold:
+        elif (
+            target.reward_per_unit < threshold * context.risk_per_unit
+            if context.parameters.economic_costs is not None
+            else target.r_multiple < threshold
+        ):
             context.excluded_targets.append(
                 f"{decimal_text(target.level.value)}: R "
                 f"{decimal_text(target.r_multiple)} < minimum_r_multiple "
