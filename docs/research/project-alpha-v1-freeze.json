@@ -1,0 +1,21 @@
+{
+  "frozen_at": "2026-10-15T19:29:09.899011+00:00",
+  "pre_registration_commit": "56daabfee0a899b465022d0500b75b45ecbd977c",
+  "base_pr77": "b3ae710efa015c35cc5452ee64dd76ea75e04d93",
+  "hypotheses": [
+    "thin_volume_shock_reversal",
+    "utc_open_close_continuation"
+  ],
+  "spec_sha256": "7ea73beedfabe7a27104bff442ddce9fcc3bc2f41f057620b0581426d49fad8a",
+  "alpha_source_fingerprint": "eaa105ea7f2cb33cbb1526d10e933b0f3e3b3d1bea29f6c696f0876a1a65ddf0",
+  "engine_fingerprint": "5772ecff045b6e04cc6d4b7d740e46e90a759700374705f35a65809c14dd443b",
+  "files": {
+    "src/trading_assistant/strategy_lab/alpha.py": "6ba3ff7d216c6ece58c854d13c0d17bbb1661adf78d0aeebdd85dbab1920d25c",
+    "tests/test_project_alpha.py": "7330b216bbbcd9d226f1e28abebbd064a5a08666f7234c6a34fe80b633bdb397"
+  },
+  "historical_results_seen_at_freeze": false,
+  "historical_jobs_budget": 20,
+  "configuration_count": 2,
+  "2025_price_access": false,
+  "2026_price_access": false
+}
