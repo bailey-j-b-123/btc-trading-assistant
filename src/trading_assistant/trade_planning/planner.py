@@ -31,6 +31,7 @@ mere gap, and offending numbers are reported but never silently corrected.
 
 from datetime import datetime, timedelta
 from decimal import Decimal
+from trading_assistant.trade_planning.economics import ECONOMIC_POLICY_VERSION, assess
 
 from trading_assistant.market_data.timeframes import require_utc_datetime
 from trading_assistant.market_structure.candles import interval_for_timeframe
@@ -179,6 +180,8 @@ class _PlanContext:
         as_of: datetime,
     ) -> TradePlanResult:
         expected = list(BASE_RULES)
+        if self.parameters.economic_costs is not None:
+            expected.append("economic_viability")
         pending_reason = (
             f"not evaluated; blocking outcome: {self.reasons[0]}"
             if self.reasons
@@ -222,7 +225,8 @@ class _PlanContext:
             "excluded_targets": tuple(self.excluded_targets),
             "setup_config_fingerprint": snapshot.config_fingerprint,
             "config_fingerprint": self.parameters.fingerprint(),
-            "planning_rules_version": PLANNING_RULES_VERSION,
+            "planning_rules_version": PLANNING_RULES_VERSION if self.parameters.economic_costs is None
+                else PLANNING_RULES_VERSION+"+"+ECONOMIC_POLICY_VERSION,
         }
         fields["id"] = fingerprint("plan-identity", fields)
         return TradePlanResult(**fields)
@@ -451,6 +455,44 @@ def _plan_from_evidence(
     if context.gap_seen:
         return
     _apply_minimum_r(context)
+    if not context.reasons and context.parameters.economic_costs is not None:
+        _apply_economics(context)
+
+
+def _apply_economics(context):
+    p=context.parameters
+    costs=p.economic_costs
+    if costs.is_zero:
+        context.targets=()
+        context.preferred_r_multiple_met=None
+        context.gap("economic_viability_unverifiable","economic_viability",
+                    "zero declared costs cannot certify economic viability",
+                    input_name="planning.economic_costs")
+        return
+    kept=[]
+    for target in context.targets:
+        grade=assess(entry=context.entry.value,stop=context.stop.value,
+                     target=target.level.value,direction=context.setup.direction,
+                     costs=costs,floor=p.min_cost_adjusted_r_multiple)
+        if grade.passed:
+            kept.append(target)
+        else:
+            context.excluded_targets.append(
+                f"{target.level.source_id}: level {decimal_text(target.level.value)}; "
+                f"net reward {decimal_text(grade.reward)} / net stop loss {decimal_text(grade.loss)} "
+                f"= displayed net R {decimal_text(grade.net_r)}; exact reward does not cover "
+                f"{decimal_text(p.min_cost_adjusted_r_multiple)} x net loss; "
+                f"scenario {costs.fingerprint()}")
+    context.targets=tuple(kept)
+    if not kept:
+        context.preferred_r_multiple_met=None
+        context.fail("economic_nonviability","economic_viability",
+                     "no retained structural target covers net stop loss after the declared costs; "
+                     "exact per-target amounts and scenario identity in excluded_targets")
+    else:
+        context.preferred_r_multiple_met=kept[0].r_multiple>=p.preferred_r_multiple
+        context.record("economic_viability",RuleOutcome.PASS,
+                       f"{len(kept)} targets cover exact net stop loss under scenario {costs.fingerprint()}")
 
 
 def _check_confirmation(
