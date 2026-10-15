@@ -45,6 +45,8 @@ def research_code_fingerprint():
     """Actual decision/simulation source, independent of paths and report/UI edits."""
     root = Path(__file__).parents[1]
     digest = sha256()
+    if (root / "costs.py").exists():
+        digest.update(b"costs.py\0"+(root / "costs.py").read_bytes())
     for directory in (
         "market_structure",
         "pattern_liquidity",
