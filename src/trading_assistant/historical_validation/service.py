@@ -8,6 +8,8 @@ It has no database write path and never reads the Bailey journal.
 """
 
 from __future__ import annotations
+from dataclasses import replace
+from trading_assistant.trade_planning.economics import declared_scenario
 
 from collections import Counter, defaultdict
 from collections.abc import Sequence
@@ -116,6 +118,10 @@ class HistoricalValidationService:
         pp = pattern_parameters or PatternLiquidityParameters()
         sp = structure_parameters or MarketStructureParameters()
         planning = planning_parameters or PlanningParameters()
+        if planning.economic_costs is not None:
+            # Explicit economic cohort: the report's declared scenario wins,
+            # exactly as it does for the forward paper service.
+            planning=replace(planning,economic_costs=declared_scenario(cfg.friction))
         interval = interval_for_timeframe(timeframe)
         if cfg.split is not None:
             for name, boundary in (

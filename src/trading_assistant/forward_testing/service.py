@@ -38,7 +38,8 @@ import logging
 import threading
 from bisect import bisect_left
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from trading_assistant.trade_planning.economics import declared_scenario
 from datetime import UTC, datetime
 from typing import Any
 
@@ -268,6 +269,11 @@ class ForwardTestService:
             if planning_parameters is not None
             else PlanningParameters()
         )
+        if self.planning_parameters.economic_costs is not None:
+            # Only the versioned opt-in cohort changes. Certify under the
+            # scenario this paper plan actually records, never caller mismatch.
+            self.planning_parameters=replace(self.planning_parameters,
+                economic_costs=declared_scenario(self.parameters.friction))
         self.ledger = ForwardLedgerRepository(engine)
         self.candles = CandleRepository(engine)
         self.patterns = PatternLiquidityService(engine)
@@ -2254,7 +2260,7 @@ class ForwardTestService:
                 symbol=symbol,
                 timeframe=timeframe,
                 as_of=boundary,
-            )
+            ) or self._economic_refusal_reason(plan)
         elif provenance_withheld:
             # Neither a missed opportunity nor a market verdict: the plan was
             # refused because the record cannot account for the level it would
@@ -2880,6 +2886,13 @@ class ForwardTestService:
             )
             for plan in plans
         )
+
+    @staticmethod
+    def _economic_refusal_reason(plan: TradePlanResult) -> str | None:
+        if not {"economic_nonviability", "economic_viability_unverifiable"}.intersection(plan.reasons):
+            return None
+        detail=next(rule.reason for rule in plan.rules if rule.rule_id=="economic_viability")
+        return "NO TRADE — "+detail
 
     def _missed_reason(
         self,

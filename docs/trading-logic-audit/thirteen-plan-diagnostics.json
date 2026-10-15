@@ -1,0 +1,1079 @@
+[
+  {
+    "id": "492c5f7ff49dec2cac9a7f421a7ab460c6c64e647a25c14368acd59023b240fc",
+    "setup_id": "6c4157ce48036cd74ec6187ad692845e0a50a643fadc91c28ba87dca0286923e",
+    "planning_as_of": "2024-01-03T10:00:00Z",
+    "first_actual_boundary": "2024-01-03T10:40:00+00:00",
+    "last_actual_boundary": "2024-01-03T10:40:00+00:00",
+    "boundary_evaluations": 1,
+    "family": "failed_breakout_sweep_reversal",
+    "direction": "bullish",
+    "entry": {
+      "confirmed_at": "2024-01-03T10:00:00Z",
+      "observed_at": "2024-01-03T09:00:00Z",
+      "source_id": "7ef0569291af9007cd01f00e3e37d9f80ea25b5e40c0c5f59b3614bfc4a8524c",
+      "source_type": "step3_volatility_latest_close",
+      "source_value": "45344.67000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "45344.67000000"
+    },
+    "invalidation": {
+      "confirmed_at": "2024-01-02T08:00:00Z",
+      "observed_at": "2024-01-02T05:00:00Z",
+      "source_id": "90771f682b45562d193a6f44e446c51720b4a5d8eb4554169a4b3e804bb74a55",
+      "source_type": "step4_reference_band_low",
+      "source_value": "45121.96000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "45121.96000000"
+    },
+    "stop": {
+      "confirmed_at": null,
+      "observed_at": "2024-01-02T05:00:00Z",
+      "source_id": "90771f682b45562d193a6f44e446c51720b4a5d8eb4554169a4b3e804bb74a55:buffer",
+      "source_type": "planner_stop_buffer_none",
+      "source_value": "45121.96000000",
+      "timeframe": "1h",
+      "transformation": "no buffer applied: stop equals the logical invalidation level",
+      "value": "45121.96000000"
+    },
+    "risk_per_unit": "222.71000000",
+    "state": "NO_PLAN",
+    "reasons": [
+      "minimum_r_multiple_not_met"
+    ],
+    "selected_before_r": [
+      {
+        "confirmed_at": "2024-01-03T05:00:00Z",
+        "observed_at": "2024-01-03T02:00:00Z",
+        "source_id": "823df1fbf597b3558753f804f9e2e2a462f89f69b8e6ae64337882b5e6752f76",
+        "source_type": "step4_reference_swing_high",
+        "value": "45410.91000000"
+      },
+      {
+        "confirmed_at": "2024-01-02T06:00:00Z",
+        "observed_at": "2024-01-02T03:00:00Z",
+        "source_id": "796c7fcd3c57c695512e970ac854d7340e2c5722b352c78989ff7d2d1d51ab4d",
+        "source_type": "step4_reference_swing_high",
+        "value": "45500.00000000"
+      }
+    ],
+    "eligible_farther_prices": 2,
+    "catalog_unique_prices": 4,
+    "original_plan_reproduced_exactly": true,
+    "economic_cohorts": {
+      "base": {
+        "id": "03434e21f7304d915d936a791038842e66026fb4120d8a6b7f04631281238053",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      },
+      "stress": {
+        "id": "635dbb5c286be29538016a20e5371baa9a94e474feeb3c7a1e459e97d4348246",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      }
+    },
+    "diagnosis": "raw nearest-two floor correctly refused; farther levels do not remove intervening barriers"
+  },
+  {
+    "id": "95d6a134dd5923b4ddb981221239cc28e25d2620576bc76613f57c7dbb38c93f",
+    "setup_id": "24d99f00b88246839784b951f1ec004be8f6f4235c921f8db7397cbc513c94de",
+    "planning_as_of": "2024-01-04T22:00:00Z",
+    "first_actual_boundary": "2024-01-04T22:00:00+00:00",
+    "last_actual_boundary": "2024-01-04T22:55:00+00:00",
+    "boundary_evaluations": 12,
+    "family": "breakout_retest_continuation",
+    "direction": "bullish",
+    "entry": {
+      "confirmed_at": "2024-01-04T22:00:00Z",
+      "observed_at": "2024-01-04T21:00:00Z",
+      "source_id": "266a70b8ea0f918b20cbd9ac068affd353ec634dcfd0c8cb7c49ba40113b1903",
+      "source_type": "step3_volatility_latest_close",
+      "source_value": "44430.86000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "44430.86000000"
+    },
+    "invalidation": {
+      "confirmed_at": "2023-12-29T17:00:00Z",
+      "observed_at": "2023-12-29T14:00:00Z",
+      "source_id": "941d0632dc1d59b880debbaee7d3d2391d237856e9e82fa8e138679b5f52d556",
+      "source_type": "step4_reference_band_low",
+      "source_value": "43111.00000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "43111.00000000"
+    },
+    "stop": {
+      "confirmed_at": null,
+      "observed_at": "2023-12-29T14:00:00Z",
+      "source_id": "941d0632dc1d59b880debbaee7d3d2391d237856e9e82fa8e138679b5f52d556:buffer",
+      "source_type": "planner_stop_buffer_none",
+      "source_value": "43111.00000000",
+      "timeframe": "1h",
+      "transformation": "no buffer applied: stop equals the logical invalidation level",
+      "value": "43111.00000000"
+    },
+    "risk_per_unit": "1319.86000000",
+    "state": "NO_PLAN",
+    "reasons": [
+      "minimum_r_multiple_not_met"
+    ],
+    "selected_before_r": [
+      {
+        "confirmed_at": "2023-12-06T01:00:00Z",
+        "observed_at": "2023-12-05T22:00:00Z",
+        "source_id": "e2bc6d940d14185aacffac691003a3bfb93e1d0fdb4a95b806d87171779e0737",
+        "source_type": "step4_reference_swing_high",
+        "value": "44488.00000000"
+      },
+      {
+        "confirmed_at": "2024-01-04T22:00:00Z",
+        "observed_at": "2024-01-02T15:00:00Z",
+        "source_id": "23bf7dea9b05cd541a2e7191ee26f3e35a7dcff2c2f66649498a8de27e9de8ec",
+        "source_type": "step4_reference_zone",
+        "value": "44600.00000000"
+      }
+    ],
+    "eligible_farther_prices": 2,
+    "catalog_unique_prices": 13,
+    "original_plan_reproduced_exactly": true,
+    "economic_cohorts": {
+      "base": {
+        "id": "a29c531093495db2a615c3f74aa95a77750f1648c8fd22a9018c0a4ee195dac6",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      },
+      "stress": {
+        "id": "fdd45b74ccb1277ade8ac8a4299a7e7fc558d68a73120b326fde2e09fe1cd3ed",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      }
+    },
+    "diagnosis": "raw nearest-two floor correctly refused; farther levels do not remove intervening barriers"
+  },
+  {
+    "id": "990212d5c796eb010aa74e448b05e6445413e5798aca7a36fed65935b1dca011",
+    "setup_id": "23075fb1e0537c54ebdee2cae1e59c8e5a620c4f48f4f5ec0760d4c33a9a6ed8",
+    "planning_as_of": "2024-01-04T23:00:00Z",
+    "first_actual_boundary": "2024-01-04T23:00:00+00:00",
+    "last_actual_boundary": "2024-01-04T23:55:00+00:00",
+    "boundary_evaluations": 12,
+    "family": "breakout_retest_continuation",
+    "direction": "bullish",
+    "entry": {
+      "confirmed_at": "2024-01-04T23:00:00Z",
+      "observed_at": "2024-01-04T22:00:00Z",
+      "source_id": "e52c7e4669c1714c0b7d811c92b200e71c21eb668a1cdf18ede7a099f5129910",
+      "source_type": "step3_volatility_latest_close",
+      "source_value": "44318.00000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "44318.00000000"
+    },
+    "invalidation": {
+      "confirmed_at": "2023-12-28T13:00:00Z",
+      "observed_at": "2023-12-28T10:00:00Z",
+      "source_id": "32b599a910f007501d32ddd08b64a9fbf7614fd530b23176ae17b9f0e0abbc1e",
+      "source_type": "step4_reference_band_low",
+      "source_value": "43192.17000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "43192.17000000"
+    },
+    "stop": {
+      "confirmed_at": null,
+      "observed_at": "2023-12-28T10:00:00Z",
+      "source_id": "32b599a910f007501d32ddd08b64a9fbf7614fd530b23176ae17b9f0e0abbc1e:buffer",
+      "source_type": "planner_stop_buffer_none",
+      "source_value": "43192.17000000",
+      "timeframe": "1h",
+      "transformation": "no buffer applied: stop equals the logical invalidation level",
+      "value": "43192.17000000"
+    },
+    "risk_per_unit": "1125.83000000",
+    "state": "NO_PLAN",
+    "reasons": [
+      "minimum_r_multiple_not_met"
+    ],
+    "selected_before_r": [
+      {
+        "confirmed_at": "2024-01-04T23:00:00Z",
+        "observed_at": "2024-01-04T15:00:00Z",
+        "source_id": "36ac14092b9e79edc88ac9664ca969c44bbff609b535a9f92e016c81e0ce1b56",
+        "source_type": "step4_reference_zone",
+        "value": "44329.99000000"
+      },
+      {
+        "confirmed_at": "2023-12-09T08:00:00Z",
+        "observed_at": "2023-12-09T05:00:00Z",
+        "source_id": "99490ddbd40cdf2a135c150a2d130e37382670691275ef9889a81d95aeb4cbba",
+        "source_type": "step4_reference_swing_high",
+        "value": "44358.02000000"
+      }
+    ],
+    "eligible_farther_prices": 3,
+    "catalog_unique_prices": 16,
+    "original_plan_reproduced_exactly": true,
+    "economic_cohorts": {
+      "base": {
+        "id": "6215e36aa52296500f2a3c586ba066810034d319679c6aaf166c737e276d0d52",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      },
+      "stress": {
+        "id": "4906922ff61f7ef7fc75ebbe817a838ebdaa07fab86d6b0e681153c760bcb233",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      }
+    },
+    "diagnosis": "raw nearest-two floor correctly refused; farther levels do not remove intervening barriers"
+  },
+  {
+    "id": "cb2dd20af135ec1a61124c646bc754299b1b8391fab269bc4bff317149fcf593",
+    "setup_id": "04a3f0a0bb588b1464e391da64c30bc8fe76fd8db39e08c3bc0f25c2b4f353b9",
+    "planning_as_of": "2024-01-08T07:00:00Z",
+    "first_actual_boundary": "2024-01-08T07:00:00+00:00",
+    "last_actual_boundary": "2024-01-08T07:55:00+00:00",
+    "boundary_evaluations": 12,
+    "family": "failed_breakout_sweep_reversal",
+    "direction": "bearish",
+    "entry": {
+      "confirmed_at": "2024-01-08T07:00:00Z",
+      "observed_at": "2024-01-08T06:00:00Z",
+      "source_id": "c9ce91b16070652bc980237539336bf4499ba48a8d760aed1d465ee98f95d5f3",
+      "source_type": "step3_volatility_latest_close",
+      "source_value": "43912.87000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "43912.87000000"
+    },
+    "invalidation": {
+      "confirmed_at": "2024-01-06T21:00:00Z",
+      "observed_at": "2024-01-06T18:00:00Z",
+      "source_id": "7832439f430e220b1a7af978f63513679ab66c41288fca6bc8524e9d4fcd4d00",
+      "source_type": "step4_reference_band_high",
+      "source_value": "44148.58000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "44148.58000000"
+    },
+    "stop": {
+      "confirmed_at": null,
+      "observed_at": "2024-01-06T18:00:00Z",
+      "source_id": "7832439f430e220b1a7af978f63513679ab66c41288fca6bc8524e9d4fcd4d00:buffer",
+      "source_type": "planner_stop_buffer_none",
+      "source_value": "44148.58000000",
+      "timeframe": "1h",
+      "transformation": "no buffer applied: stop equals the logical invalidation level",
+      "value": "44148.58000000"
+    },
+    "risk_per_unit": "235.71000000",
+    "state": "NO_PLAN",
+    "reasons": [
+      "minimum_r_multiple_not_met"
+    ],
+    "selected_before_r": [
+      {
+        "confirmed_at": "2024-01-05T01:00:00Z",
+        "observed_at": "2023-12-23T22:00:00Z",
+        "source_id": "12ca421474de93da1dc68c074972504715f7061ab373b6d837b43ec54134b8e5",
+        "source_type": "step4_equal_level_cluster",
+        "value": "43907.57000000"
+      },
+      {
+        "confirmed_at": "2024-01-07T12:00:00Z",
+        "observed_at": "2024-01-07T02:00:00Z",
+        "source_id": "668c3472e3298ea08029fbe36716054d19dce7642bee460780e9643b4d65fa9d",
+        "source_type": "step4_equal_level_cluster",
+        "value": "43880.65000000"
+      }
+    ],
+    "eligible_farther_prices": 179,
+    "catalog_unique_prices": 201,
+    "original_plan_reproduced_exactly": true,
+    "economic_cohorts": {
+      "base": {
+        "id": "57583d662d458385a7a4937be40a26a551fee3a9e4bb2ec842631bb203c958a2",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      },
+      "stress": {
+        "id": "be025764d6740b6b218d9a4bfb6a67521409cba6288e427c4ef1c20f81f349b0",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      }
+    },
+    "diagnosis": "raw nearest-two floor correctly refused; farther levels do not remove intervening barriers"
+  },
+  {
+    "id": "95c93c0fc381356620b3fbcb0a4e5f1abd0d567858deca861a04291e185583ad",
+    "setup_id": "04a3f0a0bb588b1464e391da64c30bc8fe76fd8db39e08c3bc0f25c2b4f353b9",
+    "planning_as_of": "2024-01-08T08:00:00Z",
+    "first_actual_boundary": "2024-01-08T08:00:00+00:00",
+    "last_actual_boundary": "2024-01-08T08:55:00+00:00",
+    "boundary_evaluations": 12,
+    "family": "failed_breakout_sweep_reversal",
+    "direction": "bearish",
+    "entry": {
+      "confirmed_at": "2024-01-08T08:00:00Z",
+      "observed_at": "2024-01-08T07:00:00Z",
+      "source_id": "273495f2d2813f62e5d64be718e4abf02a9697c298396d048545988d82da279d",
+      "source_type": "step3_volatility_latest_close",
+      "source_value": "43974.55000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "43974.55000000"
+    },
+    "invalidation": {
+      "confirmed_at": "2024-01-06T21:00:00Z",
+      "observed_at": "2024-01-06T18:00:00Z",
+      "source_id": "7832439f430e220b1a7af978f63513679ab66c41288fca6bc8524e9d4fcd4d00",
+      "source_type": "step4_reference_band_high",
+      "source_value": "44148.58000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "44148.58000000"
+    },
+    "stop": {
+      "confirmed_at": null,
+      "observed_at": "2024-01-06T18:00:00Z",
+      "source_id": "7832439f430e220b1a7af978f63513679ab66c41288fca6bc8524e9d4fcd4d00:buffer",
+      "source_type": "planner_stop_buffer_none",
+      "source_value": "44148.58000000",
+      "timeframe": "1h",
+      "transformation": "no buffer applied: stop equals the logical invalidation level",
+      "value": "44148.58000000"
+    },
+    "risk_per_unit": "174.03000000",
+    "state": "NO_PLAN",
+    "reasons": [
+      "minimum_r_multiple_not_met"
+    ],
+    "selected_before_r": [
+      {
+        "confirmed_at": "2023-12-10T18:00:00Z",
+        "observed_at": "2023-12-10T15:00:00Z",
+        "source_id": "1e848b412a8c76f9e0641d3767f7942e052df6fc94cfb6ea56334d88699cf9fa",
+        "source_type": "step4_reference_swing_high",
+        "value": "43973.76000000"
+      },
+      {
+        "confirmed_at": "2023-12-10T07:00:00Z",
+        "observed_at": "2023-12-10T04:00:00Z",
+        "source_id": "5fc57306ea4cf2c1cb778170c31e458686765b510cdf5b16056b9c5c804733a1",
+        "source_type": "step4_reference_swing_high",
+        "value": "43965.00000000"
+      }
+    ],
+    "eligible_farther_prices": 189,
+    "catalog_unique_prices": 205,
+    "original_plan_reproduced_exactly": true,
+    "economic_cohorts": {
+      "base": {
+        "id": "e356c58d11b611e92f79cd2c15c848f7371b0a6bef4039223e11f2dfd50fefb2",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      },
+      "stress": {
+        "id": "1dbbd481a02fcb6172dc8a4482b893f0ebb9243fda90af116fa67b52a1af6cc0",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      }
+    },
+    "diagnosis": "raw nearest-two floor correctly refused; farther levels do not remove intervening barriers"
+  },
+  {
+    "id": "93961d1d665b8a37f8b00fce766ca9d48338c72d1640208a12778f1c7122edc8",
+    "setup_id": "dc83240f8306b2d9d55c5d6f1cadc3f6720d9080e258e79a768299bb8358f637",
+    "planning_as_of": "2024-01-10T21:00:00Z",
+    "first_actual_boundary": "2024-01-10T21:00:00+00:00",
+    "last_actual_boundary": "2024-01-10T21:55:00+00:00",
+    "boundary_evaluations": 12,
+    "family": "failed_breakout_sweep_reversal",
+    "direction": "bearish",
+    "entry": {
+      "confirmed_at": "2024-01-10T21:00:00Z",
+      "observed_at": "2024-01-10T20:00:00Z",
+      "source_id": "e05bac418f8b770d3db393cf78e2366d2cf1e7f7b24dd4539220a8d2b320d246",
+      "source_type": "step3_volatility_latest_close",
+      "source_value": "46127.00000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "46127.00000000"
+    },
+    "invalidation": {
+      "confirmed_at": "2024-01-10T19:00:00Z",
+      "observed_at": "2024-01-09T00:00:00Z",
+      "source_id": "6884672723a9bbde2540079eaf8aa9cffad521521b2466911d86b553f66f2c4e",
+      "source_type": "step4_reference_band_high",
+      "source_value": "46599.43000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "46599.43000000"
+    },
+    "stop": {
+      "confirmed_at": null,
+      "observed_at": "2024-01-09T00:00:00Z",
+      "source_id": "6884672723a9bbde2540079eaf8aa9cffad521521b2466911d86b553f66f2c4e:buffer",
+      "source_type": "planner_stop_buffer_none",
+      "source_value": "46599.43000000",
+      "timeframe": "1h",
+      "transformation": "no buffer applied: stop equals the logical invalidation level",
+      "value": "46599.43000000"
+    },
+    "risk_per_unit": "472.43000000",
+    "state": "NO_PLAN",
+    "reasons": [
+      "minimum_r_multiple_not_met"
+    ],
+    "selected_before_r": [
+      {
+        "confirmed_at": "2024-01-02T17:00:00Z",
+        "observed_at": "2024-01-02T09:00:00Z",
+        "source_id": "7094aacb7b768b0f1e9b70a456e19ec52d7276a69b05bb60aec34aa1d180d02f",
+        "source_type": "step4_equal_level_cluster",
+        "value": "45879.63000000"
+      },
+      {
+        "confirmed_at": "2024-01-02T17:00:00Z",
+        "observed_at": "2024-01-02T14:00:00Z",
+        "source_id": "b4820eec2915299db879d1e482544497447bb8b3fb43c1104c63307e70dc38c9",
+        "source_type": "step4_reference_swing_high",
+        "value": "45800.00000000"
+      }
+    ],
+    "eligible_farther_prices": 254,
+    "catalog_unique_prices": 256,
+    "original_plan_reproduced_exactly": true,
+    "economic_cohorts": {
+      "base": {
+        "id": "ad2c444c61bc60a8db0f9cbc6f4bb1fe24258952d59546a60631fcaf27674d91",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      },
+      "stress": {
+        "id": "713234143a4c81e45602b72e5954bf8807caa06d29f52d73611c247676468f3c",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      }
+    },
+    "diagnosis": "raw nearest-two floor correctly refused; farther levels do not remove intervening barriers"
+  },
+  {
+    "id": "be9299b617acb7fbd3366f5d9cc5a486376b0d5b24234eacefafd2255a031398",
+    "setup_id": "82a2ac690464c0acc6075cfd15b1ea4ca0b9526f4f9d8109f417fa65fab63685",
+    "planning_as_of": "2024-01-10T22:00:00Z",
+    "first_actual_boundary": "2024-01-10T22:00:00+00:00",
+    "last_actual_boundary": "2024-01-10T22:55:00+00:00",
+    "boundary_evaluations": 12,
+    "family": "failed_breakout_sweep_reversal",
+    "direction": "bullish",
+    "entry": {
+      "confirmed_at": "2024-01-10T22:00:00Z",
+      "observed_at": "2024-01-10T21:00:00Z",
+      "source_id": "288025acf9c3c25a131a15df18de8ca437eb46a6cee1a2a8bc867630c9865bad",
+      "source_type": "step3_volatility_latest_close",
+      "source_value": "45946.00000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "45946.00000000"
+    },
+    "invalidation": {
+      "confirmed_at": "2024-01-03T00:00:00Z",
+      "observed_at": "2024-01-02T21:00:00Z",
+      "source_id": "b090a255eb80ab036d2a1f8ceeb64b460d12aae0cf104a4852bb0bfdd85eaf18",
+      "source_type": "step4_reference_band_low",
+      "source_value": "44600.00000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "44600.00000000"
+    },
+    "stop": {
+      "confirmed_at": null,
+      "observed_at": "2024-01-02T21:00:00Z",
+      "source_id": "b090a255eb80ab036d2a1f8ceeb64b460d12aae0cf104a4852bb0bfdd85eaf18:buffer",
+      "source_type": "planner_stop_buffer_none",
+      "source_value": "44600.00000000",
+      "timeframe": "1h",
+      "transformation": "no buffer applied: stop equals the logical invalidation level",
+      "value": "44600.00000000"
+    },
+    "risk_per_unit": "1346.00000000",
+    "state": "NO_PLAN",
+    "reasons": [
+      "minimum_r_multiple_not_met"
+    ],
+    "selected_before_r": [
+      {
+        "confirmed_at": "2024-01-10T06:00:00Z",
+        "observed_at": "2024-01-10T03:00:00Z",
+        "source_id": "6c2b9a0c68917786d65f5a21738ad05e4acacd917332c244bfa0097d743152e9",
+        "source_type": "step4_reference_swing_high",
+        "value": "46211.95000000"
+      },
+      {
+        "confirmed_at": "2024-01-09T03:00:00Z",
+        "observed_at": "2024-01-09T00:00:00Z",
+        "source_id": "c9474e63eff2b79d5dfb2be344db9033c66a06592f91a10f74edbb906d2add72",
+        "source_type": "step4_reference_swing_low",
+        "value": "46230.00000000"
+      }
+    ],
+    "eligible_farther_prices": 1,
+    "catalog_unique_prices": 11,
+    "original_plan_reproduced_exactly": true,
+    "economic_cohorts": {
+      "base": {
+        "id": "d02af0f4676fd772c41314aa649254ac9553e605217bf2b1edb5a9796f81cca9",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      },
+      "stress": {
+        "id": "0a94590c2fd6021620a68b16937a8db68ee3b245df3508eb1f93b28b19e9ae9f",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      }
+    },
+    "diagnosis": "raw nearest-two floor correctly refused; farther levels do not remove intervening barriers"
+  },
+  {
+    "id": "c866cf42d96b9da42ef17202793fde24134cfd08f71cb486a76d35e2790ff76d",
+    "setup_id": "82a2ac690464c0acc6075cfd15b1ea4ca0b9526f4f9d8109f417fa65fab63685",
+    "planning_as_of": "2024-01-10T23:00:00Z",
+    "first_actual_boundary": "2024-01-10T23:00:00+00:00",
+    "last_actual_boundary": "2024-01-10T23:55:00+00:00",
+    "boundary_evaluations": 12,
+    "family": "failed_breakout_sweep_reversal",
+    "direction": "bullish",
+    "entry": {
+      "confirmed_at": "2024-01-10T23:00:00Z",
+      "observed_at": "2024-01-10T22:00:00Z",
+      "source_id": "47955927a48eab568a9968dfc1b5e245f5a2889c5e3318aae6bc86f15391d7a2",
+      "source_type": "step3_volatility_latest_close",
+      "source_value": "46902.69000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "46902.69000000"
+    },
+    "invalidation": {
+      "confirmed_at": "2024-01-03T00:00:00Z",
+      "observed_at": "2024-01-02T21:00:00Z",
+      "source_id": "b090a255eb80ab036d2a1f8ceeb64b460d12aae0cf104a4852bb0bfdd85eaf18",
+      "source_type": "step4_reference_band_low",
+      "source_value": "44600.00000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "44600.00000000"
+    },
+    "stop": {
+      "confirmed_at": null,
+      "observed_at": "2024-01-02T21:00:00Z",
+      "source_id": "b090a255eb80ab036d2a1f8ceeb64b460d12aae0cf104a4852bb0bfdd85eaf18:buffer",
+      "source_type": "planner_stop_buffer_none",
+      "source_value": "44600.00000000",
+      "timeframe": "1h",
+      "transformation": "no buffer applied: stop equals the logical invalidation level",
+      "value": "44600.00000000"
+    },
+    "risk_per_unit": "2302.69000000",
+    "state": "NO_PLAN",
+    "reasons": [
+      "minimum_r_multiple_not_met"
+    ],
+    "selected_before_r": [
+      {
+        "confirmed_at": "2024-01-09T10:00:00Z",
+        "observed_at": "2024-01-09T03:00:00Z",
+        "source_id": "0fe16cbb493151c766eb5644cdbaeb5678b7d8500a184c5d9b1f496fc8069c63",
+        "source_type": "step4_equal_level_cluster",
+        "value": "46931.70000000"
+      },
+      {
+        "confirmed_at": "2024-01-09T06:00:00Z",
+        "observed_at": "2024-01-09T03:00:00Z",
+        "source_id": "dedcc22166814816f568f4fafccaa1d0ed56b4fecac83d487b86d7912d0c43f8",
+        "source_type": "step4_reference_swing_high",
+        "value": "46974.42000000"
+      }
+    ],
+    "eligible_farther_prices": 0,
+    "catalog_unique_prices": 6,
+    "original_plan_reproduced_exactly": true,
+    "economic_cohorts": {
+      "base": {
+        "id": "29f2010047b7c5b0cb46f86d054d5a095567f689ce86b0464c1f3750ce1eddfb",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      },
+      "stress": {
+        "id": "cc4429766c3a86fb5c7b4af7671362efae4ec0fea25ecce1a8448fbde3c3d924",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      }
+    },
+    "diagnosis": "raw nearest-two floor correctly refused; farther levels do not remove intervening barriers"
+  },
+  {
+    "id": "da9e30e90e7cf559eda26a7b0a06a146630a59fd7f72eb46058216ae69fe4803",
+    "setup_id": "272c82f5a3e17731e6461fddd2208d4f589685f14af162b3cb2abac6fe4b0859",
+    "planning_as_of": "2024-01-15T23:00:00Z",
+    "first_actual_boundary": "2024-01-15T23:00:00+00:00",
+    "last_actual_boundary": "2024-01-15T23:55:00+00:00",
+    "boundary_evaluations": 12,
+    "family": "failed_breakout_sweep_reversal",
+    "direction": "bullish",
+    "entry": {
+      "confirmed_at": "2024-01-15T23:00:00Z",
+      "observed_at": "2024-01-15T22:00:00Z",
+      "source_id": "abe94e385f4ba419600f72ee9f190e9fe9162fd170be917e54a11af5893fd5c3",
+      "source_type": "step3_volatility_latest_close",
+      "source_value": "42628.00000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "42628.00000000"
+    },
+    "invalidation": {
+      "confirmed_at": "2023-12-31T18:00:00Z",
+      "observed_at": "2023-12-31T15:00:00Z",
+      "source_id": "75ca61b67c5fdb91979c5e22da7dfc2bfc24e13713841e97b3f7bd69c8c3ca3b",
+      "source_type": "step4_reference_band_low",
+      "source_value": "42361.10000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "42361.10000000"
+    },
+    "stop": {
+      "confirmed_at": null,
+      "observed_at": "2023-12-31T15:00:00Z",
+      "source_id": "75ca61b67c5fdb91979c5e22da7dfc2bfc24e13713841e97b3f7bd69c8c3ca3b:buffer",
+      "source_type": "planner_stop_buffer_none",
+      "source_value": "42361.10000000",
+      "timeframe": "1h",
+      "transformation": "no buffer applied: stop equals the logical invalidation level",
+      "value": "42361.10000000"
+    },
+    "risk_per_unit": "266.90000000",
+    "state": "NO_PLAN",
+    "reasons": [
+      "minimum_r_multiple_not_met"
+    ],
+    "selected_before_r": [
+      {
+        "confirmed_at": "2023-12-14T06:00:00Z",
+        "observed_at": "2023-12-14T00:00:00Z",
+        "source_id": "98a97b3dd0e45f211d6227870af800f10c20b6f29e222db1d8a6698a823e4ee2",
+        "source_type": "step4_equal_level_cluster",
+        "value": "42648.95000000"
+      },
+      {
+        "confirmed_at": "2023-12-14T06:00:00Z",
+        "observed_at": "2023-12-14T03:00:00Z",
+        "source_id": "aa75e3a1f3ccc492b9905ac883e392c0ee8578aab2509fcebcd1ed752af35265",
+        "source_type": "step4_reference_swing_low",
+        "value": "42659.75000000"
+      }
+    ],
+    "eligible_farther_prices": 169,
+    "catalog_unique_prices": 189,
+    "original_plan_reproduced_exactly": true,
+    "economic_cohorts": {
+      "base": {
+        "id": "444cb37aafc1aabf9036e8cd3826a2bc2d4933ca97e86b8c625f51166b946e3a",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      },
+      "stress": {
+        "id": "f489c7f7d4b8d259d11fcc0ea886e50fbbaee5c9c924a1aca44c1a7fa8be489b",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      }
+    },
+    "diagnosis": "raw nearest-two floor correctly refused; farther levels do not remove intervening barriers"
+  },
+  {
+    "id": "26e81e649c958e189551c9f70494ef97b2348b71943376ce2c1dd93ec139941e",
+    "setup_id": "4a79c68c02592061ea7cd525c2985c6992025d8ea3f4cf9a941895a3bb67dba9",
+    "planning_as_of": "2024-01-19T18:00:00Z",
+    "first_actual_boundary": "2024-01-19T18:05:00+00:00",
+    "last_actual_boundary": "2024-01-19T18:25:00+00:00",
+    "boundary_evaluations": 5,
+    "family": "failed_breakout_sweep_reversal",
+    "direction": "bearish",
+    "entry": {
+      "confirmed_at": "2024-01-19T18:00:00Z",
+      "observed_at": "2024-01-19T17:00:00Z",
+      "source_id": "d388e391e72c8284d894b81135fc4c6855f09fbfee19a48c054b67a2a366c5a4",
+      "source_type": "step3_volatility_latest_close",
+      "source_value": "41239.57000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "41239.57000000"
+    },
+    "invalidation": {
+      "confirmed_at": "2023-12-13T11:00:00Z",
+      "observed_at": "2023-12-13T08:00:00Z",
+      "source_id": "0c240b843e82f1f5e6cdccceff0e303c470a1079d6fc39af1ff9c4a963a1c949",
+      "source_type": "step4_reference_band_high",
+      "source_value": "41280.00000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "41280.00000000"
+    },
+    "stop": {
+      "confirmed_at": null,
+      "observed_at": "2023-12-13T08:00:00Z",
+      "source_id": "0c240b843e82f1f5e6cdccceff0e303c470a1079d6fc39af1ff9c4a963a1c949:buffer",
+      "source_type": "planner_stop_buffer_none",
+      "source_value": "41280.00000000",
+      "timeframe": "1h",
+      "transformation": "no buffer applied: stop equals the logical invalidation level",
+      "value": "41280.00000000"
+    },
+    "risk_per_unit": "40.43000000",
+    "state": "PLANNABLE",
+    "reasons": [],
+    "selected_before_r": [
+      {
+        "confirmed_at": "2023-12-18T19:00:00Z",
+        "observed_at": "2023-12-18T16:00:00Z",
+        "source_id": "2a7d3cc72210d15ab35553dbfbc6ac4c30072917fae64affd03aba1a4bd044e1",
+        "source_type": "step4_reference_swing_low",
+        "value": "41146.83000000"
+      },
+      {
+        "confirmed_at": "2023-12-04T18:00:00Z",
+        "observed_at": "2023-12-04T15:00:00Z",
+        "source_id": "cd6acc1da6ade7d3853c63bb1065f9911b2fc6eb4f7b7e817c8228bae4b55b72",
+        "source_type": "step4_reference_swing_low",
+        "value": "41144.87000000"
+      }
+    ],
+    "eligible_farther_prices": 35,
+    "catalog_unique_prices": 37,
+    "original_plan_reproduced_exactly": true,
+    "economic_cohorts": {
+      "base": {
+        "id": "2566552e6a1dcc916d0b7a4f4791ae4a9f6febdf5fccd092730c4376d2ed1f11",
+        "reasons": [
+          "economic_nonviability"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      },
+      "stress": {
+        "id": "7a9f4f846056bd3299ad39f170b900b678c7800c5b30a31ff1c3b9beed3a1d0b",
+        "reasons": [
+          "economic_nonviability"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      }
+    },
+    "diagnosis": "bearish plan unsupported by Spot cash execution; additionally fails realistic net economics"
+  },
+  {
+    "id": "1341b866c71b0d5842592d031ea6d4870e8e7d881b579297630a592edc2b583a",
+    "setup_id": "88ab06b508cb0ec761b1c1af257463d53be45aaf78f0978d32970a105cd89787",
+    "planning_as_of": "2024-01-22T14:00:00Z",
+    "first_actual_boundary": "2024-01-22T14:00:00+00:00",
+    "last_actual_boundary": "2024-01-22T14:55:00+00:00",
+    "boundary_evaluations": 12,
+    "family": "breakout_retest_continuation",
+    "direction": "bearish",
+    "entry": {
+      "confirmed_at": "2024-01-22T14:00:00Z",
+      "observed_at": "2024-01-22T13:00:00Z",
+      "source_id": "be9f01522b10539706443122bff5f5bb5c15de739130212f3c84d3371e9f71c2",
+      "source_type": "step3_volatility_latest_close",
+      "source_value": "40943.17000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "40943.17000000"
+    },
+    "invalidation": {
+      "confirmed_at": "2023-12-30T01:00:00Z",
+      "observed_at": "2023-12-29T22:00:00Z",
+      "source_id": "2a56fcb9323c4f1d17f41643f8c050c64a4715496f0dffade574a98d63cc9044",
+      "source_type": "step4_reference_band_high",
+      "source_value": "41300.00000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "41300.00000000"
+    },
+    "stop": {
+      "confirmed_at": null,
+      "observed_at": "2023-12-29T22:00:00Z",
+      "source_id": "2a56fcb9323c4f1d17f41643f8c050c64a4715496f0dffade574a98d63cc9044:buffer",
+      "source_type": "planner_stop_buffer_none",
+      "source_value": "41300.00000000",
+      "timeframe": "1h",
+      "transformation": "no buffer applied: stop equals the logical invalidation level",
+      "value": "41300.00000000"
+    },
+    "risk_per_unit": "356.83000000",
+    "state": "NO_PLAN",
+    "reasons": [
+      "minimum_r_multiple_not_met"
+    ],
+    "selected_before_r": [
+      {
+        "confirmed_at": "2023-12-18T05:00:00Z",
+        "observed_at": "2023-12-13T07:00:00Z",
+        "source_id": "5708453cf96b1d687418bcb6db775721f865bf6eb82b8ebe32a1152efa3928f7",
+        "source_type": "step4_equal_level_cluster",
+        "value": "40801.00000000"
+      },
+      {
+        "confirmed_at": "2023-12-13T10:00:00Z",
+        "observed_at": "2023-12-13T07:00:00Z",
+        "source_id": "168bf73557af622d1f7ed5248cf724d50228a7cf4e7ac58da07120cf30260b2d",
+        "source_type": "step4_reference_swing_low",
+        "value": "40800.00000000"
+      }
+    ],
+    "eligible_farther_prices": 28,
+    "catalog_unique_prices": 35,
+    "original_plan_reproduced_exactly": true,
+    "economic_cohorts": {
+      "base": {
+        "id": "9005dff7114bc4e4c0475e95e223403e6e6f1c1786ffbe2c04ef369ebae0ca5d",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      },
+      "stress": {
+        "id": "204301cf7e79d28070ccf7fa656fc95b9a91bc3985967edee24dce08425e5619",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      }
+    },
+    "diagnosis": "raw nearest-two floor correctly refused; farther levels do not remove intervening barriers"
+  },
+  {
+    "id": "c6430daf90bf8d0f5deb2ecb30dfb638e3924aae462014f0f2eacf6b053b81ee",
+    "setup_id": "45f7d58affa945869c1cfdb1a18f7b4a436fde1605b19eca533530ea2c35c26b",
+    "planning_as_of": "2024-01-22T15:00:00Z",
+    "first_actual_boundary": "2024-01-22T15:00:00+00:00",
+    "last_actual_boundary": "2024-01-22T15:55:00+00:00",
+    "boundary_evaluations": 12,
+    "family": "breakout_retest_continuation",
+    "direction": "bearish",
+    "entry": {
+      "confirmed_at": "2024-01-22T15:00:00Z",
+      "observed_at": "2024-01-22T14:00:00Z",
+      "source_id": "63120a339775b8dd02d865e48a05914202478432f8e5fd1877f4759986ee3b9c",
+      "source_type": "step3_volatility_latest_close",
+      "source_value": "40694.75000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "40694.75000000"
+    },
+    "invalidation": {
+      "confirmed_at": "2024-01-22T04:00:00Z",
+      "observed_at": "2024-01-19T00:00:00Z",
+      "source_id": "de333dedd145bdc3ffde3a848da6a2547bb90a23ebf1e994a035eacde7096e48",
+      "source_type": "step4_reference_band_high",
+      "source_value": "41700.00000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "41700.00000000"
+    },
+    "stop": {
+      "confirmed_at": null,
+      "observed_at": "2024-01-19T00:00:00Z",
+      "source_id": "de333dedd145bdc3ffde3a848da6a2547bb90a23ebf1e994a035eacde7096e48:buffer",
+      "source_type": "planner_stop_buffer_none",
+      "source_value": "41700.00000000",
+      "timeframe": "1h",
+      "transformation": "no buffer applied: stop equals the logical invalidation level",
+      "value": "41700.00000000"
+    },
+    "risk_per_unit": "1005.25000000",
+    "state": "NO_PLAN",
+    "reasons": [
+      "minimum_r_multiple_not_met"
+    ],
+    "selected_before_r": [
+      {
+        "confirmed_at": "2024-01-22T08:00:00Z",
+        "observed_at": "2024-01-22T05:00:00Z",
+        "source_id": "c6bdf08ecbcc51a896581b43c29fe494cfaf14a310d0c37e565cb69ed2306726",
+        "source_type": "step4_reference_swing_low",
+        "value": "40684.00000000"
+      },
+      {
+        "confirmed_at": "2024-01-18T23:00:00Z",
+        "observed_at": "2024-01-18T20:00:00Z",
+        "source_id": "ac3c288dc439d8a5112a18adcfa6dea5a0cdecc77547393f72faadfb7f22eb2b",
+        "source_type": "step4_reference_swing_low",
+        "value": "40683.28000000"
+      }
+    ],
+    "eligible_farther_prices": 19,
+    "catalog_unique_prices": 31,
+    "original_plan_reproduced_exactly": true,
+    "economic_cohorts": {
+      "base": {
+        "id": "c00ff225b9a3566be9cf58b30bacdb9bfd90d84a9a2b5e1d2b4cf15be583b566",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      },
+      "stress": {
+        "id": "67b90d0e9ee3a53618fb078614c0fd98e3cdaa063c2eee97117764380baeaf0e",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      }
+    },
+    "diagnosis": "raw nearest-two floor correctly refused; farther levels do not remove intervening barriers"
+  },
+  {
+    "id": "5fafac8e00fc25c916b03e4f040aa4be9511fe6e04e5fa866c226b42127c3c74",
+    "setup_id": "1ca6eefc8a1c238e68d3d98fbeffcb9994608b75e599e1c73afd82438afc1d63",
+    "planning_as_of": "2024-01-30T21:00:00Z",
+    "first_actual_boundary": "2024-01-30T21:00:00+00:00",
+    "last_actual_boundary": "2024-01-30T21:55:00+00:00",
+    "boundary_evaluations": 12,
+    "family": "failed_breakout_sweep_reversal",
+    "direction": "bearish",
+    "entry": {
+      "confirmed_at": "2024-01-30T21:00:00Z",
+      "observed_at": "2024-01-30T20:00:00Z",
+      "source_id": "6750661ae6f009bfd39c9a904114680ed385015abdd65898f8bfc1219144e7ae",
+      "source_type": "step3_volatility_latest_close",
+      "source_value": "43561.10000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "43561.10000000"
+    },
+    "invalidation": {
+      "confirmed_at": "2023-12-26T01:00:00Z",
+      "observed_at": "2023-12-25T22:00:00Z",
+      "source_id": "5592f1977771b30d1abd58b139f31ddae1ac22b2eff6889a7d9b926545ad352e",
+      "source_type": "step4_reference_band_high",
+      "source_value": "43720.96000000",
+      "timeframe": "1h",
+      "transformation": null,
+      "value": "43720.96000000"
+    },
+    "stop": {
+      "confirmed_at": null,
+      "observed_at": "2023-12-25T22:00:00Z",
+      "source_id": "5592f1977771b30d1abd58b139f31ddae1ac22b2eff6889a7d9b926545ad352e:buffer",
+      "source_type": "planner_stop_buffer_none",
+      "source_value": "43720.96000000",
+      "timeframe": "1h",
+      "transformation": "no buffer applied: stop equals the logical invalidation level",
+      "value": "43720.96000000"
+    },
+    "risk_per_unit": "159.86000000",
+    "state": "NO_PLAN",
+    "reasons": [
+      "minimum_r_multiple_not_met"
+    ],
+    "selected_before_r": [
+      {
+        "confirmed_at": "2023-12-22T00:00:00Z",
+        "observed_at": "2023-12-08T04:00:00Z",
+        "source_id": "3bb76a14daab09ab0395c5fa1909094263052a17468fad67472a0bb6d74c99ea",
+        "source_type": "step4_equal_level_cluster",
+        "value": "43550.00000000"
+      },
+      {
+        "confirmed_at": "2024-01-06T15:00:00Z",
+        "observed_at": "2024-01-06T12:00:00Z",
+        "source_id": "77ada55947429a1fcbe2edfc68b6b980cc424093d35a68502b3f5a2ac7bd4c6c",
+        "source_type": "step4_reference_swing_low",
+        "value": "43527.27000000"
+      }
+    ],
+    "eligible_farther_prices": 259,
+    "catalog_unique_prices": 273,
+    "original_plan_reproduced_exactly": true,
+    "economic_cohorts": {
+      "base": {
+        "id": "b63f92e376fd3929445fd62f6d0b7bc63ad9cf46e985d51962358a4c5cb08e9b",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      },
+      "stress": {
+        "id": "d35b12d79ac849b07a44ca8f0d65fd17872575f938b7b6de7e6cb26e908e20d5",
+        "reasons": [
+          "minimum_r_multiple_not_met"
+        ],
+        "rules_version": "trade-planning-v2+economic-planning-research-v1",
+        "state": "NO_PLAN"
+      }
+    },
+    "diagnosis": "raw nearest-two floor correctly refused; farther levels do not remove intervening barriers"
+  }
+]

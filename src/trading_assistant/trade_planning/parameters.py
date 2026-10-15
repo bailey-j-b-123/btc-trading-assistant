@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 from hashlib import sha256
+from trading_assistant.costs import FrictionAssumptions
 
 from trading_assistant.market_structure.numeric import as_decimal, require_int
 from trading_assistant.market_structure.snapshot import to_jsonable
@@ -90,6 +91,9 @@ class PlanningParameters:
     include_equal_levels_as_targets: bool = True
     min_r_multiple: Decimal = MINIMUM_R_MULTIPLE_FLOOR
     preferred_r_multiple: Decimal = Decimal("1.5")
+    # Explicit new cohort. None retains the byte-identical v2 diagnostic policy.
+    economic_costs: FrictionAssumptions | None = None
+    min_cost_adjusted_r_multiple: Decimal = MINIMUM_R_MULTIPLE_FLOOR
 
     def __post_init__(self) -> None:
         for name, enum_type in (("stop_buffer_mode", StopBufferMode),):
@@ -148,7 +152,19 @@ class PlanningParameters:
         object.__setattr__(
             self, "preferred_r_multiple", canonical_decimal(preferred)
         )
+        if self.economic_costs is not None and not isinstance(self.economic_costs,FrictionAssumptions):
+            raise TypeError("economic_costs must be FrictionAssumptions or None")
+        cost_floor=as_decimal(self.min_cost_adjusted_r_multiple,name="min_cost_adjusted_r_multiple")
+        if cost_floor < MINIMUM_R_MULTIPLE_FLOOR:
+            raise ValueError("cost-adjusted mandatory floor must be >=1")
+        object.__setattr__(self,"min_cost_adjusted_r_multiple",canonical_decimal(cost_floor))
 
     def fingerprint(self) -> str:
         """Versioned identity of this exact configuration."""
-        return fingerprint(self)
+        material=to_jsonable(self)
+        if self.economic_costs is None:
+            material.pop("economic_costs")
+            material.pop("min_cost_adjusted_r_multiple")
+        else:
+            material["economic_policy_version"]="economic-planning-research-v1"
+        return fingerprint(material)

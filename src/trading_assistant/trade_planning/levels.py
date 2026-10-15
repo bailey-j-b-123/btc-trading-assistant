@@ -207,7 +207,7 @@ def _side_reason(value: object, entry: Decimal, long: bool) -> str | None:
     return None
 
 
-def structural_target_candidates(
+def structural_target_catalog(
     patterns: PatternLiquiditySnapshot,
     entry: Decimal,
     direction: Direction,
@@ -285,6 +285,19 @@ def structural_target_candidates(
             )
             continue
         selected.append(candidate)
+    return tuple(selected), tuple(rejected)
+
+
+def structural_target_candidates(
+    patterns: PatternLiquiditySnapshot,
+    entry: Decimal,
+    direction: Direction,
+    parameters: PlanningParameters,
+    as_of: datetime,
+) -> tuple[tuple[TargetCandidate, ...], tuple[str, ...]]:
+    """Preserve the existing nearest-target cap; catalog is diagnostic only."""
+    selected, exclusions = structural_target_catalog(patterns,entry,direction,parameters,as_of)
+    rejected=list(exclusions)
     cap = parameters.max_structural_targets
     for extra in selected[cap:]:
         rejected.append(
