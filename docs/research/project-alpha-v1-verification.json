@@ -1,0 +1,285 @@
+{
+  "experiments": [
+    {
+      "id": "5b31421cac029db4772c905a76ada437dec2f93dbbacb20930e6958ff9322c4d",
+      "trades": 0,
+      "signals": 0,
+      "boundaries": 6600,
+      "cash": "10000",
+      "money_error": "0 to1e-18",
+      "cost": "base",
+      "period": "development",
+      "hypothesis": "thin_volume_shock_reversal"
+    },
+    {
+      "id": "23099f1362af0d13a9f84320f7d6a20cbcd5b4916c05c4919bf1e20f5bd390b9",
+      "trades": 0,
+      "signals": 0,
+      "boundaries": 6600,
+      "cash": "10000",
+      "money_error": "0 to1e-18",
+      "cost": "stress",
+      "period": "development",
+      "hypothesis": "thin_volume_shock_reversal"
+    },
+    {
+      "id": "623fbf12211167fc368f6eb9aa9eccb308f9bf1115100dc84aff4f0c71a691f4",
+      "trades": 56,
+      "signals": 56,
+      "boundaries": 6600,
+      "cash": "9604.72836396478214056864",
+      "money_error": "0 to1e-18",
+      "cost": "base",
+      "period": "development",
+      "hypothesis": "utc_open_close_continuation"
+    },
+    {
+      "id": "e571db4ad8d1834a3bbc335261d4bda639585b75d82252596afd9b7ef99616f3",
+      "trades": 56,
+      "signals": 56,
+      "boundaries": 6600,
+      "cash": "9254.17382169091177482624",
+      "money_error": "0 to1e-18",
+      "cost": "stress",
+      "period": "development",
+      "hypothesis": "utc_open_close_continuation"
+    },
+    {
+      "id": "16e39c1ecd02d2ab0fe51c5db9359a0163a751d507fb3af6528d5f42af5b85c3",
+      "trades": 1,
+      "signals": 1,
+      "boundaries": 8758,
+      "cash": "10039.61417946786972000000",
+      "money_error": "0 to1e-18",
+      "cost": "base",
+      "period": "diagnostic_gap_2023",
+      "hypothesis": "thin_volume_shock_reversal"
+    },
+    {
+      "id": "16cf35dad49a52f42c814cb5959fdd9496b0ba2af844cce1adf3ef51b54d06e0",
+      "trades": 1,
+      "signals": 1,
+      "boundaries": 8758,
+      "cash": "10031.98331971077958000000",
+      "money_error": "0 to1e-18",
+      "cost": "stress",
+      "period": "diagnostic_gap_2023",
+      "hypothesis": "thin_volume_shock_reversal"
+    },
+    {
+      "id": "1a48cdd6bf6a2eb0cffb8303f16fbfe645710d8f4565b3c894d21d1b80925fa5",
+      "trades": 78,
+      "signals": 78,
+      "boundaries": 8758,
+      "cash": "9513.12823783045144332864",
+      "money_error": "0 to1e-18",
+      "cost": "base",
+      "period": "diagnostic_gap_2023",
+      "hypothesis": "utc_open_close_continuation"
+    },
+    {
+      "id": "06b41ac9f01ff2d8e65aeaa15ee116bc1543e67c401b5bd8a1f67b936ad2b556",
+      "trades": 78,
+      "signals": 78,
+      "boundaries": 8758,
+      "cash": "9052.27642160702933508496",
+      "money_error": "0 to1e-18",
+      "cost": "stress",
+      "period": "diagnostic_gap_2023",
+      "hypothesis": "utc_open_close_continuation"
+    },
+    {
+      "id": "660b8309480d94670cd99462f2c7fedf58257d4060e73a411ca37c27ca17190e",
+      "trades": 1,
+      "signals": 1,
+      "boundaries": 2904,
+      "cash": "9973.2764575855952206738900",
+      "money_error": "0 to1e-18",
+      "cost": "base",
+      "period": "reused_validation_1",
+      "hypothesis": "thin_volume_shock_reversal"
+    },
+    {
+      "id": "2c8d824ca146bfb5b206a0c7a7bf493270321ccdf70410f6268589a3ae7c7406",
+      "trades": 1,
+      "signals": 1,
+      "boundaries": 2904,
+      "cash": "9964.8841013176270705930300",
+      "money_error": "0 to1e-18",
+      "cost": "stress",
+      "period": "reused_validation_1",
+      "hypothesis": "thin_volume_shock_reversal"
+    },
+    {
+      "id": "ab0d0fd3d575a427a8e9ef9b706d30b54048c8dcb13f841949de745820a64c92",
+      "trades": 27,
+      "signals": 27,
+      "boundaries": 2904,
+      "cash": "9864.08140095087144000000",
+      "money_error": "0 to1e-18",
+      "cost": "base",
+      "period": "reused_validation_1",
+      "hypothesis": "utc_open_close_continuation"
+    },
+    {
+      "id": "f047187a373a82288cc0413cb7ff299e5672e924e60a96e4516fed346f7f8baa",
+      "trades": 27,
+      "signals": 27,
+      "boundaries": 2904,
+      "cash": "9709.14830672820822000000",
+      "money_error": "0 to1e-18",
+      "cost": "stress",
+      "period": "reused_validation_1",
+      "hypothesis": "utc_open_close_continuation"
+    },
+    {
+      "id": "0c616459d5e4af4d08887011278b162ddf718abf8fcac7fd17addc50776028e9",
+      "trades": 0,
+      "signals": 0,
+      "boundaries": 2952,
+      "cash": "10000",
+      "money_error": "0 to1e-18",
+      "cost": "base",
+      "period": "reused_validation_2",
+      "hypothesis": "thin_volume_shock_reversal"
+    },
+    {
+      "id": "718fffbd227060735f672584b0079852449c8bca4e3669028af7ccb1f65eaa24",
+      "trades": 0,
+      "signals": 0,
+      "boundaries": 2952,
+      "cash": "10000",
+      "money_error": "0 to1e-18",
+      "cost": "stress",
+      "period": "reused_validation_2",
+      "hypothesis": "thin_volume_shock_reversal"
+    },
+    {
+      "id": "5fc09187fbbd144f3c3e690d9c6fd2825ee59bf7e99330d04cbf788448183286",
+      "trades": 30,
+      "signals": 30,
+      "boundaries": 2952,
+      "cash": "9863.32716675028864000000",
+      "money_error": "0 to1e-18",
+      "cost": "base",
+      "period": "reused_validation_2",
+      "hypothesis": "utc_open_close_continuation"
+    },
+    {
+      "id": "b2141d56ad34e36e09530109fa64e383f782e2d7aeed25d1c3dfa8f4f8edfd83",
+      "trades": 30,
+      "signals": 30,
+      "boundaries": 2952,
+      "cash": "9669.21852792347256000000",
+      "money_error": "0 to1e-18",
+      "cost": "stress",
+      "period": "reused_validation_2",
+      "hypothesis": "utc_open_close_continuation"
+    },
+    {
+      "id": "6702dabc07984c7bda1f0fc70e12bb0c613e288506c965755092b591dd326bc9",
+      "trades": 0,
+      "signals": 0,
+      "boundaries": 2928,
+      "cash": "10000",
+      "money_error": "0 to1e-18",
+      "cost": "base",
+      "period": "reused_validation_3",
+      "hypothesis": "thin_volume_shock_reversal"
+    },
+    {
+      "id": "88d2c35fb2084897f0bea8de0159b29b32f81ce5b61fd6b42b6fd1e95a130487",
+      "trades": 0,
+      "signals": 0,
+      "boundaries": 2928,
+      "cash": "10000",
+      "money_error": "0 to1e-18",
+      "cost": "stress",
+      "period": "reused_validation_3",
+      "hypothesis": "thin_volume_shock_reversal"
+    },
+    {
+      "id": "3c625235c5f3a1688b089037e4205fe8421325e0d1d047123d0a4e23b7d6b90d",
+      "trades": 24,
+      "signals": 24,
+      "boundaries": 2928,
+      "cash": "9913.21311744680415739136",
+      "money_error": "0 to1e-18",
+      "cost": "base",
+      "period": "reused_validation_3",
+      "hypothesis": "utc_open_close_continuation"
+    },
+    {
+      "id": "c81c012bf1c0ecd5642a2ac34c9ed3c565c86bfeef9e7398826a88609a53a168",
+      "trades": 24,
+      "signals": 24,
+      "boundaries": 2928,
+      "cash": "9773.71905546677471937152",
+      "money_error": "0 to1e-18",
+      "cost": "stress",
+      "period": "reused_validation_3",
+      "hypothesis": "utc_open_close_continuation"
+    }
+  ],
+  "before_immutable_sha": "079e4c71f480b060766e8ac79869c7c0d88555d096c01e67fa916d4d67f7d69d",
+  "recoveries": [
+    {
+      "id": "5b31421cac029db4772c905a76ada437dec2f93dbbacb20930e6958ff9322c4d",
+      "restarts": 2,
+      "exact_result": true,
+      "all_events_exact": true
+    },
+    {
+      "id": "23099f1362af0d13a9f84320f7d6a20cbcd5b4916c05c4919bf1e20f5bd390b9",
+      "restarts": 2,
+      "exact_result": true,
+      "all_events_exact": true
+    },
+    {
+      "id": "623fbf12211167fc368f6eb9aa9eccb308f9bf1115100dc84aff4f0c71a691f4",
+      "restarts": 2,
+      "exact_result": true,
+      "all_events_exact": true
+    },
+    {
+      "id": "e571db4ad8d1834a3bbc335261d4bda639585b75d82252596afd9b7ef99616f3",
+      "restarts": 2,
+      "exact_result": true,
+      "all_events_exact": true
+    }
+  ],
+  "after_immutable_sha": "079e4c71f480b060766e8ac79869c7c0d88555d096c01e67fa916d4d67f7d69d",
+  "integrity": "ok",
+  "foreign_keys": [],
+  "repeat_20_deduplicated": true,
+  "repeat_new_jobs": 0,
+  "after_repeat_immutable_sha": "079e4c71f480b060766e8ac79869c7c0d88555d096c01e67fa916d4d67f7d69d",
+  "repeat_result_equality": true,
+  "source_archive_checks_after": [
+    "BTCUSDT-1h-2023-01.zip",
+    "BTCUSDT-1h-2023-02.zip",
+    "BTCUSDT-1h-2023-03.zip",
+    "BTCUSDT-1h-2023-04.zip",
+    "BTCUSDT-1h-2023-05.zip",
+    "BTCUSDT-1h-2023-06.zip",
+    "BTCUSDT-1h-2023-07.zip",
+    "BTCUSDT-1h-2023-08.zip",
+    "BTCUSDT-1h-2023-09.zip",
+    "BTCUSDT-1h-2023-10.zip",
+    "BTCUSDT-1h-2023-11.zip",
+    "BTCUSDT-1h-2023-12.zip",
+    "BTCUSDT-1h-2024-01.zip",
+    "BTCUSDT-1h-2024-02.zip",
+    "BTCUSDT-1h-2024-03.zip",
+    "BTCUSDT-1h-2024-04.zip",
+    "BTCUSDT-1h-2024-05.zip",
+    "BTCUSDT-1h-2024-06.zip",
+    "BTCUSDT-1h-2024-07.zip",
+    "BTCUSDT-1h-2024-08.zip",
+    "BTCUSDT-1h-2024-09.zip",
+    "BTCUSDT-1h-2024-10.zip",
+    "BTCUSDT-1h-2024-11.zip",
+    "BTCUSDT-1h-2024-12.zip"
+  ],
+  "source_archives_unchanged": true
+}
