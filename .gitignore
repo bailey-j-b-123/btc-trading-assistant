@@ -241,3 +241,7 @@ __marimo__/
 
 # Single-instance ingestion lock file (pid marker, never committed)
 /data/ingestion.lock
+
+# Independently acquired research candles, experiment state and cached ZIPs.
+.strategy-lab/
+.strategy-lab-*/
