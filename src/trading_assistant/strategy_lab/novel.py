@@ -22,7 +22,7 @@ from trading_assistant.market_structure.volatility import (
 )
 from .data import candle_fingerprint, dataset
 from .models import Execution, canonical, decimal_context, identity, research_code_fingerprint
-from .simulation import initial_state, metrics, step
+from .simulation import DEFAULT_EXIT_POLICY, EXIT_POLICIES, initial_state, metrics, step, validate_exit_policy
 from .store import Store, exclusive
 
 SPEC_SHA = "439e3837eabed3ae47afb813e153b19a46c7966535136325d61b12ec3e298a25"
@@ -181,14 +181,17 @@ def validate_source(candles, manifest, period):
 
 @exclusive
 @decimal_context
-def run(store, candles, manifest, strategy, cost, period, *, max_boundaries=None, fault=None):
+def run(store, candles, manifest, strategy, cost, period, *, max_boundaries=None, fault=None,
+        exit_policy=DEFAULT_EXIT_POLICY):
     """Same verified simulator, new content-addressed experiments, atomic resume."""
     if max_boundaries is not None and (type(max_boundaries) is not int or max_boundaries < 1):
         raise ValueError("positive work budget required")
+    validate_exit_policy(exit_policy)
     validate_source(candles, manifest, period)
     execution = costs(cost)
     definition = {"hypothesis": asdict(strategy), "hypothesis_fingerprint": strategy.fingerprint,
                   "dataset": manifest, "execution": asdict(execution), "cost": cost,
+                  "exit_policy": exit_policy,
                   "period": period, "stage": "exploratory_reused_chronological",
                   "spec_sha256": SPEC_SHA, "research_source_sha256": source_sha(),
                   "engine_source_sha256": research_code_fingerprint(), "simulator": "cash-simulator-v2"}
@@ -200,7 +203,7 @@ def run(store, candles, manifest, strategy, cost, period, *, max_boundaries=None
     for i in range(state["index"] + 1, len(candles)):
         if max_boundaries is not None and worked >= max_boundaries:
             break
-        state, produced = step(state, candles, i, strategy, execution, decision_function=decide)
+        state, produced = step(state, candles, i, strategy, execution, decision_function=decide, exit_policy=exit_policy)
         events.extend(produced)
         worked += 1
         if worked % 128 == 0:
@@ -211,7 +214,7 @@ def run(store, candles, manifest, strategy, cost, period, *, max_boundaries=None
         return {"id": key, "complete": False, "next_index": state["index"]+1}
     records = store.records(key)
     result = metrics(state, records, execution)
-    result.update(audit=independent_audit(state, records, candles, execution),
+    result.update(audit=independent_audit(state, records, candles, execution, exit_policy=exit_policy),
                   summary=summarize(records), processed_boundaries=len(candles), period=period,
                   cost=cost, hypothesis=strategy.name)
     store.checkpoint(key, state, [], result=result)
@@ -238,8 +241,11 @@ def summarize(records):
             "max_holding_hours": str(max(hours)) if hours else None, **json.loads(canonical(groups))}
 
 
-def independent_audit(state, records, candles, execution):
+def independent_audit(state, records, candles, execution, *, exit_policy=DEFAULT_EXIT_POLICY):
     """Independent 60-digit fills/cash/mark accounting, no simulator calls."""
+    validate_exit_policy(exit_policy)
+    if exit_policy == "stop_target_only":
+        assert not any(r["kind"] == "trade" and r["exit_reason"] == "time_exit" for r in records)
     market = {c.timestamp: c for c in candles}
     trades = sorted((r for r in records if r["kind"] == "trade"), key=lambda t: t["entry_at"])
     signals = {r["id"]: r for r in records if r["kind"] == "signal"}
@@ -365,6 +371,7 @@ def main():
     parser.add_argument("--root", type=Path, required=True, help="dedicated lab-only DB with cached verified2023–24 hourly candles")
     parser.add_argument("--spec", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--exit-policy", choices=EXIT_POLICIES, default=DEFAULT_EXIT_POLICY)
     args = parser.parse_args()
     if sha256(args.spec.read_bytes()).hexdigest() != SPEC_SHA:
         raise ValueError("predeclared spec changed; new reviewed version required")
@@ -377,7 +384,7 @@ def main():
             candles, manifest = dataset(store, datetime.fromisoformat(start).replace(tzinfo=UTC), datetime.fromisoformat(end).replace(tzinfo=UTC))
             for name in NAMES:
                 for cost in ("base", "stress"):
-                    answer = run(store, candles, manifest, Hypothesis(name), cost, period)
+                    answer = run(store, candles, manifest, Hypothesis(name), cost, period, exit_policy=args.exit_policy)
                     rows.append(answer)
                     (args.output/"checkpoint.json").write_text(canonical({"spec": SPEC_SHA, "source": source_sha(), "rows": rows})+"\n")
                     print(canonical({"completed": len(rows), "hypothesis": name, "period": period, "cost": cost, "trades": answer["result"]["closed_trades"], "return": answer["result"]["net_return"]}), flush=True)
