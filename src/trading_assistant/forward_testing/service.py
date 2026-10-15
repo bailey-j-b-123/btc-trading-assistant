@@ -38,7 +38,8 @@ import logging
 import threading
 from bisect import bisect_left
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from trading_assistant.trade_planning.economics import declared_scenario
 from datetime import UTC, datetime
 from typing import Any
 
@@ -268,6 +269,11 @@ class ForwardTestService:
             if planning_parameters is not None
             else PlanningParameters()
         )
+        if self.planning_parameters.economic_costs is not None:
+            # Only the versioned opt-in cohort changes. Certify under the
+            # scenario this paper plan actually records, never caller mismatch.
+            self.planning_parameters=replace(self.planning_parameters,
+                economic_costs=declared_scenario(self.parameters.friction))
         self.ledger = ForwardLedgerRepository(engine)
         self.candles = CandleRepository(engine)
         self.patterns = PatternLiquidityService(engine)
