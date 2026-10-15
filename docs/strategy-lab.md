@@ -124,9 +124,11 @@ intrabar drawdown, market impact, tax and future fee schedules are unmodelled.
 
 ## Validation, custody and forward separation
 
-Default development2020–2022; three consecutive unchanged-rule validation folds
-Jan–Apr, May–Aug, Sep–Dec2023. Final holdout2025 is not evaluated until rules and
-one survivor are frozen. Minimum closed samples100/20/50 respectively. Each
+Default development screening2023; three consecutive unchanged-rule validation
+folds Jan–Apr, May–Aug, Sep–Dec2024. Together these use only the2023–2024
+development/research period. The2020–2022 lab is archived separately and never
+loaded by the modern research workspace. Final holdout2025 is sealed until rules
+and one survivor are frozen AND a human explicitly approves the exact receipt. Minimum closed samples100/20/50 respectively. Each
 base/stress job requires positive net expectancy/return, no unfinished/unresolved
 position, close-mark drawdown<=20%, ambiguity<=10%, and a positive deterministic
 trade-block bootstrap lower meanR (4000 resamples, block5, alpha0.05 divided by
@@ -142,6 +144,13 @@ viewing cannot be detected; operators must preserve untouched performance eviden
 If no candidate passes, the finite grid exhausts honestly and waits; it does not
 generate random replacements to manufacture a winner. New sensible grids must
 declare a new full search budget and genuinely unused holdout.
+
+The campaign returns `awaiting_explicit_holdout_approval` with a content-addressed
+receipt before acquiring or evaluating any holdout candle. After explicit human
+approval, `campaign --approve-holdout-for <exact-approval-id>` can advance that
+frozen candidate. The overnight worker never grants this approval. Changing a
+candidate, source, costs or validation job changes the receipt. The2026 recent-
+market stage is not automatic and remains unauthorised until final validation.
 
 Only passing candidates enter separate immutable `promotions`, `paper_state`,
 `paper_events`, `lab_live_candles` tables. One public GET writer serves all wallets.
@@ -175,3 +184,37 @@ full Python/Node22 suites are required before PR publication.
 Genuine runs and exact test/source evidence belong in the task's durable progress
 report. A short positive historical experiment is not an edge. Public feed access
 with zero qualified candidates verifies connectivity only, not forward performance.
+
+## Crash repair and modern data-quality cohort
+
+The original planner's `direction` is a Literal string (`bullish`/`bearish`),
+not an enum. The research adapter compares strings; planned levels and actual
+hierarchy enums retain their documented types. Original hierarchy/planning
+rules are unchanged. A1 is still asserted against the original gate at every
+processed boundary. Bearish cash-Spot plans remain unsupported, never shorts.
+Any code fingerprint change creates a new experiment: never copy or re-tag the
+old5,401 checkpoint rows. The original stopped run remains audit evidence.
+Permanent overnight errors now return a nonzero CLI exit status.
+
+Verified2023 source archives contain a March gap, not a failed download. The
+full2023–2024 diagnostic retains those holes and cannot report a valid whole-
+portfolio return when a position crosses them. `configs/strategy-lab-modern-continuous.json` declares a separate screening cohort1April–31December2023 and
+three frozen2024 folds. This first whole month after the independently observed
+gap was selected on data quality before inspecting strategy performance; it
+is not a silent replacement for the full two-year period. No candle, position
+or exit is interpolated. The unchanged16 candidate definitions, base/stressed
+costs and rejection gates apply. Rejected development candidates do not receive
+optimisation or a holdout peek. These are fixed chronological validation folds,
+not retraining; fold history starts cold with each declared independent wallet.
+
+Run from a new marked lab with only verified2023–2024 archives:
+
+```sh
+.strategy-lab-runtime/bin/python -m trading_assistant.strategy_lab \
+  --root .cache/modern-research campaign --no-acquire \
+  --config configs/strategy-lab-modern-continuous.json --max-jobs 256 --max-seconds 3600
+```
+
+Do not run the old unchanged worker/source: it crashes at the first actionable
+plan. Preserve the old lab; do not point a modern campaign or forward poll at it.
+No genuine profitability or sustained paper readiness follows from these fixes.
