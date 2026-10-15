@@ -6,15 +6,15 @@ points, that the deterministic engines apply to proposed levels for scenario
 analysis. It is deliberately limited: no size, no account, no leverage, no
 fill probability, no realised profit.
 
-The class originally lived in ``historical_validation.parameters`` (Step 11).
-It moved here so that the lower-layer Step 6 planner can consume the very same
-scenario type without importing Step 11 (which depends on Step 6). Every
-import path that used to work keeps working through the re-export.
+This pure mathematical module is adapted from PR46 head198c5eac. In this
+research branch the legacy class in historical_validation.parameters remains
+in place to preserve existing callers and fingerprints; declared_scenario
+projects its identical recorded fields into this type for an explicit economic
+cohort. Scenario identities retain the historical-validation-v1 prefix.
 
-The scenario identity is versioned under the historical-validation rules
-version it was introduced with, so a scenario — and every paper plan recorded
-under it — keeps the exact same fingerprint as before the move: stored forward
-history is never re-identified.
+The old rounded ratio helper remains available for compatibility. The new
+economic gate compares exact net reward against the required net loss BEFORE
+display rounding (trade_planning.economics.assess).
 
 The shared cost model is one implementation with two distinct metrics, and
 the two must never be conflated:
