@@ -2260,7 +2260,7 @@ class ForwardTestService:
                 symbol=symbol,
                 timeframe=timeframe,
                 as_of=boundary,
-            )
+            ) or self._economic_refusal_reason(plan)
         elif provenance_withheld:
             # Neither a missed opportunity nor a market verdict: the plan was
             # refused because the record cannot account for the level it would
@@ -2886,6 +2886,13 @@ class ForwardTestService:
             )
             for plan in plans
         )
+
+    @staticmethod
+    def _economic_refusal_reason(plan: TradePlanResult) -> str | None:
+        if not {"economic_nonviability", "economic_viability_unverifiable"}.intersection(plan.reasons):
+            return None
+        detail=next(rule.reason for rule in plan.rules if rule.rule_id=="economic_viability")
+        return "NO TRADE — "+detail
 
     def _missed_reason(
         self,
