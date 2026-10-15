@@ -315,3 +315,30 @@ def test_hypothesis_runners_forward_policy_record_identity_and_audit_open_positi
             )
     finally:
         store.close()
+
+
+def test_longer_occupancy_blocks_a_real_later_signal_without_changing_it():
+    h = alpha.Hypothesis(alpha.NAMES[1])
+    c = alpha_fixture(h.name)
+    s, _, e = occupied(h)
+    s["position"].update(stop="50", target="200", fill="100", entry_fee="0.1")
+    s["cash"] = "9899.9"
+    before = deepcopy(s)
+    old, old_events = step(s, c, len(c) - 1, h, e, decision_function=alpha.decide)
+    new, new_events = step(
+        s,
+        c,
+        len(c) - 1,
+        h,
+        e,
+        decision_function=alpha.decide,
+        exit_policy="stop_target_only",
+    )
+    assert s == before
+    old_signal = next(r for r in old_events if r["kind"] == "signal")
+    new_signal = next(r for r in new_events if r["kind"] == "signal")
+    assert old_signal == new_signal  # real unchanged entry, stop, target and evidence
+    assert old["pending"] and old["position"] is None
+    assert new["position"] and new["pending"] is None
+    assert any(r.get("reason") == "occupied_slot" for r in new_events)
+    assert not any(r["kind"] == "trade" for r in new_events)
