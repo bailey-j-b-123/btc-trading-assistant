@@ -35,13 +35,13 @@ def months_between(start, end):
 @dataclass(frozen=True)
 class ResearchPlan:
     development: tuple[str, str] = (
-        "2020-01-01T00:00:00+00:00",
         "2023-01-01T00:00:00+00:00",
+        "2024-01-01T00:00:00+00:00",
     )
     folds: tuple[tuple[str, str], ...] = (
-        ("2023-01-01T00:00:00+00:00", "2023-05-01T00:00:00+00:00"),
-        ("2023-05-01T00:00:00+00:00", "2023-09-01T00:00:00+00:00"),
-        ("2023-09-01T00:00:00+00:00", "2024-01-01T00:00:00+00:00"),
+        ("2024-01-01T00:00:00+00:00", "2024-05-01T00:00:00+00:00"),
+        ("2024-05-01T00:00:00+00:00", "2024-09-01T00:00:00+00:00"),
+        ("2024-09-01T00:00:00+00:00", "2025-01-01T00:00:00+00:00"),
     )
     holdout: tuple[str, str] = (
         "2025-01-01T00:00:00+00:00",
@@ -50,7 +50,7 @@ class ResearchPlan:
     search_size: int = 16
     execution: Execution = Execution()
     rules: ValidationRules = ValidationRules()
-    version: str = "research-campaign-v1"
+    version: str = "research-campaign-v2-manual-holdout"
 
     def __post_init__(self):
         if type(self.search_size) is not int or not 1 <= self.search_size <= 16:
@@ -105,7 +105,8 @@ def schema(store):
 
 @exclusive
 def run_campaign(
-    store, plan=None, *, max_jobs=4, max_seconds=300, stop=lambda: False, prepare=True
+    store, plan=None, *, max_jobs=4, max_seconds=300, stop=lambda: False, prepare=True,
+    approve_holdout_for=None,
 ):
     plan = plan or ResearchPlan()
     schema(store)
@@ -260,6 +261,27 @@ def run_campaign(
                 D(x["gate"]["block_bootstrap_lower_r"]) for x in pair[1]
             ),
         )
+        # This receipt freezes the exact candidate and completed validation
+        # jobs. A config file or an overnight worker never grants access.
+        frozen = {
+            "campaign": cid,
+            "candidate": strategy.fingerprint,
+            "execution": json.loads(canonical(plan.execution)),
+            "holdout": plan.holdout,
+            "validation_experiments": sorted(x["experiment"] for x in proof),
+        }
+        approval_id = identity(frozen)
+        if approve_holdout_for != approval_id:
+            if approve_holdout_for is not None:
+                raise ValueError("holdout approval does not match frozen candidate")
+            state.update(stage="awaiting_explicit_holdout_approval",
+                         frozen_holdout_candidate=strategy.fingerprint,
+                         holdout_approval_id=approval_id, frozen_validation=frozen)
+            save()
+            return {"campaign": cid, "finished": False,
+                    "stage": state["stage"], "approval_id": approval_id,
+                    "frozen_validation": frozen, "jobs_this_run": worked,
+                    "completed_jobs": len(state["jobs"])}
         scope = identity(
             {
                 "exchange": "binance",

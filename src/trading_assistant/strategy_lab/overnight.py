@@ -121,7 +121,9 @@ def overnight(
                 break
             active_seconds = clock() - cycle_started
             stage = (
-                "search_exhausted_waiting_for_forward"
+                "awaiting_explicit_holdout_approval"
+                if last and last.get("stage") == "awaiting_explicit_holdout_approval"
+                else "search_exhausted_waiting_for_forward"
                 if last
                 and last.get("finished")
                 and (brain_period is None or last_brain and last_brain.get("complete"))

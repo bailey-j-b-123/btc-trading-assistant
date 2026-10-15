@@ -271,7 +271,7 @@ def compare_brain(
                 if (
                     plan
                     and plan.actionable
-                    and plan.direction.value == "bearish"
+                    and plan.direction == "bearish"
                     and verdict["decision"] == Decision.PLANNABLE.value
                 ):
                     counts["unsupported_short_plan"] = (
@@ -283,7 +283,7 @@ def compare_brain(
                         verdict["decision"] != Decision.PLANNABLE.value
                         or not plan
                         or not plan.actionable
-                        or plan.direction.value != "bullish"
+                        or plan.direction != "bullish"
                     ):
                         return None
                     return {

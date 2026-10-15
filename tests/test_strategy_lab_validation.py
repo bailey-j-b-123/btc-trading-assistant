@@ -63,21 +63,35 @@ def test_actual_detector_pipeline_validates_promotes_once_and_protects_holdout(
         ),
     )
     answer = None
+    approval = None
     for _ in range(12):
-        answer = run_campaign(store, plan, max_jobs=1, prepare=False)
+        answer = run_campaign(store, plan, max_jobs=1, prepare=False,
+                              approve_holdout_for=approval)
+        if answer.get("stage") == "awaiting_explicit_holdout_approval":
+            assert store.db.execute("SELECT count(*) FROM holdout_custody").fetchone()[0] == 0
+            assert not any(json.loads(r[0])["stage"] == "holdout"
+                           for r in store.db.execute("SELECT definition FROM experiments"))
+            again = run_campaign(store, plan, max_jobs=1, prepare=False)
+            assert again["approval_id"] == answer["approval_id"]
+            with pytest.raises(ValueError, match="does not match"):
+                run_campaign(store, plan, prepare=False, approve_holdout_for="wrong-candidate")
+            approval = answer["approval_id"]  # Explicit TEST-only human approval analogue.
         if answer["finished"]:
             break
         store.close()
         store = Store(tmp_path / "lab")
     assert answer["finished"] and answer["promoted"], answer
     assert answer["completed_jobs"] == 10
-    assert run_campaign(store, plan, prepare=False)["jobs_this_run"] == 0
+    assert run_campaign(store, plan, prepare=False, approve_holdout_for=approval)["jobs_this_run"] == 0
     assert store.db.execute("SELECT count(*) FROM promotions").fetchone()[0] == 1
     from dataclasses import replace
 
     attempted_reuse = run_campaign(
         store, replace(plan, search_size=2), max_jobs=256, prepare=False
     )
+    assert attempted_reuse["stage"] == "awaiting_explicit_holdout_approval"
+    attempted_reuse = run_campaign(store, replace(plan, search_size=2), max_jobs=256,
+                                   prepare=False, approve_holdout_for=attempted_reuse["approval_id"])
     assert "holdout_unavailable" in attempted_reuse["reason"]
     assert store.db.execute("SELECT count(*) FROM promotions").fetchone()[0] == 1
     assert (
