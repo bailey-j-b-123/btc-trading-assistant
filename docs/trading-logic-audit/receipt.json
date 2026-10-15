@@ -1,0 +1,225 @@
+{
+  "all_target_rows": 1277,
+  "fk_errors": 0,
+  "integrity": "ok",
+  "limitations": "Frozen original hierarchy observations, not a new full hierarchy run. Same fixed warmup; existing shallow-history defect preserved. Short execution unsupported.2024alreadyexamined. No holdout access, no synthetic performance, no target/stop/risk tuning.",
+  "original_run": "21ebae8915c06c1e64314ff3b0819c95ff66e7d612498a082086fe339dd32dee",
+  "plans_reproduced": 13,
+  "refused_plans": 12,
+  "refused_with_farther_raw_1r": 11,
+  "source_boundary_count": 8929,
+  "source_observations_after_sha256": "3edf614a8440fd3aff532daf8d2dcef888122729550a89a1878bf8fe77f5606c",
+  "source_observations_sha256": "3edf614a8440fd3aff532daf8d2dcef888122729550a89a1878bf8fe77f5606c",
+  "source_unchanged_readonly": true,
+  "corrected_source_fingerprint": "5772ecff045b6e04cc6d4b7d740e46e90a759700374705f35a65809c14dd443b",
+  "audit_source_sha256": "682463cb18b30858abc94c0a58a33dac73771a1e3678dd5b848177f9a51ee7fe",
+  "baseline_simulator_sha256": "a1867cd295796b47e21c8c93c4f65b5a739c84c638a1168389cba4e83732c7b8",
+  "baseline_public_head": "2adb4ee243b45d10d43df3acb61be193c86dc308",
+  "source_manifests": {
+    "15m": {
+      "candle_sha256": "44d09702c53414de8c8625068f5942fd92067cbe52fd5039b3fd5060c95fa660",
+      "candles": 5952,
+      "end_exclusive": "2024-02-01T00:00:00+00:00",
+      "exchange": "binance",
+      "gaps": [],
+      "missing_candles": 0,
+      "source_receipts": [
+        {
+          "candles": 2976,
+          "declared_missing_candles": 0,
+          "exchange": "binance",
+          "excluded_source_rows": [],
+          "first_open": "2023-12-01T00:00:00+00:00",
+          "last_close": "2024-01-01T00:00:00+00:00",
+          "month": "2023-12",
+          "sha256": "7101778274e14957e6af9fe4c2030e7b70a20b4f3f08b8eafbafba8a3dfbe2e9",
+          "source_url": "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/15m/BTCUSDT-15m-2023-12.zip",
+          "symbol": "BTC/USDT",
+          "timeframe": "15m"
+        },
+        {
+          "candles": 2976,
+          "declared_missing_candles": 0,
+          "exchange": "binance",
+          "excluded_source_rows": [],
+          "first_open": "2024-01-01T00:00:00+00:00",
+          "last_close": "2024-02-01T00:00:00+00:00",
+          "month": "2024-01",
+          "sha256": "20c617e34b350f61d4bba493154ddec76b9f2ecd449a94410a60ba75efd488ce",
+          "source_url": "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/15m/BTCUSDT-15m-2024-01.zip",
+          "symbol": "BTC/USDT",
+          "timeframe": "15m"
+        }
+      ],
+      "start": "2023-12-01T00:00:00+00:00",
+      "symbol": "BTC/USDT",
+      "timeframe": "15m"
+    },
+    "1h": {
+      "candle_sha256": "0fdab570611f5785c5b4d555de2154bcd4f0613797768a47943bdf9a2c73a582",
+      "candles": 1488,
+      "end_exclusive": "2024-02-01T00:00:00+00:00",
+      "exchange": "binance",
+      "gaps": [],
+      "missing_candles": 0,
+      "source_receipts": [
+        {
+          "candles": 744,
+          "declared_missing_candles": 0,
+          "exchange": "binance",
+          "excluded_source_rows": [],
+          "first_open": "2023-12-01T00:00:00+00:00",
+          "last_close": "2024-01-01T00:00:00+00:00",
+          "month": "2023-12",
+          "sha256": "6117d93e3eb6574df6b0087a45cf12e171afe91789b523b0bfcce00d8f1b6e37",
+          "source_url": "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1h/BTCUSDT-1h-2023-12.zip",
+          "symbol": "BTC/USDT",
+          "timeframe": "1h"
+        },
+        {
+          "candles": 744,
+          "declared_missing_candles": 0,
+          "exchange": "binance",
+          "excluded_source_rows": [],
+          "first_open": "2024-01-01T00:00:00+00:00",
+          "last_close": "2024-02-01T00:00:00+00:00",
+          "month": "2024-01",
+          "sha256": "cf873a185bd5b24b8e00034e49583fcb49928e0c3a45c6fc27a632a683655417",
+          "source_url": "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1h/BTCUSDT-1h-2024-01.zip",
+          "symbol": "BTC/USDT",
+          "timeframe": "1h"
+        }
+      ],
+      "start": "2023-12-01T00:00:00+00:00",
+      "symbol": "BTC/USDT",
+      "timeframe": "1h"
+    },
+    "4h": {
+      "candle_sha256": "9790a98dfe80d32917dd356a5bb2a8216ef70a74f258d61bbc880b2702796876",
+      "candles": 372,
+      "end_exclusive": "2024-02-01T00:00:00+00:00",
+      "exchange": "binance",
+      "gaps": [],
+      "missing_candles": 0,
+      "source_receipts": [
+        {
+          "candles": 186,
+          "declared_missing_candles": 0,
+          "exchange": "binance",
+          "excluded_source_rows": [],
+          "first_open": "2023-12-01T00:00:00+00:00",
+          "last_close": "2024-01-01T00:00:00+00:00",
+          "month": "2023-12",
+          "sha256": "0bd4980aeef150995d746a768d99d590e92858fc0119ddb004c0b69329e6344c",
+          "source_url": "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/4h/BTCUSDT-4h-2023-12.zip",
+          "symbol": "BTC/USDT",
+          "timeframe": "4h"
+        },
+        {
+          "candles": 186,
+          "declared_missing_candles": 0,
+          "exchange": "binance",
+          "excluded_source_rows": [],
+          "first_open": "2024-01-01T00:00:00+00:00",
+          "last_close": "2024-02-01T00:00:00+00:00",
+          "month": "2024-01",
+          "sha256": "87e793786cacd14285fe8a54c2a96bdb7f618861e30c63ba962b09e5500bc937",
+          "source_url": "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/4h/BTCUSDT-4h-2024-01.zip",
+          "symbol": "BTC/USDT",
+          "timeframe": "4h"
+        }
+      ],
+      "start": "2023-12-01T00:00:00+00:00",
+      "symbol": "BTC/USDT",
+      "timeframe": "4h"
+    },
+    "5m": {
+      "candle_sha256": "cd25a0d7f7b270bad166faa07b6621415be9ab9889af30c0bca9b8a5b18a3fbf",
+      "candles": 17856,
+      "end_exclusive": "2024-02-01T00:00:00+00:00",
+      "exchange": "binance",
+      "gaps": [],
+      "missing_candles": 0,
+      "source_receipts": [
+        {
+          "candles": 8928,
+          "declared_missing_candles": 0,
+          "exchange": "binance",
+          "excluded_source_rows": [],
+          "first_open": "2023-12-01T00:00:00+00:00",
+          "last_close": "2024-01-01T00:00:00+00:00",
+          "month": "2023-12",
+          "sha256": "8e3b780eddcff7f19f24f25d799b2affe03113b90457b8caa22a454f065fbf56",
+          "source_url": "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/5m/BTCUSDT-5m-2023-12.zip",
+          "symbol": "BTC/USDT",
+          "timeframe": "5m"
+        },
+        {
+          "candles": 8928,
+          "declared_missing_candles": 0,
+          "exchange": "binance",
+          "excluded_source_rows": [],
+          "first_open": "2024-01-01T00:00:00+00:00",
+          "last_close": "2024-02-01T00:00:00+00:00",
+          "month": "2024-01",
+          "sha256": "a375f811f672ad70de97af533f6e70181647a9e978838b451ac17d5c17313ad8",
+          "source_url": "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/5m/BTCUSDT-5m-2024-01.zip",
+          "symbol": "BTC/USDT",
+          "timeframe": "5m"
+        }
+      ],
+      "start": "2023-12-01T00:00:00+00:00",
+      "symbol": "BTC/USDT",
+      "timeframe": "5m"
+    }
+  },
+  "matrix_jobs": 24,
+  "correlated_wallet_boundaries": 214296,
+  "execution": {
+    "base": {
+      "ambiguous_policy": "adverse-stop-first-v1",
+      "fee_bps": "10",
+      "initial_capital": "10000",
+      "max_entry_gap_bps": "50",
+      "max_exposure": "0.25",
+      "max_positions": 1,
+      "minimum_notional": "10",
+      "quantity_step": "0.00001",
+      "risk_fraction": "0.005",
+      "sizing": "cash-spot-long-only-v1",
+      "slippage_bps": "3",
+      "spread_bps": "2"
+    },
+    "stress": {
+      "ambiguous_policy": "adverse-stop-first-v1",
+      "fee_bps": "20",
+      "initial_capital": "10000",
+      "max_entry_gap_bps": "50",
+      "max_exposure": "0.25",
+      "max_positions": 1,
+      "minimum_notional": "10",
+      "quantity_step": "0.00001",
+      "risk_fraction": "0.005",
+      "sizing": "cash-spot-long-only-v1",
+      "slippage_bps": "9",
+      "spread_bps": "4"
+    }
+  },
+  "prior_pr46_head": "198c5eac7d0602fb9f948513a3be3e3381f65d8d",
+  "costs_module_reused_verbatim_from_pr46": false,
+  "prior_pr46_tests": "43 passed,1warning,3.15s",
+  "older_accessible_incomplete_sample": {
+    "count": 9,
+    "matches_complete_cohort": true
+  },
+  "holdout_2025_price_accesses": 0,
+  "selection_2026_price_accesses": 0,
+  "downloads": 0,
+  "files_sha256": {
+    "all-targets.csv": "a4f0fe4b7c2e286412342ae3cd61ed3f5998f51a3b719ca5abeba6fd89e0c13c",
+    "thirteen-plan-diagnostics.json": "76ee66d8a696c0267d2bc5ff302c03af7380e111f313e0174a41a270124a7007",
+    "comparison.csv": "6d2eb072a570f5f7449a0f59cff42711030e44f0ae6a93c8b13b27d2db007099"
+  },
+  "costs_module_executable_ast_equal_to_pr46": true,
+  "costs_module_doc_adapted_to_preserved_legacy_type": true
+}
