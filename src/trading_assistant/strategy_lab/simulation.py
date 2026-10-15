@@ -24,9 +24,22 @@ def initial_state(execution):
     }
 
 
+def source_state(state, signal, status):
+    """An offered plan is not consumed until a fill; terminal fills stay spent.
+
+    This state is research-only and lives in a new source-fingerprinted cohort.
+    A retry requires a new decision-boundary evaluation of the same plan.
+    """
+    plan_id = signal.get("source_plan_id")
+    if plan_id:
+        state.setdefault("source_plan_states", {})[plan_id] = status
+
+
 def reject(state, reason, signal, events):
     state["rejections"][reason] = state["rejections"].get(reason, 0) + 1
     events.append({"kind": "rejection", "reason": reason, "signal": signal})
+    if signal.get("source_plan_id") not in state.get("seen_source_plans", []):
+        source_state(state, signal, "rejected:" + reason)
 
 
 def finish(state, price, when, reason, execution, events, *, ambiguous=False):
@@ -68,6 +81,7 @@ def finish(state, price, when, reason, execution, events, *, ambiguous=False):
         }
     )
     state["position"] = None
+    source_state(state, position, "closed")
 
 
 def step(
@@ -96,6 +110,7 @@ def step(
             # unresolved, freeze promotion; do not insert a fabricated exit.
             was_occupied = state["position"] is not None
             if state["position"]:
+                source_state(state, state["position"], "unresolved")
                 events.append(
                     {
                         "kind": "unresolved",
@@ -133,7 +148,9 @@ def step(
         stop = D(pending["stop"])
         target = D(pending["target"])
         debit = qty * fill * (1 + execution.fee)
-        if (
+        if pending.get("source_plan_id") in state.get("seen_source_plans", []):
+            reject(state, "source_plan_already_filled", pending, events)
+        elif (
             c.open <= stop
             or fill > D(pending["entry_ceiling"])
             or fill <= stop
@@ -150,6 +167,10 @@ def step(
         else:
             state["cash"] = str(D(state["cash"]) - debit)
             state["filled"] += 1
+            plan_id = pending.get("source_plan_id")
+            if plan_id:
+                state.setdefault("seen_source_plans", []).append(plan_id)
+                source_state(state, pending, "filled")
             state["position"] = {
                 **pending,
                 "fill": str(fill),
@@ -209,10 +230,15 @@ def step(
     )
     if signal:
         plan_id = signal.get("source_plan_id")
-        if plan_id and plan_id in state.get("seen_source_plans", []):
+        offered = state.setdefault("source_plan_last_offered", {}) if plan_id else {}
+        if plan_id and (
+            plan_id in state.get("seen_source_plans", [])
+            or offered.get(plan_id) == known.isoformat()
+            or state["pending"] and state["pending"].get("source_plan_id") == plan_id
+        ):
             signal = None
         elif plan_id:
-            state.setdefault("seen_source_plans", []).append(plan_id)
+            offered[plan_id] = known.isoformat()
     if signal:
         state["opportunities"] += 1
         signal_id = identity({"strategy": strategy.fingerprint, "signal": signal})
@@ -255,6 +281,7 @@ def step(
                     "risk_budget": str(budget),
                     "equity_at_decision": str(equity),
                 }
+                source_state(state, signal, "pending")
                 if recorded_at is not None:
                     state["pending"]["not_before"] = recorded_at.isoformat()
                     state["pending"]["actual_decision_time"] = recorded_at.isoformat()
