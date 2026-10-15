@@ -81,6 +81,7 @@ def main(argv=None):
     camp.add_argument("--max-seconds", type=int, default=300)
     camp.add_argument("--no-acquire", action="store_true")
     camp.add_argument("--config")
+    camp.add_argument("--approve-holdout-for", help="Exact frozen approval receipt; use only after explicit human approval")
     r = sub.add_parser("run")
     r.add_argument("--start", required=True)
     r.add_argument("--end", required=True)
@@ -117,6 +118,7 @@ def main(argv=None):
                         max_seconds=args.max_seconds,
                         stop=lambda: stopping,
                         prepare=not args.no_acquire,
+                        approve_holdout_for=args.approve_holdout_for,
                     )
                 elif args.command == "paper":
                     result = poll_paper(
@@ -168,7 +170,7 @@ def main(argv=None):
                 ):
                     store.heartbeat("stopped" if stopping else "idle")
         print(canonical(result))
-        return 0
+        return 1 if isinstance(result, dict) and result.get("stage") == "blocked_error" else 0
     except Exception as exc:
         # An admission refusal must not write a competing worker's health.
         if "another lab worker" not in str(exc):
