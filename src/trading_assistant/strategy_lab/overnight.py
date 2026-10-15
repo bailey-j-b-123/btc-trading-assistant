@@ -53,6 +53,7 @@ def overnight(
     cycles = 0
     failures = 0
     last = None
+    last_brain = None
 
     def expired():
         return stop() or clock() - started >= minutes * 60
@@ -71,7 +72,7 @@ def overnight(
             store.heartbeat("overnight_research", cycle=cycles)
             try:
                 if brain_period is not None:
-                    brain(
+                    last_brain = brain(
                         store,
                         start=datetime.fromisoformat(brain_period[0]),
                         end=datetime.fromisoformat(brain_period[1]),
@@ -121,7 +122,11 @@ def overnight(
             active_seconds = clock() - cycle_started
             stage = (
                 "search_exhausted_waiting_for_forward"
-                if last and last.get("finished")
+                if last
+                and last.get("finished")
+                and (brain_period is None or last_brain and last_brain.get("complete"))
+                else "brain_policy_comparison_in_progress"
+                if last and last.get("finished") and brain_period is not None
                 else "bounded_research_pause"
             )
             store.heartbeat(stage, cycle=cycles)
@@ -130,6 +135,7 @@ def overnight(
             "stage": "stopped" if stop() else "runtime_budget_complete",
             "cycles": cycles,
             "last_campaign": last,
+            "last_brain_comparison": last_brain,
             "progress_preserved": True,
         }
     finally:
