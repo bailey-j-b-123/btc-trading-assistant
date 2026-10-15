@@ -4,7 +4,7 @@ from dataclasses import asdict
 import json
 import time
 from .models import identity, decimal_context, research_code_fingerprint
-from .simulation import initial_state, metrics, step
+from .simulation import DEFAULT_EXIT_POLICY, initial_state, metrics, step, validate_exit_policy
 from .store import exclusive
 from .data import candle_fingerprint
 from trading_assistant.market_data.validation import validate_ohlcv_rows
@@ -24,7 +24,9 @@ def run_experiment(
     max_boundaries=None,
     stop=lambda: False,
     fault=None,
+    exit_policy=DEFAULT_EXIT_POLICY,
 ):
+    validate_exit_policy(exit_policy)
     if type(batch) is not int or not 1 <= batch <= 1000:
         raise ValueError("checkpoint batch must be1..1000")
     if max_boundaries is not None and (
@@ -83,6 +85,7 @@ def run_experiment(
         "dataset": manifest,
         "dataset_fingerprint": identity(manifest),
         "execution": asdict(execution),
+        "exit_policy": exit_policy,
         "stage": stage,
         "simulator_version": "cash-simulator-v2",
         "closed_data_only": True,
@@ -98,7 +101,7 @@ def run_experiment(
     for i in range(state["index"] + 1, len(candles)):
         if stop() or max_boundaries is not None and worked >= max_boundaries:
             break
-        state, produced = step(state, candles, i, strategy, execution)
+        state, produced = step(state, candles, i, strategy, execution, exit_policy=exit_policy)
         events.extend(produced)
         worked += 1
         if worked % batch == 0:
