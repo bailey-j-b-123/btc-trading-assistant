@@ -5,6 +5,7 @@ remain unchanged. See the committed protocol before interpreting results.
 """
 
 from .entry_policy import entry_definition
+from .stop_quality import quality_definition
 
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
@@ -265,7 +266,7 @@ def import_archives(store, source):
 @decimal_context
 def run(
     store, candles, manifest, strategy, cost, period, *, max_boundaries=None, fault=None,
-    exit_policy=DEFAULT_EXIT_POLICY, entry_policy=None,
+    exit_policy=DEFAULT_EXIT_POLICY, entry_policy=None, stop_quality=None,
 ):
     if max_boundaries is not None and (
         type(max_boundaries) is not int or max_boundaries < 1
@@ -273,6 +274,7 @@ def run(
         raise ValueError("positive bounded work limit required")
     validate_exit_policy(exit_policy)
     entry_spec = entry_definition(entry_policy)
+    quality_spec = quality_definition(stop_quality)
     novel.validate_source(candles, manifest, period)  # exact fixed periods, no holdout
     execution = novel.costs(cost)
     definition = {
@@ -289,6 +291,8 @@ def run(
     }
     if entry_spec is not None:
         definition["entry_policy"] = entry_spec
+    if quality_spec is not None:
+        definition["stop_quality"] = quality_spec
     key, row = store.experiment(definition, initial_state(execution))
     if row["result"] is not None:
         return {
@@ -302,7 +306,7 @@ def run(
         if max_boundaries is not None and worked >= max_boundaries:
             break
         state, events = step(
-            state, candles, i, strategy, execution, decision_function=decide, exit_policy=exit_policy, entry_policy=entry_policy
+            state, candles, i, strategy, execution, decision_function=decide, exit_policy=exit_policy, entry_policy=entry_policy, stop_quality=stop_quality
         )
         batch.extend(events)
         worked += 1
