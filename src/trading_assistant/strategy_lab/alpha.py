@@ -4,6 +4,8 @@ No download or holdout entry point. Existing production and research rules
 remain unchanged. See the committed protocol before interpreting results.
 """
 
+from .entry_policy import entry_definition
+
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal as D
@@ -263,13 +265,14 @@ def import_archives(store, source):
 @decimal_context
 def run(
     store, candles, manifest, strategy, cost, period, *, max_boundaries=None, fault=None,
-    exit_policy=DEFAULT_EXIT_POLICY,
+    exit_policy=DEFAULT_EXIT_POLICY, entry_policy=None,
 ):
     if max_boundaries is not None and (
         type(max_boundaries) is not int or max_boundaries < 1
     ):
         raise ValueError("positive bounded work limit required")
     validate_exit_policy(exit_policy)
+    entry_spec = entry_definition(entry_policy)
     novel.validate_source(candles, manifest, period)  # exact fixed periods, no holdout
     execution = novel.costs(cost)
     definition = {
@@ -284,6 +287,8 @@ def run(
         "alpha_source": source_sha(),
         "engine_source": research_code_fingerprint(),
     }
+    if entry_spec is not None:
+        definition["entry_policy"] = entry_spec
     key, row = store.experiment(definition, initial_state(execution))
     if row["result"] is not None:
         return {
@@ -297,7 +302,7 @@ def run(
         if max_boundaries is not None and worked >= max_boundaries:
             break
         state, events = step(
-            state, candles, i, strategy, execution, decision_function=decide, exit_policy=exit_policy
+            state, candles, i, strategy, execution, decision_function=decide, exit_policy=exit_policy, entry_policy=entry_policy
         )
         batch.extend(events)
         worked += 1
@@ -308,12 +313,12 @@ def run(
     if state["index"] != len(candles) - 1:
         return {"id": key, "complete": False, "next_index": state["index"] + 1}
     records = store.records(key)
-    result = metrics(state, records, execution)
+    result = metrics(state, records, execution, entry_policy=entry_policy)
     result.update(
         hypothesis=strategy.name,
         period=period,
         cost=cost,
-        audit=novel.independent_audit(state, records, candles, execution, exit_policy=exit_policy),
+        audit=novel.independent_audit(state, records, candles, execution, exit_policy=exit_policy, entry_policy=entry_policy),
         summary=novel.summarize(records),
         details=diagnostics(records, candles, execution),
     )
