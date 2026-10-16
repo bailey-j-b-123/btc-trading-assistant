@@ -29,7 +29,16 @@ def run_experiment(
     fault=None,
     exit_policy=DEFAULT_EXIT_POLICY,
     entry_policy=None,
+    decision_adapter=None,
 ):
+    if decision_adapter not in (None, "discovery-v1"):
+        raise ValueError("unsupported versioned research decision adapter")
+    adapter_kwargs = {}
+    if decision_adapter is not None:
+        from .discovery import Rule, decide as learned_decide
+        if not isinstance(strategy, Rule) or strategy.fit_source_sha256 != research_code_fingerprint():
+            raise ValueError("frozen learned rule/source mismatch")
+        adapter_kwargs["decision_function"] = learned_decide
     validate_exit_policy(exit_policy)
     entry_spec = entry_definition(entry_policy)
     from datetime import datetime
@@ -104,6 +113,8 @@ def run_experiment(
     }
     if entry_spec is not None:
         definition["entry_policy"] = entry_spec
+    if decision_adapter is not None:
+        definition["decision_adapter"] = decision_adapter
     key, row = store.experiment(definition, initial_state(execution))
     if row["result"] is not None:
         return {"id": key, "deduplicated": True, "result": json.loads(row["result"])}
@@ -114,7 +125,7 @@ def run_experiment(
     for i in range(state["index"] + 1, len(candles)):
         if stop() or max_boundaries is not None and worked >= max_boundaries:
             break
-        state, produced = step(state, candles, i, strategy, execution, exit_policy=exit_policy, entry_policy=entry_policy)
+        state, produced = step(state, candles, i, strategy, execution, exit_policy=exit_policy, entry_policy=entry_policy, **adapter_kwargs)
         events.extend(produced)
         worked += 1
         if worked % batch == 0:
