@@ -6,6 +6,15 @@ from decimal import Decimal as D, ROUND_FLOOR
 from .models import identity
 from .strategies import decide
 
+DEFAULT_EXIT_POLICY = "strategy_default"
+EXIT_POLICIES = (DEFAULT_EXIT_POLICY, "stop_target_only")
+
+
+def validate_exit_policy(value):
+    if value not in EXIT_POLICIES:
+        raise ValueError("exit_policy must be strategy_default or stop_target_only")
+    return value
+
 
 def initial_state(execution):
     return {
@@ -94,7 +103,9 @@ def step(
     signal_enabled=True,
     recorded_at=None,
     decision_function=decide,
+    exit_policy=DEFAULT_EXIT_POLICY,
 ):
+    validate_exit_policy(exit_policy)
     state = deepcopy(previous)
     events = []
     c = candles[index]
@@ -207,7 +218,7 @@ def step(
             )
         elif c.high >= target:
             finish(state, target, known, "target", execution, events)
-        elif p["held"] >= strategy.max_hold:
+        elif exit_policy == DEFAULT_EXIT_POLICY and p["held"] >= strategy.max_hold:
             finish(state, c.close, known, "time_exit", execution, events)
     p = state["position"]
     equity = D(state["cash"])

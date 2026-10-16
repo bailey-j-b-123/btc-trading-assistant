@@ -10,6 +10,7 @@ import os
 from .data import acquire, dataset
 from .models import Execution, Strategy, canonical
 from .runner import run_experiment
+from .simulation import DEFAULT_EXIT_POLICY, EXIT_POLICIES
 from .store import Store
 from .campaign import run_campaign, ResearchPlan
 from .paper import poll_paper, execution_from_json
@@ -90,6 +91,7 @@ def main(argv=None):
     r.add_argument("--max-boundaries", type=int)
     r.add_argument("--fee-bps", type=Decimal, default=Decimal("10"))
     r.add_argument("--slippage-bps", type=Decimal, default=Decimal("3"))
+    r.add_argument("--exit-policy", choices=EXIT_POLICIES, default=DEFAULT_EXIT_POLICY)
     args = p.parse_args(argv)
     store = Store(args.root)
     try:
@@ -163,6 +165,7 @@ def main(argv=None):
                         ),
                         max_boundaries=args.max_boundaries,
                         stop=lambda: stopping,
+                        exit_policy=args.exit_policy,
                     )
                 if (
                     not isinstance(result, dict)

@@ -30,7 +30,7 @@ from sqlalchemy import create_engine
 from . import novel
 from .data import dataset
 from .models import canonical, decimal_context, identity, research_code_fingerprint
-from .simulation import initial_state, metrics, step
+from .simulation import DEFAULT_EXIT_POLICY, EXIT_POLICIES, initial_state, metrics, step, validate_exit_policy
 from .store import MARKER, Store, exclusive
 
 SPEC_SHA = "7ea73beedfabe7a27104bff442ddce9fcc3bc2f41f057620b0581426d49fad8a"
@@ -262,12 +262,14 @@ def import_archives(store, source):
 @exclusive
 @decimal_context
 def run(
-    store, candles, manifest, strategy, cost, period, *, max_boundaries=None, fault=None
+    store, candles, manifest, strategy, cost, period, *, max_boundaries=None, fault=None,
+    exit_policy=DEFAULT_EXIT_POLICY,
 ):
     if max_boundaries is not None and (
         type(max_boundaries) is not int or max_boundaries < 1
     ):
         raise ValueError("positive bounded work limit required")
+    validate_exit_policy(exit_policy)
     novel.validate_source(candles, manifest, period)  # exact fixed periods, no holdout
     execution = novel.costs(cost)
     definition = {
@@ -275,6 +277,7 @@ def run(
         "fingerprint": strategy.fingerprint,
         "dataset": manifest,
         "execution": asdict(execution),
+        "exit_policy": exit_policy,
         "cost": cost,
         "period": period,
         "spec": SPEC_SHA,
@@ -294,7 +297,7 @@ def run(
         if max_boundaries is not None and worked >= max_boundaries:
             break
         state, events = step(
-            state, candles, i, strategy, execution, decision_function=decide
+            state, candles, i, strategy, execution, decision_function=decide, exit_policy=exit_policy
         )
         batch.extend(events)
         worked += 1
@@ -310,7 +313,7 @@ def run(
         hypothesis=strategy.name,
         period=period,
         cost=cost,
-        audit=novel.independent_audit(state, records, candles, execution),
+        audit=novel.independent_audit(state, records, candles, execution, exit_policy=exit_policy),
         summary=novel.summarize(records),
         details=diagnostics(records, candles, execution),
     )
@@ -537,6 +540,7 @@ def main():
     p.add_argument("--spec", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--max-jobs", type=int, default=20)
+    p.add_argument("--exit-policy", choices=EXIT_POLICIES, default=DEFAULT_EXIT_POLICY)
     a = p.parse_args()
     if not 1 <= a.max_jobs <= 20 or sha256(a.spec.read_bytes()).hexdigest() != SPEC_SHA:
         raise ValueError("frozen specification and bounded1..20 jobs required")
@@ -559,7 +563,7 @@ def main():
             for name in NAMES:
                 for cost in ("base", "stress"):
                     answer = run(
-                        store, candles, manifest, Hypothesis(name), cost, period
+                        store, candles, manifest, Hypothesis(name), cost, period, exit_policy=a.exit_policy
                     )
                     rows.append(answer)
                     new += not answer["deduplicated"]
