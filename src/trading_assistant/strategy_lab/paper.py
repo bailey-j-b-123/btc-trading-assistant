@@ -123,6 +123,8 @@ def poll_paper(store, *, now=None, fetch=None, timeframes=None, fault=None):
     promotions = [
         dict(r) for r in store.db.execute("SELECT * FROM promotions ORDER BY candidate")
     ]
+    if any("directional_execution" in json.loads(p["definition"]) for p in promotions):
+        raise ValueError("directional experiments are research-only; no forward Spot promotion")
     scopes = set(
         timeframes
         or [json.loads(p["definition"])["strategy"]["timeframe"] for p in promotions]
