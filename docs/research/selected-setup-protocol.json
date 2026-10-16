@@ -1,0 +1,16 @@
+{
+  "version": "selected-setup-diagnostic-v1",
+  "purpose": "Describe recorded baseline gates before rule alternatives; no new tester or simulation",
+  "source_run": "21ebae8915c06c1e64314ff3b0819c95ff66e7d612498a082086fe339dd32dee",
+  "source_period": ["2024-01-01T00:00:00+00:00", "2024-02-01T00:00:00+00:00"],
+  "expected_boundary_records": 8929,
+  "expected_source_observation_sha256": "3edf614a8440fd3aff532daf8d2dcef888122729550a89a1878bf8fe77f5606c",
+  "baseline": "snapshot.decision only, never substitute A2/A3 policy verdicts",
+  "unique_key": ["exchange", "symbol", "setup.timeframe", "setup.setup_id", "setup.created_at", "setup.config_fingerprint"],
+  "timestamps": "First observed in this cohort for qualified/confirming/triggered/plannable and first recorded plan; never assert first ever",
+  "duplicate_policy": "Repeated identical boundary ignored; conflicting same-boundary or out-of-order records rejected",
+  "unknown_policy": "Missing facts remain null; no reconstruction of unselected setups, actual retest contact, counterfactual fills or profitability",
+  "invariants": ["source unchanged read-only", "source decision matches boundary", "stage timestamps cannot exceed decision", "no strategy or cost changes", "no 2025 or 2026 prices"],
+  "evaluation": "Recorded January2024 is reused descriptive evidence, not fresh validation or a strategy contest",
+  "launches": {"new_replays": 0, "downloads": 0, "rule_variants": 0}
+}
