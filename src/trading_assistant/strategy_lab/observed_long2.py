@@ -185,7 +185,14 @@ def decide_long2(candles, rule, *, known_at):
 
     if not isinstance(rule, OpportunityRule) or rule.source_fingerprint != research_code_fingerprint():
         raise ValueError("frozen long2 candidate/source mismatch")
-    if known_at >= datetime(2025, 1, 1, tzinfo=UTC):
+    cutoff = datetime(2025, 1, 1, tzinfo=UTC)
+    if known_at > cutoff or (
+        known_at == cutoff and (
+            not candles
+            or candles[-1].timestamp != cutoff - original.HOUR
+            or any(c.timestamp >= cutoff for c in candles)
+        )
+    ):
         raise ValueError("protected 2025 price admission refused")
     if known_at < original.TRAIN_END:
         raise ValueError("cannot trade discovery training period")
