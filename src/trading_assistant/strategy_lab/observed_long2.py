@@ -32,10 +32,16 @@ class OpportunityRule:
     observed_success_rate: D
     unconditional_success_rate: D
     version: str = VERSION
+    timeframe: str = "1h"
+    warmup: int = 121
+    max_hold: int = 120
 
     def __post_init__(self):
         if (
             self.version != VERSION
+            or self.timeframe != "1h"
+            or self.warmup != 121
+            or self.max_hold != HORIZON_BARS
             or not 1 <= len(self.conditions) <= MAX_DEPTH
             or self.training_samples < MIN_LEAF_SUPPORT
             or not (D(0) <= self.observed_success_rate <= D(1))
@@ -142,4 +148,89 @@ def discover_long2(candles):
         "split_trials": trials, "maximum_split_trials": 168,
         "hypotheses": hypotheses,
         "evaluation_or_trading_performed": False,
+    }
+
+
+def load_opportunity_rule(record):
+    """Load only a typed frozen candidate; no arbitrary executable text."""
+    from . import discovery as original
+
+    value = dict(record)
+    value["conditions"] = tuple(
+        original.Condition(c["feature"], c["operator"], D(c["threshold"]))
+        for c in value["conditions"]
+    )
+    value["observed_success_rate"] = D(value["observed_success_rate"])
+    value["unconditional_success_rate"] = D(value["unconditional_success_rate"])
+    return OpportunityRule(**value)
+
+
+def decide_long2(candles, rule, *, known_at):
+    """Causal, optional paper LONG setup from a frozen observed-movement rule.
+
+    The rule learns which conditions predict 2%+ moves. The STRUCTURAL exit
+    heuristic is predeclared, not itself learned: aim just below the preceding
+    120h high, protect beneath preceding 24h low plus an ATR buffer, require
+    at least 2% potential even after maximum allowed entry gap/impact.
+
+    This is a bounded feasibility experiment, not a claim of a learned optimum.
+    No futures, shorts, money interface or new financial accounting.
+    """
+    from datetime import datetime, UTC
+    from . import discovery as original
+    from .models import research_code_fingerprint
+    from trading_assistant.market_structure.volatility import (
+        calculate_volatility, VolatilityParameters,
+    )
+
+    if not isinstance(rule, OpportunityRule) or rule.source_fingerprint != research_code_fingerprint():
+        raise ValueError("frozen long2 candidate/source mismatch")
+    if known_at >= datetime(2025, 1, 1, tzinfo=UTC):
+        raise ValueError("protected 2025 price admission refused")
+    if known_at < original.TRAIN_END:
+        raise ValueError("cannot trade discovery training period")
+    closed = tuple(c for c in candles if c.timestamp + original.HOUR <= known_at)[-rule.warmup:]
+    if len(closed) != rule.warmup or not original.scope(closed) or closed[-1].timestamp + original.HOUR != known_at:
+        return None
+    f = original.features(closed[-31:], known_at=known_at)
+    if f is None or not all(c.matches(f) for c in rule.conditions):
+        return None
+
+    ref = closed[-1].close
+    historical_high = max(c.high for c in closed[:-1])
+    # The target is just below observed prior resistance, rather than forcing
+    # a synthetic +2% target irrespective of actual available market structure.
+    target = historical_high * D("0.9995")
+    # Require 2% room even if the existing simulator accepts its maximum
+    # 50bp next-open gap plus the 11bp adverse stressed fill impact.
+    maximum_accepted_fill = ref * D("1.005") * D("1.0011")
+    if target < maximum_accepted_fill * D("1.02"):
+        return None
+    atr = calculate_volatility(
+        closed[-31:], interval=original.HOUR, as_of=known_at,
+        parameters=VolatilityParameters(period=14),
+    ).atr
+    if atr is None or atr <= 0:
+        return None
+    prior_low = min(c.low for c in closed[-25:-1])
+    stop = prior_low - atr * D("0.1")
+    if stop <= 0 or stop >= ref or (ref - stop) / ref > D("0.02"):
+        return None
+    return {
+        "known_at": known_at.isoformat(),
+        "candle_open": closed[-1].timestamp.isoformat(),
+        "reference": str(ref),
+        "stop": str(stop),
+        "target": str(target),
+        "evidence": {
+            "family": VERSION,
+            "rule_id": rule.fingerprint,
+            "training_success_rate": str(rule.observed_success_rate),
+            "prior_120h_high": str(historical_high),
+            "prior_24h_low": str(prior_low),
+            "atr": str(atr),
+            "projected_upside_from_worst_fill_pct": str((target / maximum_accepted_fill - 1) * 100),
+            "stop_and_target": "predeclared structural heuristic, not a learned exit policy",
+            "features": {k: str(v) for k, v in f.items()},
+        },
     }

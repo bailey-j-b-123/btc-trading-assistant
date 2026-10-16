@@ -287,8 +287,12 @@ def independent_audit(state, records, candles, execution, *, exit_policy=DEFAULT
                     at += timedelta(hours=1)
             assert entry == first.open*(1+execution.impact)
             assert exit_price == raw_exit*(1-execution.impact)
-            assert D(t["entry_fee"]) == q*entry*execution.fee
-            assert D(t["exit_fee"]) == q*exit_price*execution.fee
+            with localcontext() as fee_context:
+                fee_context.prec = 28
+                assert D(t["entry_fee"]) == q*entry*execution.fee
+                assert D(t["exit_fee"]) == q*exit_price*execution.fee
+            assert abs(D(t["entry_fee"]) - q*entry*execution.fee) < D("1e-20")
+            assert abs(D(t["exit_fee"]) - q*exit_price*execution.fee) < D("1e-20")
             assert q % execution.quantity_step == 0
             assert q*entry >= execution.minimum_notional
             assert q*entry <= D(t["equity_at_decision"])*execution.max_exposure

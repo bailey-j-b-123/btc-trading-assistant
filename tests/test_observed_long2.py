@@ -66,3 +66,66 @@ def test_fingerprint_differs_on_rule_change():
     assert r.fingerprint != long2.OpportunityRule(**{**q, "observed_success_rate": D(".6")}).fingerprint
     with pytest.raises(ValueError):
         long2.OpportunityRule(**{**q, "training_samples": 100})
+
+
+def test_long2_adapter_uses_closed_structure_and_two_percent_room():
+    from trading_assistant.strategy_lab.models import research_code_fingerprint
+    from trading_assistant.strategy_lab import observed_long2 as l2
+    cs = tuple(replace(b, timestamp=legacy.TRAIN_END + i * legacy.HOUR) for i, b in enumerate(training(121)))
+    c = legacy.Condition("relative_volume", "gt", D("0.5"))
+    rule = l2.OpportunityRule((c,), "0" * 64, research_code_fingerprint(), 120, D("0.6"), D("0.4"))
+    t = cs[-1].timestamp + legacy.HOUR
+    answer = l2.decide_long2(cs, rule, known_at=t)
+    assert answer is not None
+    assert D(answer["target"]) / D(answer["reference"]) > D("1.02")
+    assert D(answer["target"]) / (D(answer["reference"]) * D("1.005") * D("1.0011")) >= D("1.02")
+    assert D(answer["stop"]) < D(answer["reference"])
+    # If the structural resistance is too close, no 2% opportunity exists.
+    near = tuple(replace(b, high=D("101")) for b in cs)
+    assert l2.decide_long2(near, rule, known_at=t) is None
+    # A later 1-million high cannot leak into the rule's decision.
+    later = replace(cs[-1], timestamp=t, high=D("1000000"))
+    assert l2.decide_long2(cs + (later,), rule, known_at=t) == answer
+
+
+def test_long2_rejects_wrong_source_training_and_protected_2025():
+    from datetime import datetime, UTC
+    from trading_assistant.strategy_lab.models import research_code_fingerprint
+    from trading_assistant.strategy_lab import observed_long2 as l2
+    cs = tuple(replace(b, timestamp=legacy.TRAIN_END + i * legacy.HOUR) for i, b in enumerate(training(121)))
+    c = legacy.Condition("relative_volume", "gt", D("0.5"))
+    r = l2.OpportunityRule((c,), "0" * 64, research_code_fingerprint(), 120, D("0.6"), D("0.4"))
+    with pytest.raises(ValueError, match="protected 2025"):
+        l2.decide_long2(cs, r, known_at=datetime(2025, 1, 1, tzinfo=UTC))
+    with pytest.raises(ValueError, match="source mismatch"):
+        l2.decide_long2(cs, replace(r, source_fingerprint="1" * 64), known_at=cs[-1].timestamp + legacy.HOUR)
+    with pytest.raises(ValueError, match="training period"):
+        l2.decide_long2(cs, r, known_at=legacy.TRAIN_START)
+
+
+def test_runner_long2_adapter_reuses_existing_auditable_cash_account(tmp_path):
+    from trading_assistant.strategy_lab.models import Execution, research_code_fingerprint
+    from trading_assistant.strategy_lab.runner import run_experiment
+    from trading_assistant.strategy_lab.store import Store
+    from trading_assistant.strategy_lab.novel import independent_audit
+    from test_strategy_lab import candles, manifest
+    from trading_assistant.strategy_lab import observed_long2 as l2
+    import json
+
+    cs = tuple(replace(b, high=max(b.high, b.close * D("1.04"))) for b in candles(260))
+    r = l2.OpportunityRule(
+        (legacy.Condition("relative_volume", "gt", D("0.5")),),
+        "0" * 64, research_code_fingerprint(), 120, D("0.6"), D("0.4"),
+    )
+    st = Store(tmp_path / "long2")
+    try:
+        e = Execution()
+        a = run_experiment(st, cs, manifest(cs), r, e,
+                           stage="walk_forward", decision_adapter="observed-long2-v1")
+        assert a["complete"] and not a["deduplicated"]
+        state = json.loads(st.db.execute("select state from experiments where id=?", (a["id"],)).fetchone()[0])
+        assert D(independent_audit(state, st.records(a["id"]), cs, e)["cash_error"]) < D("1e-18")
+        assert run_experiment(st, cs, manifest(cs), r, e,
+                              stage="walk_forward", decision_adapter="observed-long2-v1")["deduplicated"]
+    finally:
+        st.close()

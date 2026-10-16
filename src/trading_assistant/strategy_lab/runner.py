@@ -31,14 +31,19 @@ def run_experiment(
     entry_policy=None,
     decision_adapter=None,
 ):
-    if decision_adapter not in (None, "discovery-v1"):
+    if decision_adapter not in (None, "discovery-v1", "observed-long2-v1"):
         raise ValueError("unsupported versioned research decision adapter")
     adapter_kwargs = {}
-    if decision_adapter is not None:
+    if decision_adapter == "discovery-v1":
         from .discovery import Rule, decide as learned_decide
         if not isinstance(strategy, Rule) or strategy.fit_source_sha256 != research_code_fingerprint():
             raise ValueError("frozen learned rule/source mismatch")
         adapter_kwargs["decision_function"] = learned_decide
+    elif decision_adapter == "observed-long2-v1":
+        from .observed_long2 import OpportunityRule, decide_long2
+        if not isinstance(strategy, OpportunityRule) or strategy.source_fingerprint != research_code_fingerprint():
+            raise ValueError("frozen long2 candidate/source mismatch")
+        adapter_kwargs["decision_function"] = decide_long2
     validate_exit_policy(exit_policy)
     entry_spec = entry_definition(entry_policy)
     from datetime import datetime
