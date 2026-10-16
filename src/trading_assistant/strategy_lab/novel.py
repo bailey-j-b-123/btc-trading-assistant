@@ -4,6 +4,8 @@ No downloads, accounts, production databases, promotion, or holdout entry point.
 The four definitions and their rejection rules were frozen before evaluation.
 """
 
+from .entry_policy import entry_definition
+
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal as D, localcontext
@@ -182,11 +184,12 @@ def validate_source(candles, manifest, period):
 @exclusive
 @decimal_context
 def run(store, candles, manifest, strategy, cost, period, *, max_boundaries=None, fault=None,
-        exit_policy=DEFAULT_EXIT_POLICY):
+        exit_policy=DEFAULT_EXIT_POLICY, entry_policy=None):
     """Same verified simulator, new content-addressed experiments, atomic resume."""
     if max_boundaries is not None and (type(max_boundaries) is not int or max_boundaries < 1):
         raise ValueError("positive work budget required")
     validate_exit_policy(exit_policy)
+    entry_spec = entry_definition(entry_policy)
     validate_source(candles, manifest, period)
     execution = costs(cost)
     definition = {"hypothesis": asdict(strategy), "hypothesis_fingerprint": strategy.fingerprint,
@@ -195,6 +198,8 @@ def run(store, candles, manifest, strategy, cost, period, *, max_boundaries=None
                   "period": period, "stage": "exploratory_reused_chronological",
                   "spec_sha256": SPEC_SHA, "research_source_sha256": source_sha(),
                   "engine_source_sha256": research_code_fingerprint(), "simulator": "cash-simulator-v2"}
+    if entry_spec is not None:
+        definition["entry_policy"] = entry_spec
     key, row = store.experiment(definition, initial_state(execution))
     if row["result"] is not None:
         return {"id": key, "complete": True, "deduplicated": True, "result": json.loads(row["result"])}
@@ -203,7 +208,7 @@ def run(store, candles, manifest, strategy, cost, period, *, max_boundaries=None
     for i in range(state["index"] + 1, len(candles)):
         if max_boundaries is not None and worked >= max_boundaries:
             break
-        state, produced = step(state, candles, i, strategy, execution, decision_function=decide, exit_policy=exit_policy)
+        state, produced = step(state, candles, i, strategy, execution, decision_function=decide, exit_policy=exit_policy, entry_policy=entry_policy)
         events.extend(produced)
         worked += 1
         if worked % 128 == 0:
@@ -213,8 +218,8 @@ def run(store, candles, manifest, strategy, cost, period, *, max_boundaries=None
     if state["index"] != len(candles)-1:
         return {"id": key, "complete": False, "next_index": state["index"]+1}
     records = store.records(key)
-    result = metrics(state, records, execution)
-    result.update(audit=independent_audit(state, records, candles, execution, exit_policy=exit_policy),
+    result = metrics(state, records, execution, entry_policy=entry_policy)
+    result.update(audit=independent_audit(state, records, candles, execution, exit_policy=exit_policy, entry_policy=entry_policy),
                   summary=summarize(records), processed_boundaries=len(candles), period=period,
                   cost=cost, hypothesis=strategy.name)
     store.checkpoint(key, state, [], result=result)
@@ -241,11 +246,12 @@ def summarize(records):
             "max_holding_hours": str(max(hours)) if hours else None, **json.loads(canonical(groups))}
 
 
-def independent_audit(state, records, candles, execution, *, exit_policy=DEFAULT_EXIT_POLICY):
+def independent_audit(state, records, candles, execution, *, exit_policy=DEFAULT_EXIT_POLICY, entry_policy=None):
     """Independent 60-digit fills/cash/mark accounting, no simulator calls."""
     validate_exit_policy(exit_policy)
     if exit_policy == "stop_target_only":
         assert not any(r["kind"] == "trade" and r["exit_reason"] == "time_exit" for r in records)
+    entry_definition(entry_policy)
     market = {c.timestamp: c for c in candles}
     trades = sorted((r for r in records if r["kind"] == "trade"), key=lambda t: t["entry_at"])
     signals = {r["id"]: r for r in records if r["kind"] == "signal"}
@@ -263,8 +269,22 @@ def independent_audit(state, records, candles, execution, *, exit_policy=DEFAULT
             first, last = market[entry_at], market[exit_at-timedelta(hours=1)]
             assert t["signal_id"] in signals
             signal = signals[t["signal_id"]]
-            assert datetime.fromisoformat(signal["known_at"]) == entry_at
-            assert D(signal["reference"]) == market[entry_at-timedelta(hours=1)].close
+            decision_at = datetime.fromisoformat(signal["known_at"])
+            assert D(signal["reference"]) == market[decision_at-timedelta(hours=1)].close
+            if entry_policy is None:
+                assert decision_at == entry_at
+            else:
+                assert D(t["stop"]) == D(signal["stop"]) and D(t["target"]) == D(signal["target"])
+                # Deliberately independent of PullbackEntry.limit and simulator.
+                cap = D(signal["reference"]) - entry_policy.retracement_fraction * (D(signal["reference"])-D(signal["stop"]))
+                assert decision_at <= entry_at < decision_at + timedelta(hours=entry_policy.max_wait_bars)
+                assert entry <= cap
+                at = decision_at
+                while at < entry_at:
+                    missed = market[at]
+                    assert missed.open*(1+execution.impact) > cap
+                    assert missed.low > stop and missed.high < target
+                    at += timedelta(hours=1)
             assert entry == first.open*(1+execution.impact)
             assert exit_price == raw_exit*(1-execution.impact)
             assert D(t["entry_fee"]) == q*entry*execution.fee
