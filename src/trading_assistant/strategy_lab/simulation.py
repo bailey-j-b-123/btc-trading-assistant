@@ -5,6 +5,7 @@ from datetime import timedelta
 from decimal import Decimal as D, ROUND_FLOOR
 from .models import identity
 from .strategies import decide
+from .entry_policy import entry_definition
 
 DEFAULT_EXIT_POLICY = "strategy_default"
 EXIT_POLICIES = (DEFAULT_EXIT_POLICY, "stop_target_only")
@@ -89,6 +90,10 @@ def finish(state, price, when, reason, execution, events, *, ambiguous=False):
             "equity_at_decision": position["equity_at_decision"],
         }
     )
+    if "entry_policy" in position:
+        events[-1].update(entry_policy=position["entry_policy"],
+                          entry_limit=position["entry_limit"],
+                          waited_bars=position["waited_bars"])
     state["position"] = None
     source_state(state, position, "closed")
 
@@ -104,8 +109,10 @@ def step(
     recorded_at=None,
     decision_function=decide,
     exit_policy=DEFAULT_EXIT_POLICY,
+    entry_policy=None,
 ):
     validate_exit_policy(exit_policy)
+    entry_spec = entry_definition(entry_policy)
     state = deepcopy(previous)
     events = []
     c = candles[index]
@@ -152,6 +159,28 @@ def step(
 
         if c.timestamp < datetime.fromisoformat(pending["not_before"]):
             state["pending"] = pending
+            pending = None
+    if pending and pending.get("entry_policy") != entry_spec:
+        raise ValueError("pending entry policy differs from checkpoint")
+    if pending and entry_policy is not None:
+        pending["waited_bars"] += 1
+        limit = D(pending["entry_limit"])
+        if c.open * (1 + execution.impact) > limit:
+            # No position: these are cancellation observations, never exits.
+            reason = (
+                "pullback_structural_invalidation" if c.low <= D(pending["stop"])
+                else "pullback_target_before_entry" if c.high >= D(pending["target"])
+                else "pullback_timeout" if pending["waited_bars"] >= entry_policy.max_wait_bars
+                else None
+            )
+            if reason:
+                reject(state, reason, pending, events)
+                events[-1]["cancelled_at"] = known.isoformat()
+            else:
+                state["pending"] = pending
+                events.append({"kind": "entry_wait", "signal_id": pending["signal_id"],
+                               "known_at": known.isoformat(), "entry_limit": str(limit),
+                               "waited_bars": pending["waited_bars"]})
             pending = None
     if pending:
         fill = c.open * (1 + execution.impact)
@@ -292,10 +321,19 @@ def step(
                     "risk_budget": str(budget),
                     "equity_at_decision": str(equity),
                 }
+                if entry_policy is not None:
+                    state["pending"].update(
+                        entry_policy=entry_spec,
+                        entry_limit=str(entry_policy.limit(signal)), waited_bars=0,
+                    )
                 source_state(state, signal, "pending")
                 if recorded_at is not None:
                     state["pending"]["not_before"] = recorded_at.isoformat()
                     state["pending"]["actual_decision_time"] = recorded_at.isoformat()
+                if entry_policy is not None:
+                    events.append({"kind": "entry_intent", "signal_id": signal_id,
+                                   "known_at": known.isoformat(),
+                                   "pending": deepcopy(state["pending"])})
     state.update(
         index=index, last_timestamp=c.timestamp.isoformat(), equity=str(equity)
     )
@@ -315,7 +353,8 @@ def step(
     return state, events
 
 
-def metrics(state, records, execution):
+def metrics(state, records, execution, *, entry_policy=None):
+    entry_definition(entry_policy)
     from datetime import datetime
 
     duration_hours = None
@@ -376,7 +415,7 @@ def metrics(state, records, execution):
         if not duration_hours
         else str(D(len(trades)) * 720 / duration_hours),
         "net_r_values": [str(x) for x in r],
-        "assumptions": "cash Spot long-only; next-open market entry; adverse spread/slippage; fees on both notionals; both stop/target => adverse stop; gaps unresolved; close-mark drawdown only",
+        "assumptions": ("research pullback capped next-open entry; " if entry_policy else "") + "cash Spot long-only; next-open market entry; adverse spread/slippage; fees on both notionals; both stop/target => adverse stop; gaps unresolved; close-mark drawdown only",
         "status": "rejected"
         if excluded or len(trades) < 100 or not r or sum(r) <= 0
         else "awaiting_validation",
