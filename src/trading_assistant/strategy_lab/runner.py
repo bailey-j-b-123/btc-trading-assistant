@@ -1,5 +1,7 @@
 """Resumable chronological experiments; bounded CPU work and atomic checkpoints."""
 
+from .entry_policy import entry_definition
+
 from dataclasses import asdict
 import json
 import time
@@ -26,8 +28,10 @@ def run_experiment(
     stop=lambda: False,
     fault=None,
     exit_policy=DEFAULT_EXIT_POLICY,
+    entry_policy=None,
 ):
     validate_exit_policy(exit_policy)
+    entry_spec = entry_definition(entry_policy)
     from datetime import datetime
     require_period(
         store, datetime.fromisoformat(manifest["start"]),
@@ -98,6 +102,8 @@ def run_experiment(
         "closed_data_only": True,
         "decision_source_sha256": research_code_fingerprint(),
     }
+    if entry_spec is not None:
+        definition["entry_policy"] = entry_spec
     key, row = store.experiment(definition, initial_state(execution))
     if row["result"] is not None:
         return {"id": key, "deduplicated": True, "result": json.loads(row["result"])}
@@ -108,7 +114,7 @@ def run_experiment(
     for i in range(state["index"] + 1, len(candles)):
         if stop() or max_boundaries is not None and worked >= max_boundaries:
             break
-        state, produced = step(state, candles, i, strategy, execution, exit_policy=exit_policy)
+        state, produced = step(state, candles, i, strategy, execution, exit_policy=exit_policy, entry_policy=entry_policy)
         events.extend(produced)
         worked += 1
         if worked % batch == 0:
@@ -127,7 +133,7 @@ def run_experiment(
     # Commit event batch before coherent aggregation. A crash here resumes with
     # the same final state and no events; immutable completion is a second commit.
     store.checkpoint(key, state, events, fault=fault)
-    result = metrics(state, store.records(key), execution)
+    result = metrics(state, store.records(key), execution, entry_policy=entry_policy)
     result.update(
         stage=stage,
         processed_boundaries=len(candles),
