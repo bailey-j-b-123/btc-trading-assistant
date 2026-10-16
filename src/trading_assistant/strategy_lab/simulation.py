@@ -1,9 +1,11 @@
 """Conservative chronological cash simulation. No order or account interface."""
 
 from copy import deepcopy
+from dataclasses import asdict
+import json
 from datetime import timedelta
 from decimal import Decimal as D, ROUND_FLOOR
-from .models import identity
+from .models import identity, canonical
 from .strategies import decide
 from .entry_policy import entry_definition
 
@@ -549,7 +551,7 @@ def metrics(state, records, execution, *, entry_policy=None, directional_model=N
 
     if directional_model is not None:
         result.update(execution_model=directional_model.version, assumptions="1x segregated collateral; declared carry/funding; conservative worst-mark liquidation before stop; full deficits debited and frozen; NOT verified exchange execution",
-                      directional_model=__import__("dataclasses").asdict(directional_model),
+                      directional_model=json.loads(canonical(asdict(directional_model))),
                       funding=str(sum((D(t["amount"]) for t in records if t["kind"] == "funding"), D(0))),
                       carry=str(sum((D(t["amount"]) for t in records if t["kind"] == "carry"), D(0))),
                       paid_trade_fees=str(sum((D(t["entry_fee"]) + D(t["exit_fee"]) for t in trades), D(0)) + (D(state["position"]["entry_fee"]) if state["position"] else D(0)) + sum((D(t["position"]["entry_fee"]) for t in records if t["kind"] == "unresolved"), D(0))),
