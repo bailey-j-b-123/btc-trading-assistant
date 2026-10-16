@@ -120,7 +120,10 @@ def compare_brain(
     prepare=True,
     stop=lambda: False,
     fault=None,
+    diagnostics=False,
 ):
+    if type(diagnostics) is not bool:
+        raise ValueError("diagnostics must be boolean")
     if (
         start >= end
         or end - start > timedelta(days=32)
@@ -186,6 +189,17 @@ def compare_brain(
         (rid, canonical(definition), canonical(initial)),
     )
     row = store.db.execute("SELECT * FROM brain_runs WHERE id=?", (rid,)).fetchone()
+    observer = None
+    if diagnostics:
+        from .candidate_diagnostics import CandidateDiagnostics
+
+        observer = CandidateDiagnostics(store, rid, definition)
+        recorded = store.db.execute(
+            "SELECT COUNT(*) FROM candidate_diagnostic_coverage WHERE diagnostic=?",
+            (observer.id,),
+        ).fetchone()[0]
+        if recorded != json.loads(row["state"])["next"]:
+            raise ValueError("diagnostics require a fresh cohort or complete matching sidecar; no backfill")
     if row["result"]:
         return {
             "id": rid,
@@ -265,6 +279,7 @@ def compare_brain(
                 "plan": plan.to_json_dict() if plan else None,
             }
             produced = []
+            portfolios_before = state["portfolios"].copy()
             for p, verdict in decisions.items():
                 counts = state["counts"][p]
                 counts[verdict["decision"]] = counts.get(verdict["decision"], 0) + 1
@@ -312,6 +327,13 @@ def compare_brain(
                     decision_function=signal,
                 )
                 produced.extend((p, event) for event in events)
+            diagnostic_records = None
+            if observer:
+                diagnostic_records = observer.capture(
+                    snapshot=snapshot, frames=cache.get(snapshot.setup.boundary_close),
+                    sources=sources, service=service, before=portfolios_before,
+                    after=state["portfolios"], produced=produced,
+                )
             state["next"] = offset + 1
             store.db.execute("BEGIN IMMEDIATE")
             try:
@@ -324,6 +346,8 @@ def compare_brain(
                         "INSERT OR IGNORE INTO brain_events VALUES(?,?,?,?)",
                         (rid, p, identity(event), canonical(event)),
                     )
+                if observer:
+                    observer.commit(diagnostic_records, at.isoformat())
                 if fault:
                     fault()
                 store.db.execute(
