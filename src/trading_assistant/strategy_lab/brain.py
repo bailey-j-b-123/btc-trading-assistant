@@ -4,6 +4,8 @@ All imported evaluation is read-only over a dedicated in-memory verified cohort.
 No original forward ledger, ingestion runner, settings file or production DB.
 """
 
+from .entry_policy import entry_definition
+
 from dataclasses import dataclass
 from datetime import timedelta
 import json
@@ -121,7 +123,9 @@ def compare_brain(
     stop=lambda: False,
     fault=None,
     diagnostics=False,
+    entry_policy=None,
 ):
+    entry_spec = entry_definition(entry_policy)
     if type(diagnostics) is not bool:
         raise ValueError("diagnostics must be boolean")
     if (
@@ -171,6 +175,8 @@ def compare_brain(
         "source_selection": "entire fixed warmup cohort retained; shallow-history limitation remains",
         "decision_source_sha256": research_code_fingerprint(),
     }
+    if entry_spec is not None:
+        definition["entry_policy"] = entry_spec
     rid = identity(definition)
     store.db.executescript("""
       CREATE TABLE IF NOT EXISTS brain_runs(id TEXT PRIMARY KEY,definition TEXT NOT NULL,state TEXT NOT NULL,result TEXT);
@@ -325,6 +331,7 @@ def compare_brain(
                     BrainPolicy(p),
                     execution,
                     decision_function=signal,
+                    entry_policy=entry_policy,
                 )
                 produced.extend((p, event) for event in events)
             diagnostic_records = None
@@ -381,7 +388,7 @@ def compare_brain(
                     (rid, p),
                 )
             ]
-            answer["performance"][p] = metrics(portfolio, records, execution)
+            answer["performance"][p] = metrics(portfolio, records, execution, entry_policy=entry_policy)
         if done:
             store.db.execute(
                 "UPDATE brain_runs SET result=? WHERE id=?", (canonical(answer), rid)
