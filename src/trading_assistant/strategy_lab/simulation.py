@@ -6,6 +6,7 @@ from decimal import Decimal as D, ROUND_FLOOR
 from .models import identity
 from .strategies import decide
 from .entry_policy import entry_definition
+from .stop_quality import quality_definition
 
 DEFAULT_EXIT_POLICY = "strategy_default"
 EXIT_POLICIES = (DEFAULT_EXIT_POLICY, "stop_target_only")
@@ -110,9 +111,11 @@ def step(
     decision_function=decide,
     exit_policy=DEFAULT_EXIT_POLICY,
     entry_policy=None,
+    stop_quality=None,
 ):
     validate_exit_policy(exit_policy)
     entry_spec = entry_definition(entry_policy)
+    quality_definition(stop_quality)
     state = deepcopy(previous)
     events = []
     c = candles[index]
@@ -288,52 +291,65 @@ def step(
         elif state.get("has_unresolved_gap"):
             reject(state, "unresolved_gap_freezes_new_entries", signal, events)
         else:
-            ceiling = (
-                D(signal["reference"])
-                * (1 + execution.max_entry_gap_bps / D(10000))
-                * (1 + execution.impact)
-            )
-            stop = D(signal["stop"])
-            budget = equity * execution.risk_fraction
-            loss_per_unit = (
-                ceiling
-                - stop
-                + execution.impact * stop
-                + execution.fee * (ceiling + stop * (1 - execution.impact))
-            )
-            quantity = min(
-                budget / loss_per_unit,
-                equity * execution.max_exposure / ceiling,
-                D(state["cash"]) / (ceiling * (1 + execution.fee)),
-            )
-            quantity = (quantity / execution.quantity_step).to_integral_value(
-                rounding=ROUND_FLOOR
-            ) * execution.quantity_step
-            if quantity <= 0 or quantity * ceiling < execution.minimum_notional:
-                reject(state, "insufficient_capital_or_lot_notional", signal, events)
-            else:
-                state["pending"] = {
-                    **signal,
-                    "signal_id": signal_id,
-                    "decision": known.isoformat(),
-                    "quantity": str(quantity),
-                    "entry_ceiling": str(ceiling),
-                    "risk_budget": str(budget),
-                    "equity_at_decision": str(equity),
-                }
-                if entry_policy is not None:
-                    state["pending"].update(
-                        entry_policy=entry_spec,
-                        entry_limit=str(entry_policy.limit(signal)), waited_bars=0,
-                    )
-                source_state(state, signal, "pending")
-                if recorded_at is not None:
-                    state["pending"]["not_before"] = recorded_at.isoformat()
-                    state["pending"]["actual_decision_time"] = recorded_at.isoformat()
-                if entry_policy is not None:
-                    events.append({"kind": "entry_intent", "signal_id": signal_id,
-                                   "known_at": known.isoformat(),
-                                   "pending": deepcopy(state["pending"])})
+            if stop_quality is not None:
+                assessment = stop_quality.assess(
+                    signal, candles[max(0, index-max(strategy.warmup, stop_quality.volatility_lookback+1)+1):index+1],
+                    known_at=known, execution=execution,
+                )
+                events.append({"kind": "stop_quality", "signal_id": signal_id,
+                               "assessment": assessment})
+                if assessment["reasons"]:
+                    # One terminal refusal carries every independently failed metric.
+                    reject(state, "stop_quality_refused", signal, events)
+                    events[-1]["quality_reasons"] = assessment["reasons"]
+                    signal = None
+            if signal is not None:
+                ceiling = (
+                    D(signal["reference"])
+                    * (1 + execution.max_entry_gap_bps / D(10000))
+                    * (1 + execution.impact)
+                )
+                stop = D(signal["stop"])
+                budget = equity * execution.risk_fraction
+                loss_per_unit = (
+                    ceiling
+                    - stop
+                    + execution.impact * stop
+                    + execution.fee * (ceiling + stop * (1 - execution.impact))
+                )
+                quantity = min(
+                    budget / loss_per_unit,
+                    equity * execution.max_exposure / ceiling,
+                    D(state["cash"]) / (ceiling * (1 + execution.fee)),
+                )
+                quantity = (quantity / execution.quantity_step).to_integral_value(
+                    rounding=ROUND_FLOOR
+                ) * execution.quantity_step
+                if quantity <= 0 or quantity * ceiling < execution.minimum_notional:
+                    reject(state, "insufficient_capital_or_lot_notional", signal, events)
+                else:
+                    state["pending"] = {
+                        **signal,
+                        "signal_id": signal_id,
+                        "decision": known.isoformat(),
+                        "quantity": str(quantity),
+                        "entry_ceiling": str(ceiling),
+                        "risk_budget": str(budget),
+                        "equity_at_decision": str(equity),
+                    }
+                    if entry_policy is not None:
+                        state["pending"].update(
+                            entry_policy=entry_spec,
+                            entry_limit=str(entry_policy.limit(signal)), waited_bars=0,
+                        )
+                    source_state(state, signal, "pending")
+                    if recorded_at is not None:
+                        state["pending"]["not_before"] = recorded_at.isoformat()
+                        state["pending"]["actual_decision_time"] = recorded_at.isoformat()
+                    if entry_policy is not None:
+                        events.append({"kind": "entry_intent", "signal_id": signal_id,
+                                       "known_at": known.isoformat(),
+                                       "pending": deepcopy(state["pending"])})
     state.update(
         index=index, last_timestamp=c.timestamp.isoformat(), equity=str(equity)
     )
