@@ -5,6 +5,7 @@ No original forward ledger, ingestion runner, settings file or production DB.
 """
 
 from .entry_policy import entry_definition
+from .stop_quality import quality_definition
 
 from dataclasses import dataclass
 from datetime import timedelta
@@ -124,8 +125,10 @@ def compare_brain(
     fault=None,
     diagnostics=False,
     entry_policy=None,
+    stop_quality=None,
 ):
     entry_spec = entry_definition(entry_policy)
+    quality_spec = quality_definition(stop_quality)
     if type(diagnostics) is not bool:
         raise ValueError("diagnostics must be boolean")
     if (
@@ -177,6 +180,8 @@ def compare_brain(
     }
     if entry_spec is not None:
         definition["entry_policy"] = entry_spec
+    if quality_spec is not None:
+        definition["stop_quality"] = quality_spec
     rid = identity(definition)
     store.db.executescript("""
       CREATE TABLE IF NOT EXISTS brain_runs(id TEXT PRIMARY KEY,definition TEXT NOT NULL,state TEXT NOT NULL,result TEXT);
@@ -307,7 +312,7 @@ def compare_brain(
                         or plan.direction != "bullish"
                     ):
                         return None
-                    return {
+                    offered = {
                         "known_at": at.isoformat(),
                         "candle_open": execution_candles[index].timestamp.isoformat(),
                         "reference": str(plan.entry.value),
@@ -324,6 +329,14 @@ def compare_brain(
                         },
                     }
 
+                    if stop_quality is not None:
+                        offered["evidence"].update(
+                            atr=str(frames[-1].patterns.structure.volatility.atr),
+                            atr_timeframe="1h",
+                            atr_known_at=snapshot.setup.boundary_close.isoformat(),
+                        )
+                    return offered
+
                 state["portfolios"][p], events = step(
                     state["portfolios"][p],
                     execution_candles,
@@ -332,6 +345,7 @@ def compare_brain(
                     execution,
                     decision_function=signal,
                     entry_policy=entry_policy,
+                    stop_quality=stop_quality,
                 )
                 produced.extend((p, event) for event in events)
             diagnostic_records = None
