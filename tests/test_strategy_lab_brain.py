@@ -75,19 +75,22 @@ def test_actual_four_timeframe_cohort_rolls_back_and_resumes_exactly(tmp_path):
         raise RuntimeError("injected hierarchy transaction interruption")
 
     with pytest.raises(RuntimeError, match="injected"):
-        compare_brain(b, fault=fail, **kwargs)
+        compare_brain(b, fault=fail, diagnostics=True, **kwargs)
     assert b.db.execute("SELECT count(*) FROM brain_observations").fetchone()[0] == 0
     assert (
         json.loads(b.db.execute("SELECT state FROM brain_runs").fetchone()[0])["next"]
         == 0
     )
-    assert not compare_brain(b, max_boundaries=1, **kwargs)["complete"]
+    assert b.db.execute("SELECT count(*) FROM candidate_diagnostic_coverage").fetchone()[0] == 0
+    assert not compare_brain(b, max_boundaries=1, diagnostics=True, **kwargs)["complete"]
     b.close()
     b = Store(tmp_path / "b")
-    recovered = compare_brain(b, **kwargs)
+    recovered = compare_brain(b, diagnostics=True, **kwargs)
+    assert recovered["id"] == full["id"]  # opt-in never changes the trading cohort definition
     assert recovered["result"]["counts"] == full["result"]["counts"]
     assert recovered["result"]["performance"] == full["result"]["performance"]
-    assert compare_brain(b, **kwargs)["deduplicated"]
+    assert compare_brain(b, diagnostics=True, **kwargs)["deduplicated"]
+    assert b.db.execute("SELECT count(*) FROM candidate_diagnostic_coverage").fetchone()[0] == 3
     assert [
         r[0]
         for r in a.db.execute(
@@ -99,6 +102,8 @@ def test_actual_four_timeframe_cohort_rolls_back_and_resumes_exactly(tmp_path):
             "SELECT payload FROM brain_observations ORDER BY boundary"
         )
     ]
+    with pytest.raises(ValueError, match="no backfill"):
+        compare_brain(a, diagnostics=True, **kwargs)
     a.close()
     b.close()
 
