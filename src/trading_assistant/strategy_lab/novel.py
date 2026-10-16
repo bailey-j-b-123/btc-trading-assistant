@@ -5,6 +5,7 @@ The four definitions and their rejection rules were frozen before evaluation.
 """
 
 from .entry_policy import entry_definition
+from .stop_quality import quality_definition
 
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
@@ -184,12 +185,13 @@ def validate_source(candles, manifest, period):
 @exclusive
 @decimal_context
 def run(store, candles, manifest, strategy, cost, period, *, max_boundaries=None, fault=None,
-        exit_policy=DEFAULT_EXIT_POLICY, entry_policy=None):
+        exit_policy=DEFAULT_EXIT_POLICY, entry_policy=None, stop_quality=None):
     """Same verified simulator, new content-addressed experiments, atomic resume."""
     if max_boundaries is not None and (type(max_boundaries) is not int or max_boundaries < 1):
         raise ValueError("positive work budget required")
     validate_exit_policy(exit_policy)
     entry_spec = entry_definition(entry_policy)
+    quality_spec = quality_definition(stop_quality)
     validate_source(candles, manifest, period)
     execution = costs(cost)
     definition = {"hypothesis": asdict(strategy), "hypothesis_fingerprint": strategy.fingerprint,
@@ -200,6 +202,8 @@ def run(store, candles, manifest, strategy, cost, period, *, max_boundaries=None
                   "engine_source_sha256": research_code_fingerprint(), "simulator": "cash-simulator-v2"}
     if entry_spec is not None:
         definition["entry_policy"] = entry_spec
+    if quality_spec is not None:
+        definition["stop_quality"] = quality_spec
     key, row = store.experiment(definition, initial_state(execution))
     if row["result"] is not None:
         return {"id": key, "complete": True, "deduplicated": True, "result": json.loads(row["result"])}
@@ -208,7 +212,7 @@ def run(store, candles, manifest, strategy, cost, period, *, max_boundaries=None
     for i in range(state["index"] + 1, len(candles)):
         if max_boundaries is not None and worked >= max_boundaries:
             break
-        state, produced = step(state, candles, i, strategy, execution, decision_function=decide, exit_policy=exit_policy, entry_policy=entry_policy)
+        state, produced = step(state, candles, i, strategy, execution, decision_function=decide, exit_policy=exit_policy, entry_policy=entry_policy, stop_quality=stop_quality)
         events.extend(produced)
         worked += 1
         if worked % 128 == 0:
