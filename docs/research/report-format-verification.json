@@ -1,0 +1,43 @@
+{
+  "source": "own marked 2023-only exit demo; source opened read-only",
+  "experiments": 2,
+  "table_content_sha256_before_after": {
+    "datasets": "9dd3940ab115b5163e98139c9c9a8be6fe64517055d761eccb4af8f0511b70aa",
+    "experiments": "a06640a7e8b85858d910e1570b85c86924981036b9a66215689f68a012a64638",
+    "events": "cbb4305576477e290717a61cbf6438411f77d4c06488998239af9af70f4b4dc9",
+    "audit": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "worker": "c70f1d871997b590390c7ec21c4198f2bad131ee0534113f48ab17b6eea0d11e"
+  },
+  "all_stored_results_exact": true,
+  "all_recorded_tables_unchanged": true,
+  "missing_stage_retained_as_null": true,
+  "integrity": "ok",
+  "new_replays": 0,
+  "downloads": 0,
+  "historical": [
+    {
+      "experiment": "580d9154d4045fd96f8a04a44b5b16985b8b42c969ad1a871a1ecd7051257401",
+      "format": "hypothesis",
+      "period": "development",
+      "cost": "base",
+      "exit_policy": "strategy_default",
+      "stage": null,
+      "dataset_fingerprint_provenance": "derived_from_recorded_manifest",
+      "warnings": [
+        "stage_not_recorded"
+      ]
+    },
+    {
+      "experiment": "60b462ae2fa3c7d8ac4d2f2f8ccaf8c833919e17a444917d539913aaff203bea",
+      "format": "hypothesis",
+      "period": "development",
+      "cost": "base",
+      "exit_policy": "stop_target_only",
+      "stage": null,
+      "dataset_fingerprint_provenance": "derived_from_recorded_manifest",
+      "warnings": [
+        "stage_not_recorded"
+      ]
+    }
+  ]
+}

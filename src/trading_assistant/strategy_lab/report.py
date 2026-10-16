@@ -5,6 +5,7 @@ from decimal import Decimal as D
 import json
 from .paper import execution_from_json
 from .simulation import metrics
+from .models import identity
 
 
 def grouped_trades(trades, key):
@@ -29,6 +30,40 @@ def report(store):
         store.db.execute("COMMIT")
 
 
+def historical_metadata(definition):
+    """Project recorded schemas without rewriting history or inventing labels."""
+    warnings = []
+    if isinstance(definition.get("strategy"), dict):
+        kind, strategy = "strategy", definition["strategy"]
+    elif isinstance(definition.get("hypothesis"), dict):
+        kind, strategy = "hypothesis", definition["hypothesis"]
+    else:
+        kind, strategy = "unrecognised", None
+        warnings.append("unrecognised_experiment_format")
+    dataset_fingerprint = definition.get("dataset_fingerprint")
+    provenance = "recorded" if dataset_fingerprint is not None else None
+    manifest = definition.get("dataset")
+    if dataset_fingerprint is None and isinstance(manifest, dict) and manifest:
+        dataset_fingerprint = identity(manifest)
+        provenance = "derived_from_recorded_manifest"
+    if dataset_fingerprint is None:
+        warnings.append("dataset_fingerprint_unavailable")
+    if definition.get("stage") is None:
+        warnings.append("stage_not_recorded")
+    return {
+        "format": kind,
+        "strategy": strategy,
+        "stage": definition.get("stage"),
+        "period": definition.get("period"),
+        "cost": definition.get("cost"),
+        "exit_policy": definition.get("exit_policy"),
+        "dataset_fingerprint": dataset_fingerprint,
+        "dataset_fingerprint_provenance": provenance,
+        "definition": definition,
+        "warnings": warnings,
+    }
+
+
 def _report(store):
     tables = {
         r[0]
@@ -40,17 +75,20 @@ def _report(store):
     ):
         definition = json.loads(row["definition"])
         trades = store.records(row["id"], "trade")
+        metadata = historical_metadata(definition)
         historical.append(
             {
                 "experiment": row["id"],
-                "strategy": definition["strategy"],
-                "stage": definition["stage"],
-                "dataset_fingerprint": definition["dataset_fingerprint"],
+                **metadata,
                 "result": json.loads(row["result"]),
                 "by_regime": grouped_trades(
                     trades, lambda t: t.get("regime_at_decision", "unknown")
-                ),
-                "by_month": grouped_trades(trades, lambda t: t["entry_at"][:7]),
+                )
+                if metadata["format"] != "unrecognised"
+                else None,
+                "by_month": grouped_trades(trades, lambda t: t["entry_at"][:7])
+                if metadata["format"] != "unrecognised"
+                else None,
             }
         )
     forward = []
