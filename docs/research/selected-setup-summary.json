@@ -1,0 +1,111 @@
+{
+  "baseline_decisions": {
+    "awaiting_confirmation": 2078,
+    "awaiting_execution": 266,
+    "invalidated": 446,
+    "no_setup": 36,
+    "plannable": 30,
+    "watch": 6073
+  },
+  "baseline_observed_plan_ids": [
+    "26e81e649c958e189551c9f70494ef97b2348b71943376ce2c1dd93ec139941e",
+    "492c5f7ff49dec2cac9a7f421a7ab460c6c64e647a25c14368acd59023b240fc",
+    "be9299b617acb7fbd3366f5d9cc5a486376b0d5b24234eacefafd2255a031398",
+    "c866cf42d96b9da42ef17202793fde24134cfd08f71cb486a76d35e2790ff76d"
+  ],
+  "counts": {
+    "boundaries": 8929,
+    "boundaries_without_selected_setup": 36
+  },
+  "coverage": {
+    "counterfactual_fills": null,
+    "financial_outcomes": "not recomputed; use independent ledger audits",
+    "recorded_plan_catalog": "union of recorded A1/A2/A3 planning requests; baseline_observed_plan_ids explicitly identifies strict baseline observations",
+    "retest_contact": null,
+    "stage_times": "first observed in this cohort, not necessarily first ever; stages are independent flags",
+    "unselected_candidates": "not recorded; candidate_count is not a deduplicated catalog"
+  },
+  "downloads": 0,
+  "new_replays": 0,
+  "profitability_claim": false,
+  "recorded_reasons": {
+    "alignment_not_plannable:conflicting": 873,
+    "confirmation_contradicting": 468,
+    "counter_trend_blocked_below_plannable": 737,
+    "execution_invalidated": 410,
+    "execution_waiting": 266,
+    "hierarchy_complete": 30,
+    "no_active_setup_on_the_setup_timeframe": 36,
+    "setup_rules_opposing:classical_pattern:4b9318e43bc9d7c62865b97e29cd1637bc50c39a9331c3393df971af92033f0a,location,structure,volume": 12,
+    "setup_rules_opposing:classical_pattern:7a8daef986f1cf67892879968473b05902ea5b71c78081307dd8c4cadd812c38,location,structure,volume": 12,
+    "setup_rules_opposing:classical_pattern:f265d776700ceedc9ae0a2de06b215a2b64c7111cb0680b9e2a3247cefa723db,structure,volume": 12,
+    "setup_rules_opposing:location": 72,
+    "setup_rules_opposing:location,structure": 24,
+    "setup_rules_opposing:location,structure,volume": 156,
+    "setup_rules_opposing:location,volume": 168,
+    "setup_rules_opposing:structure": 432,
+    "setup_rules_opposing:structure,volume": 1609,
+    "setup_rules_opposing:volume": 3528,
+    "setup_rules_pending": 588,
+    "setup_state:WATCH": 6073,
+    "setup_terminal:maximum_bars_elapsed": 24,
+    "setup_terminal:opposite_close_through_reference": 12
+  },
+  "source_observations_sha256": "3edf614a8440fd3aff532daf8d2dcef888122729550a89a1878bf8fe77f5606c",
+  "source_run": "21ebae8915c06c1e64314ff3b0819c95ff66e7d612498a082086fe339dd32dee",
+  "unique_baseline_observed_plans": 4,
+  "unique_recorded_plans": 13,
+  "unique_selected_setups": 316,
+  "unique_setups_reaching_stage": {
+    "actionable_plan": 1,
+    "aligned": 60,
+    "confirming": 248,
+    "plannable": 3,
+    "qualified": 119,
+    "triggered": 25
+  },
+  "version": "selected-setup-diagnostic-v1",
+  "protocol_sha256": "6023f5d012c39b4528decdd5bcb18839ef04a671558f05f18d2498a3aed8a9e2",
+  "complete_local_report_sha256": "55905e50fc11c139c3fe5d78efa8f187c2172c1bf57655ece35338d73292ba46",
+  "plans_by_state": {
+    "NO_PLAN": 12,
+    "PLANNABLE": 1
+  },
+  "strict_baseline_plans_by_state": {
+    "PLANNABLE": 1,
+    "NO_PLAN": 3
+  },
+  "plan_refusal_reasons": {
+    "minimum_r_multiple_not_met": 12
+  },
+  "source_unchanged_expected_hash_match": true,
+  "created_before_cohort": 2,
+  "independent_verification": {
+    "read_only": true,
+    "source_run": "21ebae8915c06c1e64314ff3b0819c95ff66e7d612498a082086fe339dd32dee",
+    "independent_sql_unique_selected_setups": 316,
+    "independent_sql_stage_counts": {
+      "qualified": 119,
+      "aligned": 60,
+      "confirming": 248,
+      "triggered": 25,
+      "plannable": 3,
+      "actionable_plan": 1
+    },
+    "independent_sql_baseline_plan_ids": 4,
+    "all_source_tables_before_after_sha256": {
+      "brain_runs": "195d1fa15727adbb091921c4bacd4fe1557ccd35790d43670b45d2b0113826dd",
+      "brain_observations": "d2df9bdc883a47f31c8a30cda332bcfec3637baa3d0adc38e7b48394a203ff5c",
+      "brain_events": "520c17ab29ff67d2951af9e70dc2d127a890a5f0be27666937edc24ae8ed3c40",
+      "experiments": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "events": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "datasets": "c9271229635ae4f511f5d9606ed4a358f5d0e229526024dd2ba95e0a0bbd24c0"
+    },
+    "all_source_tables_unchanged": true,
+    "repeated_complete_report_byte_identical": true,
+    "report_sha256": "55905e50fc11c139c3fe5d78efa8f187c2172c1bf57655ece35338d73292ba46",
+    "new_replays": 0,
+    "downloads": 0,
+    "protected_prices_accessed": false
+  }
+}
