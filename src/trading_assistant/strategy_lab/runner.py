@@ -1,6 +1,7 @@
 """Resumable chronological experiments; bounded CPU work and atomic checkpoints."""
 
 from .entry_policy import entry_definition
+from .stop_quality import quality_definition
 
 from dataclasses import asdict
 import json
@@ -29,9 +30,11 @@ def run_experiment(
     fault=None,
     exit_policy=DEFAULT_EXIT_POLICY,
     entry_policy=None,
+    stop_quality=None,
 ):
     validate_exit_policy(exit_policy)
     entry_spec = entry_definition(entry_policy)
+    quality_spec = quality_definition(stop_quality)
     from datetime import datetime
     require_period(
         store, datetime.fromisoformat(manifest["start"]),
@@ -104,6 +107,8 @@ def run_experiment(
     }
     if entry_spec is not None:
         definition["entry_policy"] = entry_spec
+    if quality_spec is not None:
+        definition["stop_quality"] = quality_spec
     key, row = store.experiment(definition, initial_state(execution))
     if row["result"] is not None:
         return {"id": key, "deduplicated": True, "result": json.loads(row["result"])}
@@ -114,7 +119,7 @@ def run_experiment(
     for i in range(state["index"] + 1, len(candles)):
         if stop() or max_boundaries is not None and worked >= max_boundaries:
             break
-        state, produced = step(state, candles, i, strategy, execution, exit_policy=exit_policy, entry_policy=entry_policy)
+        state, produced = step(state, candles, i, strategy, execution, exit_policy=exit_policy, entry_policy=entry_policy, stop_quality=stop_quality)
         events.extend(produced)
         worked += 1
         if worked % batch == 0:
