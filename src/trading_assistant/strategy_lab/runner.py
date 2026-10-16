@@ -7,6 +7,7 @@ from .models import identity, decimal_context, research_code_fingerprint
 from .simulation import DEFAULT_EXIT_POLICY, initial_state, metrics, step, validate_exit_policy
 from .store import exclusive
 from .data import candle_fingerprint
+from .holdout import require_period
 from trading_assistant.market_data.validation import validate_ohlcv_rows
 
 
@@ -27,6 +28,12 @@ def run_experiment(
     exit_policy=DEFAULT_EXIT_POLICY,
 ):
     validate_exit_policy(exit_policy)
+    from datetime import datetime
+    require_period(
+        store, datetime.fromisoformat(manifest["start"]),
+        datetime.fromisoformat(manifest["end_exclusive"]), strategy.timeframe,
+        candidate=strategy.fingerprint, stage=stage,
+    )
     if type(batch) is not int or not 1 <= batch <= 1000:
         raise ValueError("checkpoint batch must be1..1000")
     if max_boundaries is not None and (
