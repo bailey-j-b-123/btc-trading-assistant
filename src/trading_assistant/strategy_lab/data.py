@@ -13,6 +13,7 @@ from trading_assistant.market_data.repository import CandleRepository
 from trading_assistant.market_data.timeframes import timeframe_to_milliseconds
 from .models import canonical, identity
 from .store import exclusive
+from .holdout import require_period
 
 
 def candle_fingerprint(candles):
@@ -50,6 +51,14 @@ def acquire(store, months, timeframe="1h", *, download=fetch, stop=lambda: False
     """Idempotent verified source receipts. Existing candles cannot be rewritten."""
     if timeframe not in {"1h", "4h", "15m", "5m"}:
         raise ValueError("unsupported research timeframe")
+    # Admit the WHOLE request before even opening a repository or cached archive.
+    months = tuple(months)
+    for month in months:
+        if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
+            raise ValueError("invalid month")
+        start = datetime.strptime(month, "%Y-%m").replace(tzinfo=UTC)
+        end = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
+        require_period(store, start, end, timeframe)
     engine, repo = repository(store)
     receipts = []
     try:
@@ -165,6 +174,7 @@ def acquire(store, months, timeframe="1h", *, download=fetch, stop=lambda: False
 
 
 def dataset(store, start, end, timeframe="1h"):
+    require_period(store, start, end, timeframe)
     engine, repo = repository(store)
     try:
         step = timedelta(milliseconds=timeframe_to_milliseconds(timeframe))

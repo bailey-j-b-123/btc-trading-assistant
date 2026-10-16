@@ -16,6 +16,7 @@ from .models import (
 from .runner import run_experiment
 from .store import exclusive
 from .validation import ValidationRules, gate
+from .holdout import _approved_campaign_period
 
 
 def months_between(start, end):
@@ -336,9 +337,14 @@ def run_campaign(
         save()
         answers = []
         for k, cost in enumerate(costs):
-            answer = perform(
-                strategy, plan.holdout, cost, "holdout", "base" if k == 0 else "stress"
-            )
+            # Only this path has verified explicit approval, exact candidate and
+            # one-use custody. Generic acquire/dataset/run remain default-deny.
+            with _approved_campaign_period(
+                store, hstart, hend, strategy.timeframe, strategy.fingerprint
+            ):
+                answer = perform(
+                    strategy, plan.holdout, cost, "holdout", "base" if k == 0 else "stress"
+                )
             if answer is None:
                 state["stage"] = "holdout_in_progress"
                 save()

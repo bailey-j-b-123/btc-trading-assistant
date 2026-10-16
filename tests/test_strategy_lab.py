@@ -112,19 +112,20 @@ def test_interrupted_database_batch_rolls_back_and_then_recovers(tmp_path):
 
 
 def test_research_excludes_partial_source_interval_and_preserves_raw_receipt(tmp_path):
+    # Non-holdout synthetic dates: custody refusal is tested independently.
     raw, checksum = archive(
-        month="2025-01",
+        month="2024-01",
         timeframe="1h",
         mutate=lambda rows: rows[12].__setitem__(6, rows[12][6] - 1000000),
     )
     from trading_assistant.market_data.public_archive import decode_archive
 
     with pytest.raises(ValueError, match="closed-candle"):
-        decode_archive(raw, checksum=checksum, month="2025-01", timeframe="1h")
+        decode_archive(raw, checksum=checksum, month="2024-01", timeframe="1h")
     store = Store(tmp_path / "lab")
     receipt = acquire(
         store,
-        ["2025-01"],
+        ["2024-01"],
         download=lambda url: checksum.encode() if url.endswith(".CHECKSUM") else raw,
     )[0]
     excluded = receipt["excluded_source_rows"]
@@ -308,17 +309,17 @@ def test_worker_exclusion_and_directory_guards(tmp_path):
 
 
 def test_public_archive_pipeline_idempotent_exact_storage_and_provenance(tmp_path):
-    raw, checksum = archive(month="2025-01", timeframe="1h")
+    raw, checksum = archive(month="2024-01", timeframe="1h")
     store = Store(tmp_path / "lab")
 
     def download(url):
         return checksum.encode() if url.endswith(".CHECKSUM") else raw
 
-    first = acquire(store, ["2025-01"], download=download)
-    again = acquire(store, ["2025-01"], download=download)
+    first = acquire(store, ["2024-01"], download=download)
+    again = acquire(store, ["2024-01"], download=download)
     assert first[0]["inserted"] == 744 and again[0]["inserted"] == 0
     c, m = dataset(
-        store, datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 2, 1, tzinfo=UTC)
+        store, datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 2, 1, tzinfo=UTC)
     )
     assert len(c) == 744 and c[0].close == D("101") and len(m["source_receipts"]) == 1
     assert m["source_receipts"][0]["sha256"] == first[0]["sha256"]
@@ -373,20 +374,20 @@ def test_dataset_fingerprint_and_api_writer_guards(tmp_path):
 
 def test_research_admits_and_declares_real_gaps_without_repairing_them(tmp_path):
     raw, checksum = archive(
-        month="2025-01", timeframe="1h", mutate=lambda rows: rows.pop(12)
+        month="2024-01", timeframe="1h", mutate=lambda rows: rows.pop(12)
     )
     from trading_assistant.market_data.public_archive import decode_archive
 
     with pytest.raises(ValueError, match="missing"):
-        decode_archive(raw, checksum=checksum, month="2025-01", timeframe="1h")
+        decode_archive(raw, checksum=checksum, month="2024-01", timeframe="1h")
     store = Store(tmp_path / "lab")
 
     def download(url):
         return checksum.encode() if url.endswith(".CHECKSUM") else raw
 
-    receipt = acquire(store, ["2025-01"], download=download)[0]
+    receipt = acquire(store, ["2024-01"], download=download)[0]
     c, m = dataset(
-        store, datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 2, 1, tzinfo=UTC)
+        store, datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 2, 1, tzinfo=UTC)
     )
     assert (
         len(c) == 743
