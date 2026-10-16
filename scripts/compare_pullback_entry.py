@@ -1,4 +1,4 @@
-"""Run one frozen entry comparison using the existing simulator and cached archives.
+"""Run one frozen research comparison using the existing simulator and cached archives.
 
 No downloads, 2025 prices, account interface, parameter search or new simulator.
 """
@@ -6,6 +6,7 @@ No downloads, 2025 prices, account interface, parameter search or new simulator.
 import argparse
 from dataclasses import asdict
 from datetime import UTC, datetime
+from decimal import Decimal as D
 import gzip
 import json
 from pathlib import Path
@@ -15,11 +16,12 @@ import time
 from trading_assistant.strategy_lab import alpha, novel
 from trading_assistant.strategy_lab.data import dataset
 from trading_assistant.strategy_lab.entry_policy import PullbackEntry, entry_definition
+from trading_assistant.strategy_lab.stop_quality import StopQuality, quality_definition
 from trading_assistant.strategy_lab.models import canonical, research_code_fingerprint
 from trading_assistant.strategy_lab.store import Store
 
 
-def compare(*, source, root, output):
+def compare(*, source, root, output, stop_quality=None):
     source, root, output = map(lambda p: Path(p).absolute(), (source, root, output))
     # Strictly new output/storage: do not rewrite any completed research results.
     if root.exists() or output.exists() or root == output:
@@ -32,11 +34,19 @@ def compare(*, source, root, output):
     output.mkdir(parents=True)
     periods = [p for p in novel.PERIODS if p[0] != "diagnostic_gap_2023"]
     policy = PullbackEntry()
+    quality_spec = quality_definition(stop_quality)
+    variants = [("original", None, None), (policy.version, policy, None)]
+    if stop_quality is not None:
+        variants = [
+            ("original", None, None),
+            (stop_quality.version, None, stop_quality),
+        ]
     protocol = {
         "frozen_at": datetime.now(UTC),
         "source_sha256": research_code_fingerprint(),
         "strategy": asdict(novel.Hypothesis("breakout_retest")),
-        "entry_policies": [None, entry_definition(policy)],
+        "entry_policies": [entry_definition(v[1]) for v in variants],
+        "stop_quality": quality_spec,
         "periods": periods,
         "costs": {c: asdict(novel.costs(c)) for c in ("base", "stress")},
         "exit_policy": "strategy_default",
@@ -65,10 +75,8 @@ def compare(*, source, root, output):
                 canonical(manifest) + "\n"
             )
             for cost in ("base", "stress"):
-                for entry in (None, policy):
-                    label = f"{period}-{cost}-" + (
-                        "original" if entry is None else policy.version
-                    )
+                for name, entry, quality in variants:
+                    label = f"{period}-{cost}-{name}"
                     result = novel.run(
                         store,
                         bars,
@@ -77,6 +85,7 @@ def compare(*, source, root, output):
                         cost,
                         period,
                         entry_policy=entry,
+                        stop_quality=quality,
                     )
                     assert result["complete"] and not result["deduplicated"]
                     state = json.loads(
@@ -94,6 +103,7 @@ def compare(*, source, root, output):
                             period=period,
                             cost=cost,
                             entry_policy=entry_definition(entry),
+                            stop_quality=quality_definition(quality),
                             bars=len(bars),
                             execution=asdict(novel.costs(cost)),
                             state=state,
@@ -137,14 +147,35 @@ def main():
     p.add_argument(
         "--output", required=True, type=Path, help="NEW separate evidence directory"
     )
+    p.add_argument(
+        "--stop-quality-v1",
+        action="store_true",
+        help="separate frozen stop-quality comparison; original entries, no pullback",
+    )
     a = p.parse_args()
+    quality = (
+        StopQuality(
+            D("0.25"),
+            D("1"),
+            D("0.25"),
+            D("1"),
+            14,
+        )
+        if a.stop_quality_v1
+        else None
+    )
 
     def denied(*args, **kwargs):
         raise RuntimeError("network prohibited during historical comparison")
 
     socket.create_connection = denied
     socket.socket.connect = denied
-    print(canonical(compare(source=a.source, root=a.root, output=a.output)), flush=True)
+    print(
+        canonical(
+            compare(source=a.source, root=a.root, output=a.output, stop_quality=quality)
+        ),
+        flush=True,
+    )
 
 
 if __name__ == "__main__":
