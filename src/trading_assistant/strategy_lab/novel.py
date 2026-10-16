@@ -239,15 +239,20 @@ def summarize(records):
             item["closed"] += 1
             item["net_pnl"] += D(t["net_pnl"])
     return {"realized_net_pnl": str(sum(pnl, D(0))),
-            "gross_fill_pnl": str(sum((D(t["quantity"])*(D(t["exit"])-D(t["entry"])) for t in trades), D(0))),
+            "gross_fill_pnl": str(sum(((-1 if t.get("direction") == "SHORT" else 1)*D(t["quantity"])*(D(t["exit"])-D(t["entry"])) for t in trades), D(0))),
             "fees": str(sum((D(t["entry_fee"])+D(t["exit_fee"]) for t in trades), D(0))),
             "mean_net_pnl": str(mean(pnl)) if pnl else None,
             "mean_holding_hours": str(mean(hours)) if hours else None,
             "max_holding_hours": str(max(hours)) if hours else None, **json.loads(canonical(groups))}
 
 
-def independent_audit(state, records, candles, execution, *, exit_policy=DEFAULT_EXIT_POLICY, entry_policy=None):
+def independent_audit(state, records, candles, execution, *, exit_policy=DEFAULT_EXIT_POLICY, entry_policy=None, directional_model=None, mark_candles=None, funding_events=()):
     """Independent 60-digit fills/cash/mark accounting, no simulator calls."""
+    if directional_model is not None:
+        from .directional_audit import audit
+        return audit(state, records, candles, execution, directional_model, mark_candles=mark_candles, funding_events=funding_events)
+    if state.get("directional_model"):
+        raise ValueError("directional audit requires recorded model and cost inputs")
     validate_exit_policy(exit_policy)
     if exit_policy == "stop_target_only":
         assert not any(r["kind"] == "trade" and r["exit_reason"] == "time_exit" for r in records)
