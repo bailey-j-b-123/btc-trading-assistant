@@ -7,9 +7,11 @@ from test_multi_timeframe import _snapshot
 from trading_assistant.multi_timeframe.models import HierarchyAlignment, ExecutionState
 from trading_assistant.setup_qualification.models import SetupFamily
 from trading_assistant.strategy_lab.brain import policy_decision, BrainPolicy
+from trading_assistant.strategy_lab.entry_policy import PullbackEntry
 
 
-def test_actual_four_timeframe_cohort_rolls_back_and_resumes_exactly(tmp_path):
+@pytest.mark.parametrize("entry_policy", [None, PullbackEntry()])
+def test_actual_four_timeframe_cohort_rolls_back_and_resumes_exactly(tmp_path, entry_policy):
     import csv
     import io
     import zipfile
@@ -67,6 +69,7 @@ def test_actual_four_timeframe_cohort_rolls_back_and_resumes_exactly(tmp_path):
         start=datetime(2024, 1, 1, tzinfo=UTC),
         end=datetime(2024, 1, 1, 0, 10, tzinfo=UTC),
         prepare=False,
+        entry_policy=entry_policy,
     )
     full = compare_brain(a, **kwargs)
     assert full["complete"] and full["result"]["total_processed"] == 3
