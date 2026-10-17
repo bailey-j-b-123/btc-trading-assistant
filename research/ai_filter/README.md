@@ -6,7 +6,7 @@ This directory is an offline, standalone prototype. It does not alter BRAIN simu
 
 `LogisticTakeRejectFilter` accepts exactly six signal-time features: `direction` (`LONG`/`SHORT`), `atr_pct`, `trend_strength_atr`, `directional_momentum24`, `relative_volume24`, and `rsi14`. Inputs must be finite numeric values (and the required direction); invalid inputs raise `FilterError`, which is a fail-closed refusal and must be treated as REJECT by any caller. It has no execution capability. `predict(features)` accepts no label or timestamp and returns a TAKE/REJECT decision, a logistic probability score, version, and model fingerprint. The score is a model probability estimate, **not empirically calibrated** absent a suitable calibration dataset.
 
-`fit` takes `TrainingExample(features, net_r, signal_time, outcome_time)`; labels and outcome times are training-only. It validates that outcomes occur after signals and no training outcome exceeds the explicit timezone-aware `training_cutoff`. If `test_start` is supplied it must be strictly later than that cutoff. This provides a guardrail for a caller's chronological split; it does not supply or validate a separate held-out dataset. Labels are binarized as `net_r > 0`. Features are standardised on training data only. The optimizer is deterministic, full-batch L2-regularised logistic regression with a fixed iteration count and no random seed/RNG. The serialized JSON includes schema/model version and SHA-256 fingerprint; loading validates both.
+`fit` takes `TrainingExample(features, net_r, signal_time, outcome_time)`; labels and outcome times are training-only. It validates that outcomes occur after signals and no training outcome exceeds the explicit timezone-aware `training_cutoff`. If `test_start` is supplied it must be at least 120 hours later than that cutoff, making the required outcome-overlap embargo explicit. The caller must still ensure historical feature and label timing and independent train/test cohorts. This provides a guardrail for a caller's chronological split; it does not supply or validate a separate held-out dataset. Labels are binarized as `net_r > 0`. Features are standardised on training data only. The optimizer is deterministic, full-batch L2-regularised logistic regression with a fixed iteration count and no random seed/RNG. The serialized JSON includes schema/model version and SHA-256 fingerprint; loading validates both.
 
 ## Reproduction
 
@@ -22,6 +22,12 @@ The model implementation itself uses only the Python standard library. Tests use
 
 ## Current evidence and blockers
 
-Demonstrated: 13 synthetic-fixture tests pass for deterministic fit/predict, invalid/missing/non-finite rejection, feature-only prediction, chronological cutoff rules, post-signal outcome timing, version/fingerprint, and score-preserving save/load plus tamper detection.
+Demonstrated: focused synthetic-fixture tests pass for deterministic fit/predict, invalid/missing/non-finite rejection, feature-only prediction, chronological cutoff rules, post-signal outcome timing, version/fingerprint, and score-preserving save/load plus tamper detection.
 
 Not demonstrated: any model quality, calibrated probabilities, generalisation, profitability, or real-data performance. No historical CSV was accessed and no real model was trained. Before any real fit/evaluation, an authorised and verified dataset with precise signal/outcome timestamps, documented net-R labelling, provenance, and a leakage-safe chronological train/calibration/test plan must be supplied and reviewed. This scaffold does not read datasets, databases, exchange APIs, or sealed 2025 data.
+
+## Fail-closed numerical boundaries
+
+Feature scaling, training variance, model-gradient updates and prediction logit multiplication reject nonfinite derived values even when raw numeric inputs are technically finite (such as `-1e308`). Invalid inputs raise `FilterError`; a caller must treat it as REJECT. Serialization rejects malformed model shapes, booleans or nonfinite parameters. Neither these tests nor the uncalibrated scores are trading-profitability evidence.
+
+An explicit conservative out-of-distribution guard refuses any predictor more than eight standard deviations from its training mean; it is a safety refusal, not an optimized trading entry threshold. Model coefficients whose absolute value exceeds 40 are refused as saturation-prone. Both limits require independent review before use with any paper decision source.
