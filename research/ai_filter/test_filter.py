@@ -23,7 +23,7 @@ def trained():
 def test_deterministic_fit_predict_and_versioned_fingerprint():
     a, b = trained(), trained()
     assert a.predict(features(2)) == b.predict(features(2))
-    assert a.predict(features(2)).model_version == "brain-ai-filter-logistic-v1"
+    assert a.predict(features(2)).model_version == "brain-ai-filter-logistic-v2"
     assert len(a.predict(features(2)).fingerprint) == 64
 
 def test_prediction_interface_takes_features_only_and_no_outcome_metadata():
@@ -58,9 +58,9 @@ def test_chronological_training_cutoff_and_test_gap_enforced():
     rows = fixture()
     with pytest.raises(FilterError, match="crosses training_cutoff"):
         LogisticTakeRejectFilter().fit(rows, training_cutoff=BASE + timedelta(days=3))
-    with pytest.raises(FilterError, match="strictly after"):
+    with pytest.raises(FilterError, match="120 hours"):
         LogisticTakeRejectFilter().fit(rows, training_cutoff=BASE + timedelta(days=8), test_start=BASE + timedelta(days=8))
-    model = LogisticTakeRejectFilter().fit(rows, training_cutoff=BASE + timedelta(days=8), test_start=BASE + timedelta(days=9))
+    model = LogisticTakeRejectFilter().fit(rows, training_cutoff=BASE + timedelta(days=8), test_start=BASE + timedelta(days=13))
     assert model.fitted
 
 def test_completed_candle_label_timing_requires_outcome_after_signal():
@@ -87,3 +87,153 @@ def test_training_labels_must_be_finite_and_both_classes_present():
     rows[0] = TrainingExample(features(0), math.nan, rows[0].signal_time, rows[0].outcome_time)
     with pytest.raises(FilterError, match="net_r must be finite"):
         LogisticTakeRejectFilter().fit(rows, training_cutoff=BASE + timedelta(days=8))
+
+
+@pytest.mark.parametrize("bad", [1e308, -1e308, 10**1000])
+@pytest.mark.parametrize("feature_name", [
+    "atr_pct", "trend_strength_atr", "directional_momentum24",
+    "relative_volume24", "rsi14",
+])
+def test_extreme_finite_feature_never_becomes_confident_take(feature_name, bad):
+    candidate = features(3)
+    candidate[feature_name] = bad
+    with pytest.raises(FilterError):
+        trained().predict(candidate)
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"steps": True}, {"steps": 3.5}, {"steps": 0},
+    {"threshold": "0.5"}, {"threshold": math.nan},
+    {"l2": True}, {"l2": -1}, {"learning_rate": "0.1"},
+    {"learning_rate": math.inf},
+])
+def test_invalid_optimizer_configuration_refused(kwargs):
+    with pytest.raises(FilterError):
+        LogisticTakeRejectFilter(**kwargs)
+
+
+def test_training_extreme_values_cannot_overflow_fitted_model():
+    rows = fixture()
+    x = features(2)
+    x["atr_pct"] = 1e308
+    rows[2] = TrainingExample(x, rows[2].net_r, rows[2].signal_time, rows[2].outcome_time)
+    with pytest.raises(FilterError):
+        LogisticTakeRejectFilter().fit(rows, training_cutoff=BASE + timedelta(days=8))
+
+
+def test_test_start_requires_120_hour_gap():
+    rows = fixture()
+    cutoff = BASE + timedelta(days=8)
+    with pytest.raises(FilterError, match="120 hours"):
+        LogisticTakeRejectFilter().fit(rows, training_cutoff=cutoff,
+                                       test_start=cutoff + timedelta(hours=119))
+    model = LogisticTakeRejectFilter(steps=20).fit(rows, training_cutoff=cutoff,
+                                                  test_start=cutoff + timedelta(hours=120))
+    assert model.fitted
+
+
+@pytest.mark.parametrize("key,bad", [
+    ("means", ["bad"] * 5),
+    ("means", [0.0] * 4),
+    ("scales", [1e-320] * 4 + ["bad"]),
+    ("scales", [0.0] * 5),
+    ("weights", [False] * 7),
+    ("weights", [0.0] * 6),
+    ("weights", [-1e308] * 7),
+    ("steps", True),
+    ("learning_rate", 0),
+])
+def test_even_refingerprinted_malformed_model_fails_closed(tmp_path, key, bad):
+    import hashlib
+    model = trained()
+    path = tmp_path / "model.json"
+    model.save(path)
+    data = json.loads(path.read_text())
+    data[key] = bad
+    payload = {k:v for k,v in data.items() if k!="fingerprint"}
+    data["fingerprint"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    ).hexdigest()
+    path.write_text(json.dumps(data))
+    with pytest.raises(FilterError):
+        LogisticTakeRejectFilter.load(path)
+
+
+def test_loaded_tiny_scale_rejects_overflowing_prediction(tmp_path):
+    """A fingerprinted model with finite tiny scale must not turn inf into TAKE."""
+    import hashlib
+    path = tmp_path / "model.json"
+    trained().save(path)
+    data = json.loads(path.read_text())
+    data["scales"][0] = 1e-320
+    payload = {k:v for k,v in data.items() if k!="fingerprint"}
+    data["fingerprint"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    ).hexdigest()
+    path.write_text(json.dumps(data))
+    model = LogisticTakeRejectFilter.load(path)
+    with pytest.raises(FilterError):
+        model.predict(features(3))
+
+
+def _rewrite_signed_model(path, mutate):
+    """Recompute SHA256 deliberately to distinguish format validation from hash matching."""
+    import hashlib
+    data = json.loads(path.read_text())
+    mutate(data)
+    payload = {k: v for k, v in data.items() if k != "fingerprint"}
+    data["fingerprint"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    ).hexdigest()
+    path.write_text(json.dumps(data))
+    return data
+
+
+def test_v2_model_fingerprint_binds_safety_policy(tmp_path):
+    path = tmp_path / "model.json"
+    model = trained()
+    model.save(path)
+    data = json.loads(path.read_text())
+    assert data["version"] == "brain-ai-filter-logistic-v2"
+    assert data["safety_policy"] == {
+        "max_feature_standard_deviations": 8.0,
+        "max_abs_coefficient": 40.0,
+        "outcome_embargo_hours": 120,
+    }
+    assert LogisticTakeRejectFilter.load(path).predict(features(2)) == model.predict(features(2))
+
+
+@pytest.mark.parametrize("changed", [
+    {"max_feature_standard_deviations": 80.0,
+     "max_abs_coefficient": 40.0, "outcome_embargo_hours": 120},
+    {"max_feature_standard_deviations": 8.0,
+     "max_abs_coefficient": 400.0, "outcome_embargo_hours": 120},
+    {"max_feature_standard_deviations": 8.0,
+     "max_abs_coefficient": 40.0, "outcome_embargo_hours": 1},
+    {},
+])
+def test_even_rehashed_unsafe_safety_policy_refused(tmp_path, changed):
+    path = tmp_path / "model.json"
+    trained().save(path)
+    _rewrite_signed_model(path, lambda data: data.__setitem__("safety_policy", changed))
+    with pytest.raises(FilterError, match="safety policy"):
+        LogisticTakeRejectFilter.load(path)
+
+
+def test_rehashed_v1_model_rejected_by_v2(tmp_path):
+    path = tmp_path / "model.json"
+    trained().save(path)
+    def legacy_model(data):
+        data["version"] = "brain-ai-filter-logistic-v1"
+        data.pop("safety_policy")
+    _rewrite_signed_model(path, legacy_model)
+    with pytest.raises(FilterError, match="unsupported model version"):
+        LogisticTakeRejectFilter.load(path)
+
+
+def test_missing_v2_safety_policy_rejected_even_with_matching_hash(tmp_path):
+    path = tmp_path / "model.json"
+    trained().save(path)
+    _rewrite_signed_model(path, lambda data: data.pop("safety_policy"))
+    with pytest.raises(FilterError, match="unsupported model version"):
+        LogisticTakeRejectFilter.load(path)
