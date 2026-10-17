@@ -1,4 +1,4 @@
-# BRAIN AI filter V1 — research-only scaffold
+# BRAIN AI filter V2 — research-only scaffold
 
 This directory is an offline, standalone prototype. It does not alter BRAIN simulation, strategy, planning, execution, databases, or live trading. It has **not** been fit on market history. Unit-test fixtures are synthetic and establish software behaviour only; no profitability or trading-performance claim is made.
 
@@ -31,3 +31,7 @@ Not demonstrated: any model quality, calibrated probabilities, generalisation, p
 Feature scaling, training variance, model-gradient updates and prediction logit multiplication reject nonfinite derived values even when raw numeric inputs are technically finite (such as `-1e308`). Invalid inputs raise `FilterError`; a caller must treat it as REJECT. Serialization rejects malformed model shapes, booleans or nonfinite parameters. Neither these tests nor the uncalibrated scores are trading-profitability evidence.
 
 An explicit conservative out-of-distribution guard refuses any predictor more than eight standard deviations from its training mean; it is a safety refusal, not an optimized trading entry threshold. Model coefficients whose absolute value exceeds 40 are refused as saturation-prone. Both limits require independent review before use with any paper decision source.
+
+## Frozen decision semantics and compatibility
+
+Version 2 changes TAKE/REJECT behavior compared with the initial unsafe v1 scaffold. Version 1 artifacts are **not** compatible; fit a fresh, independently auditable version-2 model rather than silently loading an older fingerprint. The fingerprint now binds the fixed out-of-distribution threshold, coefficient magnitude cap and 120-hour embargo policy, alongside the weights, training-derived scaler, feature order and optimizer settings. A future decision-policy change must increment the version. This is research identity only, not evidence of trading profitability.

@@ -23,7 +23,7 @@ def trained():
 def test_deterministic_fit_predict_and_versioned_fingerprint():
     a, b = trained(), trained()
     assert a.predict(features(2)) == b.predict(features(2))
-    assert a.predict(features(2)).model_version == "brain-ai-filter-logistic-v1"
+    assert a.predict(features(2)).model_version == "brain-ai-filter-logistic-v2"
     assert len(a.predict(features(2)).fingerprint) == 64
 
 def test_prediction_interface_takes_features_only_and_no_outcome_metadata():
@@ -174,3 +174,66 @@ def test_loaded_tiny_scale_rejects_overflowing_prediction(tmp_path):
     model = LogisticTakeRejectFilter.load(path)
     with pytest.raises(FilterError):
         model.predict(features(3))
+
+
+def _rewrite_signed_model(path, mutate):
+    """Recompute SHA256 deliberately to distinguish format validation from hash matching."""
+    import hashlib
+    data = json.loads(path.read_text())
+    mutate(data)
+    payload = {k: v for k, v in data.items() if k != "fingerprint"}
+    data["fingerprint"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    ).hexdigest()
+    path.write_text(json.dumps(data))
+    return data
+
+
+def test_v2_model_fingerprint_binds_safety_policy(tmp_path):
+    path = tmp_path / "model.json"
+    model = trained()
+    model.save(path)
+    data = json.loads(path.read_text())
+    assert data["version"] == "brain-ai-filter-logistic-v2"
+    assert data["safety_policy"] == {
+        "max_feature_standard_deviations": 8.0,
+        "max_abs_coefficient": 40.0,
+        "outcome_embargo_hours": 120,
+    }
+    assert LogisticTakeRejectFilter.load(path).predict(features(2)) == model.predict(features(2))
+
+
+@pytest.mark.parametrize("changed", [
+    {"max_feature_standard_deviations": 80.0,
+     "max_abs_coefficient": 40.0, "outcome_embargo_hours": 120},
+    {"max_feature_standard_deviations": 8.0,
+     "max_abs_coefficient": 400.0, "outcome_embargo_hours": 120},
+    {"max_feature_standard_deviations": 8.0,
+     "max_abs_coefficient": 40.0, "outcome_embargo_hours": 1},
+    {},
+])
+def test_even_rehashed_unsafe_safety_policy_refused(tmp_path, changed):
+    path = tmp_path / "model.json"
+    trained().save(path)
+    _rewrite_signed_model(path, lambda data: data.__setitem__("safety_policy", changed))
+    with pytest.raises(FilterError, match="safety policy"):
+        LogisticTakeRejectFilter.load(path)
+
+
+def test_rehashed_v1_model_rejected_by_v2(tmp_path):
+    path = tmp_path / "model.json"
+    trained().save(path)
+    def legacy_model(data):
+        data["version"] = "brain-ai-filter-logistic-v1"
+        data.pop("safety_policy")
+    _rewrite_signed_model(path, legacy_model)
+    with pytest.raises(FilterError, match="unsupported model version"):
+        LogisticTakeRejectFilter.load(path)
+
+
+def test_missing_v2_safety_policy_rejected_even_with_matching_hash(tmp_path):
+    path = tmp_path / "model.json"
+    trained().save(path)
+    _rewrite_signed_model(path, lambda data: data.pop("safety_policy"))
+    with pytest.raises(FilterError, match="unsupported model version"):
+        LogisticTakeRejectFilter.load(path)

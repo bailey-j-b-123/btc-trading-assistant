@@ -9,7 +9,7 @@ import math
 from pathlib import Path
 from typing import Iterable, Mapping
 
-VERSION = "brain-ai-filter-logistic-v1"
+VERSION = "brain-ai-filter-logistic-v2"
 FEATURE_NAMES = (
     "direction", "atr_pct", "trend_strength_atr", "directional_momentum24",
     "relative_volume24", "rsi14",
@@ -17,6 +17,13 @@ FEATURE_NAMES = (
 OUTCOME_EMBARGO = timedelta(hours=120)
 MAX_FEATURE_STANDARD_DEVIATIONS = 8.0  # conservative out-of-distribution fail-closed guard
 MAX_ABS_COEFFICIENT = 40.0  # above this value logits are necessarily saturation-prone
+# Version 2 materially changed TAKE/REJECT behavior; identity MUST include its
+# safety settings. Old v1 models must never be reinterpreted under v2.
+SAFETY_POLICY = {
+    "max_feature_standard_deviations": MAX_FEATURE_STANDARD_DEVIATIONS,
+    "max_abs_coefficient": MAX_ABS_COEFFICIENT,
+    "outcome_embargo_hours": 120,
+}
 
 
 class FilterError(ValueError):
@@ -202,7 +209,8 @@ class LogisticTakeRejectFilter:
             raise FilterError("model is not fitted")
         return {"version": VERSION, "feature_names": list(FEATURE_NAMES), "threshold": self.threshold, "l2": self.l2,
                 "steps": self.steps, "learning_rate": self.learning_rate, "means": list(self._means),
-                "scales": list(self._scales), "weights": list(self._weights)}
+                "scales": list(self._scales), "weights": list(self._weights),
+                "safety_policy": dict(SAFETY_POLICY)}
 
     def save(self, path: str | Path) -> None:
         payload = self._payload()
@@ -217,12 +225,14 @@ class LogisticTakeRejectFilter:
                 raise FilterError("invalid model file")
             fingerprint = data.pop("fingerprint")
             expected = {"version", "feature_names", "threshold", "l2", "steps", "learning_rate",
-                        "means", "scales", "weights"}
+                        "means", "scales", "weights", "safety_policy"}
             if set(data) != expected or data.get("version") != VERSION or data.get("feature_names") != list(FEATURE_NAMES):
                 raise FilterError("unsupported model version or feature schema")
             actual = hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
             if fingerprint != actual:
                 raise FilterError("model fingerprint mismatch")
+            if type(data["safety_policy"]) is not dict or data["safety_policy"] != SAFETY_POLICY:
+                raise FilterError("unsupported model safety policy")
             model = cls(data["threshold"], data["l2"], data["steps"], data["learning_rate"])
             if not all(type(data[k]) is list and len(data[k]) == n
                        for k, n in (("means", 5), ("scales", 5), ("weights", 7))):
